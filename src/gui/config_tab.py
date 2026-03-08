@@ -36,20 +36,6 @@ class ConfigTab(QWidget):
         base_layout.addWidget(base_browse_btn)
         layout.addWidget(base_group)
 
-        # Vehicles.ini group
-        vehicles_group = QGroupBox("vehicles.ini")
-        vehicles_layout = QHBoxLayout(vehicles_group)
-        self.vehicles_path_input = QLineEdit()
-        self.vehicles_path_input.setText(AppSettings.get_vehicles_path())
-        self.vehicles_path_input.setPlaceholderText("Path to vehicles.ini")
-        vehicles_layout.addWidget(self.vehicles_path_input)
-
-        vehicles_browse_btn = QPushButton("Browse...")
-        vehicles_browse_btn.setMaximumWidth(100)
-        vehicles_browse_btn.clicked.connect(self.browse_vehicles)
-        vehicles_layout.addWidget(vehicles_browse_btn)
-        layout.addWidget(vehicles_group)
-
         # Game install path group
         game_group = QGroupBox("Star Citizen Install Path")
         game_layout = QHBoxLayout(game_group)
@@ -63,14 +49,6 @@ class ConfigTab(QWidget):
         game_browse_btn.clicked.connect(self.browse_game_path)
         game_layout.addWidget(game_browse_btn)
         layout.addWidget(game_group)
-
-        # Auto-write group
-        auto_group = QGroupBox("Output")
-        auto_layout = QVBoxLayout(auto_group)
-        self.auto_write_check = QCheckBox("Auto-write to game installation after merge")
-        self.auto_write_check.setChecked(AppSettings.get_auto_write_enabled())
-        auto_layout.addWidget(self.auto_write_check)
-        layout.addWidget(auto_group)
 
         # Save button
         button_layout = QHBoxLayout()
@@ -91,14 +69,6 @@ class ConfigTab(QWidget):
         if path:
             self.base_path_input.setText(path)
 
-    def browse_vehicles(self):
-        """Browse for vehicles.ini."""
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Select vehicles.ini", "", "INI Files (*.ini);;All Files (*)"
-        )
-        if path:
-            self.vehicles_path_input.setText(path)
-
     def browse_game_path(self):
         """Browse for game installation path."""
         path = QFileDialog.getExistingDirectory(
@@ -111,16 +81,10 @@ class ConfigTab(QWidget):
         """Save configuration."""
         try:
             base_path = self.base_path_input.text()
-            vehicles_path = self.vehicles_path_input.text()
             game_path = self.game_path_input.text()
-            auto_write = self.auto_write_check.isChecked()
 
             if base_path and not Path(base_path).exists():
                 QMessageBox.warning(self, "Warning", "Base global.ini path does not exist")
-                return
-
-            if vehicles_path and not Path(vehicles_path).exists():
-                QMessageBox.warning(self, "Warning", "vehicles.ini path does not exist")
                 return
 
             if game_path and not Path(game_path).exists():
@@ -128,9 +92,7 @@ class ConfigTab(QWidget):
                 return
 
             AppSettings.set_base_global_path(base_path)
-            AppSettings.set_vehicles_path(vehicles_path)
             AppSettings.set_game_install_path(game_path)
-            AppSettings.set_auto_write_enabled(auto_write)
 
             QMessageBox.information(self, "Success", "Configuration saved")
         except Exception as e:
