@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QHeaderView, QStatusBar, QFrame, QStyledItemDelegate,
     QAbstractItemView, QMenu
 )
-from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtGui import QColor, QFont, QCursor
 
 from src.models.string_model import StringEntry
 from src.parser.ini_parser import load_source_files
@@ -86,6 +86,10 @@ class MainWindow(QMainWindow):
         tabs.addTab(self.create_about_tab(), "About")
         main_layout.addWidget(tabs)
 
+        # Footer
+        footer_layout = self.create_footer()
+        main_layout.addLayout(footer_layout)
+
         # Status bar
         self.statusBar().showMessage("Ready")
 
@@ -157,6 +161,57 @@ class MainWindow(QMainWindow):
         layout.addLayout(filter_layout)
 
         return layout
+
+    def create_footer(self) -> QHBoxLayout:
+        """Create footer with version and repository link."""
+        footer_layout = QHBoxLayout()
+        footer_layout.setContentsMargins(8, 8, 8, 0)
+
+        # Osiris DevWorks branding
+        osiris_label = QLabel("Osiris DevWorks")
+        osiris_label.setStyleSheet("""
+            QLabel {
+                color: #999;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            QLabel:hover {
+                color: #ccc;
+            }
+        """)
+        osiris_label.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        osiris_label.mousePressEvent = lambda e: self.open_link("https://github.com/Osiris-DevWorks")
+        footer_layout.addWidget(osiris_label)
+
+        # Version
+        version_label = QLabel(f"v{get_version()}")
+        version_label.setStyleSheet("color: #666; font-size: 11px;")
+        footer_layout.addWidget(version_label)
+
+        footer_layout.addStretch()
+
+        # Repository link
+        repo_label = QLabel("View on GitHub")
+        repo_label.setStyleSheet("""
+            QLabel {
+                color: #0066cc;
+                text-decoration: underline;
+                font-size: 11px;
+            }
+            QLabel:hover {
+                color: #0052a3;
+            }
+        """)
+        repo_label.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        repo_label.mousePressEvent = lambda e: self.open_link("https://github.com/Osiris-DevWorks/sc-localization-editor")
+        footer_layout.addWidget(repo_label)
+
+        return footer_layout
+
+    def open_link(self, url: str):
+        """Open a URL in the default browser."""
+        import webbrowser
+        webbrowser.open(url)
 
     def create_strings_tab(self) -> QWidget:
         """Create strings table tab."""
