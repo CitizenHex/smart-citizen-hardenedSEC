@@ -26,12 +26,12 @@ SCDirectoryDefaultPath=C:\Program Files\Roberts Space Industries\StarCitizen\LIV
 Source: "dist\SCLocalizationEditor-v0.1.0.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\SC Localization Editor"; Filename: "{app}\SCLocalizationEditor.exe"
+Name: "{group}\SC Localization Editor"; Filename: "{app}\SCLocalizationEditor-v0.1.0.exe"
 Name: "{group}\{cm:UninstallProgram,SC Localization Editor}"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\SC Localization Editor"; Filename: "{app}\SCLocalizationEditor.exe"
+Name: "{commondesktop}\SC Localization Editor"; Filename: "{app}\SCLocalizationEditor-v0.1.0.exe"
 
 [Run]
-Filename: "{app}\SCLocalizationEditor.exe"; Description: "{cm:LaunchProgram,SC Localization Editor}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\SCLocalizationEditor-v0.1.0.exe"; Description: "{cm:LaunchProgram,SC Localization Editor}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 var
