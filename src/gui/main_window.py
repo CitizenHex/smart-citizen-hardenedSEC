@@ -257,7 +257,15 @@ class MainWindow(QMainWindow):
         # First, try to load from game directory if configured
         game_path = AppSettings.get_game_install_path()
         if game_path:
-            game_global = Path(game_path) / "LIVE/data/Localization/english/global.ini"
+            # Handle both full SC path and LIVE directory path
+            game_path_obj = Path(game_path)
+            if game_path_obj.name == "LIVE":
+                # Path is already the LIVE directory
+                game_global = game_path_obj / "data/Localization/english/global.ini"
+            else:
+                # Path is the SC root directory
+                game_global = game_path_obj / "LIVE/data/Localization/english/global.ini"
+
             if game_global.exists():
                 global_path = game_global
                 logger.info(f"Found global.ini in game directory: {game_global}")
