@@ -12,6 +12,8 @@ SolidCompression=yes
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 WizardStyle=modern
+DisableDirPage=no
+AllowUNCPath=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
