@@ -112,6 +112,13 @@ class MainWindow(QMainWindow):
         self.apply_btn.clicked.connect(self.apply_to_game)
         button_layout.addWidget(self.apply_btn)
 
+        button_layout.addStretch()
+
+        self.help_btn = QPushButton("? Help")
+        self.help_btn.setMaximumWidth(80)
+        self.help_btn.clicked.connect(self.show_help)
+        button_layout.addWidget(self.help_btn)
+
         layout.addLayout(button_layout)
 
         # Filter row
@@ -407,6 +414,41 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to restore backup: {e}")
             logger.error(f"Error restoring backup: {e}")
+
+    @pyqtSlot()
+    def show_help(self):
+        """Show help dialog with usage instructions."""
+        help_text = """
+<b>SC Localization Editor - Quick Start Guide</b>
+
+<b>1. Load Game File</b>
+Click "Load Base File" to load global.ini from your Star Citizen LIVE directory.
+The installer will have pre-configured this path automatically.
+
+<b>2. Edit Strings</b>
+• Double-click any "Custom Value" cell to edit text
+• The "Default Value" shows the original text
+• The "Current Value" shows what's currently in your game
+• Changes are highlighted with a "Modified" status
+
+<b>3. Filter & Search</b>
+• Use the search box to find specific strings
+• Filter by Category (Ships, Ship Components, Other)
+• Filter by Status (Modified, Unmodified, New)
+• Check "Hide Unmodified" to see only your changes
+
+<b>4. Apply Changes to Game</b>
+Click "Apply to Game" to save your edits to the game installation.
+A backup will be created automatically.
+
+<b>5. Restore Backup</b>
+Click "Restore Backup" to revert to a previous version.
+
+<b>Config Tab</b>
+Configure your Star Citizen installation path if needed.
+The installer sets this automatically during installation.
+"""
+        QMessageBox.information(self, "Help", help_text)
 
     def populate_table(self):
         """Populate table with entries."""
