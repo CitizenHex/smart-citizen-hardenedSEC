@@ -257,6 +257,7 @@ class MainWindow(QMainWindow):
         # First, try to load from game directory if configured
         game_path = AppSettings.get_game_install_path()
         if game_path:
+            logger.info(f"Game path from registry/settings: {game_path}")
             # Handle both full SC path and LIVE directory path
             game_path_obj = Path(game_path)
             if game_path_obj.name == "LIVE":
@@ -266,17 +267,23 @@ class MainWindow(QMainWindow):
                 # Path is the SC root directory
                 game_global = game_path_obj / "LIVE/data/Localization/english/global.ini"
 
+            logger.info(f"Looking for global.ini at: {game_global}")
             if game_global.exists():
                 global_path = game_global
                 logger.info(f"Found global.ini in game directory: {game_global}")
+            else:
+                logger.warning(f"global.ini not found at: {game_global}")
 
         # Fall back to data folder if game directory doesn't have it
         if not global_path:
             data_dir = Path(__file__).parent.parent.parent / "data"
             data_global = data_dir / "global.ini"
+            logger.info(f"Falling back to data folder: {data_global}")
             if data_global.exists():
                 global_path = data_global
                 logger.info(f"Loading default global.ini from data folder: {data_dir}")
+            else:
+                logger.warning(f"Default global.ini not found at: {data_global}")
 
         # Load the file if found
         if global_path:
@@ -297,7 +304,10 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(message)
             except Exception as e:
                 logger.warning(f"Failed to auto-load files: {e}")
-                self.statusBar().showMessage("Failed to auto-load files")
+                self.statusBar().showMessage(f"Failed to auto-load files: {e}")
+        else:
+            logger.warning("No global.ini file found in game directory or data folder")
+            self.statusBar().showMessage("No global.ini found - please load a file manually")
 
     @pyqtSlot()
     def apply_to_game(self):
