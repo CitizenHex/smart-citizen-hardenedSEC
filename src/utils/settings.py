@@ -1,5 +1,6 @@
 """Settings management using QSettings."""
 from PyQt6.QtCore import QSettings
+import winreg
 
 
 class AppSettings:
@@ -54,7 +55,19 @@ class AppSettings:
 
     @staticmethod
     def get_game_install_path() -> str:
-        """Get Star Citizen install path."""
+        """Get Star Citizen install path from registry (installer) or QSettings."""
+        # First, check if installer set the SC directory in registry
+        try:
+            reg_path = r'Software\Osiris DevWorks\SC Localization Editor'
+            registry_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path)
+            sc_directory, _ = winreg.QueryValueEx(registry_key, 'sc_directory')
+            winreg.CloseKey(registry_key)
+            if sc_directory:
+                return sc_directory
+        except (WindowsError, OSError):
+            pass
+
+        # Fall back to QSettings
         return AppSettings.settings().value(AppSettings.GAME_INSTALL_PATH, "")
 
     @staticmethod
