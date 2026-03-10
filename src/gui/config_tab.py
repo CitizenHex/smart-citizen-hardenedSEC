@@ -24,30 +24,48 @@ class ConfigTab(QWidget):
 
         # Base Global.ini group
         base_group = QGroupBox("Base global.ini")
-        base_layout = QHBoxLayout(base_group)
+        base_layout = QVBoxLayout(base_group)
+
+        # Description label
+        base_desc = QLabel("Path to the base global.ini file (with language folder)")
+        base_desc.setStyleSheet("font-size: 11px; color: #666; margin-bottom: 5px;")
+        base_layout.addWidget(base_desc)
+
+        # Input and browse button in horizontal layout
+        base_input_layout = QHBoxLayout()
         self.base_path_input = QLineEdit()
         self.base_path_input.setText(AppSettings.get_base_global_path())
-        self.base_path_input.setPlaceholderText("e.g. C:/Program Files/Roberts Space Industries/StarCitizen/LIVE/data/Localization/english/global.ini")
-        base_layout.addWidget(self.base_path_input)
+        self.base_path_input.setPlaceholderText("Roberts Space Industries/StarCitizen/LIVE/data/Localization/<LANG>/global.ini")
+        base_input_layout.addWidget(self.base_path_input)
 
         base_browse_btn = QPushButton("Browse...")
         base_browse_btn.setMaximumWidth(100)
         base_browse_btn.clicked.connect(self.browse_base_global)
-        base_layout.addWidget(base_browse_btn)
+        base_input_layout.addWidget(base_browse_btn)
+        base_layout.addLayout(base_input_layout)
         layout.addWidget(base_group)
 
         # Game install path group
         game_group = QGroupBox("Star Citizen Install Path")
-        game_layout = QHBoxLayout(game_group)
+        game_layout = QVBoxLayout(game_group)
+
+        # Description label
+        game_desc = QLabel("Path to Star Citizen root directory (where LIVE folder is located)")
+        game_desc.setStyleSheet("font-size: 11px; color: #666; margin-bottom: 5px;")
+        game_layout.addWidget(game_desc)
+
+        # Input and browse button in horizontal layout
+        game_input_layout = QHBoxLayout()
         self.game_path_input = QLineEdit()
         self.game_path_input.setText(AppSettings.get_game_install_path())
-        self.game_path_input.setPlaceholderText("e.g. C:/Program Files/Roberts Space Industries/StarCitizen")
-        game_layout.addWidget(self.game_path_input)
+        self.game_path_input.setPlaceholderText("C:/PATH/TO/Roberts Space Industries/StarCitizen")
+        game_input_layout.addWidget(self.game_path_input)
 
         game_browse_btn = QPushButton("Browse...")
         game_browse_btn.setMaximumWidth(100)
         game_browse_btn.clicked.connect(self.browse_game_path)
-        game_layout.addWidget(game_browse_btn)
+        game_input_layout.addWidget(game_browse_btn)
+        game_layout.addLayout(game_input_layout)
         layout.addWidget(game_group)
 
         # Save button
