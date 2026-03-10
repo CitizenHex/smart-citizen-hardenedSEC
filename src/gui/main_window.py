@@ -1,17 +1,21 @@
 """Main window for SC Localization Editor."""
 import logging
+import os
+import sys
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSlot
+from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QLineEdit, QComboBox, QCheckBox, QTableWidget,
     QTableWidgetItem, QFileDialog, QMessageBox, QTabWidget,
     QHeaderView, QStatusBar, QFrame, QStyledItemDelegate,
-    QAbstractItemView, QMenu
+    QAbstractItemView, QMenu, QProgressDialog, QTextBrowser
 )
-from PyQt6.QtGui import QColor, QFont, QCursor
+from PyQt6.QtGui import QColor, QFont, QCursor, QPixmap
+from PyQt6.QtCore import QUrl
+from PyQt6.QtGui import QDesktopServices
 
 from src.models.string_model import StringEntry
 from src.parser.ini_parser import load_source_files
@@ -20,6 +24,36 @@ from src.utils.version import get_version
 from src.gui.config_tab import ConfigTab
 
 logger = logging.getLogger(__name__)
+
+
+def get_resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller."""
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        # If not running as PyInstaller bundle, use the project root
+        base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    return os.path.join(base_path, relative_path)
+
+
+class FileLoaderWorker(QThread):
+    """Worker thread for loading INI files without blocking UI."""
+
+    finished = pyqtSignal(list)
+    error = pyqtSignal(str)
+
+    def __init__(self, base_path: str):
+        super().__init__()
+        self.base_path = base_path
+
+    def run(self):
+        try:
+            entries = load_source_files(self.base_path, None)
+            self.finished.emit(entries)
+        except Exception as e:
+            self.error.emit(str(e))
 
 
 class SelectAllDelegate(QStyledItemDelegate):
@@ -45,11 +79,17 @@ class MainWindow(QMainWindow):
         self.filtered_row_indices: list[int] = []
         self.default_values: dict = {}  # Store default values from data/global.ini
 
+        # File loader worker
+        self._loader_worker: Optional[FileLoaderWorker] = None
+
         # Debounce timer for filtering
         self.filter_timer = QTimer()
         self.filter_timer.setSingleShot(True)
         self.filter_timer.timeout.connect(self.apply_filters)
         self.filter_timer.setInterval(300)  # 300ms delay
+
+        # Progress dialog for file loading
+        self._progress_dialog: Optional[QProgressDialog] = None
 
         # Build UI
         self.setup_ui()
@@ -137,7 +177,7 @@ class MainWindow(QMainWindow):
 
         filter_layout.addWidget(QLabel("Category:"))
         self.category_combo = QComboBox()
-        self.category_combo.setMaximumWidth(150)
+        self.category_combo.setMinimumWidth(200)
         self.category_combo.currentTextChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.category_combo)
 
@@ -163,55 +203,133 @@ class MainWindow(QMainWindow):
         return layout
 
     def create_footer(self) -> QHBoxLayout:
-        """Create footer with version and repository link."""
+        """Create footer with Osiris DevWorks branding and donation buttons."""
         footer_layout = QHBoxLayout()
         footer_layout.setContentsMargins(8, 8, 8, 0)
 
-        # Osiris DevWorks branding
-        osiris_label = QLabel("Osiris DevWorks")
-        osiris_label.setStyleSheet("""
-            QLabel {
-                color: #999;
-                font-size: 11px;
-                font-weight: bold;
-            }
-            QLabel:hover {
-                color: #ccc;
-            }
-        """)
-        osiris_label.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        osiris_label.mousePressEvent = lambda e: self.open_link("https://github.com/Osiris-DevWorks")
-        footer_layout.addWidget(osiris_label)
+        # Osiris DevWorks button (left side)
+        self.osiris_button = QLabel()
+        osiris_image_path = get_resource_path(os.path.join("assets", "osiris-devworks.png"))
 
-        # Version
-        version_label = QLabel(f"v{get_version()}")
-        version_label.setStyleSheet("color: #666; font-size: 11px;")
-        footer_layout.addWidget(version_label)
+        # Try to load Osiris image, fall back to text if not found
+        if os.path.exists(osiris_image_path):
+            pixmap = QPixmap(osiris_image_path)
+            # Scale to reasonable size (max height 40px)
+            if pixmap.height() > 40:
+                pixmap = pixmap.scaledToHeight(40, Qt.TransformationMode.SmoothTransformation)
+            self.osiris_button.setPixmap(pixmap)
+        else:
+            # Fallback to styled text button
+            self.osiris_button.setText("Osiris DevWorks")
+            self.osiris_button.setStyleSheet("""
+                QLabel {
+                    background-color: #1a1f2e;
+                    color: #c9a961;
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                    font-size: 12px;
+                    font-weight: bold;
+                }
+                QLabel:hover {
+                    background-color: #242938;
+                }
+            """)
 
+        self.osiris_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.osiris_button.mousePressEvent = self.open_discord_link
+        footer_layout.addWidget(self.osiris_button)
+
+        # Stretch to push donation buttons to the right
         footer_layout.addStretch()
 
-        # Repository link
-        repo_label = QLabel("View on GitHub")
-        repo_label.setStyleSheet("""
-            QLabel {
-                color: #0066cc;
-                text-decoration: underline;
-                font-size: 11px;
-            }
-            QLabel:hover {
-                color: #0052a3;
-            }
-        """)
-        repo_label.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        repo_label.mousePressEvent = lambda e: self.open_link("https://github.com/Osiris-DevWorks/sc-localization-editor")
-        footer_layout.addWidget(repo_label)
+        # Donation label
+        donation_label = QLabel("Support this project:")
+        donation_label.setStyleSheet("font-size: 12px; color: #666; margin-right: 5px;")
+        footer_layout.addWidget(donation_label)
+
+        # PayPal button (right side)
+        self.paypal_button = QLabel()
+        paypal_image_path = get_resource_path(os.path.join("assets", "paypal.png"))
+
+        # Try to load PayPal image, fall back to text if not found
+        if os.path.exists(paypal_image_path):
+            paypal_pixmap = QPixmap(paypal_image_path)
+            # Scale to match Osiris button (max height 40px)
+            if paypal_pixmap.height() > 40:
+                paypal_pixmap = paypal_pixmap.scaledToHeight(40, Qt.TransformationMode.SmoothTransformation)
+            self.paypal_button.setPixmap(paypal_pixmap)
+        else:
+            # Fallback to styled text button
+            self.paypal_button.setText("Donate via PayPal")
+            self.paypal_button.setStyleSheet("""
+                QLabel {
+                    background-color: #0070ba;
+                    color: white;
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                    font-size: 12px;
+                    font-weight: bold;
+                }
+                QLabel:hover {
+                    background-color: #005ea6;
+                }
+            """)
+
+        self.paypal_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.paypal_button.mousePressEvent = self.open_paypal_donation
+        footer_layout.addWidget(self.paypal_button)
+
+        # Spacer between PayPal and Venmo
+        footer_layout.addSpacing(10)
+
+        # Venmo button (right side)
+        self.venmo_button = QLabel()
+        venmo_image_path = get_resource_path(os.path.join("assets", "venmo.png"))
+
+        # Try to load Venmo image, fall back to text button
+        if os.path.exists(venmo_image_path):
+            venmo_pixmap = QPixmap(venmo_image_path)
+            # Scale to match Osiris button (max height 40px)
+            if venmo_pixmap.height() > 40:
+                venmo_pixmap = venmo_pixmap.scaledToHeight(40, Qt.TransformationMode.SmoothTransformation)
+            self.venmo_button.setPixmap(venmo_pixmap)
+        else:
+            # Fallback to styled text button
+            self.venmo_button.setText("Venmo")
+            self.venmo_button.setStyleSheet("""
+                QLabel {
+                    background-color: #008CFF;
+                    color: white;
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                    font-size: 12px;
+                    font-weight: bold;
+                }
+                QLabel:hover {
+                    background-color: #0074D9;
+                }
+            """)
+
+        self.venmo_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.venmo_button.mousePressEvent = self.open_venmo_donation
+        footer_layout.addWidget(self.venmo_button)
 
         return footer_layout
 
-    def open_link(self, url: str):
-        """Open a URL in the default browser."""
-        import webbrowser
-        webbrowser.open(url)
+    def open_discord_link(self, event):
+        """Open Discord invite link in browser."""
+        discord_url = "https://discord.gg/BNzRegKZ7k"
+        QDesktopServices.openUrl(QUrl(discord_url))
+
+    def open_paypal_donation(self, event):
+        """Open PayPal donation link in browser."""
+        paypal_url = "https://paypal.me/RighteousKill"
+        QDesktopServices.openUrl(QUrl(paypal_url))
+
+    def open_venmo_donation(self, event):
+        """Open Venmo donation link in browser."""
+        venmo_url = "https://venmo.com/u/Amr-Abouelleil"
+        QDesktopServices.openUrl(QUrl(venmo_url))
 
     def create_strings_tab(self) -> QWidget:
         """Create strings table tab."""
@@ -261,42 +379,93 @@ class MainWindow(QMainWindow):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        about_text = QLabel(
-            f"<h2>SC Localization Editor</h2>"
-            f"<p>Version: {get_version()}</p>"
-            f"<p>A PyQt6 GUI for editing Star Citizen localization strings.</p>"
-            f"<p>Load base global.ini and vehicles.ini, customize strings, and merge them back.</p>"
-        )
-        about_text.setWordWrap(True)
-        layout.addWidget(about_text)
+        # About content in a scrollable text browser
+        about_browser = QTextBrowser()
+        about_browser.setOpenExternalLinks(True)
 
-        layout.addStretch()
+        try:
+            # Load ABOUT.md file
+            about_path = get_resource_path("ABOUT.md")
+            with open(about_path, 'r', encoding='utf-8') as f:
+                about_content = f.read()
+
+            # Add version to the first heading
+            about_content = about_content.replace(
+                "# SC Localization Editor",
+                f"# SC Localization Editor v{get_version()}"
+            )
+
+            # Convert markdown to HTML
+            about_html = self.markdown_to_html(about_content)
+            about_browser.setHtml(about_html)
+        except Exception as e:
+            logger.error(f"Error loading ABOUT.md: {e}", exc_info=True)
+            about_browser.setHtml(f"<h1>About</h1><p>Unable to load about information.</p><p style='color: gray;'>{str(e)}</p>")
+
+        layout.addWidget(about_browser)
         return widget
 
     @pyqtSlot()
     def load_files(self):
-        """Load base global.ini and optional target_strings.ini."""
-        # File dialogs
+        """Load base global.ini."""
         base_path, _ = QFileDialog.getOpenFileName(
             self, "Select global.ini", "", "INI Files (*.ini);;All Files (*)"
         )
         if not base_path:
             return
 
-        custom_path, _ = QFileDialog.getOpenFileName(
-            self, "Select target_strings.ini (optional)", "", "INI Files (*.ini);;All Files (*)"
-        )
+        self._start_loading(base_path)
 
-        try:
-            self.entries = load_source_files(base_path, custom_path or None)
-            self.update_category_combo()
-            self.populate_table()
-            self.apply_filters()
-            logger.info(f"Loaded {len(self.entries)} entries")
-            self.statusBar().showMessage(f"Loaded {len(self.entries)} entries")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to load files: {e}")
-            logger.error(f"Error loading files: {e}")
+    def _start_loading(self, base_path: str):
+        """Start file loading in background worker thread."""
+        self._set_toolbar_enabled(False)
+
+        # Show progress dialog
+        self._progress_dialog = QProgressDialog(
+            "Loading file...", None, 0, 0, self
+        )
+        self._progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        self._progress_dialog.setAutoClose(False)
+        self._progress_dialog.show()
+
+        # Create and start worker
+        self._loader_worker = FileLoaderWorker(base_path)
+        self._loader_worker.finished.connect(self._on_files_loaded)
+        self._loader_worker.error.connect(self._on_load_error)
+        self._loader_worker.start()
+
+    @pyqtSlot(list)
+    def _on_files_loaded(self, entries: list):
+        """Handle successful file loading."""
+        if self._progress_dialog:
+            self._progress_dialog.close()
+
+        self.entries = entries
+        self.update_category_combo()
+        self.populate_table()
+        self.apply_filters()
+
+        logger.info(f"Loaded {len(self.entries)} entries")
+        self.statusBar().showMessage(f"Loaded {len(self.entries)} entries")
+
+        self._set_toolbar_enabled(True)
+
+    @pyqtSlot(str)
+    def _on_load_error(self, message: str):
+        """Handle file loading error."""
+        if self._progress_dialog:
+            self._progress_dialog.close()
+
+        QMessageBox.critical(self, "Error", f"Failed to load file: {message}")
+        logger.error(f"Error loading file: {message}")
+
+        self._set_toolbar_enabled(True)
+
+    def _set_toolbar_enabled(self, enabled: bool):
+        """Toggle toolbar button enabled states."""
+        self.load_btn.setEnabled(enabled)
+        self.apply_btn.setEnabled(enabled)
+        self.restore_backup_btn.setEnabled(enabled)
 
     def load_default_values(self):
         """Load default values from data/global.ini for reference."""
@@ -347,26 +516,9 @@ class MainWindow(QMainWindow):
             else:
                 logger.warning(f"Default global.ini not found at: {data_global}")
 
-        # Load the file if found
+        # Load the file in background if found
         if global_path:
-            try:
-                self.entries = load_source_files(str(global_path), None)
-                self.update_category_combo()
-                self.populate_table()
-                self.apply_filters()
-
-                # Determine which file was loaded
-                if "LIVE/data/Localization" in str(global_path):
-                    source = "Game Directory"
-                else:
-                    source = "Data Folder"
-
-                message = f"Loaded {len(self.entries)} entries from {source}"
-                logger.info(f"Auto-loaded {len(self.entries)} entries from {global_path}")
-                self.statusBar().showMessage(message)
-            except Exception as e:
-                logger.warning(f"Failed to auto-load files: {e}")
-                self.statusBar().showMessage(f"Failed to auto-load files: {e}")
+            self._start_loading(str(global_path))
         else:
             logger.warning("No global.ini file found in game directory or data folder")
             self.statusBar().showMessage("No global.ini found - please load a file manually")
@@ -473,52 +625,67 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def show_help(self):
         """Show help dialog with usage instructions."""
-        help_text = """SC Localization Editor - Quick Start Guide
+        from PyQt6.QtWidgets import QDialog
 
+        help_markdown = """# SC Localization Editor - Quick Start Guide
 
-1. LOAD GAME FILE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Click "Load Base File" to load global.ini from your Star Citizen LIVE
-directory. The installer will have pre-configured this path automatically.
+## 1. Load Game File
+Click **Load Base File** to load global.ini from your Star Citizen LIVE directory. The installer will have pre-configured this path automatically.
 
+## 2. Edit Strings
+- Double-click any **Custom Value** cell to edit text
+- The **Default Value** shows the original text
+- The **Current Value** shows what's currently in your game
+- Changes are highlighted with a **Modified** status
 
-2. EDIT STRINGS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• Double-click any "Custom Value" cell to edit text
-• The "Default Value" shows the original text
-• The "Current Value" shows what's currently in your game
-• Changes are highlighted with a "Modified" status
+## 3. Filter & Search
+- Use the search box to find specific strings
+- Filter by **Category** (Ships, Ship Components, Other)
+- Filter by **Status** (Modified, Unmodified, New)
+- Check **Hide Unmodified** to see only your changes
 
+## 4. Apply Changes to Game
+Click **Apply to Game** to save your edits to the game installation. A backup will be created automatically.
 
-3. FILTER & SEARCH
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• Use the search box to find specific strings
-• Filter by Category (Ships, Ship Components, Other)
-• Filter by Status (Modified, Unmodified, New)
-• Check "Hide Unmodified" to see only your changes
+## 5. Restore Backup
+Click **Restore Backup** to revert to a previous version. The application keeps up to 5 backup versions.
 
+## Config Tab
+Configure your Star Citizen installation path if needed. The installer sets this automatically during installation.
 
-4. APPLY CHANGES TO GAME
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Click "Apply to Game" to save your edits to the game installation.
-A backup will be created automatically.
-
-
-5. RESTORE BACKUP
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Click "Restore Backup" to revert to a previous version.
-
-
-CONFIG TAB
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Configure your Star Citizen installation path if needed.
-The installer sets this automatically during installation.
+## Keyboard Shortcuts
+- **Double-click** a Custom Value cell to edit
+- **Right-click** for context menu options
+- **Ctrl+F** to search (use the search box at the top)
 """
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Help")
-        msg.setText(help_text)
-        msg.setFont(QFont("Courier", 9))
-        msg.exec()
+
+        # Create a custom dialog
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Help - SC Localization Editor")
+        dialog.setGeometry(100, 100, 700, 600)
+
+        # Create layout
+        dialog_layout = QVBoxLayout(dialog)
+
+        # Create text browser
+        help_browser = QTextBrowser()
+        help_browser.setOpenExternalLinks(True)
+        help_html = self.markdown_to_html(help_markdown)
+        help_browser.setHtml(help_html)
+
+        dialog_layout.addWidget(help_browser)
+
+        # Add close button
+        close_btn = QPushButton("Close")
+        close_btn.setMaximumWidth(100)
+        close_btn.clicked.connect(dialog.accept)
+
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        button_layout.addWidget(close_btn)
+        dialog_layout.addLayout(button_layout)
+
+        dialog.exec()
 
     def populate_table(self):
         """Populate table with entries."""
@@ -700,3 +867,144 @@ The installer sets this automatically during installation.
         AppSettings.set_window_geometry(self.saveGeometry())
         AppSettings.set_window_state(self.saveState())
         event.accept()
+
+    def create_anchor_id(self, text: str) -> str:
+        """Convert text to anchor ID (used in markdown links)."""
+        return text.lower().replace(" ", "-").replace(".", "").replace("&", "and")
+
+    def markdown_to_html(self, markdown_text: str) -> str:
+        """Convert markdown to HTML with theme-aware styling."""
+        # Get theme-aware colors from the application palette
+        palette = self.palette()
+        text_color = palette.color(palette.ColorRole.Text).name()
+        base_color = palette.color(palette.ColorRole.Base).name()
+        link_color = palette.color(palette.ColorRole.Link).name()
+
+        # Build HTML with styling
+        html = "<html><head><style>"
+        html += f"body {{ font-family: Segoe UI, Arial, sans-serif; line-height: 1.8; padding: 20px; font-size: 15px; color: {text_color}; background-color: {base_color}; }}"
+        html += f"h1 {{ color: {link_color}; border-bottom: 3px solid {link_color}; padding-bottom: 10px; font-size: 32px; font-weight: bold; margin-top: 20px; }}"
+        html += f"h2 {{ color: {link_color}; border-bottom: 2px solid {link_color}; padding-bottom: 5px; margin-top: 30px; font-size: 24px; font-weight: bold; }}"
+        html += f"h3 {{ color: {link_color}; margin-top: 20px; font-size: 20px; font-weight: bold; }}"
+        html += f"p {{ font-size: 15px; margin: 10px 0; color: {text_color}; }}"
+        html += f"li {{ font-size: 15px; margin: 5px 0; color: {text_color}; }}"
+        html += f"a {{ color: {link_color}; text-decoration: underline; font-weight: 500; }}"
+        html += f"a:hover {{ text-decoration: underline; opacity: 0.8; cursor: pointer; }}"
+        html += f"code {{ background-color: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 14px; }}"
+        html += f"pre {{ background-color: rgba(0,0,0,0.05); padding: 10px; border-radius: 5px; overflow-x: auto; font-size: 14px; }}"
+        html += f"ul {{ margin-left: 20px; font-size: 15px; }}"
+        html += f"ol {{ margin-left: 20px; font-size: 15px; }}"
+        html += f"strong {{ font-weight: bold; }}"
+        html += f"blockquote {{ border-left: 4px solid {link_color}; padding-left: 15px; font-style: italic; font-size: 15px; }}"
+        html += "</style></head><body>"
+
+        lines = markdown_text.split('\n')
+        in_code_block = False
+        in_list = False
+        list_type = None
+        prev_blank = False
+
+        for line in lines:
+            # Code blocks
+            if line.strip().startswith('```'):
+                if in_code_block:
+                    html += "</pre>"
+                    in_code_block = False
+                else:
+                    html += "<pre><code>"
+                    in_code_block = True
+                continue
+
+            if in_code_block:
+                html += line + "\n"
+                continue
+
+            # Headers
+            if line.startswith('# '):
+                if in_list:
+                    html += f"</{list_type}>"
+                    in_list = False
+                header_text = line[2:].strip()
+                anchor_id = self.create_anchor_id(header_text)
+                html += f"<h1 id='{anchor_id}'>{header_text}</h1>"
+                prev_blank = False
+            elif line.startswith('## '):
+                if in_list:
+                    html += f"</{list_type}>"
+                    in_list = False
+                header_text = line[3:].strip()
+                anchor_id = self.create_anchor_id(header_text)
+                html += f"<h2 id='{anchor_id}'>{header_text}</h2>"
+                prev_blank = False
+            elif line.startswith('### '):
+                if in_list:
+                    html += f"</{list_type}>"
+                    in_list = False
+                header_text = line[4:].strip()
+                anchor_id = self.create_anchor_id(header_text)
+                html += f"<h3 id='{anchor_id}'>{header_text}</h3>"
+                prev_blank = False
+            # Lists
+            elif line.strip().startswith('- ') or line.strip().startswith('* '):
+                if not in_list or list_type != 'ul':
+                    if in_list:
+                        html += f"</{list_type}>"
+                    html += "<ul>"
+                    in_list = True
+                    list_type = 'ul'
+                list_text = line.strip()[2:].strip()
+                # Convert markdown links in list items
+                list_text = self._convert_markdown_links(list_text)
+                html += f"<li>{list_text}</li>"
+                prev_blank = False
+            elif line.strip() and line[0].isdigit() and '. ' in line:
+                if not in_list or list_type != 'ol':
+                    if in_list:
+                        html += f"</{list_type}>"
+                    html += "<ol>"
+                    in_list = True
+                    list_type = 'ol'
+                list_text = line.strip()
+                # Remove number and period
+                list_text = list_text[list_text.index('. ') + 2:].strip()
+                # Convert markdown links in list items
+                list_text = self._convert_markdown_links(list_text)
+                html += f"<li>{list_text}</li>"
+                prev_blank = False
+            # Empty lines (skip consecutive blank lines)
+            elif not line.strip():
+                if in_list:
+                    html += f"</{list_type}>"
+                    in_list = False
+                    prev_blank = True
+                elif not prev_blank:
+                    # Only add one blank line, not consecutive ones
+                    prev_blank = True
+                continue
+            # Paragraphs
+            else:
+                if in_list:
+                    html += f"</{list_type}>"
+                    in_list = False
+                # Convert markdown links and bold
+                line = self._convert_markdown_links(line)
+                line = line.replace("**", "<strong>").replace("__", "<strong>")
+                html += f"<p>{line}</p>"
+                prev_blank = False
+
+        # Close any open tags
+        if in_list:
+            html += f"</{list_type}>"
+        if in_code_block:
+            html += "</pre>"
+
+        html += "</body></html>"
+        return html
+
+    def _convert_markdown_links(self, text: str) -> str:
+        """Convert markdown links [text](url) to HTML links."""
+        import re
+        # Match [text](url) pattern
+        pattern = r'\[([^\]]+)\]\(([^\)]+)\)'
+        replacement = r'<a href="\2">\1</a>'
+        return re.sub(pattern, replacement, text)

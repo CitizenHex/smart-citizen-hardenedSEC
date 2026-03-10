@@ -27,7 +27,7 @@ class ConfigTab(QWidget):
         base_layout = QHBoxLayout(base_group)
         self.base_path_input = QLineEdit()
         self.base_path_input.setText(AppSettings.get_base_global_path())
-        self.base_path_input.setPlaceholderText("Path to base global.ini (CIG original or existing pack)")
+        self.base_path_input.setPlaceholderText("e.g. C:/Program Files/Roberts Space Industries/StarCitizen/LIVE/data/Localization/english/global.ini")
         base_layout.addWidget(self.base_path_input)
 
         base_browse_btn = QPushButton("Browse...")
@@ -41,7 +41,7 @@ class ConfigTab(QWidget):
         game_layout = QHBoxLayout(game_group)
         self.game_path_input = QLineEdit()
         self.game_path_input.setText(AppSettings.get_game_install_path())
-        self.game_path_input.setPlaceholderText("Path to Star Citizen installation")
+        self.game_path_input.setPlaceholderText("e.g. C:/Program Files/Roberts Space Industries/StarCitizen")
         game_layout.addWidget(self.game_path_input)
 
         game_browse_btn = QPushButton("Browse...")
