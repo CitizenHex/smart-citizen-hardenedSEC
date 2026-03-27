@@ -44,14 +44,72 @@ class FileLoaderWorker(QThread):
     finished = pyqtSignal(list)
     error = pyqtSignal(str)
 
-    def __init__(self, base_path: str):
+    def __init__(self, base_path: str, overrides_path: str | None = None):
         super().__init__()
         self.base_path = base_path
+        self.overrides_path = overrides_path
 
     def run(self):
         try:
-            entries = load_source_files(self.base_path, None)
+            entries = load_source_files(self.base_path, self.overrides_path)
             self.finished.emit(entries)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class UpdateCheckerWorker(QThread):
+    """Worker thread for checking latest release on GitHub."""
+
+    finished = pyqtSignal(str, str)  # (tag_name, download_url)
+    up_to_date = pyqtSignal(str)     # (current_tag)
+    error = pyqtSignal(str)          # error message
+
+    def run(self):
+        from src.utils.updater import check_latest_release, get_current_base_version
+
+        try:
+            current_version = get_current_base_version()
+            result = check_latest_release()
+
+            if result is None:
+                # No update available or API error
+                if current_version:
+                    self.up_to_date.emit(current_version)
+                else:
+                    # First run, no version yet
+                    self.error.emit("Could not check for updates")
+                return
+
+            latest_tag, download_url = result
+
+            if latest_tag == current_version:
+                self.up_to_date.emit(latest_tag)
+            else:
+                self.finished.emit(latest_tag, download_url)
+
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class DownloadWorker(QThread):
+    """Worker thread for downloading and extracting base file."""
+
+    progress = pyqtSignal(int, int)  # (bytes_done, bytes_total)
+    finished = pyqtSignal()
+    error = pyqtSignal(str)
+
+    def __init__(self, download_url: str, version: str):
+        super().__init__()
+        self.download_url = download_url
+        self.version = version
+
+    def run(self):
+        from src.utils.updater import download_and_extract_base, save_base_version
+
+        try:
+            download_and_extract_base(self.download_url, self.progress.emit)
+            save_base_version(self.version)
+            self.finished.emit()
         except Exception as e:
             self.error.emit(str(e))
 
@@ -82,6 +140,12 @@ class MainWindow(QMainWindow):
         # File loader worker
         self._loader_worker: Optional[FileLoaderWorker] = None
 
+        # Update checker and download workers
+        self._update_checker_worker: Optional[UpdateCheckerWorker] = None
+        self._download_worker: Optional[DownloadWorker] = None
+        self._pending_download_url: Optional[str] = None
+        self._pending_download_version: Optional[str] = None
+
         # Debounce timer for filtering
         self.filter_timer = QTimer()
         self.filter_timer.setSingleShot(True)
@@ -94,6 +158,11 @@ class MainWindow(QMainWindow):
         # Build UI
         self.setup_ui()
         self.restore_window_state()
+
+        # Start update check in background (non-blocking)
+        self._start_update_check()
+
+        # Then load files
         self.load_default_values()
         self.auto_load_default_files()
 
@@ -429,7 +498,9 @@ class MainWindow(QMainWindow):
         self._progress_dialog.show()
 
         # Create and start worker
-        self._loader_worker = FileLoaderWorker(base_path)
+        overrides_path = AppSettings.get_overrides_path()
+        overrides_arg = str(overrides_path) if overrides_path.exists() else None
+        self._loader_worker = FileLoaderWorker(base_path, overrides_arg)
         self._loader_worker.finished.connect(self._on_files_loaded)
         self._loader_worker.error.connect(self._on_load_error)
         self._loader_worker.start()
@@ -445,9 +516,14 @@ class MainWindow(QMainWindow):
         self.populate_table()
         self.apply_filters()
 
-        logger.info(f"Loaded {len(self.entries)} entries")
-        self.statusBar().showMessage(f"Loaded {len(self.entries)} entries")
+        # Show override count in status bar
+        modified_count = sum(1 for e in self.entries if e.status in ("Modified", "New"))
+        msg = f"Loaded {len(self.entries)} entries"
+        if modified_count:
+            msg += f" | {modified_count} overrides active"
+        self.statusBar().showMessage(msg)
 
+        logger.info(f"Loaded {len(self.entries)} entries")
         self._set_toolbar_enabled(True)
 
     @pyqtSlot(str)
@@ -516,6 +592,21 @@ class MainWindow(QMainWindow):
             else:
                 logger.warning(f"Default global.ini not found at: {data_global}")
 
+        # Bootstrap overrides from diff if missing
+        if global_path:
+            overrides_path = AppSettings.get_overrides_path()
+            if not overrides_path.exists():
+                data_dir = Path(__file__).parent.parent.parent / "data"
+                data_global = data_dir / "global.ini"
+                if data_global.exists():
+                    try:
+                        from src.utils.overrides_manager import generate_overrides_from_diff
+                        count = generate_overrides_from_diff(data_global, global_path, overrides_path)
+                        if count:
+                            logger.info(f"Bootstrapped {count} overrides from diff")
+                    except Exception as e:
+                        logger.warning(f"Failed to bootstrap overrides: {e}")
+
         # Load the file in background if found
         if global_path:
             self._start_loading(str(global_path))
@@ -572,9 +663,13 @@ class MainWindow(QMainWindow):
                     value = entry.custom_value if entry.custom_value else entry.original_value
                     f.write(f"{entry.key}={value}\n")
 
+            # Save overrides to AppData
+            from src.utils.overrides_manager import save_overrides
+            count = save_overrides(self.entries, AppSettings.get_overrides_path())
+
             logger.info(f"Applied to game: {target_path}")
-            self.statusBar().showMessage(f"Applied to {target_path}")
-            QMessageBox.information(self, "Success", f"Applied to {target_path}")
+            self.statusBar().showMessage(f"Applied to game | {count} overrides saved")
+            QMessageBox.information(self, "Success", f"Applied to {target_path}\n\n{count} overrides saved")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to apply to game: {e}")
             logger.error(f"Error applying to game: {e}")
@@ -609,8 +704,10 @@ class MainWindow(QMainWindow):
             # Restore the backup
             shutil.copy2(str(backup_file_path), str(target_path))
 
-            # Reload the file
-            self.entries = load_source_files(str(target_path), None)
+            # Reload the file with overrides
+            overrides_path = AppSettings.get_overrides_path()
+            overrides_arg = str(overrides_path) if overrides_path.exists() else None
+            self.entries = load_source_files(str(target_path), overrides_arg)
             self.update_category_combo()
             self.populate_table()
             self.apply_filters()
@@ -686,6 +783,113 @@ Configure your Star Citizen installation path if needed. The installer sets this
         dialog_layout.addLayout(button_layout)
 
         dialog.exec()
+
+    def _start_update_check(self):
+        """Start background check for latest base file version."""
+        self._update_checker_worker = UpdateCheckerWorker()
+        self._update_checker_worker.finished.connect(self._on_update_available)
+        self._update_checker_worker.up_to_date.connect(self._on_up_to_date)
+        self._update_checker_worker.error.connect(self._on_update_error)
+        self._update_checker_worker.start()
+
+    @pyqtSlot(str, str)
+    def _on_update_available(self, latest_tag: str, download_url: str):
+        """Handle update available signal."""
+        self._pending_download_url = download_url
+        self._pending_download_version = latest_tag
+
+        reply = QMessageBox.question(
+            self,
+            "Base File Update Available",
+            f"New base file available: {latest_tag}\n\nUpdate now? (~2.2 MB)",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            self._start_download(download_url, latest_tag)
+        else:
+            from src.utils.updater import get_current_base_version
+            current = get_current_base_version()
+            self.statusBar().showMessage(f"Base: {current} (update: {latest_tag})")
+
+    @pyqtSlot(str)
+    def _on_up_to_date(self, current_tag: str):
+        """Handle up-to-date signal."""
+        self.statusBar().showMessage(f"Base: {current_tag} ✓")
+
+    @pyqtSlot(str)
+    def _on_update_error(self, message: str):
+        """Handle update check error."""
+        from src.utils.updater import get_current_base_version
+        current = get_current_base_version()
+        if current:
+            self.statusBar().showMessage(f"Base: {current}")
+        logger.warning(f"Update check error: {message}")
+
+    def _start_download(self, download_url: str, version: str):
+        """Start downloading and extracting base file."""
+        # Show progress dialog
+        progress = QProgressDialog(
+            "Downloading base file...", None, 0, 100, self
+        )
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setAutoClose(False)
+        progress.show()
+
+        # Create and start download worker
+        self._download_worker = DownloadWorker(download_url, version)
+        self._download_worker.progress.connect(
+            lambda done, total: progress.setValue(
+                int((done / total * 100) if total > 0 else 0)
+            ) if total > 0 else None
+        )
+        self._download_worker.finished.connect(
+            lambda: self._on_download_finished(progress, version)
+        )
+        self._download_worker.error.connect(
+            lambda msg: self._on_download_error(progress, msg)
+        )
+        self._download_worker.start()
+
+    def _on_download_finished(self, progress: QProgressDialog, version: str):
+        """Handle successful download and extraction."""
+        progress.close()
+        self.statusBar().showMessage(f"Base: {version} ✓")
+        QMessageBox.information(
+            self,
+            "Update Complete",
+            f"Base file updated to {version}.\n\nReload to apply changes."
+        )
+        # Optionally reload files
+        self.load_default_values()
+        self.auto_load_default_files()
+
+    def _on_download_error(self, progress: QProgressDialog, message: str):
+        """Handle download error."""
+        progress.close()
+        QMessageBox.critical(
+            self,
+            "Download Failed",
+            f"Failed to download base file: {message}"
+        )
+        logger.error(f"Download error: {message}")
+
+    def closeEvent(self, event):
+        """Save state and overrides before closing."""
+        # Auto-save overrides if there are unsaved edits
+        if self.entries and not (self._loader_worker and self._loader_worker.isRunning()):
+            try:
+                from src.utils.overrides_manager import save_overrides
+                save_overrides(self.entries, AppSettings.get_overrides_path())
+            except Exception as e:
+                logger.error(f"Failed to auto-save overrides on exit: {e}")
+
+        # Save window state
+        self.settings = QSettings(AppSettings.ORG_NAME, AppSettings.APP_NAME)
+        self.settings.setValue(AppSettings.WINDOW_GEOMETRY, self.saveGeometry())
+        self.settings.setValue(AppSettings.WINDOW_STATE, self.saveState())
+
+        event.accept()
 
     def populate_table(self):
         """Populate table with entries."""

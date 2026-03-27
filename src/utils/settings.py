@@ -1,4 +1,7 @@
 """Settings management using QSettings."""
+import os
+from pathlib import Path
+
 from PyQt6.QtCore import QSettings
 import winreg
 
@@ -104,3 +107,13 @@ class AppSettings:
     def set_window_state(state: bytes) -> None:
         """Save window state."""
         AppSettings.settings().setValue(AppSettings.WINDOW_STATE, state)
+
+    @staticmethod
+    def get_overrides_path() -> Path:
+        """Get canonical path for overrides.ini in AppData.
+
+        Returns:
+            Path to overrides.ini in %APPDATA%\Osiris DevWorks\SC Localization Editor\
+        """
+        appdata = os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming"))
+        return Path(appdata) / "Osiris DevWorks" / "SC Localization Editor" / "overrides.ini"
