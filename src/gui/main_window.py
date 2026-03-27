@@ -795,6 +795,12 @@ Configure your Star Citizen installation path if needed. The installer sets this
     @pyqtSlot(str, str)
     def _on_update_available(self, latest_tag: str, download_url: str):
         """Handle update available signal."""
+        # Clean up checker worker
+        if self._update_checker_worker:
+            self._update_checker_worker.quit()
+            self._update_checker_worker.wait()
+            self._update_checker_worker = None
+
         self._pending_download_url = download_url
         self._pending_download_version = latest_tag
 
@@ -815,11 +821,22 @@ Configure your Star Citizen installation path if needed. The installer sets this
     @pyqtSlot(str)
     def _on_up_to_date(self, current_tag: str):
         """Handle up-to-date signal."""
+        # Clean up checker worker
+        if self._update_checker_worker:
+            self._update_checker_worker.quit()
+            self._update_checker_worker.wait()
+            self._update_checker_worker = None
         self.statusBar().showMessage(f"Base: {current_tag} ✓")
 
     @pyqtSlot(str)
     def _on_update_error(self, message: str):
         """Handle update check error."""
+        # Clean up checker worker
+        if self._update_checker_worker:
+            self._update_checker_worker.quit()
+            self._update_checker_worker.wait()
+            self._update_checker_worker = None
+
         from src.utils.updater import get_current_base_version
         current = get_current_base_version()
         if current:
@@ -855,18 +872,34 @@ Configure your Star Citizen installation path if needed. The installer sets this
         """Handle successful download and extraction."""
         progress.close()
         self.statusBar().showMessage(f"Base: {version} ✓")
+
+        # Clean up worker
+        if self._download_worker:
+            self._download_worker.quit()
+            self._download_worker.wait()
+
+        # Show info (non-blocking)
         QMessageBox.information(
             self,
             "Update Complete",
             f"Base file updated to {version}.\n\nReload to apply changes."
         )
-        # Optionally reload files
-        self.load_default_values()
-        self.auto_load_default_files()
+
+        # Reload files (they will be picked up next time user loads manually or on next restart)
+        # Don't auto-reload here to avoid blocking; user can manually reload
+        logger.info(f"Base file updated to {version}")
+        self._download_worker = None
 
     def _on_download_error(self, progress: QProgressDialog, message: str):
         """Handle download error."""
         progress.close()
+
+        # Clean up worker
+        if self._download_worker:
+            self._download_worker.quit()
+            self._download_worker.wait()
+            self._download_worker = None
+
         QMessageBox.critical(
             self,
             "Download Failed",

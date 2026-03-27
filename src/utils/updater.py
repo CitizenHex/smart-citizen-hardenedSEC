@@ -1,6 +1,7 @@
 """Auto-update utility for fetching latest base global.ini from GitHub."""
 import json
 import logging
+import socket
 import zipfile
 from io import BytesIO
 from pathlib import Path
@@ -102,19 +103,28 @@ def download_and_extract_base(download_url: str, progress_callback: Callable[[in
         logger.info(f"Downloading from {download_url}")
 
         # Download with progress tracking
-        with urlopen(download_url, timeout=30) as response:
+        with urlopen(download_url, timeout=60) as response:
             total_size = int(response.headers.get('content-length', 0))
             bytes_downloaded = 0
             chunks = []
+            chunk_size = 65536  # 64KB chunks
 
             while True:
-                chunk = response.read(8192)
-                if not chunk:
-                    break
-                chunks.append(chunk)
-                bytes_downloaded += len(chunk)
-                if total_size > 0:
-                    progress_callback(bytes_downloaded, total_size)
+                try:
+                    chunk = response.read(chunk_size)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    bytes_downloaded += len(chunk)
+                    # Update progress callback
+                    try:
+                        if total_size > 0:
+                            progress_callback(bytes_downloaded, total_size)
+                    except Exception:
+                        pass  # Ignore callback errors
+                except socket.timeout:
+                    logger.warning("Download timeout, retrying...")
+                    raise
 
             zip_data = b''.join(chunks)
 
