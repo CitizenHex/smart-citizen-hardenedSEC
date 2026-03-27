@@ -110,7 +110,7 @@ class AppSettings:
 
     @staticmethod
     def get_overrides_path() -> Path:
-        """Get canonical path for overrides.ini in AppData.
+        r"""Get canonical path for overrides.ini in AppData.
 
         Returns:
             Path to overrides.ini in %APPDATA%\Osiris DevWorks\SC Localization Editor\
