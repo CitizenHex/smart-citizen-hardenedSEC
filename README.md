@@ -7,12 +7,14 @@ A PyQt6 GUI application for managing Star Citizen localization string customizat
 
 ## ✨ Features
 
-- **Load & Edit**: Load base global.ini and vehicles.ini files, then easily customize strings in a table view
-- **Search & Filter**: Filter by search text, source file, category, or modification status
-- **Save Overrides**: Export custom strings to target_strings.ini
-- **Merge & Export**: Combine base files with your customizations into a merged file
-- **Apply to Game**: Automatically copy merged localization files to your Star Citizen installation
-- **Settings Persistence**: All paths and preferences are saved between sessions
+- **Auto-Update**: Automatically checks GitHub for the latest base localization file from the community language pack
+- **Load & Edit**: Load base global.ini, then easily customize strings in an intuitive table view
+- **Persistent Edits**: Your customizations are automatically saved and loaded in future sessions
+- **Seamless Migration**: When Star Citizen updates, your edits are automatically re-applied to the new base file
+- **Search & Filter**: Filter by search text, category, or modification status
+- **Apply to Game**: Writes merged localization file (base + your edits) directly to your installation
+- **Backup & Restore**: Automatic timestamped backups of game files with easy one-click restore
+- **Settings Persistence**: All paths and preferences saved in Windows Registry
 
 ## 🚀 Quick Start
 
@@ -40,19 +42,33 @@ A PyQt6 GUI application for managing Star Citizen localization string customizat
 
 ## 📖 Usage
 
-1. **Load Files**: Click "Load Base & Custom" and select:
-   - Base global.ini (from your Star Citizen Data.p4k)
-   - vehicles.ini (from your Star Citizen Data.p4k)
-   - Optional: target_strings.ini (existing customizations)
+### First Run
+1. **Auto-Update** (if outdated): On startup, the app checks for the latest base file. If available, it prompts you to download (~2.2 MB zip). Click **Yes** to update.
 
-2. **Find & Customize**: Use the filter bar to find strings, then double-click the "Custom Value" column to edit
+### Standard Workflow
+1. **Load File**: Click **"Load Base File"** and select your base `global.ini`
+   - The app searches your Star Citizen installation first for convenience
+   - Or select any other base file (language pack, older version, etc.)
 
-3. **Save Your Work**: Click "Save Overrides" to export your customizations as target_strings.ini
+2. **Find & Customize**:
+   - Use the **Search** box to find strings (search key or value)
+   - Use **Category** filter (Ships, Ship Components, Other)
+   - Double-click the **Custom Value** column to edit
 
-4. **Merge & Export**: Click "Merge & Export" to combine your customizations with the base files
+3. **Apply Changes**: Click **"Apply to Game"**
+   - Your customizations are automatically saved to `overrides.ini`
+   - The game file is updated with all your edits merged in
+   - A timestamped backup is created automatically
 
-5. **Apply to Game**: Click "Apply to Game" to copy the merged file to your Star Citizen installation
-   - The installer automatically adds `g_language = english` to your user.cfg
+4. **Restore (if needed)**: Click **"Restore Backup"** to revert to a previous version
+   - Keep up to 5 backups; oldest auto-deleted when limit reached
+
+### After Star Citizen Updates
+The game update doesn't touch your loose `global.ini` file, so it becomes stale. Simply:
+1. Obtain the new base file (the app can auto-download from GitHub)
+2. Click **"Load Base File"** and select the new version
+3. Your saved customizations automatically re-apply (you'll see them as "Modified" in green)
+4. Click **"Apply to Game"** → done! Your game now has all new keys + your custom edits
 
 ## 🛠️ Configuration
 
@@ -60,31 +76,51 @@ All settings are stored in Windows Registry under:
 - **Organization**: Osiris DevWorks
 - **Application**: SC Localization Editor
 
-You can configure the following in the Config tab:
-- Path to base global.ini
-- Path to vehicles.ini
-- Star Citizen installation directory
-- Auto-write to game (optionally copy files automatically after merge)
+The Config tab lets you set:
+- **Base global.ini path**: For the file to load and edit
+- **Star Citizen install path**: Where to apply your customizations
 
-## 📦 Building an Installer
+The app automatically detects your Star Citizen installation on first run (via installer registry key).
+
+### Data Storage
+- **Your edits**: `%APPDATA%\Osiris DevWorks\SC Localization Editor\overrides.ini`
+- **Base file version**: `data/base_version.txt` (for auto-update tracking)
+- **Game backups**: `StarCitizen\LIVE\data\Localization\english\global.ini.bak_*` (timestamped)
+
+## 📦 Building & Release
+
+### Development Build
+```bash
+python src/main.py
+```
 
 ### Create Executable
 ```bash
-pyinstaller SCLocalizationEditor.spec
+cd scripts/build
+python build_exe.py
 ```
+This creates `dist/SCLocalizationEditor-v0.2.0.exe` using PyInstaller.
 
 ### Create Installer (Windows)
-Use [Inno Setup](https://jrsoftware.org/isdl.php) to compile `installer.iss`:
-```
-- Install Inno Setup
-- Open installer.iss
-- Click "Compile"
+Requires [Inno Setup](https://jrsoftware.org/isdl.php):
+```bash
+cd scripts/build
+build_all.bat
 ```
 
-The installer will:
-- Install the application to Program Files
-- Create Start Menu shortcuts
-- Automatically set up user.cfg with `g_language = english`
+The build script:
+1. Cleans old builds
+2. Builds the executable with PyInstaller
+3. Compiles the installer with Inno Setup (if installed)
+
+Outputs:
+- `dist/SCLocalizationEditor-v0.2.0.exe` - Standalone executable
+- `dist/SCLocalizationEditor-v0.2.0-Setup.exe` - Installer
+
+The installer:
+- Installs to `%APPDATA%\Osiris DevWorks\SC Localization Editor`
+- Creates Start Menu shortcuts
+- Stores Star Citizen install path in registry for auto-detection
 
 ## 📁 Project Structure
 
@@ -92,17 +128,19 @@ The installer will:
 src/
 ├── main.py                 # Application entry point
 ├── gui/
-│   ├── main_window.py      # Main UI window
+│   ├── main_window.py      # Main UI window with threading
 │   └── config_tab.py       # Settings panel
 ├── models/
 │   └── string_model.py     # StringEntry dataclass
 ├── parser/
 │   └── ini_parser.py       # INI file parsing
 ├── merger/
-│   └── ini_merger.py       # Merge logic
+│   └── ini_merger.py       # Structure-preserving merge logic
 └── utils/
-    ├── settings.py         # Settings management
-    └── version.py          # Version reader
+    ├── settings.py         # Windows Registry settings management
+    ├── version.py          # Version reader from VERSION.TXT
+    ├── updater.py          # GitHub API check + download/extract
+    └── overrides_manager.py # Overrides persistence & bootstrap
 ```
 
 ## 🎮 Installation Path Structure

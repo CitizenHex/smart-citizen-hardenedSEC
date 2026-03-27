@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 SC Localization Editor is a PyQt6 GUI application for customizing Star Citizen localization strings. Users load a base global.ini file, make edits in the table, and apply changes directly to their game installation with automatic backup management.
 
-**Current Version**: 0.1.1 (from VERSION.TXT)
+**Current Version**: 0.2.0 (from VERSION.TXT)
 
 ## Architecture
 
@@ -16,7 +16,7 @@ The application follows a modular, layered architecture:
 src/
 ├── main.py                 # Entry point
 ├── gui/
-│   ├── main_window.py      # Main UI, toolbar, table, filters, backup system
+│   ├── main_window.py      # Main UI, toolbar, table, filters, backup, auto-update
 │   └── config_tab.py       # Configuration settings (paths)
 ├── models/
 │   └── string_model.py     # StringEntry dataclass
@@ -27,6 +27,8 @@ src/
 └── utils/
     ├── settings.py         # QSettings wrapper for Windows Registry
     ├── version.py          # Version reader from VERSION.TXT
+    ├── updater.py          # GitHub API check + auto-update
+    ├── overrides_manager.py # Overrides persistence & bootstrap
     └── __init__.py
 ```
 
@@ -76,22 +78,50 @@ Uses `QSettings` with Osiris DevWorks organization (Windows Registry):
 - `base_global_path` - Path to base global.ini file
 - `game_install_path` - Star Citizen installation root
 - `window_geometry`, `window_state` - Window restoration
+- `get_overrides_path()` - Returns `%APPDATA%\Osiris DevWorks\SC Localization Editor\overrides.ini`
+
+### 6. Auto-Update System (updater.py)
+- **GitHub API**: Fetches latest release from `BeltaKoda/ScCompLangPackRemix` on startup
+- **Version tracking**: Stores current version in `data/base_version.txt`
+- **Download**: Only `-LIVE` releases; user prompted before downloading ~2.2MB zip
+- **Threading**: `UpdateCheckerWorker` + `DownloadWorker` run in background threads
+- **Extraction**: Downloads zip, extracts `data/Localization/english/global.ini` to `data/global.ini`
+
+### 7. Overrides Persistence (overrides_manager.py)
+- **Location**: `%APPDATA%\Osiris DevWorks\SC Localization Editor\overrides.ini`
+- **Format**: Plain `key=value` per line (only modified entries)
+- **Save triggers**: On "Apply to Game" and on app close via `closeEvent()`
+- **Load**: Automatically applied when loading any base file
+- **Bootstrap**: On first run, diffs `data/global.ini` vs `LIVE/.../global.ini` to extract existing customizations
 
 ## Workflow
 
-1. **Load File**: Click "Load Base File" → select base global.ini → file loads in background with progress dialog
-2. **Edit**: Use filters to find strings, double-click Custom Value column to edit
-3. **Apply**: Click "Apply to Game" → writes changes to `LIVE/data/Localization/english/global.ini`, creates backup
-4. **Restore**: Click "Restore Backup" → file dialog → select backup to restore
+### Standard Usage
+1. **Auto-Update** (on startup): App checks GitHub for latest base file version, prompts if newer available
+2. **Load File**: Click "Load Base File" → select base global.ini → file loads in background with progress dialog
+3. **Edit**: Use filters to find strings, double-click Custom Value column to edit
+4. **Persist**: Edits saved to `overrides.ini` automatically on Apply or Close
+5. **Apply**: Click "Apply to Game" → writes merged file (base + overrides) to game, creates backup
+6. **Restore**: Click "Restore Backup" → file dialog → select backup to restore (overrides still active)
+
+### Migration Scenario (after Star Citizen update)
+1. Load new base file (newer P4K means loose file is stale and incomplete)
+2. App automatically re-applies saved `overrides.ini` on top
+3. All user customizations show as "Modified" (green)
+4. New keys from the update are present with base values
+5. Click Apply to Game → writes complete merged file with all keys
+6. Game is now fully playable with all user customizations intact
 
 ## File Locations
 
 - **Source code**: `src/` folder
 - **Configuration**: Windows Registry (HKEY_CURRENT_USER\Software\Osiris DevWorks\SC Localization Editor)
 - **Version**: `VERSION.TXT` in project root
+- **Base file version**: `data/base_version.txt` (tracks current auto-update version)
+- **User overrides**: `%APPDATA%\Osiris DevWorks\SC Localization Editor\overrides.ini`
 - **Assets**: `assets/` folder (Osiris DevWorks logo, PayPal/Venmo buttons)
 - **Game files**: Configurable via Config tab; typically `Roberts Space Industries/StarCitizen/LIVE/data/Localization/english/`
-- **Backups**: Same directory as applied file (`LIVE/data/Localization/english/`)
+- **Backups**: Same directory as applied file (`LIVE/data/Localization/english/global.ini.bak_*`)
 
 ## Development
 
@@ -120,8 +150,11 @@ pyinstaller SCLocalizationEditor.spec
 
 ### Threading & UI Responsiveness
 - File loading happens in `FileLoaderWorker` thread to prevent UI freeze
-- Progress dialog shown during load
+- Update checking happens in `UpdateCheckerWorker` thread on startup
+- Base file download happens in `DownloadWorker` thread with progress dialog
+- Worker threads properly cleaned up with `quit()` + `wait()` to prevent hangs
 - UI signals blocked during bulk table updates to avoid lag
+- Progress callbacks wrapped in try/except to prevent blocking on errors
 
 ### Table Filtering
 - Uses `setRowHidden()` on each row (no proxy model for simplicity)
@@ -184,6 +217,14 @@ From CLAUDE.md history:
 ## Contact
 
 Osiris DevWorks - https://github.com/OsirisDevworks/sc-localization-editor
+
+## Recent Changes (v0.2.0)
+- **Auto-update system**: Background GitHub API check for latest base file
+- **Overrides persistence**: Custom edits saved to AppData, loaded automatically on next session
+- **Migration support**: Load new base file → overrides auto-apply → seamless migration
+- **Bootstrap on first run**: Diffs existing game file vs reference to extract customizations
+- **Threading improvements**: Fixed "not responding" hangs during downloads
+- **Status bar indicators**: Shows "Base: 4.7.0-LIVE ✓" and "N overrides active"
 
 ## Recent Changes (v0.1.1)
 - Improved Config tab with clearer path descriptions and examples
