@@ -15,7 +15,7 @@ ArchitecturesInstallIn64BitMode=x64
 WizardStyle=modern
 DisableDirPage=no
 AllowUNCPath=no
-PrivilegesRequired=lowest
+PrivilegesRequired=admin
 SetupIconFile=assets\logo.ico
 
 [Languages]
