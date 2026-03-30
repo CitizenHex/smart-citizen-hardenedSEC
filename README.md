@@ -6,7 +6,7 @@ A PyQt6 GUI application for managing Star Citizen localization string customizat
 ![large.png](assets/large.png)
 
 > [!NOTE]
-> This project is forked from [ExoAE's ScCompLangPack](https://github.com/ExoAE/ScCompLangPack) and built upon the merge concepts from [MrKraken's ASOP terminal enhancements](https://www.youtube.com/@MrKraken). Rather than another fork, we've created an intuitive desktop GUI to make localization customization more user-friendly.
+> This project is forked from [ExoAE's ScCompLangPack](https://github.com/ExoAE/ScCompLangPack) and built upon the merge concepts from [MrKraken's ASOP terminal enhancements](https://www.youtube.com/@MrKraken). In this application, we've created an intuitive desktop GUI to make localization customization more user-friendly.
 
 ## ✨ Features
 
