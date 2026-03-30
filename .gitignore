@@ -54,3 +54,10 @@ build/
 dist/
 *.manifest
 *.spec
+
+# Runtime Data Files (auto-generated/downloaded)
+data/global.ini
+data/global.ini.bak
+data/contracts.ini
+data/base_version.txt
+data/contracts_version.txt

@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QHeaderView, QStatusBar, QFrame, QStyledItemDelegate,
     QAbstractItemView, QMenu, QProgressDialog, QTextBrowser
 )
-from PyQt6.QtGui import QColor, QFont, QCursor, QPixmap
+from PyQt6.QtGui import QColor, QFont, QCursor, QPixmap, QIcon
 from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices
 
@@ -44,14 +44,15 @@ class FileLoaderWorker(QThread):
     finished = pyqtSignal(list)
     error = pyqtSignal(str)
 
-    def __init__(self, base_path: str, overrides_path: str | None = None):
+    def __init__(self, base_path: str, overrides_path: str | None = None, contracts_path: str | None = None):
         super().__init__()
         self.base_path = base_path
         self.overrides_path = overrides_path
+        self.contracts_path = contracts_path
 
     def run(self):
         try:
-            entries = load_source_files(self.base_path, self.overrides_path)
+            entries = load_source_files(self.base_path, self.overrides_path, self.contracts_path)
             self.finished.emit(entries)
         except Exception as e:
             self.error.emit(str(e))
@@ -114,6 +115,52 @@ class DownloadWorker(QThread):
             self.error.emit(str(e))
 
 
+class ContractsCheckerWorker(QThread):
+    """Worker thread for checking latest contracts.ini commit."""
+
+    update_available = pyqtSignal(str, str)  # (sha, date_str)
+    up_to_date = pyqtSignal(str, str)       # (sha, date_str)
+    error = pyqtSignal(str)
+
+    def run(self):
+        from src.utils.updater import check_contracts_update, get_current_contracts_version
+
+        try:
+            result = check_contracts_update()
+            if result is None:
+                # Already up to date or API error
+                sha, date_str = get_current_contracts_version()
+                self.up_to_date.emit(sha, date_str)
+            else:
+                sha, date_str = result
+                self.update_available.emit(sha, date_str)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class ContractsDownloadWorker(QThread):
+    """Worker thread for downloading contracts.ini."""
+
+    progress = pyqtSignal(int, int)  # (bytes_done, bytes_total)
+    finished = pyqtSignal()
+    error = pyqtSignal(str)
+
+    def __init__(self, sha: str, date_str: str):
+        super().__init__()
+        self.sha = sha
+        self.date_str = date_str
+
+    def run(self):
+        from src.utils.updater import download_contracts, save_contracts_version
+
+        try:
+            download_contracts(self.progress.emit)
+            save_contracts_version(self.sha, self.date_str)
+            self.finished.emit()
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 class SelectAllDelegate(QStyledItemDelegate):
     """Custom delegate that selects all text on edit."""
 
@@ -132,6 +179,11 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"SC Localization Editor v{get_version()}")
         self.setGeometry(100, 100, 1400, 800)
 
+        # Set window icon (taskbar + window title bar + favicon)
+        icon_path = get_resource_path(os.path.join("assets", "logo.ico"))
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+
         # Data
         self.entries: list[StringEntry] = []
         self.filtered_row_indices: list[int] = []
@@ -140,11 +192,19 @@ class MainWindow(QMainWindow):
         # File loader worker
         self._loader_worker: Optional[FileLoaderWorker] = None
 
-        # Update checker and download workers
+        # Update checker and download workers (base file)
         self._update_checker_worker: Optional[UpdateCheckerWorker] = None
         self._download_worker: Optional[DownloadWorker] = None
         self._pending_download_url: Optional[str] = None
         self._pending_download_version: Optional[str] = None
+
+        # Contracts checker and download workers
+        self._contracts_checker_worker: Optional[ContractsCheckerWorker] = None
+        self._contracts_download_worker: Optional[ContractsDownloadWorker] = None
+
+        # Status bar state (composed message)
+        self._base_status: str = ""
+        self._contracts_status: str = ""
 
         # Debounce timer for filtering
         self.filter_timer = QTimer()
@@ -159,8 +219,9 @@ class MainWindow(QMainWindow):
         self.setup_ui()
         self.restore_window_state()
 
-        # Start update check in background (non-blocking)
+        # Start update checks in background (non-blocking)
         self._start_update_check()
+        self._start_contracts_check()
 
         # Then load files
         self.load_default_values()
@@ -307,6 +368,18 @@ class MainWindow(QMainWindow):
         self.osiris_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.osiris_button.mousePressEvent = self.open_discord_link
         footer_layout.addWidget(self.osiris_button)
+
+        # GitHub attribution links
+        for label_text, url in [
+            ("MrKraken", "https://github.com/MrKraken/StarStrings"),
+            ("ExoAE", "https://github.com/ExoAE/ScCompLangPack"),
+            ("BeltaKoda", "https://github.com/BeltaKoda/ScCompLangPackRemix"),
+        ]:
+            link = QLabel(f'<a href="{url}" style="color: #888; font-size: 11px;">{label_text}</a>')
+            link.setOpenExternalLinks(True)
+            link.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            footer_layout.addSpacing(12)
+            footer_layout.addWidget(link)
 
         # Stretch to push donation buttons to the right
         footer_layout.addStretch()
@@ -500,7 +573,11 @@ class MainWindow(QMainWindow):
         # Create and start worker
         overrides_path = AppSettings.get_overrides_path()
         overrides_arg = str(overrides_path) if overrides_path.exists() else None
-        self._loader_worker = FileLoaderWorker(base_path, overrides_arg)
+
+        contracts_ini = Path(__file__).parent.parent.parent / "data" / "contracts.ini"
+        contracts_arg = str(contracts_ini) if contracts_ini.exists() else None
+
+        self._loader_worker = FileLoaderWorker(base_path, overrides_arg, contracts_arg)
         self._loader_worker.finished.connect(self._on_files_loaded)
         self._loader_worker.error.connect(self._on_load_error)
         self._loader_worker.start()
@@ -726,34 +803,50 @@ class MainWindow(QMainWindow):
 
         help_markdown = """# SC Localization Editor - Quick Start Guide
 
+## 🎯 First Time Setup
+On launch, the app automatically checks for the latest base file updates from GitHub. If available, click **Yes** to download the latest version (~2.2 MB for base, ~49 KB for mission contracts).
+
 ## 1. Load Game File
-Click **Load Base File** to load global.ini from your Star Citizen LIVE directory. The installer will have pre-configured this path automatically.
+Click **Load Base File** to load global.ini from your Star Citizen LIVE directory. The installer pre-configures this path automatically.
 
-## 2. Edit Strings
+## 2. Edit Localization Strings
 - Double-click any **Custom Value** cell to edit text
-- The **Default Value** shows the original text
-- The **Current Value** shows what's currently in your game
-- Changes are highlighted with a **Modified** status
+- The **Default Value** shows the original text from data/global.ini
+- The **Current Value** shows what's in your loaded file
+- Changes are highlighted with a **Modified** status (green)
 
-## 3. Filter & Search
-- Use the search box to find specific strings
-- Filter by **Category** (Ships, Ship Components, Other)
+## 3. Categories
+Filter strings by category:
+- **Ships** - Spaceship names and properties (vehicle_Name*)
+- **Ship Components** - Component names (shields, power, cooling, etc.)
+- **Missions** - Mission briefings and contract text (from contracts.ini)
+- **Other** - Everything else
+
+## 4. Search & Filter
+- Use the search box to find strings by key or text content
+- Filter by **Category** to focus on one type
 - Filter by **Status** (Modified, Unmodified, New)
 - Check **Hide Unmodified** to see only your changes
 
-## 4. Apply Changes to Game
-Click **Apply to Game** to save your edits to the game installation. A backup will be created automatically.
+## 5. Apply Changes to Game
+Click **Apply to Game** to write your edits to the game installation. A timestamped backup is created automatically before applying.
 
-## 5. Restore Backup
-Click **Restore Backup** to revert to a previous version. The application keeps up to 5 backup versions.
+## 6. Restore a Backup
+Click **Restore Backup** to revert to a previous version. The app keeps up to 5 automatic backups.
+
+## 7. After Game Updates
+When Star Citizen updates, your edits are preserved in AppData. Simply reload the new base file and your customizations automatically re-apply!
 
 ## Config Tab
-Configure your Star Citizen installation path if needed. The installer sets this automatically during installation.
+Set your Star Citizen installation path. The installer configures this automatically on first run.
 
 ## Keyboard Shortcuts
-- **Double-click** a Custom Value cell to edit
-- **Right-click** for context menu options
-- **Ctrl+F** to search (use the search box at the top)
+- **Double-click** Custom Value to edit in-place
+- **Right-click** for context menu (Edit, Reset, Copy Key)
+- Use the **search box** to find strings
+
+## Status Bar
+Shows the current base file version and contracts.ini version. "✓" means up to date.
 """
 
         # Create a custom dialog
@@ -783,6 +876,11 @@ Configure your Star Citizen installation path if needed. The installer sets this
         dialog_layout.addLayout(button_layout)
 
         dialog.exec()
+
+    def _update_status_bar(self):
+        """Compose base and contracts status into one status bar message."""
+        parts = [p for p in [self._base_status, self._contracts_status] if p]
+        self.statusBar().showMessage("  |  ".join(parts) if parts else "Ready")
 
     def _start_update_check(self):
         """Start background check for latest base file version."""
@@ -816,7 +914,8 @@ Configure your Star Citizen installation path if needed. The installer sets this
         else:
             from src.utils.updater import get_current_base_version
             current = get_current_base_version()
-            self.statusBar().showMessage(f"Base: {current} (update: {latest_tag})")
+            self._base_status = f"Base: {current} (update: {latest_tag})"
+            self._update_status_bar()
 
     @pyqtSlot(str)
     def _on_up_to_date(self, current_tag: str):
@@ -826,7 +925,8 @@ Configure your Star Citizen installation path if needed. The installer sets this
             self._update_checker_worker.quit()
             self._update_checker_worker.wait()
             self._update_checker_worker = None
-        self.statusBar().showMessage(f"Base: {current_tag} ✓")
+        self._base_status = f"Base: {current_tag} ✓"
+        self._update_status_bar()
 
     @pyqtSlot(str)
     def _on_update_error(self, message: str):
@@ -840,7 +940,8 @@ Configure your Star Citizen installation path if needed. The installer sets this
         from src.utils.updater import get_current_base_version
         current = get_current_base_version()
         if current:
-            self.statusBar().showMessage(f"Base: {current}")
+            self._base_status = f"Base: {current}"
+            self._update_status_bar()
         logger.warning(f"Update check error: {message}")
 
     def _start_download(self, download_url: str, version: str):
@@ -871,7 +972,8 @@ Configure your Star Citizen installation path if needed. The installer sets this
     def _on_download_finished(self, progress: QProgressDialog, version: str):
         """Handle successful download and extraction."""
         progress.close()
-        self.statusBar().showMessage(f"Base: {version} ✓")
+        self._base_status = f"Base: {version} ✓"
+        self._update_status_bar()
 
         # Clean up worker
         if self._download_worker:
@@ -907,6 +1009,127 @@ Configure your Star Citizen installation path if needed. The installer sets this
         )
         logger.error(f"Download error: {message}")
 
+    def _start_contracts_check(self):
+        """Start background check for latest contracts.ini version."""
+        self._contracts_checker_worker = ContractsCheckerWorker()
+        self._contracts_checker_worker.update_available.connect(self._on_contracts_update_available)
+        self._contracts_checker_worker.up_to_date.connect(self._on_contracts_up_to_date)
+        self._contracts_checker_worker.error.connect(self._on_contracts_check_error)
+        self._contracts_checker_worker.start()
+
+    @pyqtSlot(str, str)
+    def _on_contracts_update_available(self, sha: str, date_str: str):
+        """Handle contracts update available signal."""
+        # Clean up checker worker
+        if self._contracts_checker_worker:
+            self._contracts_checker_worker.quit()
+            self._contracts_checker_worker.wait()
+            self._contracts_checker_worker = None
+
+        display_date = date_str[:10] if date_str else sha[:8]
+        reply = QMessageBox.question(
+            self,
+            "Contracts Update Available",
+            f"A newer contracts.ini is available (updated {display_date}).\n\nDownload now? (~49 KB)",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            self._start_contracts_download(sha, date_str)
+        else:
+            self._contracts_status = f"Contracts: update available ({display_date})"
+            self._update_status_bar()
+
+    @pyqtSlot(str, str)
+    def _on_contracts_up_to_date(self, sha: str, date_str: str):
+        """Handle contracts up-to-date signal."""
+        # Clean up checker worker
+        if self._contracts_checker_worker:
+            self._contracts_checker_worker.quit()
+            self._contracts_checker_worker.wait()
+            self._contracts_checker_worker = None
+
+        if sha:  # Only show status if we have a stored version
+            display_date = date_str[:10] if date_str else sha[:8]
+            self._contracts_status = f"Contracts: {display_date} ✓"
+        else:
+            self._contracts_status = ""
+
+        self._update_status_bar()
+
+    @pyqtSlot(str)
+    def _on_contracts_check_error(self, message: str):
+        """Handle contracts check error."""
+        # Clean up checker worker
+        if self._contracts_checker_worker:
+            self._contracts_checker_worker.quit()
+            self._contracts_checker_worker.wait()
+            self._contracts_checker_worker = None
+
+        # Graceful degradation: log warning, don't show dialog or status
+        logger.warning(f"Contracts update check error: {message}")
+
+    def _start_contracts_download(self, sha: str, date_str: str):
+        """Start downloading contracts.ini."""
+        progress = QProgressDialog(
+            "Downloading contracts.ini...", None, 0, 100, self
+        )
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setAutoClose(False)
+        progress.show()
+
+        self._contracts_download_worker = ContractsDownloadWorker(sha, date_str)
+        self._contracts_download_worker.progress.connect(
+            lambda done, total: progress.setValue(
+                int((done / total * 100) if total > 0 else 0)
+            ) if total > 0 else None
+        )
+        self._contracts_download_worker.finished.connect(
+            lambda: self._on_contracts_download_finished(progress, date_str)
+        )
+        self._contracts_download_worker.error.connect(
+            lambda msg: self._on_contracts_download_error(progress, msg)
+        )
+        self._contracts_download_worker.start()
+
+    def _on_contracts_download_finished(self, progress: QProgressDialog, date_str: str):
+        """Handle successful contracts download."""
+        progress.close()
+        display_date = date_str[:10] if date_str else "recent"
+        self._contracts_status = f"Contracts: {display_date} ✓"
+        self._update_status_bar()
+
+        # Clean up worker
+        if self._contracts_download_worker:
+            self._contracts_download_worker.quit()
+            self._contracts_download_worker.wait()
+            self._contracts_download_worker = None
+
+        QMessageBox.information(
+            self,
+            "Contracts Updated",
+            f"contracts.ini updated ({display_date}).\n\nReload to see Mission strings."
+        )
+
+        logger.info(f"Contracts updated to {display_date}")
+
+    def _on_contracts_download_error(self, progress: QProgressDialog, message: str):
+        """Handle contracts download error."""
+        progress.close()
+
+        # Clean up worker
+        if self._contracts_download_worker:
+            self._contracts_download_worker.quit()
+            self._contracts_download_worker.wait()
+            self._contracts_download_worker = None
+
+        QMessageBox.critical(
+            self,
+            "Download Failed",
+            f"Failed to download contracts.ini: {message}"
+        )
+        logger.error(f"Contracts download error: {message}")
+
     def closeEvent(self, event):
         """Save state and overrides before closing."""
         # Auto-save overrides if there are unsaved edits
@@ -917,10 +1140,26 @@ Configure your Star Citizen installation path if needed. The installer sets this
             except Exception as e:
                 logger.error(f"Failed to auto-save overrides on exit: {e}")
 
+        # Clean up workers
+        if self._update_checker_worker:
+            self._update_checker_worker.quit()
+            self._update_checker_worker.wait()
+        if self._download_worker:
+            self._download_worker.quit()
+            self._download_worker.wait()
+        if self._contracts_checker_worker:
+            self._contracts_checker_worker.quit()
+            self._contracts_checker_worker.wait()
+        if self._contracts_download_worker:
+            self._contracts_download_worker.quit()
+            self._contracts_download_worker.wait()
+        if self._loader_worker:
+            self._loader_worker.quit()
+            self._loader_worker.wait()
+
         # Save window state
-        self.settings = QSettings(AppSettings.ORG_NAME, AppSettings.APP_NAME)
-        self.settings.setValue(AppSettings.WINDOW_GEOMETRY, self.saveGeometry())
-        self.settings.setValue(AppSettings.WINDOW_STATE, self.saveState())
+        AppSettings.set_window_geometry(self.saveGeometry())
+        AppSettings.set_window_state(self.saveState())
 
         event.accept()
 
@@ -1098,12 +1337,6 @@ Configure your Star Citizen installation path if needed. The installer sets this
             self.restoreGeometry(geometry)
         if state:
             self.restoreState(state)
-
-    def closeEvent(self, event):
-        """Save window state on close."""
-        AppSettings.set_window_geometry(self.saveGeometry())
-        AppSettings.set_window_state(self.saveState())
-        event.accept()
 
     def create_anchor_id(self, text: str) -> str:
         """Convert text to anchor ID (used in markdown links)."""

@@ -46,6 +46,7 @@ Located in `string_model.py`, each localization string is a dataclass with:
 **Category extraction rules**:
 - `vehicle_Name*` → "Ships"
 - `item_Name(SHLD|POWR|COOL|QDRV|JUMP)_*` → "Ship Components"
+- Entries from `contracts.ini` → "Missions" (assigned directly during parsing)
 - Everything else → "Other"
 
 ### 2. File Parsing (ini_parser.py)
@@ -57,15 +58,16 @@ Located in `string_model.py`, each localization string is a dataclass with:
 ### 3. GUI (main_window.py)
 **Main Components**:
 - **Toolbar**: 4 buttons (Load Base File, Restore Backup, Apply to Game, Help) + search/filter row
-- **Tab 1 - Strings**: 4-column table (Category, Key, Original Value, Custom Value) + filters
+- **Tab 1 - Strings**: 6-column table (Category, Key, Default Value, Current Value, Custom Value, Status) + filters
 - **Tab 2 - Config**: Path inputs for base global.ini and game installation
-- **Tab 3 - About**: Help and branding
-- **Footer**: Osiris DevWorks branding, donation links
-- **Status Bar**: Shows loaded file count and operation status
+- **Tab 3 - About**: Project info, features, donation links
+- **Footer**: Osiris DevWorks logo, GitHub attribution links (MrKraken, ExoAE, BeltaKoda), donation buttons
+- **Status Bar**: Shows base file version and contracts.ini version (e.g., `Base: 4.7.0-LIVE ✓  |  Contracts: 2026-03-28 ✓`)
+- **Window Icon**: Displays logo.ico in taskbar and window title bar
 
-**Filters**: Search text, Category dropdown, Status dropdown, Hide Unmodified checkbox
+**Filters**: Search text, Category dropdown (Ships, Ship Components, Missions, Other), Status dropdown, Hide Unmodified checkbox
 
-**Threading**: `FileLoaderWorker` (QThread) loads files without blocking UI, shows progress dialog
+**Threading**: `FileLoaderWorker`, `UpdateCheckerWorker`, `DownloadWorker`, `ContractsCheckerWorker`, `ContractsDownloadWorker` all run in QThread with progress dialogs
 
 ### 4. Backup System
 Located in `main_window.py:apply_to_game()`:
@@ -80,12 +82,21 @@ Uses `QSettings` with Osiris DevWorks organization (Windows Registry):
 - `window_geometry`, `window_state` - Window restoration
 - `get_overrides_path()` - Returns `%APPDATA%\Osiris DevWorks\SC Localization Editor\overrides.ini`
 
-### 6. Auto-Update System (updater.py)
+### 6. Auto-Update System - Global.ini (updater.py)
 - **GitHub API**: Fetches latest release from `BeltaKoda/ScCompLangPackRemix` on startup
 - **Version tracking**: Stores current version in `data/base_version.txt`
 - **Download**: Only `-LIVE` releases; user prompted before downloading ~2.2MB zip
 - **Threading**: `UpdateCheckerWorker` + `DownloadWorker` run in background threads
 - **Extraction**: Downloads zip, extracts `data/Localization/english/global.ini` to `data/global.ini`
+
+### 6b. Auto-Update System - Contracts.ini (updater.py)
+- **GitHub API**: Checks latest commit for `contracts.ini` in `MrKraken/StarStrings` on startup (parallel to base file check)
+- **Version tracking**: Stores commit SHA and date in `data/contracts_version.txt` (format: `sha\ndate`)
+- **Download**: Downloads raw mission contract strings file (~49 KB); user prompted before download
+- **Threading**: `ContractsCheckerWorker` + `ContractsDownloadWorker` run in background (independent of base file)
+- **Merging**: Loaded via `load_source_files(base_path, overrides_path, contracts_path)` with category='Missions'
+- **Precedence**: Contracts entries override global.ini entries for overlapping keys
+- **Graceful Degradation**: If contracts unavailable, app continues with global.ini only (no errors)
 
 ### 7. Overrides Persistence (overrides_manager.py)
 - **Location**: `%APPDATA%\Osiris DevWorks\SC Localization Editor\overrides.ini`
@@ -114,14 +125,30 @@ Uses `QSettings` with Osiris DevWorks organization (Windows Registry):
 
 ## File Locations
 
+### Project Files
 - **Source code**: `src/` folder
-- **Configuration**: Windows Registry (HKEY_CURRENT_USER\Software\Osiris DevWorks\SC Localization Editor)
-- **Version**: `VERSION.TXT` in project root
-- **Base file version**: `data/base_version.txt` (tracks current auto-update version)
-- **User overrides**: `%APPDATA%\Osiris DevWorks\SC Localization Editor\overrides.ini`
-- **Assets**: `assets/` folder (Osiris DevWorks logo, PayPal/Venmo buttons)
-- **Game files**: Configurable via Config tab; typically `Roberts Space Industries/StarCitizen/LIVE/data/Localization/english/`
-- **Backups**: Same directory as applied file (`LIVE/data/Localization/english/global.ini.bak_*`)
+- **Version**: `VERSION.TXT` in project root (single source of truth for all builds)
+- **Build scripts**: `scripts/build/build_exe.py` (primary build tool), `scripts/build/build_all.bat` (build exe + installer)
+- **Assets**: `src/assets/` folder (Osiris DevWorks logo, PayPal/Venmo buttons)
+- **Build specs**: `SCLocalizationEditor.spec`, `SCLocalizationEditor-v0.1.0.spec`, `SCLocalizationEditor-v0.2.0.spec` (versioned backups; use current .spec)
+- **Installer config**: `installer.iss` (Inno Setup script)
+
+### Data & Cached Files
+- **Base file cache**: `data/global.ini` (extracted from auto-update or manual load)
+- **Base file version**: `data/base_version.txt` (tracks current global.ini auto-update release version)
+- **Base file backup**: `data/global.ini.bak` (reference backup for migration detection)
+- **Contracts file cache**: `data/contracts.ini` (mission strings downloaded from MrKraken/StarStrings)
+- **Contracts version**: `data/contracts_version.txt` (tracks current contracts.ini commit SHA and date)
+- **Mission rewards**: `data/mission_blueprint_rewards.json` (if applicable to future features)
+
+### User Settings (Windows)
+- **Configuration**: Windows Registry at `HKEY_CURRENT_USER\Software\Osiris DevWorks\SC Localization Editor`
+  - Stores: `base_global_path`, `game_install_path`, `window_geometry`, `window_state`
+- **User overrides**: `%APPDATA%\Osiris DevWorks\SC Localization Editor\overrides.ini` (custom edits, persisted on Apply)
+
+### Game Installation
+- **Game files location**: Configurable via Config tab; typically `Roberts Space Industries/StarCitizen/LIVE/data/Localization/english/`
+- **Game backups**: Same directory as applied file (`LIVE/data/Localization/english/global.ini.bak_YYYYMMDD_HHMMSS`)
 
 ## Development
 
@@ -130,21 +157,105 @@ Uses `QSettings` with Osiris DevWorks organization (Windows Registry):
 pip install -r requirements.txt
 ```
 
-### Run
+### Run Development Version
 ```bash
 python src/main.py
 ```
 
 ### Build Executable
+
+**Recommended: Use the build script** (handles PyInstaller, versioning, and cleanup):
+
+```bash
+cd scripts/build
+python build_exe.py
+```
+
+This creates `dist/SCLocalizationEditor-v{VERSION}.exe` where VERSION comes from `VERSION.TXT`.
+
+**With automatic version increment:**
+```bash
+cd scripts/build
+python build_exe.py --increment patch   # 0.2.0 → 0.2.1
+python build_exe.py --increment minor   # 0.2.0 → 0.3.0
+python build_exe.py --increment major   # 0.2.0 → 1.0.0
+```
+
+**Manual PyInstaller (not recommended):**
 ```bash
 pyinstaller SCLocalizationEditor.spec
 ```
 
-### Create Installer
+### Build Installer (Windows)
+
+Requires [Inno Setup](https://jrsoftware.org/isdl.php) installed.
+
+**Option A: Automated** (builds exe + installer):
 ```bash
-# Requires Inno Setup installed
-# Compile installer.iss file in Inno Setup IDE
+cd scripts/build
+build_all.bat
 ```
+
+**Option B: Command line** (after building exe):
+```bash
+"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+```
+
+**Option C: GUI**:
+1. Open Inno Setup Compiler
+2. File → Open → Select `installer.iss`
+3. Build → Compile
+
+Output: `SCLocalizationEditor-v{VERSION}-Setup.exe` in project root
+
+### Version Management
+
+Version is stored in a single file: **`VERSION.TXT`** (e.g., `0.2.0`)
+
+When building:
+- `build_exe.py` reads VERSION.TXT and names output exe accordingly
+- `installer.iss` must be manually updated to match (line ~5: `AppVersion` and version in filename)
+
+**Version update workflow:**
+1. Edit `VERSION.TXT` to new version (e.g., `0.3.0`)
+2. Update `installer.iss` line 5: `AppVersion=0.3.0`
+3. Run `cd scripts/build && build_all.bat`
+4. Test the installer and executable
+5. Commit changes and tag: `git tag -a v0.3.0 -m "Release v0.3.0"`
+6. Create GitHub release with both exe and installer
+
+## Release Checklist
+
+Follow this checklist when cutting a new release:
+
+1. **Increment version**
+   - Update `VERSION.TXT` (e.g., `0.2.0` → `0.3.0`)
+   - Update `installer.iss` line ~5 with new `AppVersion` and version in output filename
+
+2. **Build & Test**
+   ```bash
+   cd scripts/build
+   build_all.bat
+   ```
+   - Test standalone exe: `dist/SCLocalizationEditor-v0.3.0.exe`
+   - Test installer: `SCLocalizationEditor-v0.3.0-Setup.exe`
+
+3. **Commit & Tag**
+   ```bash
+   git add VERSION.TXT installer.iss
+   git commit -m "Bump version to 0.3.0"
+   git tag -a v0.3.0 -m "Release v0.3.0"
+   git push origin main
+   git push origin v0.3.0
+   ```
+
+4. **Create GitHub Release**
+   - Use the git tag to create a release
+   - Attach both files: `dist/SCLocalizationEditor-v0.3.0.exe` and `SCLocalizationEditor-v0.3.0-Setup.exe`
+   - Add release notes (changes from previous version)
+
+5. **Optional: Discord Notification**
+   - Script available at `scripts/discord_notify.py` (if webhook configured)
 
 ## Key Implementation Details
 

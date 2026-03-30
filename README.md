@@ -21,8 +21,34 @@ A PyQt6 GUI application for managing Star Citizen localization string customizat
 
 ## 🚀 Quick Start
 
-Grab the latest release here:
-[SC Localization Editor Releases](https://github.com/Osiris-DevWorks/sc-localization-editor/releases)
+### Using the Release
+Grab the latest release here: [SC Localization Editor Releases](https://github.com/Osiris-DevWorks/sc-localization-editor/releases)
+
+Just download the **-Setup.exe** installer and run it. The app will auto-detect your Star Citizen installation.
+
+### For Developers
+
+**Prerequisites**:
+- Python 3.9+
+- Windows 10/11 (application uses Windows Registry for settings)
+
+**Installation**:
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/OsirisDevworks/sc-localization-editor.git
+   cd sc-localization-editor
+   ```
+
+2. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Run the application**
+   ```bash
+   python src/main.py
+   ```
 
 ## 📖 Usage
 
@@ -36,7 +62,7 @@ Grab the latest release here:
 
 2. **Find & Customize**:
    - Use the **Search** box to find strings (search key or value)
-   - Use **Category** filter (Ships, Ship Components, Other)
+   - Use **Category** filter (Ships, Ship Components, Missions, Other)
    - Double-click the **Custom Value** column to edit
 
 3. **Apply Changes**: Click **"Apply to Game"**
@@ -68,7 +94,10 @@ The app automatically detects your Star Citizen installation on first run (via i
 
 ### Data Storage
 - **Your edits**: `%APPDATA%\Osiris DevWorks\SC Localization Editor\overrides.ini`
-- **Base file version**: `data/base_version.txt` (for auto-update tracking)
+- **Base file version**: `data/base_version.txt` (global.ini auto-update tracking)
+- **Base file cache**: `data/global.ini` (downloaded from auto-update)
+- **Contracts file**: `data/contracts.ini` (mission strings from auto-update)
+- **Contracts version**: `data/contracts_version.txt` (contracts.ini update tracking)
 - **Game backups**: `StarCitizen\LIVE\data\Localization\english\global.ini.bak_*` (timestamped)
 
 ## 📦 Building & Release
@@ -154,7 +183,8 @@ StarCitizen/
 ## 🙏 Acknowledgments
 
 - [ExoAE](https://github.com/ExoAE/ScCompLangPack) - Original ScCompLangPack concept and merge logic
-- [MrKraken](https://www.youtube.com/@MrKraken) - ASOP terminal enhancements and workflow improvements
+- [MrKraken](https://github.com/MrKraken/StarStrings) - ASOP terminal enhancements, workflow improvements, and mission contract localization strings
+- [BeltaKoda](https://github.com/BeltaKoda/ScCompLangPackRemix) - Community language pack remix (base file source for auto-update)
 - Star Citizen Community - Localization support and testing
 
 ## 📝 License
