@@ -21,27 +21,8 @@ A PyQt6 GUI application for managing Star Citizen localization string customizat
 
 ## 🚀 Quick Start
 
-### Prerequisites
-- Python 3.9+
-- Star Citizen global.ini and vehicles.ini files (extracted from Data.p4k)
-
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/OsirisDevworks/sc-localization-editor.git
-   cd sc-localization-editor
-   ```
-
-2. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Run the application**
-   ```bash
-   python src/main.py
-   ```
+Grab the latest release here:
+[SC Localization Editor Releases](https://github.com/Osiris-DevWorks/sc-localization-editor/releases)
 
 ## 📖 Usage
 
