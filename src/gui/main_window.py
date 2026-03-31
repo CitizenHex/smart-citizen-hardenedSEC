@@ -883,16 +883,24 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Warning", "No sources configured. Please configure data sources in Config tab.")
                 return
 
-            # Create worker to load files in background
-            worker = FileLoaderWorker(sources_dict=sources_dict, hierarchy=hierarchy)
-            worker.finished.connect(self._on_files_loaded)
-            worker.error.connect(self._on_load_error)
-            worker.start()
-
             self.statusBar().showMessage("Merging sources...")
+
+            try:
+                # Load synchronously in main thread
+                logger.info("Merging configured sources...")
+                entries = load_source_files(sources_dict, hierarchy)
+                logger.info(f"Merge complete: {len(entries)} entries")
+                self.entries = entries
+                self.populate_table()
+                self.statusBar().showMessage("Merge complete")
+            except Exception as e:
+                logger.exception(f"Error during merge: {e}")
+                QMessageBox.critical(self, "Error", f"Failed to merge sources: {e}")
+                self.statusBar().showMessage("Merge failed")
+
         except Exception as e:
             logger.exception(f"Error in perform_merge_and_reload: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to merge sources: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to load sources: {e}")
 
     @pyqtSlot()
     def restore_backup(self):
