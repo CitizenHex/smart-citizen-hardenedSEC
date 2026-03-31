@@ -251,16 +251,15 @@ class AppSettings:
             AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, old_base_path)
 
         # Pre-configure global.ini from MrKraken StarStrings repo
-        # (includes contracts.ini merged within it)
         if not old_base_path:  # Only if not already set
             global_url = "https://raw.githubusercontent.com/MrKraken/StarStrings/master/Data/Localization/english/global.ini"
             AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, global_url)
 
-        # Contracts: Leave unconfigured by default
-        # MrKraken merges contracts into global.ini, so separate contracts source not needed
-        # Users can optionally configure a separate contracts source if desired
-        AppSettings.set_source_path(AppSettings.SOURCE_CONTRACTS, "")
-        AppSettings.set_source_enabled(AppSettings.SOURCE_CONTRACTS, False)
+        # Contracts: Configure from MrKraken StarStrings repo
+        # Contracts and global are separate files that must both be loaded
+        contracts_url = "https://raw.githubusercontent.com/MrKraken/StarStrings/master/Data/Localization/english/contracts.ini"
+        AppSettings.set_source_path(AppSettings.SOURCE_CONTRACTS, contracts_url)
+        AppSettings.set_source_enabled(AppSettings.SOURCE_CONTRACTS, True)
 
         # Components and Ships sources: empty by default
         AppSettings.set_source_path(AppSettings.SOURCE_COMPONENTS, "")

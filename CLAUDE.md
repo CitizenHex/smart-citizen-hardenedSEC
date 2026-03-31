@@ -63,7 +63,7 @@ Load Sources → Merge by Hierarchy → Parser → StringEntry objects → GUI T
 ### Source Configuration System
 The app supports five configurable data sources:
 1. **Global** - Base localization file (pre-configured to MrKraken StarStrings repo)
-2. **Contracts** - Mission strings (disabled by default, merged in Global)
+2. **Contracts** - Mission strings (pre-configured to MrKraken StarStrings repo)
 3. **Components** - Ship component strings (empty by default)
 4. **Ships** - Ship names (empty by default)
 5. **User** - User customizations (auto-managed in AppData as overrides.ini)
@@ -202,9 +202,10 @@ Uses `QSettings` with Osiris DevWorks organization (Windows Registry) at `HKEY_C
 
 **Migration** (`migrate_legacy_settings()`):
 - On first run with new version, converts old settings to new format
-- Pre-configures Global source to MrKraken StarStrings repo
-- Leaves Contracts, Components, Ships empty by default (user configurable)
+- Pre-configures Global and Contracts sources to MrKraken StarStrings repo
+- Leaves Components and Ships empty by default (user configurable)
 - Sets default hierarchy: [global, contracts, user]
+- Enables auto-update for Global and Contracts by default
 
 ### 6. Auto-Update System (updater.py)
 
@@ -218,6 +219,15 @@ The app can auto-download and update any configured source (Global, Contracts, C
 - **Download**: User prompted before downloading ~2.2MB zip; only -LIVE releases accepted
 - **Threading**: `UpdateCheckerWorker` + `DownloadWorker` run in background threads
 - **Extraction**: Downloads zip, extracts `data/Localization/english/global.ini` from repo, saves locally as `data/base.ini`
+
+**Contracts Source**:
+- **Default URL**: Pre-configured to MrKraken StarStrings repo: `https://raw.githubusercontent.com/MrKraken/StarStrings/master/Data/Localization/english/contracts.ini`
+- **Storage**: Downloaded and saved as `data/contracts.ini`
+- **Purpose**: Mission contract strings; merged with Global source in hierarchy order
+- **Note**: Global and Contracts are separate files and must both be loaded for complete localization
+- **Download**: User prompted before downloading ~49 KB file
+- **Threading**: `ContractsCheckerWorker` + `ContractsDownloadWorker` run in parallel to base file checks
+- **Version tracking**: Stores commit SHA and date in `data/contracts_version.txt` (format: `sha\ndate`)
 
 **Other Sources**:
 - User can configure any source to download from a URL or load from local file
@@ -240,8 +250,8 @@ The app can auto-download and update any configured source (Global, Contracts, C
 ## Workflow
 
 ### Standard Usage
-1. **First Run**: App migrates old settings (if any) and pre-configures Global source to MrKraken StarStrings repo
-2. **Auto-Load on Startup**: App loads configured sources, merges them in hierarchy order, displays result in table
+1. **First Run**: App migrates old settings (if any) and pre-configures Global and Contracts sources to MrKraken StarStrings repo
+2. **Auto-Load on Startup**: App loads configured sources (Global, Contracts if enabled), merges them in hierarchy order, displays result in table
 3. **Configure Sources** (optional): 
    - Click Config tab
    - Add/edit sources (Global, Contracts, Components, Ships)
