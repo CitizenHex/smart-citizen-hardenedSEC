@@ -702,7 +702,7 @@ class MainWindow(QMainWindow):
                     entries = load_source_files(sources_dict, hierarchy)
                     logger.info(f"Loaded {len(entries)} entries")
                     self.entries = entries
-                    self._populate_table()
+                    self.populate_table()
                     self.statusBar().showMessage("Ready")
                     return
                 except Exception as e:
