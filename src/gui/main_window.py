@@ -657,14 +657,16 @@ class MainWindow(QMainWindow):
 
     def load_default_values(self):
         """Load default values from data/base.ini for reference."""
+        from src.parser.ini_parser import parse_ini_file
+
         data_dir = Path(__file__).parent.parent.parent / "data"
         default_base = data_dir / "base.ini"
 
         if default_base.exists():
             try:
-                self.default_values = load_source_files(str(default_base), None)
-                # Convert to dictionary for quick lookup
-                self.default_values = {entry.key: entry.original_value for entry in self.default_values}
+                # Parse base.ini directly and convert to dict for lookup
+                parsed = parse_ini_file(default_base)
+                self.default_values = {key: value for key, value in parsed.items()}
                 logger.info(f"Loaded {len(self.default_values)} default values")
             except Exception as e:
                 logger.warning(f"Failed to load default values: {e}")
@@ -680,7 +682,7 @@ class MainWindow(QMainWindow):
                 # Create worker to load and merge sources in background
                 worker = FileLoaderWorker(sources_dict=sources_dict, hierarchy=hierarchy)
                 worker.finished.connect(self._on_files_loaded)
-                worker.error.connect(self._on_file_load_error)
+                worker.error.connect(self._on_load_error)
                 worker.start()
 
                 self.statusBar().showMessage("Loading and merging configured sources...")
@@ -846,7 +848,7 @@ class MainWindow(QMainWindow):
             # Create worker to load files in background
             worker = FileLoaderWorker(sources_dict=sources_dict, hierarchy=hierarchy)
             worker.finished.connect(self._on_files_loaded)
-            worker.error.connect(self._on_file_load_error)
+            worker.error.connect(self._on_load_error)
             worker.start()
 
             self.statusBar().showMessage("Merging sources...")
