@@ -226,7 +226,7 @@ class MainWindow(QMainWindow):
         # Data
         self.entries: list[StringEntry] = []
         self.filtered_row_indices: list[int] = []
-        self.default_values: dict = {}  # Store default values from data/base.ini
+        self.default_values: dict = {}  # Store default values from cached base source
 
         # File loader worker
         self._loader_worker: Optional[FileLoaderWorker] = None
@@ -813,16 +813,31 @@ class MainWindow(QMainWindow):
             merged_dict = merge_sources_by_hierarchy(sources_dict, hierarchy, user_overrides_dict)
 
             # Get a base file to use for structure preservation
-            # Try to use the first source file, fall back to data/base.ini
+            # Use the first source file from hierarchy
             base_file = None
             for source_name in hierarchy:
                 source_path = AppSettings.get_source_path(source_name)
-                if source_path and Path(source_path).exists():
+                # Check if it's a URL (remote source) - use cache
+                if source_path and (source_path.startswith('http://') or source_path.startswith('https://')):
+                    # Map source name to cache file
+                    cache_mapping = {
+                        AppSettings.SOURCE_GLOBAL: "base.ini",
+                        AppSettings.SOURCE_CONTRACTS: "contracts.ini",
+                        AppSettings.SOURCE_COMPONENTS: "components.ini",
+                        AppSettings.SOURCE_SHIPS: "ships.ini",
+                    }
+                    if source_name in cache_mapping:
+                        cache_file = AppSettings.get_cache_dir() / cache_mapping[source_name]
+                        if cache_file.exists():
+                            base_file = cache_file
+                            break
+                # Otherwise check if it's a local file that exists
+                elif source_path and Path(source_path).exists():
                     base_file = source_path
                     break
 
             if not base_file:
-                base_file = Path(__file__).parent.parent.parent / "data" / "base.ini"
+                raise FileNotFoundError("No base file found. Configure sources and download them first.")
 
             # Use merger to preserve original file structure
             from src.merger.ini_merger import merge_ini_files
