@@ -664,20 +664,21 @@ class MainWindow(QMainWindow):
         self.restore_backup_btn.setEnabled(enabled)
 
     def load_default_values(self):
-        """Load default values from data/base.ini for reference."""
+        """Load default values from cached base source in AppData."""
         from src.parser.ini_parser import parse_ini_file
 
-        data_dir = Path(__file__).parent.parent.parent / "data"
-        default_base = data_dir / "base.ini"
+        cache_file = AppSettings.get_cache_dir() / "base.ini"
 
-        if default_base.exists():
+        if cache_file.exists():
             try:
-                # Parse base.ini directly and convert to dict for lookup
-                parsed = parse_ini_file(default_base)
+                # Parse cached base.ini and convert to dict for lookup
+                parsed = parse_ini_file(cache_file)
                 self.default_values = {key: value for key, value in parsed.items()}
-                logger.info(f"Loaded {len(self.default_values)} default values")
+                logger.info(f"Loaded {len(self.default_values)} default values from cache")
             except Exception as e:
-                logger.warning(f"Failed to load default values: {e}")
+                logger.warning(f"Failed to load default values from {cache_file}: {e}")
+        else:
+            logger.debug(f"Cache file not found: {cache_file}. Default values will be empty until sources are downloaded.")
 
     def auto_load_default_files(self):
         """Automatically load and merge configured sources, or fall back to legacy behavior."""
