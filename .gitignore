@@ -55,6 +55,9 @@ dist/
 *.manifest
 *.spec
 
+# Allow build scripts (needed for builds from any computer)
+!scripts/build/
+
 # Runtime Data Files (auto-generated/downloaded)
 data/global.ini
 data/global.ini.bak
