@@ -129,6 +129,9 @@ def load_source_files(
 def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str]]:
     """Load all sources from application settings.
 
+    For remote URLs, attempts to load from cached local files.
+    For local paths, loads directly.
+
     Returns:
         Tuple of (sources_dict, hierarchy) where:
         - sources_dict: Dict mapping source names to key-value dicts
@@ -138,6 +141,14 @@ def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str]]:
 
     sources_dict: Dict[str, Dict[str, str]] = {}
     hierarchy = AppSettings.get_merge_hierarchy()
+
+    # Map source names to their cached file names
+    cache_mapping = {
+        AppSettings.SOURCE_GLOBAL: "base.ini",
+        AppSettings.SOURCE_CONTRACTS: "contracts.ini",
+        AppSettings.SOURCE_COMPONENTS: "components.ini",
+        AppSettings.SOURCE_SHIPS: "ships.ini",
+    }
 
     # Load each configured source
     for source_name in AppSettings.AVAILABLE_SOURCES:
@@ -151,8 +162,15 @@ def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str]]:
         try:
             # Handle URLs vs local files
             if source_path.startswith('http://') or source_path.startswith('https://'):
-                # For now, skip remote sources in this helper
-                # Will be handled by updater for downloads
+                # For remote sources, try to load from cached local file
+                if source_name in cache_mapping:
+                    cache_file = Path(__file__).parent.parent.parent / "data" / cache_mapping[source_name]
+                    if cache_file.exists():
+                        source_data = parse_ini_file(cache_file)
+                        if source_data:
+                            sources_dict[source_name] = source_data
+                    else:
+                        logger.warning(f"Remote source {source_name} not yet downloaded: {cache_file}")
                 continue
 
             source_data = parse_ini_file(source_path)
