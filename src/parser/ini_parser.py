@@ -78,30 +78,46 @@ def load_source_files(
 
     # Handle legacy custom_path parameter
     if custom_path and not user_overrides:
+        logger.info(f"Loading user overrides from legacy path: {custom_path}")
         user_overrides = parse_ini_file(custom_path)
 
+    logger.info(f"Starting merge of {sum(len(d) for d in sources_dict.values())} total keys from {len(sources_dict)} sources")
+    logger.info(f"Hierarchy: {hierarchy}, Sources available: {list(sources_dict.keys())}")
+
+    # Filter hierarchy to only include sources that exist in sources_dict
+    filtered_hierarchy = [s for s in hierarchy if s in sources_dict]
+    logger.info(f"Filtered hierarchy: {filtered_hierarchy}")
+
     # Merge all sources in hierarchy order, with user overrides as highest priority
-    merged_values = merge_sources_by_hierarchy(sources_dict, hierarchy, user_overrides)
+    merged_values = merge_sources_by_hierarchy(sources_dict, filtered_hierarchy, user_overrides)
+    logger.info(f"Merge complete. Result has {len(merged_values)} keys")
 
     # Track which source each key came from (for status calculation)
+    logger.info("Tracking source origin for each key...")
     source_origin: Dict[str, str] = {}
-    for source_name in hierarchy:
-        if source_name in sources_dict:
-            source_data = sources_dict[source_name]
-            for key in source_data.keys():
-                source_origin[key] = source_name
+    for source_name in filtered_hierarchy:
+        source_data = sources_dict[source_name]
+        for key in source_data.keys():
+            source_origin[key] = source_name
 
     # If user has pre-existing overrides, track those too
     if user_overrides:
         for key in user_overrides.keys():
             source_origin[key] = 'user'
+    logger.info(f"Source origin tracking complete. {len(source_origin)} keys tracked")
 
     # Create StringEntry for each key in merged result
-    base_source = hierarchy[0] if hierarchy else 'global'
+    logger.info("Creating StringEntry objects...")
+    base_source = filtered_hierarchy[0] if filtered_hierarchy else 'global'
+    entry_count = 0
     for key, merged_value in merged_values.items():
         # Skip vehicle_Name entries ending with _short
         if key.startswith("vehicle_Name") and key.endswith("_short"):
             continue
+
+        entry_count += 1
+        if entry_count % 10000 == 0:
+            logger.debug(f"Processing entry {entry_count} of ~{len(merged_values)}...")
 
         source = source_origin.get(key, base_source)
         status = _determine_status_from_source(source, base_source)
@@ -123,6 +139,7 @@ def load_source_files(
         )
         entries.append(entry)
 
+    logger.info(f"Created {len(entries)} StringEntry objects successfully")
     return entries
 
 
