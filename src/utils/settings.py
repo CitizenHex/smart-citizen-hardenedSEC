@@ -241,8 +241,8 @@ class AppSettings:
         """
         settings = AppSettings.settings()
 
-        # Only migrate if new settings don't exist yet
-        if settings.value(f"{AppSettings.DATA_SOURCES_PREFIX}/{AppSettings.SOURCE_GLOBAL}/path"):
+        # Check if migration has already been done (look for contracts as the latest addition)
+        if settings.value(f"{AppSettings.DATA_SOURCES_PREFIX}/{AppSettings.SOURCE_CONTRACTS}/path"):
             return  # Already migrated
 
         # Migrate base_global_path to global source
