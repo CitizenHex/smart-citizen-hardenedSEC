@@ -246,13 +246,17 @@ The app can auto-download and update any configured source (Global, Contracts, C
 - **Format**: Plain `key=value` per line (only modified entries)
 - **Save triggers**: On "Apply to Game" and on app close via `closeEvent()`
 - **Load**: Automatically applied when loading sources, merged as highest priority
-- **Bootstrap on First Run**: If configured source cache doesn't exist, app cannot load. User must run auto-update to download sources first. No fallback to game directory or legacy paths.
+- **Bootstrap on First Run**: App automatically downloads missing cache files from configured sources on startup. Creates cache directory in AppData if needed. No fallback to game directory or legacy paths.
 
 ## Workflow
 
 ### Standard Usage
-1. **First Run**: App migrates old settings (if any) and pre-configures Global and Contracts sources to MrKraken StarStrings repo
-2. **Auto-Load on Startup**: App loads configured sources (Global, Contracts if enabled), merges them in hierarchy order, displays result in table
+1. **First Run**: App:
+   - Creates AppData cache directory: `%APPDATA%\Osiris DevWorks\SC Localization Editor\cache\`
+   - Migrates old settings (if any) and pre-configures Global and Contracts sources to MrKraken StarStrings repo
+   - Auto-downloads missing cache files from configured sources (Global, Contracts)
+   - Then loads and displays merged strings in table
+2. **Subsequent Startups**: App loads cached sources, merges in hierarchy order, displays result
 3. **Configure Sources** (optional): 
    - Click Config tab
    - Add/edit sources (Global, Contracts, Components, Ships)
