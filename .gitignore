@@ -53,9 +53,9 @@ Thumbs.db
 build/
 dist/
 *.manifest
-*.spec
 
-# Allow build scripts (needed for builds from any computer)
+# Allow current spec and build scripts (needed for builds from any computer)
+!SCLocalizationEditor.spec
 !scripts/build/
 
 # Runtime Data Files (auto-generated/downloaded)
