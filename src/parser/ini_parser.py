@@ -160,13 +160,15 @@ def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str]]:
     sources_dict: Dict[str, Dict[str, str]] = {}
     hierarchy = AppSettings.get_merge_hierarchy()
 
-    # Map source names to their cached file names
+    # Map source names to their cached file names in AppData cache
     cache_mapping = {
         AppSettings.SOURCE_GLOBAL: "base.ini",
         AppSettings.SOURCE_CONTRACTS: "contracts.ini",
         AppSettings.SOURCE_COMPONENTS: "components.ini",
         AppSettings.SOURCE_SHIPS: "ships.ini",
     }
+
+    cache_dir = AppSettings.get_cache_dir()
 
     # Load each configured source
     logger.info(f"Loading sources from settings. Available sources: {AppSettings.AVAILABLE_SOURCES}")
@@ -185,9 +187,9 @@ def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str]]:
         try:
             # Handle URLs vs local files
             if source_path.startswith('http://') or source_path.startswith('https://'):
-                # For remote sources, load from cached local file (if it exists)
+                # For remote sources, load from cached local file in AppData (must exist)
                 if source_name in cache_mapping:
-                    cache_file = Path(__file__).parent.parent.parent / "data" / cache_mapping[source_name]
+                    cache_file = cache_dir / cache_mapping[source_name]
                     logger.info(f"Looking for cache file: {cache_file}")
 
                     if cache_file.exists():
@@ -199,11 +201,17 @@ def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str]]:
                         else:
                             logger.warning(f"Parsed {source_name} but got empty result")
                     else:
-                        logger.warning(f"Remote source {source_name} not yet cached: {cache_file}")
+                        logger.error(f"Remote source {source_name} requires download. Cache not found: {cache_file}")
+                        raise FileNotFoundError(f"Source {source_name} cache not found. Run auto-update to download: {cache_file}")
                 continue
 
-            # Local file path
+            # Local file path - must exist
             logger.info(f"Loading local file {source_path}...")
+            local_file = Path(source_path)
+            if not local_file.exists():
+                logger.error(f"Local file not found: {source_path}")
+                raise FileNotFoundError(f"Source {source_name} file not found: {source_path}")
+
             source_data = parse_ini_file(source_path)
             if source_data:
                 sources_dict[source_name] = source_data

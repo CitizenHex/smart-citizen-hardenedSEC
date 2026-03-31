@@ -284,6 +284,18 @@ class AppSettings:
         AppSettings.set_source_auto_update(AppSettings.SOURCE_SHIPS, False)
 
     @staticmethod
+    def get_cache_dir() -> Path:
+        r"""Get canonical cache directory in AppData.
+
+        Returns:
+            Path to cache directory in %APPDATA%\Osiris DevWorks\SC Localization Editor\cache\
+        """
+        appdata = os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming"))
+        cache_dir = Path(appdata) / "Osiris DevWorks" / "SC Localization Editor" / "cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        return cache_dir
+
+    @staticmethod
     def get_overrides_path() -> Path:
         r"""Get canonical path for overrides.ini in AppData.
 

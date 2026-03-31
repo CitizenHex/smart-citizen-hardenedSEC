@@ -58,12 +58,14 @@ def check_latest_release() -> tuple[str, str] | None:
 
 
 def get_current_base_version() -> str:
-    """Read current base version from data/base_version.txt.
+    """Read current base version from cache in AppData.
 
     Returns:
         Version string (e.g. "4.7.0-LIVE") or empty string if missing
     """
-    version_file = Path(__file__).parent.parent.parent / "data" / "base_version.txt"
+    from src.utils.settings import AppSettings
+
+    version_file = AppSettings.get_cache_dir() / "base_version.txt"
 
     if version_file.exists():
         try:
@@ -75,15 +77,16 @@ def get_current_base_version() -> str:
 
 
 def save_base_version(version: str) -> None:
-    """Write version to data/base_version.txt.
+    """Write version to cache in AppData.
 
     Args:
         version: Version string (e.g. "4.7.0-LIVE")
     """
-    version_file = Path(__file__).parent.parent.parent / "data" / "base_version.txt"
+    from src.utils.settings import AppSettings
+
+    version_file = AppSettings.get_cache_dir() / "base_version.txt"
 
     try:
-        version_file.parent.mkdir(parents=True, exist_ok=True)
         version_file.write_text(version, encoding='utf-8')
         logger.info(f"Saved base version: {version}")
     except Exception as e:
@@ -91,7 +94,7 @@ def save_base_version(version: str) -> None:
 
 
 def download_and_extract_base(download_url: str, progress_callback: Callable[[int, int], None]) -> Path:
-    """Download zip file and extract base file to data/base.ini.
+    """Download zip file and extract base file to cache in AppData.
 
     Downloads global.ini from the repo and saves it locally as base.ini
     to avoid confusion with the game's global.ini file.
@@ -101,12 +104,14 @@ def download_and_extract_base(download_url: str, progress_callback: Callable[[in
         progress_callback: Called with (bytes_downloaded, total_bytes) during download
 
     Returns:
-        Path to extracted base.ini file
+        Path to extracted base.ini file in cache
 
     Raises:
         Exception if download or extraction fails
     """
-    output_path = Path(__file__).parent.parent.parent / "data" / "base.ini"
+    from src.utils.settings import AppSettings
+
+    output_path = AppSettings.get_cache_dir() / "base.ini"
 
     try:
         logger.info(f"Downloading from {download_url}")
@@ -194,13 +199,15 @@ def check_contracts_update() -> tuple[str, str] | None:
 
 
 def get_current_contracts_version() -> tuple[str, str]:
-    """Read current contracts version (SHA and date) from data/contracts_version.txt.
+    """Read current contracts version (SHA and date) from cache in AppData.
 
     Returns:
         (sha, date_str) tuple. Both empty strings if file missing or error.
         File format is 'sha\\ndate' (two lines).
     """
-    version_file = Path(__file__).parent.parent.parent / "data" / "contracts_version.txt"
+    from src.utils.settings import AppSettings
+
+    version_file = AppSettings.get_cache_dir() / "contracts_version.txt"
 
     if version_file.exists():
         try:
@@ -216,13 +223,15 @@ def get_current_contracts_version() -> tuple[str, str]:
 
 
 def save_contracts_version(sha: str, date_str: str) -> None:
-    """Write contracts commit SHA and date to data/contracts_version.txt.
+    """Write contracts commit SHA and date to cache in AppData.
 
     Args:
         sha: Full commit SHA string.
         date_str: ISO 8601 date string from commit author.
     """
-    version_file = Path(__file__).parent.parent.parent / "data" / "contracts_version.txt"
+    from src.utils.settings import AppSettings
+
+    version_file = AppSettings.get_cache_dir() / "contracts_version.txt"
 
     try:
         version_file.parent.mkdir(parents=True, exist_ok=True)
@@ -233,18 +242,20 @@ def save_contracts_version(sha: str, date_str: str) -> None:
 
 
 def download_contracts(progress_callback: Callable[[int, int], None]) -> Path:
-    """Download contracts.ini from MrKraken/StarStrings and save to data/contracts.ini.
+    """Download contracts.ini from MrKraken/StarStrings and save to cache in AppData.
 
     Args:
         progress_callback: Called with (bytes_downloaded, total_bytes) during download.
 
     Returns:
-        Path to saved data/contracts.ini.
+        Path to saved contracts.ini in cache.
 
     Raises:
         Exception if download fails.
     """
-    output_path = Path(__file__).parent.parent.parent / "data" / "contracts.ini"
+    from src.utils.settings import AppSettings
+
+    output_path = AppSettings.get_cache_dir() / "contracts.ini"
 
     try:
         logger.info(f"Downloading from {CONTRACTS_RAW_URL}")
@@ -274,7 +285,6 @@ def download_contracts(progress_callback: Callable[[int, int], None]) -> Path:
             contracts_data = b''.join(chunks)
 
         # Write to output (contracts.ini uses UTF-8 with BOM, write raw bytes)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(contracts_data)
 
         logger.info(f"Downloaded contracts.ini to {output_path} ({len(contracts_data)} bytes)")
