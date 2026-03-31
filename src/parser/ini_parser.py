@@ -129,8 +129,9 @@ def load_source_files(
 def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str]]:
     """Load all sources from application settings.
 
-    For remote URLs, downloads to cache if missing, then loads from cache.
+    For remote URLs, loads from cached local files if available.
     For local paths, loads directly.
+    Remote sources are downloaded asynchronously by the update checker, not here.
 
     Returns:
         Tuple of (sources_dict, hierarchy) where:
@@ -138,7 +139,6 @@ def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str]]:
         - hierarchy: List of source names in merge order
     """
     from src.utils.settings import AppSettings
-    from src.utils.updater import download_file
 
     sources_dict: Dict[str, Dict[str, str]] = {}
     hierarchy = AppSettings.get_merge_hierarchy()
@@ -163,25 +163,19 @@ def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str]]:
         try:
             # Handle URLs vs local files
             if source_path.startswith('http://') or source_path.startswith('https://'):
-                # For remote sources, try to load from cached local file
+                # For remote sources, load from cached local file (if it exists)
                 if source_name in cache_mapping:
                     cache_file = Path(__file__).parent.parent.parent / "data" / cache_mapping[source_name]
 
-                    # Download if cache doesn't exist
-                    if not cache_file.exists():
-                        try:
-                            logger.info(f"Downloading {source_name} to cache: {source_path}")
-                            download_file(source_path, cache_file)
-                        except Exception as e:
-                            logger.warning(f"Failed to download {source_name}: {e}")
-                            continue
-
-                    # Load from cache
-                    source_data = parse_ini_file(cache_file)
-                    if source_data:
-                        sources_dict[source_name] = source_data
+                    if cache_file.exists():
+                        source_data = parse_ini_file(cache_file)
+                        if source_data:
+                            sources_dict[source_name] = source_data
+                    else:
+                        logger.warning(f"Remote source {source_name} not yet cached. Run update check or download manually.")
                 continue
 
+            # Local file path
             source_data = parse_ini_file(source_path)
             if source_data:
                 sources_dict[source_name] = source_data
