@@ -58,6 +58,13 @@ class SourceConfigWidget(QWidget):
 
         self.path_input = QLineEdit()
         self.path_input.setPlaceholderText(f"Enter path or URL for {self.source_display_name}")
+        self.path_input.setToolTip(
+            "Enter a local file path or a URL.\n"
+            "For GitHub URLs, you can paste either:\n"
+            "  • Web URL: github.com/user/repo/blob/branch/file.ini\n"
+            "  • Raw URL: raw.githubusercontent.com/user/repo/branch/file.ini\n"
+            "Both formats will work - web URLs are auto-converted."
+        )
         path_layout.addWidget(self.path_input)
 
         browse_btn = QPushButton("Browse...")
@@ -94,7 +101,16 @@ class SourceConfigWidget(QWidget):
     def save_settings(self):
         """Save source configuration to settings."""
         AppSettings.set_source_enabled(self.source_name, self.enable_checkbox.isChecked())
-        AppSettings.set_source_path(self.source_name, self.path_input.text())
+
+        # Convert GitHub web URLs to raw URLs
+        path = self.path_input.text()
+        if path.startswith('https://github.com/'):
+            # Convert https://github.com/user/repo/blob/branch/path to raw URL
+            path = path.replace('https://github.com/', 'https://raw.githubusercontent.com/')
+            path = path.replace('/blob/', '/')
+            self.path_input.setText(path)  # Update UI to show converted URL
+
+        AppSettings.set_source_path(self.source_name, path)
 
         if self.auto_update_checkbox:
             AppSettings.set_source_auto_update(self.source_name, self.auto_update_checkbox.isChecked())
@@ -282,6 +298,28 @@ class ConfigTab(QWidget):
             from src.parser.ini_parser import load_sources_from_settings, load_source_files
 
             sources_dict, hierarchy = load_sources_from_settings()
+
+            # Check for missing sources
+            missing_sources = []
+            for source_name in hierarchy:
+                if source_name not in sources_dict:
+                    source_path = AppSettings.get_source_path(source_name)
+                    missing_sources.append((source_name, source_path))
+
+            if missing_sources:
+                msg = "Missing or uncached sources:\n\n"
+                for source_name, source_path in missing_sources:
+                    if source_path.startswith('http'):
+                        msg += f"• {source_name}: Remote source not downloaded yet\n"
+                        msg += f"  URL: {source_path}\n\n"
+                    else:
+                        msg += f"• {source_name}: Local file not found\n"
+                        msg += f"  Path: {source_path}\n\n"
+
+                msg += "\nNote: Remote sources are downloaded when you save configuration.\n"
+                msg += "Save the configuration first to cache all sources, then preview again."
+                QMessageBox.information(self, "Info", msg)
+                return
 
             if not sources_dict:
                 QMessageBox.warning(self, "Warning", "No sources available to merge. Check your source paths.")
