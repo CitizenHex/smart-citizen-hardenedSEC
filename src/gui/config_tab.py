@@ -269,7 +269,7 @@ class ConfigTab(QWidget):
             # Update hierarchy with enabled sources only
             AppSettings.set_merge_hierarchy(enabled_sources)
 
-            QMessageBox.information(self, "Success", "Configuration saved. Files will be merged on next load.")
+            QMessageBox.information(self, "Success", "Configuration saved and sources merged.")
             self.merge_requested.emit()
 
         except Exception as e:

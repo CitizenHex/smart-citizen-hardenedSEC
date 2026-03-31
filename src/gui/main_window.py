@@ -1181,15 +1181,18 @@ Shows the current base file version and contracts.ini version. "✓" means up to
             self._download_worker.wait()
 
         # Show info (non-blocking)
-        QMessageBox.information(
+        reply = QMessageBox.question(
             self,
             "Update Complete",
-            f"Base file updated to {version}.\n\nReload to apply changes."
+            f"Base file updated to {version}.\n\nReload sources now to apply changes?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
 
-        # Reload files (they will be picked up next time user loads manually or on next restart)
-        # Don't auto-reload here to avoid blocking; user can manually reload
         logger.info(f"Base file updated to {version}")
+
+        if reply == QMessageBox.StandardButton.Yes:
+            # Reload immediately
+            self.perform_merge_and_reload()
         self._download_worker = None
 
     def _on_download_error(self, progress: QProgressDialog, message: str):
@@ -1304,13 +1307,18 @@ Shows the current base file version and contracts.ini version. "✓" means up to
             self._contracts_download_worker.wait()
             self._contracts_download_worker = None
 
-        QMessageBox.information(
+        reply = QMessageBox.question(
             self,
             "Contracts Updated",
-            f"contracts.ini updated ({display_date}).\n\nReload to see Mission strings."
+            f"contracts.ini updated ({display_date}).\n\nReload sources now to see Mission strings?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
 
         logger.info(f"Contracts updated to {display_date}")
+
+        if reply == QMessageBox.StandardButton.Yes:
+            # Reload immediately
+            self.perform_merge_and_reload()
 
     def _on_contracts_download_error(self, progress: QProgressDialog, message: str):
         """Handle contracts download error."""
