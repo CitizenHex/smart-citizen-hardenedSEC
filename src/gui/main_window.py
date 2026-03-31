@@ -704,8 +704,16 @@ class MainWindow(QMainWindow):
                     entries = load_source_files(sources_dict, hierarchy)
                     logger.info(f"Loaded {len(entries)} entries")
                     self.entries = entries
+                    self.update_category_combo()
                     self.populate_table()
-                    self.statusBar().showMessage("Ready")
+                    self.apply_filters()
+
+                    # Show override count in status bar
+                    modified_count = sum(1 for e in self.entries if e.status in ("Modified", "New"))
+                    msg = f"Loaded {len(self.entries)} entries"
+                    if modified_count:
+                        msg += f" | {modified_count} overrides active"
+                    self.statusBar().showMessage(msg)
                     return
                 except Exception as e:
                     logger.exception(f"Error loading sources synchronously: {e}")
@@ -893,8 +901,16 @@ class MainWindow(QMainWindow):
                 entries = load_source_files(sources_dict, hierarchy)
                 logger.info(f"Merge complete: {len(entries)} entries")
                 self.entries = entries
+                self.update_category_combo()
                 self.populate_table()
-                self.statusBar().showMessage("Merge complete")
+                self.apply_filters()
+
+                # Show override count in status bar
+                modified_count = sum(1 for e in self.entries if e.status in ("Modified", "New"))
+                msg = f"Merged {len(self.entries)} entries"
+                if modified_count:
+                    msg += f" | {modified_count} overrides active"
+                self.statusBar().showMessage(msg)
             except Exception as e:
                 logger.exception(f"Error during merge: {e}")
                 QMessageBox.critical(self, "Error", f"Failed to merge sources: {e}")
