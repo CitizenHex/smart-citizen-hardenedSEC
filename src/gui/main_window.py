@@ -257,9 +257,15 @@ class MainWindow(QMainWindow):
         self.setup_ui()
         self.restore_window_state()
 
+        # Ensure cache directory exists
+        AppSettings.get_cache_dir()
+
         # Start update checks in background (non-blocking)
         self._start_update_check()
         self._start_contracts_check()
+
+        # Download missing cache files from default configuration
+        self._ensure_cache_files()
 
         # Then load files
         self.load_default_values()
@@ -1027,6 +1033,42 @@ Shows the current base file version and contracts.ini version. "✓" means up to
         """
         self._source_status[source_name] = status
         self._update_status_bar()
+
+    def _ensure_cache_files(self):
+        """Download missing cache files from configured sources on first run.
+
+        Checks if enabled sources have cached files. If not, downloads them from
+        the configured URL. This happens silently in the background on startup.
+        """
+        from src.utils.updater import download_file
+
+        cache_dir = AppSettings.get_cache_dir()
+        cache_mapping = {
+            AppSettings.SOURCE_GLOBAL: "base.ini",
+            AppSettings.SOURCE_CONTRACTS: "contracts.ini",
+            AppSettings.SOURCE_COMPONENTS: "components.ini",
+            AppSettings.SOURCE_SHIPS: "ships.ini",
+        }
+
+        # Check each enabled source and download if missing
+        for source_name in [AppSettings.SOURCE_GLOBAL, AppSettings.SOURCE_CONTRACTS]:
+            if not AppSettings.is_source_enabled(source_name):
+                continue
+
+            source_path = AppSettings.get_source_path(source_name)
+            if not source_path or not source_path.startswith('http'):
+                continue  # Skip local paths
+
+            cache_file = cache_dir / cache_mapping.get(source_name, f"{source_name}.ini")
+
+            if not cache_file.exists():
+                try:
+                    logger.info(f"Downloading {source_name} to cache: {source_path}")
+                    download_file(source_path, cache_file)
+                    logger.info(f"Successfully cached {source_name}: {cache_file}")
+                except Exception as e:
+                    logger.warning(f"Failed to download {source_name}: {e}")
+                    # Don't block on download failure - user can trigger update check manually
 
     def _start_update_check(self):
         """Start background check for latest base file version."""
