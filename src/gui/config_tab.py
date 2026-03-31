@@ -299,9 +299,13 @@ class ConfigTab(QWidget):
 
             sources_dict, hierarchy = load_sources_from_settings()
 
-            # Check for missing sources
+            # Check for missing sources (skip user source - it's optional)
             missing_sources = []
             for source_name in hierarchy:
+                # User source is optional - skip it
+                if source_name == AppSettings.SOURCE_USER:
+                    continue
+
                 if source_name not in sources_dict:
                     source_path = AppSettings.get_source_path(source_name)
                     missing_sources.append((source_name, source_path))
