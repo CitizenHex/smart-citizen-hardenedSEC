@@ -694,14 +694,22 @@ class MainWindow(QMainWindow):
 
             if sources_dict and hierarchy:
                 logger.info(f"Loading configured sources: {list(sources_dict.keys())} with hierarchy {hierarchy}")
-                # Create worker to load and merge sources in background
-                worker = FileLoaderWorker(sources_dict=sources_dict, hierarchy=hierarchy)
-                worker.finished.connect(self._on_files_loaded)
-                worker.error.connect(self._on_load_error)
-                worker.start()
-
                 self.statusBar().showMessage("Loading and merging configured sources...")
-                return
+
+                try:
+                    # Load synchronously in main thread to avoid threading issues
+                    logger.info("Synchronously loading sources...")
+                    entries = load_source_files(sources_dict, hierarchy)
+                    logger.info(f"Loaded {len(entries)} entries")
+                    self.entries = entries
+                    self._populate_table()
+                    self.statusBar().showMessage("Ready")
+                    return
+                except Exception as e:
+                    logger.exception(f"Error loading sources synchronously: {e}")
+                    QMessageBox.critical(self, "Error", f"Failed to load sources: {e}")
+                    return
+
         except Exception as e:
             logger.warning(f"Failed to load from configured sources, falling back to legacy: {e}")
 

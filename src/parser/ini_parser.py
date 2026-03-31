@@ -88,9 +88,14 @@ def load_source_files(
     filtered_hierarchy = [s for s in hierarchy if s in sources_dict]
     logger.info(f"Filtered hierarchy: {filtered_hierarchy}")
 
-    # Merge all sources in hierarchy order, with user overrides as highest priority
-    merged_values = merge_sources_by_hierarchy(sources_dict, filtered_hierarchy, user_overrides)
-    logger.info(f"Merge complete. Result has {len(merged_values)} keys")
+    try:
+        logger.info("Calling merge_sources_by_hierarchy...")
+        # Merge all sources in hierarchy order, with user overrides as highest priority
+        merged_values = merge_sources_by_hierarchy(sources_dict, filtered_hierarchy, user_overrides)
+        logger.info(f"Merge complete. Result has {len(merged_values)} keys")
+    except Exception as e:
+        logger.exception(f"Error during merge: {e}")
+        raise
 
     # Track which source each key came from (for status calculation)
     logger.info("Tracking source origin for each key...")
