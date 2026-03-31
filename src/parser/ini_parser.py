@@ -244,9 +244,24 @@ def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str]]:
                         raise FileNotFoundError(f"Source {source_name} cache not found. Run auto-update to download: {cache_file}")
                 continue
 
-            # Local file path - must exist
+            # Local file path
             logger.info(f"Loading local file {source_path}...")
             local_file = Path(source_path)
+
+            # User source can be empty on first run
+            if source_name == AppSettings.SOURCE_USER:
+                if local_file.exists():
+                    source_data = parse_ini_file(source_path)
+                    if source_data:
+                        sources_dict[source_name] = source_data
+                        logger.info(f"Loaded {len(source_data)} entries from {source_name}")
+                    else:
+                        logger.info(f"User overrides file is empty: {source_path}")
+                else:
+                    logger.info(f"No user overrides yet: {source_path}")
+                continue
+
+            # Other local sources must exist
             if not local_file.exists():
                 logger.error(f"Local file not found: {source_path}")
                 raise FileNotFoundError(f"Source {source_name} file not found: {source_path}")

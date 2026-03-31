@@ -1,9 +1,12 @@
 """Settings management using QSettings."""
+import logging
 import os
 from pathlib import Path
 
 from PyQt6.QtCore import QSettings
 import winreg
+
+logger = logging.getLogger(__name__)
 
 
 class AppSettings:
@@ -304,3 +307,19 @@ class AppSettings:
         """
         appdata = os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming"))
         return Path(appdata) / "Osiris DevWorks" / "SC Localization Editor" / "overrides.ini"
+
+    @staticmethod
+    def ensure_overrides_file() -> None:
+        """Ensure overrides.ini exists, creating empty file if needed."""
+        overrides_path = AppSettings.get_overrides_path()
+
+        # Create parent directory if needed
+        overrides_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Create empty overrides file if it doesn't exist
+        if not overrides_path.exists():
+            try:
+                overrides_path.touch()
+                logger.info(f"Created empty overrides.ini: {overrides_path}")
+            except Exception as e:
+                logger.error(f"Failed to create overrides.ini: {e}")

@@ -28,6 +28,9 @@ def main():
     # Migrate legacy settings to new data source format
     AppSettings.migrate_legacy_settings()
 
+    # Ensure overrides.ini exists (create empty if first run)
+    AppSettings.ensure_overrides_file()
+
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
