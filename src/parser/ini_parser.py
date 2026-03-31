@@ -88,10 +88,40 @@ def load_source_files(
     filtered_hierarchy = [s for s in hierarchy if s in sources_dict]
     logger.info(f"Filtered hierarchy: {filtered_hierarchy}")
 
+    # Filter each source to only include relevant keys based on source type
+    from src.utils.settings import AppSettings
+
+    filtered_sources = {}
+    for source_name in filtered_hierarchy:
+        source_data = sources_dict[source_name]
+
+        # Map source types to their relevant categories
+        source_category_filters = {
+            AppSettings.SOURCE_GLOBAL: None,      # No filtering - load all
+            AppSettings.SOURCE_CONTRACTS: "Missions",
+            AppSettings.SOURCE_COMPONENTS: "Ship Components",
+            AppSettings.SOURCE_SHIPS: "Ships",
+            AppSettings.SOURCE_USER: None,        # No filtering - user can have anything
+        }
+
+        category_filter = source_category_filters.get(source_name)
+
+        if category_filter:
+            # Filter keys to only those matching the category
+            filtered_data = {}
+            for key, value in source_data.items():
+                if StringEntry.extract_category(key) == category_filter:
+                    filtered_data[key] = value
+            logger.info(f"Filtered {source_name}: {len(source_data)} keys → {len(filtered_data)} keys (category: {category_filter})")
+            filtered_sources[source_name] = filtered_data
+        else:
+            # No filtering for this source
+            filtered_sources[source_name] = source_data
+
     try:
         logger.info("Calling merge_sources_by_hierarchy...")
         # Merge all sources in hierarchy order, with user overrides as highest priority
-        merged_values = merge_sources_by_hierarchy(sources_dict, filtered_hierarchy, user_overrides)
+        merged_values = merge_sources_by_hierarchy(filtered_sources, filtered_hierarchy, user_overrides)
         logger.info(f"Merge complete. Result has {len(merged_values)} keys")
     except Exception as e:
         logger.exception(f"Error during merge: {e}")
@@ -101,7 +131,7 @@ def load_source_files(
     logger.info("Tracking source origin for each key...")
     source_origin: Dict[str, str] = {}
     for source_name in filtered_hierarchy:
-        source_data = sources_dict[source_name]
+        source_data = filtered_sources[source_name]
         for key in source_data.keys():
             source_origin[key] = source_name
 
