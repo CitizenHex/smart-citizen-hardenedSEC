@@ -7,7 +7,7 @@ class StringEntry:
     key: str
     source_file: str              # "global" or "vehicles"
     category: str                 # Extracted from key prefix
-    original_value: str           # From source global.ini
+    original_value: str           # From merged sources (base file + others)
     custom_value: str             # From target_strings.ini (or empty)
     status: str                   # "Modified" | "Unmodified" | "New"
 
@@ -23,6 +23,7 @@ class StringEntry:
         Rules:
         - Keys starting with `vehicle_Name` → category "Ships"
         - Keys starting with `item_Name(SHLD|POWR|COOL|QDRV|JUMP)` → category "Ship Components"
+        - Mission-related keys (contracts, shubin, blackbox, hockrow, etc.) → "Missions"
         - Everything else → "Other"
         """
         if not key:
@@ -37,5 +38,18 @@ class StringEntry:
             components = ["SHLD", "POWR", "COOL", "QDRV", "JUMP"]
             if any(key.startswith(f"item_Name{comp}_") or key.startswith(f"item_Name_{comp}_") for comp in components):
                 return "Ship Components"
+
+        # Mission-related keys (from contracts.ini or similar mission sources)
+        mission_patterns = [
+            "shubin_", "Shubin_",           # Shubin mining missions
+            "blackbox_", "BlackBox_",       # Black box recovery
+            "hockrow_", "Hockrow_",         # Hockrow facility
+            "contract", "Contract",         # General contracts
+            "mission_", "Mission_",         # General missions
+            "jt_", "JT_",                   # Job terminals
+        ]
+        key_lower = key.lower()
+        if any(key_lower.startswith(pattern.lower()) for pattern in mission_patterns):
+            return "Missions"
 
         return "Other"

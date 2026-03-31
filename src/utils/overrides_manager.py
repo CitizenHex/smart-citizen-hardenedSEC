@@ -57,8 +57,8 @@ def generate_overrides_from_diff(
     Used on first run to bootstrap overrides from existing game file.
 
     Args:
-        reference_path: Path to reference global.ini (data/global.ini)
-        current_path: Path to current global.ini (LIVE/data/Localization/english/global.ini)
+        reference_path: Path to reference base file (data/base.ini)
+        current_path: Path to current game file (LIVE/data/Localization/english/global.ini)
         overrides_path: Destination path for overrides.ini
 
     Returns:

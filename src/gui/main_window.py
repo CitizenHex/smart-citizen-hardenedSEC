@@ -18,8 +18,9 @@ from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices
 
 from src.models.string_model import StringEntry
-from src.parser.ini_parser import load_source_files
+from src.parser.ini_parser import load_source_files, load_sources_from_settings, parse_ini_file
 from src.utils.settings import AppSettings
+from src.merger.ini_merger import merge_sources_by_hierarchy
 from src.utils.version import get_version
 from src.gui.config_tab import ConfigTab
 
@@ -39,22 +40,52 @@ def get_resource_path(relative_path):
 
 
 class FileLoaderWorker(QThread):
-    """Worker thread for loading INI files without blocking UI."""
+    """Worker thread for loading INI files without blocking UI.
+
+    Supports both old-style (single base file) and new-style (multiple sources
+    from settings) loading. If sources_dict is provided, uses new system.
+    Otherwise, loads configured sources from settings.
+    """
 
     finished = pyqtSignal(list)
     error = pyqtSignal(str)
 
-    def __init__(self, base_path: str, overrides_path: str | None = None, contracts_path: str | None = None):
+    def __init__(
+        self,
+        base_path: str | None = None,
+        overrides_path: str | None = None,
+        contracts_path: str | None = None,
+        sources_dict=None,
+        hierarchy=None
+    ):
         super().__init__()
         self.base_path = base_path
         self.overrides_path = overrides_path
         self.contracts_path = contracts_path
+        self.sources_dict = sources_dict
+        self.hierarchy = hierarchy
 
     def run(self):
         try:
-            entries = load_source_files(self.base_path, self.overrides_path, self.contracts_path)
+            # New system: load sources from settings if not provided
+            if self.sources_dict is None and self.hierarchy is None:
+                self.sources_dict, self.hierarchy = load_sources_from_settings()
+
+            # If still no sources (empty settings), try legacy base_path
+            if self.sources_dict and self.hierarchy:
+                entries = load_source_files(self.sources_dict, self.hierarchy)
+            elif self.base_path:
+                # Legacy: single base file loading
+                base_data = parse_ini_file(self.base_path)
+                sources_dict = {"global": base_data}
+                hierarchy = ["global"]
+                entries = load_source_files(sources_dict, hierarchy, None, self.overrides_path)
+            else:
+                raise ValueError("No sources configured and no base_path provided")
+
             self.finished.emit(entries)
         except Exception as e:
+            logger.exception(f"Error loading files: {e}")
             self.error.emit(str(e))
 
 
@@ -187,7 +218,7 @@ class MainWindow(QMainWindow):
         # Data
         self.entries: list[StringEntry] = []
         self.filtered_row_indices: list[int] = []
-        self.default_values: dict = {}  # Store default values from data/global.ini
+        self.default_values: dict = {}  # Store default values from data/base.ini
 
         # File loader worker
         self._loader_worker: Optional[FileLoaderWorker] = None
@@ -202,9 +233,8 @@ class MainWindow(QMainWindow):
         self._contracts_checker_worker: Optional[ContractsCheckerWorker] = None
         self._contracts_download_worker: Optional[ContractsDownloadWorker] = None
 
-        # Status bar state (composed message)
-        self._base_status: str = ""
-        self._contracts_status: str = ""
+        # Status bar state (composed message) - tracks sync status per source
+        self._source_status: dict[str, str] = {}  # source_name -> status_string
 
         # Debounce timer for filtering
         self.filter_timer = QTimer()
@@ -252,7 +282,12 @@ class MainWindow(QMainWindow):
         # Tabs
         tabs = QTabWidget()
         tabs.addTab(self.create_strings_tab(), "Strings")
-        tabs.addTab(ConfigTab(), "Config")
+
+        # Config tab with merge signal connection
+        self.config_tab = ConfigTab()
+        self.config_tab.merge_requested.connect(self.perform_merge_and_reload)
+        tabs.addTab(self.config_tab, "Config")
+
         tabs.addTab(self.create_about_tab(), "About")
         main_layout.addWidget(tabs)
 
@@ -621,13 +656,13 @@ class MainWindow(QMainWindow):
         self.restore_backup_btn.setEnabled(enabled)
 
     def load_default_values(self):
-        """Load default values from data/global.ini for reference."""
+        """Load default values from data/base.ini for reference."""
         data_dir = Path(__file__).parent.parent.parent / "data"
-        default_global = data_dir / "global.ini"
+        default_base = data_dir / "base.ini"
 
-        if default_global.exists():
+        if default_base.exists():
             try:
-                self.default_values = load_source_files(str(default_global), None)
+                self.default_values = load_source_files(str(default_base), None)
                 # Convert to dictionary for quick lookup
                 self.default_values = {entry.key: entry.original_value for entry in self.default_values}
                 logger.info(f"Loaded {len(self.default_values)} default values")
@@ -635,65 +670,84 @@ class MainWindow(QMainWindow):
                 logger.warning(f"Failed to load default values: {e}")
 
     def auto_load_default_files(self):
-        """Automatically load global.ini from game directory or data folder."""
+        """Automatically load and merge configured sources, or fall back to legacy behavior."""
+        try:
+            # Try new system first: load configured sources from settings
+            sources_dict, hierarchy = load_sources_from_settings()
+
+            if sources_dict and hierarchy:
+                logger.info(f"Loading configured sources: {list(sources_dict.keys())} with hierarchy {hierarchy}")
+                # Create worker to load and merge sources in background
+                worker = FileLoaderWorker(sources_dict=sources_dict, hierarchy=hierarchy)
+                worker.finished.connect(self._on_files_loaded)
+                worker.error.connect(self._on_file_load_error)
+                worker.start()
+
+                self.statusBar().showMessage("Loading and merging configured sources...")
+                return
+        except Exception as e:
+            logger.warning(f"Failed to load from configured sources, falling back to legacy: {e}")
+
+        # Fall back to legacy single-file loading
         global_path = None
 
-        # First, try to load from game directory if configured
-        game_path = AppSettings.get_game_install_path()
-        if game_path:
-            logger.info(f"Game path from registry/settings: {game_path}")
-            # Handle both full SC path and LIVE directory path
-            game_path_obj = Path(game_path)
-            if game_path_obj.name == "LIVE":
-                # Path is already the LIVE directory
-                game_global = game_path_obj / "data/Localization/english/global.ini"
-            else:
-                # Path is the SC root directory
-                game_global = game_path_obj / "LIVE/data/Localization/english/global.ini"
+        # First, try to load from base_global_path setting (legacy)
+        legacy_path = AppSettings.get_base_global_path()
+        if legacy_path and Path(legacy_path).exists():
+            global_path = legacy_path
+            logger.info(f"Loading legacy base_global_path: {legacy_path}")
+        else:
+            # Try to load from game directory if configured
+            game_path = AppSettings.get_game_install_path()
+            if game_path:
+                logger.info(f"Game path from registry/settings: {game_path}")
+                # Handle both full SC path and LIVE directory path
+                game_path_obj = Path(game_path)
+                if game_path_obj.name == "LIVE":
+                    # Path is already the LIVE directory
+                    game_global = game_path_obj / "data/Localization/english/global.ini"
+                else:
+                    # Path is the SC root directory
+                    game_global = game_path_obj / "LIVE/data/Localization/english/global.ini"
 
-            logger.info(f"Looking for global.ini at: {game_global}")
-            if game_global.exists():
-                global_path = game_global
-                logger.info(f"Found global.ini in game directory: {game_global}")
-            else:
-                logger.warning(f"global.ini not found at: {game_global}")
+                logger.info(f"Looking for global.ini at: {game_global}")
+                if game_global.exists():
+                    global_path = game_global
+                    logger.info(f"Found global.ini in game directory: {game_global}")
 
-        # Fall back to data folder if game directory doesn't have it
-        if not global_path:
-            data_dir = Path(__file__).parent.parent.parent / "data"
-            data_global = data_dir / "global.ini"
-            logger.info(f"Falling back to data folder: {data_global}")
-            if data_global.exists():
-                global_path = data_global
-                logger.info(f"Loading default global.ini from data folder: {data_dir}")
-            else:
-                logger.warning(f"Default global.ini not found at: {data_global}")
+            # Fall back to data folder if game directory doesn't have it
+            if not global_path:
+                data_dir = Path(__file__).parent.parent.parent / "data"
+                data_base = data_dir / "base.ini"
+                logger.info(f"Falling back to data folder: {data_base}")
+                if data_base.exists():
+                    global_path = data_base
+                    logger.info(f"Loading default base file from data folder")
 
         # Bootstrap overrides from diff if missing
         if global_path:
             overrides_path = AppSettings.get_overrides_path()
             if not overrides_path.exists():
                 data_dir = Path(__file__).parent.parent.parent / "data"
-                data_global = data_dir / "global.ini"
-                if data_global.exists():
+                data_base = data_dir / "base.ini"
+                if data_base.exists():
                     try:
                         from src.utils.overrides_manager import generate_overrides_from_diff
-                        count = generate_overrides_from_diff(data_global, global_path, overrides_path)
+                        count = generate_overrides_from_diff(data_base, global_path, overrides_path)
                         if count:
                             logger.info(f"Bootstrapped {count} overrides from diff")
                     except Exception as e:
                         logger.warning(f"Failed to bootstrap overrides: {e}")
 
-        # Load the file in background if found
-        if global_path:
+            # Load the file in background
             self._start_loading(str(global_path))
         else:
-            logger.warning("No global.ini file found in game directory or data folder")
-            self.statusBar().showMessage("No global.ini found - please load a file manually")
+            logger.warning("No base file found in configured sources, game directory, or data folder")
+            self.statusBar().showMessage("No base file found - please configure sources in Config tab or load a file manually")
 
     @pyqtSlot()
     def apply_to_game(self):
-        """Apply custom strings to game installation and backup existing file."""
+        """Apply merged sources + user edits to game installation and backup existing file."""
         if not self.entries:
             QMessageBox.warning(self, "Warning", "Please load a file first")
             return
@@ -733,14 +787,37 @@ class MainWindow(QMainWindow):
                 shutil.copy2(target_path, backup_path)
                 logger.info(f"Backed up existing file to {backup_path}")
 
-            # Write custom strings to game directory
-            with open(target_path, 'w', encoding='utf-8') as f:
-                for entry in self.entries:
-                    # Use custom value if available, otherwise use original
-                    value = entry.custom_value if entry.custom_value else entry.original_value
-                    f.write(f"{entry.key}={value}\n")
+            # Build final merged dict by re-merging all sources with user edits
+            # This ensures Apply uses latest source versions and user edits
+            sources_dict, hierarchy = load_sources_from_settings()
 
-            # Save overrides to AppData
+            # Build user overrides dict from entries with custom_value
+            user_overrides_dict = {
+                entry.key: entry.custom_value
+                for entry in self.entries
+                if entry.custom_value
+            }
+
+            # Merge all sources in hierarchy order, with user edits on top
+            merged_dict = merge_sources_by_hierarchy(sources_dict, hierarchy, user_overrides_dict)
+
+            # Get a base file to use for structure preservation
+            # Try to use the first source file, fall back to data/base.ini
+            base_file = None
+            for source_name in hierarchy:
+                source_path = AppSettings.get_source_path(source_name)
+                if source_path and Path(source_path).exists():
+                    base_file = source_path
+                    break
+
+            if not base_file:
+                base_file = Path(__file__).parent.parent.parent / "data" / "base.ini"
+
+            # Use merger to preserve original file structure
+            from src.merger.ini_merger import merge_ini_files
+            merge_ini_files(str(base_file), merged_dict, str(target_path))
+
+            # Save user overrides to AppData
             from src.utils.overrides_manager import save_overrides
             count = save_overrides(self.entries, AppSettings.get_overrides_path())
 
@@ -750,6 +827,32 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to apply to game: {e}")
             logger.error(f"Error applying to game: {e}")
+
+    @pyqtSlot()
+    def perform_merge_and_reload(self):
+        """Perform merge of configured sources and reload table.
+
+        Called when user saves configuration in Config tab. Loads all configured
+        sources, merges them in hierarchy order, and updates the table display.
+        """
+        try:
+            # Load all configured sources
+            sources_dict, hierarchy = load_sources_from_settings()
+
+            if not sources_dict or not hierarchy:
+                QMessageBox.warning(self, "Warning", "No sources configured. Please configure data sources in Config tab.")
+                return
+
+            # Create worker to load files in background
+            worker = FileLoaderWorker(sources_dict=sources_dict, hierarchy=hierarchy)
+            worker.finished.connect(self._on_files_loaded)
+            worker.error.connect(self._on_file_load_error)
+            worker.start()
+
+            self.statusBar().showMessage("Merging sources...")
+        except Exception as e:
+            logger.exception(f"Error in perform_merge_and_reload: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to merge sources: {e}")
 
     @pyqtSlot()
     def restore_backup(self):
@@ -811,8 +914,8 @@ Click **Load Base File** to load global.ini from your Star Citizen LIVE director
 
 ## 2. Edit Localization Strings
 - Double-click any **Custom Value** cell to edit text
-- The **Default Value** shows the original text from data/global.ini
-- The **Current Value** shows what's in your loaded file
+- The **Default Value** shows the original text from your loaded base file
+- The **Current Value** shows what's in your loaded file after merging sources
 - Changes are highlighted with a **Modified** status (green)
 
 ## 3. Categories
@@ -878,9 +981,26 @@ Shows the current base file version and contracts.ini version. "✓" means up to
         dialog.exec()
 
     def _update_status_bar(self):
-        """Compose base and contracts status into one status bar message."""
-        parts = [p for p in [self._base_status, self._contracts_status] if p]
+        """Compose sync status from all configured sources into status bar message."""
+        # Build status message from all configured sources in hierarchy order
+        hierarchy = AppSettings.get_merge_hierarchy()
+        parts = []
+
+        for source_name in hierarchy:
+            if source_name in self._source_status:
+                parts.append(self._source_status[source_name])
+
         self.statusBar().showMessage("  |  ".join(parts) if parts else "Ready")
+
+    def _set_source_status(self, source_name: str, status: str) -> None:
+        """Set sync status for a specific source and update status bar.
+
+        Args:
+            source_name: Name of the source (e.g., "global", "contracts")
+            status: Status string to display (e.g., "Global: 4.7.0-LIVE ✓")
+        """
+        self._source_status[source_name] = status
+        self._update_status_bar()
 
     def _start_update_check(self):
         """Start background check for latest base file version."""
@@ -914,8 +1034,7 @@ Shows the current base file version and contracts.ini version. "✓" means up to
         else:
             from src.utils.updater import get_current_base_version
             current = get_current_base_version()
-            self._base_status = f"Base: {current} (update: {latest_tag})"
-            self._update_status_bar()
+            self._set_source_status(AppSettings.SOURCE_GLOBAL, f"Global: {current} (update: {latest_tag})")
 
     @pyqtSlot(str)
     def _on_up_to_date(self, current_tag: str):
@@ -925,8 +1044,7 @@ Shows the current base file version and contracts.ini version. "✓" means up to
             self._update_checker_worker.quit()
             self._update_checker_worker.wait()
             self._update_checker_worker = None
-        self._base_status = f"Base: {current_tag} ✓"
-        self._update_status_bar()
+        self._set_source_status(AppSettings.SOURCE_GLOBAL, f"Global: {current_tag} ✓")
 
     @pyqtSlot(str)
     def _on_update_error(self, message: str):
@@ -940,8 +1058,7 @@ Shows the current base file version and contracts.ini version. "✓" means up to
         from src.utils.updater import get_current_base_version
         current = get_current_base_version()
         if current:
-            self._base_status = f"Base: {current}"
-            self._update_status_bar()
+            self._set_source_status(AppSettings.SOURCE_GLOBAL, f"Global: {current}")
         logger.warning(f"Update check error: {message}")
 
     def _start_download(self, download_url: str, version: str):
@@ -972,8 +1089,7 @@ Shows the current base file version and contracts.ini version. "✓" means up to
     def _on_download_finished(self, progress: QProgressDialog, version: str):
         """Handle successful download and extraction."""
         progress.close()
-        self._base_status = f"Base: {version} ✓"
-        self._update_status_bar()
+        self._set_source_status(AppSettings.SOURCE_GLOBAL, f"Global: {version} ✓")
 
         # Clean up worker
         if self._download_worker:
@@ -1037,8 +1153,7 @@ Shows the current base file version and contracts.ini version. "✓" means up to
         if reply == QMessageBox.StandardButton.Yes:
             self._start_contracts_download(sha, date_str)
         else:
-            self._contracts_status = f"Contracts: update available ({display_date})"
-            self._update_status_bar()
+            self._set_source_status(AppSettings.SOURCE_CONTRACTS, f"Contracts: update available ({display_date})")
 
     @pyqtSlot(str, str)
     def _on_contracts_up_to_date(self, sha: str, date_str: str):
@@ -1051,11 +1166,12 @@ Shows the current base file version and contracts.ini version. "✓" means up to
 
         if sha:  # Only show status if we have a stored version
             display_date = date_str[:10] if date_str else sha[:8]
-            self._contracts_status = f"Contracts: {display_date} ✓"
+            self._set_source_status(AppSettings.SOURCE_CONTRACTS, f"Contracts: {display_date} ✓")
         else:
-            self._contracts_status = ""
-
-        self._update_status_bar()
+            # Clear contracts status if not available
+            if AppSettings.SOURCE_CONTRACTS in self._source_status:
+                del self._source_status[AppSettings.SOURCE_CONTRACTS]
+            self._update_status_bar()
 
     @pyqtSlot(str)
     def _on_contracts_check_error(self, message: str):
@@ -1096,8 +1212,7 @@ Shows the current base file version and contracts.ini version. "✓" means up to
         """Handle successful contracts download."""
         progress.close()
         display_date = date_str[:10] if date_str else "recent"
-        self._contracts_status = f"Contracts: {display_date} ✓"
-        self._update_status_bar()
+        self._set_source_status(AppSettings.SOURCE_CONTRACTS, f"Contracts: {display_date} ✓")
 
         # Clean up worker
         if self._contracts_download_worker:
@@ -1172,7 +1287,7 @@ Shows the current base file version and contracts.ini version. "✓" means up to
             self.table.setItem(row, 0, self._create_item(entry.category))
             self.table.setItem(row, 1, self._create_item(entry.key))
 
-            # Default value from data/global.ini
+            # Default value from reference base file (for comparison)
             default_value = self.default_values.get(entry.key, "")
             self.table.setItem(row, 2, self._create_item(default_value))
 
@@ -1191,9 +1306,11 @@ Shows the current base file version and contracts.ini version. "✓" means up to
         self.table.blockSignals(False)
 
     def _create_item(self, text: str):
-        """Create table item with text."""
+        """Create table item with text and tooltip showing full value."""
         item = QTableWidgetItem(text)
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
+        # Show full text as tooltip (useful for long values)
+        item.setToolTip(text)
         return item
 
     def _status_color(self, status: str) -> QColor:
@@ -1206,8 +1323,18 @@ Shows the current base file version and contracts.ini version. "✓" means up to
         return colors.get(status, QColor("black"))
 
     def update_category_combo(self):
-        """Update category combo with unique categories."""
-        categories = sorted(set(e.category for e in self.entries))
+        """Update category combo with unique categories from entries.
+
+        Always includes standard categories (Ships, Ship Components, Missions, Other)
+        plus any custom categories found in the entries.
+        """
+        # Get unique categories from entries
+        entry_categories = set(e.category for e in self.entries)
+
+        # Always include standard categories, even if no entries exist for them yet
+        standard_categories = {"Ships", "Ship Components", "Missions", "Other"}
+        categories = sorted(standard_categories | entry_categories)
+
         self.category_combo.blockSignals(True)
         self.category_combo.clear()
         self.category_combo.addItem("All")

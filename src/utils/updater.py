@@ -1,4 +1,4 @@
-"""Auto-update utility for fetching latest base global.ini from GitHub."""
+"""Auto-update utility for fetching latest base file (base.ini) from GitHub."""
 import json
 import logging
 import socket
@@ -91,19 +91,22 @@ def save_base_version(version: str) -> None:
 
 
 def download_and_extract_base(download_url: str, progress_callback: Callable[[int, int], None]) -> Path:
-    """Download zip file and extract global.ini to data/global.ini.
+    """Download zip file and extract base file to data/base.ini.
+
+    Downloads global.ini from the repo and saves it locally as base.ini
+    to avoid confusion with the game's global.ini file.
 
     Args:
         download_url: Direct URL to the zip file
         progress_callback: Called with (bytes_downloaded, total_bytes) during download
 
     Returns:
-        Path to extracted global.ini file
+        Path to extracted base.ini file
 
     Raises:
         Exception if download or extraction fails
     """
-    output_path = Path(__file__).parent.parent.parent / "data" / "global.ini"
+    output_path = Path(__file__).parent.parent.parent / "data" / "base.ini"
 
     try:
         logger.info(f"Downloading from {download_url}")
@@ -136,16 +139,16 @@ def download_and_extract_base(download_url: str, progress_callback: Callable[[in
 
         logger.info(f"Downloaded {len(zip_data)} bytes")
 
-        # Extract global.ini from zip
+        # Extract global.ini from zip (source file is still named global.ini in the repo)
         with zipfile.ZipFile(BytesIO(zip_data)) as zf:
             with zf.open(GLOBAL_INI_PATH_IN_ZIP) as f:
                 global_ini_content = f.read()
 
-        # Write to output
+        # Write to output as base.ini
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(global_ini_content)
 
-        logger.info(f"Extracted global.ini to {output_path} ({len(global_ini_content)} bytes)")
+        logger.info(f"Extracted base file to {output_path} ({len(global_ini_content)} bytes)")
         return output_path
 
     except Exception as e:
