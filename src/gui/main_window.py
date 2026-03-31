@@ -260,9 +260,11 @@ class MainWindow(QMainWindow):
         # Ensure cache directory exists
         AppSettings.get_cache_dir()
 
-        # Start update checks in background (non-blocking)
-        self._start_update_check()
-        self._start_contracts_check()
+        # Note: Automatic update checks disabled in new system
+        # Users now control their own source URLs via Config tab
+        # They can manually check for updates on their configured sources
+        # self._start_update_check()
+        # self._start_contracts_check()
 
         # Download missing cache files from default configuration
         self._ensure_cache_files()
