@@ -214,20 +214,21 @@ The app can auto-download and update any configured source (Global, Contracts, C
 
 **Base File (Global Source)**:
 - **Default URL**: Pre-configured to MrKraken StarStrings repo: `https://raw.githubusercontent.com/MrKraken/StarStrings/master/Data/Localization/english/global.ini`
-- **Storage**: Downloaded and saved as `data/base.ini` (renamed to avoid confusion with game's global.ini)
-- **Version tracking**: Stores current version in `data/base_version.txt`
+- **Storage**: Downloaded and cached as `base.ini` in `%APPDATA%\Osiris DevWorks\SC Localization Editor\cache\`
+- **Naming**: Saved as `base.ini` (not `global.ini`) to avoid confusion with the game's global.ini file
+- **Version tracking**: Stores current version in `base_version.txt` (same cache directory)
 - **Download**: User prompted before downloading ~2.2MB zip; only -LIVE releases accepted
 - **Threading**: `UpdateCheckerWorker` + `DownloadWorker` run in background threads
-- **Extraction**: Downloads zip, extracts `data/Localization/english/global.ini` from repo, saves locally as `data/base.ini`
+- **Extraction**: Downloads zip, extracts `data/Localization/english/global.ini` from repo, saves to cache as `base.ini`
 
 **Contracts Source**:
 - **Default URL**: Pre-configured to MrKraken StarStrings repo: `https://raw.githubusercontent.com/MrKraken/StarStrings/master/contracts.ini`
-- **Storage**: Downloaded and saved as `data/contracts.ini`
+- **Storage**: Downloaded and cached as `contracts.ini` in `%APPDATA%\Osiris DevWorks\SC Localization Editor\cache\`
 - **Purpose**: Mission contract strings; merged with Global source in hierarchy order
 - **Note**: Global and Contracts are separate files and must both be loaded for complete localization
 - **Download**: User prompted before downloading ~49 KB file
 - **Threading**: `ContractsCheckerWorker` + `ContractsDownloadWorker` run in parallel to base file checks
-- **Version tracking**: Stores commit SHA and date in `data/contracts_version.txt` (format: `sha\ndate`)
+- **Version tracking**: Stores commit SHA and date in `contracts_version.txt` (format: `sha\ndate`)
 
 **Other Sources**:
 - User can configure any source to download from a URL or load from local file
@@ -236,16 +237,16 @@ The app can auto-download and update any configured source (Global, Contracts, C
 - Error dialog on failure with options: Specify new location, Skip source, or Cancel merge
 
 **File Naming Clarity**:
-- `data/base.ini` - App's internal base file (reference/cache from external sources)
+- `base.ini` - Cached global source file in AppData (reference from external sources)
 - `global.ini` - Game installation file only (`LIVE/data/Localization/english/global.ini`)
-- This naming prevents confusion between the app's base file and the game's actual file
+- This naming prevents confusion between the app's cached base file and the game's actual file
 
 ### 7. Overrides Persistence (overrides_manager.py)
 - **Location**: `%APPDATA%\Osiris DevWorks\SC Localization Editor\overrides.ini`
 - **Format**: Plain `key=value` per line (only modified entries)
 - **Save triggers**: On "Apply to Game" and on app close via `closeEvent()`
 - **Load**: Automatically applied when loading sources, merged as highest priority
-- **Bootstrap on First Run**: App compares `data/base.ini` (reference from external source) vs existing game file (`LIVE/.../global.ini`). Any differences are assumed to be user customizations and extracted into overrides.ini. This allows the app to "remember" customizations from before it was installed, so users don't lose their edits when switching to this tool.
+- **Bootstrap on First Run**: If configured source cache doesn't exist, app cannot load. User must run auto-update to download sources first. No fallback to game directory or legacy paths.
 
 ## Workflow
 
@@ -291,16 +292,18 @@ The app can auto-download and update any configured source (Global, Contracts, C
 
 ### Data & Cached Files
 
-**Application directory** (`./data/` - auto-created on first run):
-- **Base file cache**: `data/base.ini` (app's internal base file, extracted from configured Global source)
-- **Base file version**: `data/base_version.txt` (tracks current base file auto-update release version)
-- **Source files**: Other sources can be cached here if needed (components.ini, ships.ini, contracts.ini)
-- **Mission rewards**: `data/mission_blueprint_rewards.json` (placeholder for future features)
+**Application directory** (`./` - no caching here):
+- Application code and assets only. No cached files are stored in the app directory to avoid write permission issues on installed apps.
 
 ### User Settings (Windows)
 - **Configuration**: Windows Registry at `HKEY_CURRENT_USER\Software\Osiris DevWorks\SC Localization Editor`
-  - Stores: `base_global_path`, `game_install_path`, `window_geometry`, `window_state`
+  - Stores: data source paths, merge hierarchy, auto-update flags, window geometry, window state
 - **User overrides**: `%APPDATA%\Osiris DevWorks\SC Localization Editor\overrides.ini` (custom edits, persisted on Apply)
+- **Cached sources**: `%APPDATA%\Osiris DevWorks\SC Localization Editor\cache\` (downloaded files)
+  - `base.ini` - Downloaded global source file
+  - `contracts.ini` - Downloaded contracts source file
+  - `components.ini`, `ships.ini` - Other configured sources
+  - `base_version.txt`, `contracts_version.txt` - Version tracking files
 
 ### Game Installation
 - **Game files location**: Configurable via Config tab; typically `Roberts Space Industries/StarCitizen/LIVE/data/Localization/english/`
