@@ -257,7 +257,7 @@ class AppSettings:
 
         # Contracts: Configure from MrKraken StarStrings repo
         # Contracts and global are separate files that must both be loaded
-        contracts_url = "https://raw.githubusercontent.com/MrKraken/StarStrings/master/Data/Localization/english/contracts.ini"
+        contracts_url = "https://raw.githubusercontent.com/MrKraken/StarStrings/master/contracts.ini"
         AppSettings.set_source_path(AppSettings.SOURCE_CONTRACTS, contracts_url)
         AppSettings.set_source_enabled(AppSettings.SOURCE_CONTRACTS, True)
 

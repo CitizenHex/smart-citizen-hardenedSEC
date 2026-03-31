@@ -221,7 +221,7 @@ The app can auto-download and update any configured source (Global, Contracts, C
 - **Extraction**: Downloads zip, extracts `data/Localization/english/global.ini` from repo, saves locally as `data/base.ini`
 
 **Contracts Source**:
-- **Default URL**: Pre-configured to MrKraken StarStrings repo: `https://raw.githubusercontent.com/MrKraken/StarStrings/master/Data/Localization/english/contracts.ini`
+- **Default URL**: Pre-configured to MrKraken StarStrings repo: `https://raw.githubusercontent.com/MrKraken/StarStrings/master/contracts.ini`
 - **Storage**: Downloaded and saved as `data/contracts.ini`
 - **Purpose**: Mission contract strings; merged with Global source in hierarchy order
 - **Note**: Global and Contracts are separate files and must both be loaded for complete localization
