@@ -95,13 +95,17 @@ def load_source_files(
     for source_name in filtered_hierarchy:
         source_data = sources_dict[source_name]
 
+        # User source is special - never filter it (it's app-generated overrides)
+        if source_name == AppSettings.SOURCE_USER:
+            filtered_sources[source_name] = source_data
+            continue
+
         # Map source types to their relevant categories
         source_category_filters = {
             AppSettings.SOURCE_GLOBAL: None,      # No filtering - load all
             AppSettings.SOURCE_CONTRACTS: "Missions",
             AppSettings.SOURCE_COMPONENTS: "Ship Components",
             AppSettings.SOURCE_SHIPS: "Ships",
-            AppSettings.SOURCE_USER: None,        # No filtering - user can have anything
         }
 
         category_filter = source_category_filters.get(source_name)
