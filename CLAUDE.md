@@ -328,7 +328,6 @@ python src/main.py
 cd scripts/build
 python build_exe.py                    # Build exe only
 build_all.bat                          # Build exe + installer
-python build_exe.py --increment minor  # Build with version bump
 ```
 
 ### Requirements
@@ -351,7 +350,7 @@ python src/main.py
 
 ### Build Executable
 
-**Recommended: Use the build script** (handles PyInstaller, versioning, and cleanup):
+**Recommended: Use the build script** (handles PyInstaller cleanup and packaging):
 
 ```bash
 cd scripts/build
@@ -359,14 +358,6 @@ python build_exe.py
 ```
 
 This creates `dist/SCLocalizationEditor-v{VERSION}.exe` where VERSION comes from `VERSION.TXT`.
-
-**With automatic version increment:**
-```bash
-cd scripts/build
-python build_exe.py --increment patch   # 0.2.0 → 0.2.1
-python build_exe.py --increment minor   # 0.2.0 → 0.3.0
-python build_exe.py --increment major   # 0.2.0 → 1.0.0
-```
 
 **Manual PyInstaller (not recommended):**
 ```bash
@@ -400,8 +391,8 @@ Output: `SCLocalizationEditor-v{VERSION}-Setup.exe` in project root
 Version is stored in a single file: **`VERSION.TXT`** (e.g., `0.2.0`)
 
 When building:
-- `build_exe.py` reads VERSION.TXT and names output exe accordingly
-- `installer.iss` must be manually updated to match (line ~5: `AppVersion` and version in filename)
+- `build_exe.py` reads `VERSION.TXT` and names output exe accordingly
+- **Both `VERSION.TXT` and `installer.iss` must be manually updated before building** (line ~5 of installer.iss: `AppVersion` and output filename)
 
 **Version update workflow:**
 1. Edit `VERSION.TXT` to new version (e.g., `0.3.0`)

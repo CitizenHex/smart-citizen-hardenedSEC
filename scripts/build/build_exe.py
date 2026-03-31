@@ -61,7 +61,6 @@ pyinstaller_args = [
     '--distpath', os.path.join(root_dir, 'dist'),
     '--workpath', os.path.join(root_dir, 'build'),
     '--specpath', root_dir,
-    '--add-data', f"{os.path.join(root_dir, 'data')}:data",
     '--hidden-import=PyQt6',
     '--hidden-import=src.gui',
     '--hidden-import=src.parser',
