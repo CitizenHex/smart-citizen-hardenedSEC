@@ -152,13 +152,18 @@ def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str]]:
     }
 
     # Load each configured source
+    logger.info(f"Loading sources from settings. Available sources: {AppSettings.AVAILABLE_SOURCES}")
     for source_name in AppSettings.AVAILABLE_SOURCES:
         if not AppSettings.is_source_enabled(source_name):
+            logger.debug(f"Source {source_name} is disabled")
             continue
 
         source_path = AppSettings.get_source_path(source_name)
         if not source_path:
+            logger.debug(f"Source {source_name} has no path configured")
             continue
+
+        logger.info(f"Processing source {source_name}: {source_path}")
 
         try:
             # Handle URLs vs local files
@@ -166,22 +171,30 @@ def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str]]:
                 # For remote sources, load from cached local file (if it exists)
                 if source_name in cache_mapping:
                     cache_file = Path(__file__).parent.parent.parent / "data" / cache_mapping[source_name]
+                    logger.info(f"Looking for cache file: {cache_file}")
 
                     if cache_file.exists():
+                        logger.info(f"Cache file found, parsing {source_name}...")
                         source_data = parse_ini_file(cache_file)
                         if source_data:
                             sources_dict[source_name] = source_data
+                            logger.info(f"Loaded {len(source_data)} entries from {source_name}")
+                        else:
+                            logger.warning(f"Parsed {source_name} but got empty result")
                     else:
-                        logger.warning(f"Remote source {source_name} not yet cached. Run update check or download manually.")
+                        logger.warning(f"Remote source {source_name} not yet cached: {cache_file}")
                 continue
 
             # Local file path
+            logger.info(f"Loading local file {source_path}...")
             source_data = parse_ini_file(source_path)
             if source_data:
                 sources_dict[source_name] = source_data
+                logger.info(f"Loaded {len(source_data)} entries from {source_name}")
         except Exception as e:
-            logger.warning(f"Failed to load source {source_name} from {source_path}: {e}")
+            logger.exception(f"Failed to load source {source_name} from {source_path}: {e}")
 
+    logger.info(f"load_sources_from_settings complete. Loaded sources: {list(sources_dict.keys())}")
     return sources_dict, hierarchy
 
 

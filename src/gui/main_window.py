@@ -67,15 +67,22 @@ class FileLoaderWorker(QThread):
 
     def run(self):
         try:
+            logger.info("FileLoaderWorker starting...")
+
             # New system: load sources from settings if not provided
             if self.sources_dict is None and self.hierarchy is None:
+                logger.info("No sources_dict provided, loading from settings...")
                 self.sources_dict, self.hierarchy = load_sources_from_settings()
+                logger.info(f"Loaded from settings: sources={list(self.sources_dict.keys())}, hierarchy={self.hierarchy}")
 
             # If still no sources (empty settings), try legacy base_path
             if self.sources_dict and self.hierarchy:
+                logger.info(f"Calling load_source_files with {len(self.sources_dict)} sources")
                 entries = load_source_files(self.sources_dict, self.hierarchy)
+                logger.info(f"load_source_files returned {len(entries)} entries")
             elif self.base_path:
                 # Legacy: single base file loading
+                logger.info(f"Using legacy base_path: {self.base_path}")
                 base_data = parse_ini_file(self.base_path)
                 sources_dict = {"global": base_data}
                 hierarchy = ["global"]
@@ -83,6 +90,7 @@ class FileLoaderWorker(QThread):
             else:
                 raise ValueError("No sources configured and no base_path provided")
 
+            logger.info("FileLoaderWorker finished successfully")
             self.finished.emit(entries)
         except Exception as e:
             logger.exception(f"Error loading files: {e}")
