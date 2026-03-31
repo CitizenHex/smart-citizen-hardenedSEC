@@ -283,3 +283,52 @@ def download_contracts(progress_callback: Callable[[int, int], None]) -> Path:
     except Exception as e:
         logger.error(f"Failed to download contracts: {e}")
         raise
+
+
+def download_file(url: str, output_path: str | Path) -> Path:
+    """Download a file from a URL and save to disk.
+
+    Args:
+        url: URL to download from
+        output_path: Path to save the downloaded file
+
+    Returns:
+        Path to saved file
+
+    Raises:
+        Exception if download fails
+    """
+    output_path = Path(output_path)
+
+    try:
+        logger.info(f"Downloading from {url}")
+
+        with urlopen(url, timeout=60) as response:
+            total_size = int(response.headers.get('content-length', 0))
+            bytes_downloaded = 0
+            chunks = []
+            chunk_size = 65536  # 64KB chunks
+
+            while True:
+                try:
+                    chunk = response.read(chunk_size)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    bytes_downloaded += len(chunk)
+                except socket.timeout:
+                    logger.warning("Download timeout, retrying...")
+                    raise
+
+            file_data = b''.join(chunks)
+
+        # Write to output
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(file_data)
+
+        logger.info(f"Downloaded to {output_path} ({len(file_data)} bytes)")
+        return output_path
+
+    except Exception as e:
+        logger.error(f"Failed to download {url}: {e}")
+        raise
