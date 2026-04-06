@@ -29,8 +29,22 @@ from urllib.error import URLError
 SCRIPT_DIR   = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 
-APPDATA = os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming"))
-APP_CACHE_DIR    = Path(APPDATA) / "Osiris DevWorks" / "SC Localization Editor" / "cache"
+def _get_documents_dir() -> Path:
+    """Resolve real Documents folder (handles OneDrive redirection)."""
+    try:
+        import winreg
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders"
+        )
+        docs = Path(winreg.QueryValueEx(key, "Personal")[0])
+        winreg.CloseKey(key)
+        return docs
+    except Exception:
+        return Path.home() / "Documents"
+
+
+APP_CACHE_DIR    = _get_documents_dir() / "SC Localization Editor" / "cache"
 DEFAULT_BASE_INI = APP_CACHE_DIR / "base.ini"
 
 # Stats output goes to AppData cache so the app finds it automatically.

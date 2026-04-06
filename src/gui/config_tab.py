@@ -223,7 +223,7 @@ class ConfigTab(QWidget):
         game_input_layout = QHBoxLayout()
         self.game_path_input = QLineEdit()
         self.game_path_input.setText(AppSettings.get_game_install_path())
-        self.game_path_input.setPlaceholderText("C:/PATH/TO/Roberts Space Industries/StarCitizen")
+        self.game_path_input.setPlaceholderText(r"C:\Program Files\Roberts Space Industries\StarCitizen\LIVE")
         game_input_layout.addWidget(self.game_path_input)
 
         game_browse_btn = QPushButton("Browse...")

@@ -29,6 +29,12 @@ def main():
     # Migrate legacy settings to new data source format
     AppSettings.migrate_legacy_settings()
 
+    # Move user data files from old AppData location to Documents (idempotent)
+    AppSettings.migrate_data_to_documents()
+
+    # Always keep user source path in sync with canonical overrides location
+    AppSettings.set_source_path(AppSettings.SOURCE_USER, str(AppSettings.get_overrides_path()))
+
     # Ensure overrides.ini exists (create empty if first run)
     AppSettings.ensure_overrides_file()
 

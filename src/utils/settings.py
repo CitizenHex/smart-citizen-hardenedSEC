@@ -128,7 +128,19 @@ class AppSettings:
             pass
 
         # Fall back to QSettings
-        return AppSettings.settings().value(AppSettings.GAME_INSTALL_PATH, "")
+        saved = AppSettings.settings().value(AppSettings.GAME_INSTALL_PATH, "")
+        if saved:
+            return saved
+
+        # Auto-detect from common install locations
+        for candidate in [
+            r"C:\Program Files\Roberts Space Industries\StarCitizen\LIVE",
+            r"C:\Program Files (x86)\Roberts Space Industries\StarCitizen\LIVE",
+        ]:
+            if Path(candidate).exists():
+                return candidate
+
+        return ""
 
     @staticmethod
     def set_game_install_path(path: str) -> None:
@@ -321,26 +333,86 @@ class AppSettings:
         AppSettings.set_source_auto_update(AppSettings.SOURCE_SHIPS, False)
 
     @staticmethod
-    def get_cache_dir() -> Path:
-        r"""Get canonical cache directory in AppData.
+    def get_user_data_dir() -> Path:
+        r"""Get the user data directory: Documents\SC Localization Editor\.
+
+        Uses the real Documents folder path from the registry, which correctly
+        handles OneDrive/folder-redirection. Falls back to Path.home()/Documents.
 
         Returns:
-            Path to cache directory in %APPDATA%\Osiris DevWorks\SC Localization Editor\cache\
+            Path to Documents\SC Localization Editor\ (created if needed)
         """
-        appdata = os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming"))
-        cache_dir = Path(appdata) / "Osiris DevWorks" / "SC Localization Editor" / "cache"
+        try:
+            key = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders"
+            )
+            docs_path = Path(winreg.QueryValueEx(key, "Personal")[0])
+            winreg.CloseKey(key)
+        except (WindowsError, OSError):
+            docs_path = Path.home() / "Documents"
+
+        data_dir = docs_path / "SC Localization Editor"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        return data_dir
+
+    @staticmethod
+    def get_cache_dir() -> Path:
+        r"""Get canonical cache directory in Documents\SC Localization Editor\cache\.
+
+        Returns:
+            Path to Documents\SC Localization Editor\cache\ (created if needed)
+        """
+        cache_dir = AppSettings.get_user_data_dir() / "cache"
         cache_dir.mkdir(parents=True, exist_ok=True)
         return cache_dir
 
     @staticmethod
     def get_overrides_path() -> Path:
-        r"""Get canonical path for overrides.ini in AppData.
+        r"""Get canonical path for overrides.ini in Documents\SC Localization Editor\.
 
         Returns:
-            Path to overrides.ini in %APPDATA%\Osiris DevWorks\SC Localization Editor\
+            Path to Documents\SC Localization Editor\overrides.ini
         """
-        appdata = os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming"))
-        return Path(appdata) / "Osiris DevWorks" / "SC Localization Editor" / "overrides.ini"
+        return AppSettings.get_user_data_dir() / "overrides.ini"
+
+    @staticmethod
+    def migrate_data_to_documents() -> None:
+        """Copy user data files from old AppData location to new Documents location.
+
+        Safe to call on every startup — skips files that already exist at the
+        destination. Handles the upgrade path for users on previous versions.
+        """
+        import shutil
+
+        old_base = Path(
+            os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming"))
+        ) / "Osiris DevWorks" / "SC Localization Editor"
+        old_cache = old_base / "cache"
+
+        new_base  = AppSettings.get_user_data_dir()
+        new_cache = AppSettings.get_cache_dir()
+
+        # Migrate overrides.ini
+        old_overrides = old_base / "overrides.ini"
+        new_overrides = new_base / "overrides.ini"
+        if old_overrides.exists() and not new_overrides.exists():
+            try:
+                shutil.copy2(old_overrides, new_overrides)
+                logger.info(f"Migrated overrides.ini to Documents")
+            except Exception as e:
+                logger.warning(f"Could not migrate overrides.ini: {e}")
+
+        # Migrate cache files
+        if old_cache.exists():
+            for ini_file in old_cache.glob("*.ini"):
+                dest = new_cache / ini_file.name
+                if not dest.exists():
+                    try:
+                        shutil.copy2(ini_file, dest)
+                        logger.info(f"Migrated {ini_file.name} to Documents cache")
+                    except Exception as e:
+                        logger.warning(f"Could not migrate {ini_file.name}: {e}")
 
     @staticmethod
     def ensure_overrides_file() -> None:
