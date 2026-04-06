@@ -55,6 +55,7 @@ exe_name = f"SCLocalizationEditor-v{current_version}"
 
 assets_dir = os.path.join(root_dir, 'assets')
 icon_path  = os.path.join(assets_dir, 'logo.ico')
+about_file = os.path.join(root_dir, 'ABOUT.md')
 
 pyinstaller_args = [
     os.path.join(root_dir, 'src', 'main.py'),
@@ -63,6 +64,7 @@ pyinstaller_args = [
     '--windowed',
     '--icon', icon_path,
     '--add-data', f'{version_file}{os.pathsep}.',
+    '--add-data', f'{about_file}{os.pathsep}.',
     '--add-data', f'{assets_dir}{os.pathsep}assets',
     '--distpath', os.path.join(root_dir, 'dist'),
     '--workpath', os.path.join(root_dir, 'build'),
