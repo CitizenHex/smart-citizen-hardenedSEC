@@ -106,6 +106,7 @@ def load_source_files(
             AppSettings.SOURCE_CONTRACTS: "Missions",
             AppSettings.SOURCE_COMPONENTS: "Ship Components",
             AppSettings.SOURCE_SHIPS: "Ships",
+            "stats": None,                        # No filtering - description keys are "Other"
         }
 
         category_filter = source_category_filters.get(source_name)
@@ -150,8 +151,8 @@ def load_source_files(
     base_source = filtered_hierarchy[0] if filtered_hierarchy else 'global'
     entry_count = 0
     for key, merged_value in merged_values.items():
-        # Skip vehicle_Name entries ending with _short
-        if key.startswith("vehicle_Name") and key.endswith("_short"):
+        # Skip abbreviated ship name entries (e.g. vehicle_Name*_short, vehicle_name*_short,P)
+        if key.lower().startswith("vehicle_name") and "_short" in key:
             continue
 
         entry_count += 1
@@ -272,6 +273,28 @@ def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str]]:
                 logger.info(f"Loaded {len(source_data)} entries from {source_name}")
         except Exception as e:
             logger.exception(f"Failed to load source {source_name} from {source_path}: {e}")
+
+    # ── Stats enhancements ───────────────────────────────────────────────────
+    if AppSettings.get_stats_enabled():
+        stats_combined: Dict[str, str] = {}
+        for label, filename in AppSettings.STATS_FILES.items():
+            stats_file = cache_dir / filename
+            if stats_file.exists():
+                data = parse_ini_file(stats_file)
+                stats_combined.update(data)
+                logger.info(f"Loaded {len(data)} stats entries from {filename}")
+            else:
+                logger.debug(f"Stats file not found (skipping): {stats_file}")
+
+        if stats_combined:
+            sources_dict["stats"] = stats_combined
+            logger.info(f"Stats enhancements: {len(stats_combined)} total entries loaded")
+            # Insert "stats" just before "user" in the hierarchy (or at end if no user)
+            if AppSettings.SOURCE_USER in hierarchy:
+                idx = hierarchy.index(AppSettings.SOURCE_USER)
+                hierarchy = hierarchy[:idx] + ["stats"] + hierarchy[idx:]
+            else:
+                hierarchy = hierarchy + ["stats"]
 
     logger.info(f"load_sources_from_settings complete. Loaded sources: {list(sources_dict.keys())}")
     return sources_dict, hierarchy

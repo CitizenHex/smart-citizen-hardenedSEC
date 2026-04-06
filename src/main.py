@@ -1,4 +1,5 @@
 """SC Localization Editor - Main entry point."""
+import ctypes
 import logging
 import sys
 from pathlib import Path
@@ -30,6 +31,13 @@ def main():
 
     # Ensure overrides.ini exists (create empty if first run)
     AppSettings.ensure_overrides_file()
+
+    # Required on Windows so the taskbar groups the app under its own icon
+    # instead of the Python interpreter icon.
+    if sys.platform == 'win32':
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            'OsirisDevWorks.SCLocalizationEditor'
+        )
 
     app = QApplication(sys.argv)
     window = MainWindow()

@@ -6,10 +6,9 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLineEdit,
     QPushButton, QCheckBox, QLabel, QFileDialog, QMessageBox,
-    QListWidget, QListWidgetItem, QScrollArea
+    QListWidget, QListWidgetItem, QScrollArea, QComboBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor
 
 from src.utils.settings import AppSettings
 
@@ -234,6 +233,93 @@ class ConfigTab(QWidget):
         game_layout.addLayout(game_input_layout)
         layout.addWidget(game_group)
 
+        # Stats data group
+        # Stats enhancements group
+        stats_group = QGroupBox("Stats Enhancements")
+        stats_layout = QVBoxLayout(stats_group)
+
+        self.stats_enabled_checkbox = QCheckBox("Append stats to ship, component, and weapon descriptions")
+        self.stats_enabled_checkbox.setChecked(AppSettings.get_stats_enabled())
+        stats_layout.addWidget(self.stats_enabled_checkbox)
+
+        stats_desc = QLabel(
+            "When enabled, numerical stats (speed, DPS, shield HP, etc.) are appended to "
+            "description entries."
+        )
+        stats_desc.setStyleSheet("font-size: 11px; color: #666;")
+        stats_desc.setWordWrap(True)
+        stats_layout.addWidget(stats_desc)
+
+        # Status row for each stats file
+        cache_dir = AppSettings.get_cache_dir()
+        self._stats_status_labels: dict = {}
+        stats_file_names = {
+            "ship_descs":        "Ships",
+            "component_descs":   "Components",
+            "ship_weapon_descs": "Ship Weapons",
+            "fps_weapon_descs":  "FPS Weapons",
+        }
+        status_row = QHBoxLayout()
+        for key, label in stats_file_names.items():
+            filename = AppSettings.STATS_FILES[key]
+            present = (cache_dir / filename).exists()
+            dot = QLabel("●")
+            dot.setStyleSheet(f"color: {'#4caf50' if present else '#f44336'}; font-size: 12px;")
+            status_row.addWidget(dot)
+            lbl = QLabel(label)
+            lbl.setStyleSheet("font-size: 11px;")
+            status_row.addWidget(lbl)
+            status_row.addSpacing(8)
+            self._stats_status_labels[key] = dot
+        status_row.addStretch()
+        stats_layout.addLayout(status_row)
+        layout.addWidget(stats_group)
+
+        # Favorites settings group
+        favorites_group = QGroupBox("Favorites")
+        favorites_layout = QVBoxLayout(favorites_group)
+
+        favorites_desc = QLabel(
+            "Favorited ships have a prefix character prepended to their name so they "
+            "sort to the top of the in-game ship list. Choose which character to use:"
+        )
+        favorites_desc.setStyleSheet("font-size: 11px; color: #666;")
+        favorites_desc.setWordWrap(True)
+        favorites_layout.addWidget(favorites_desc)
+
+        prefix_row = QHBoxLayout()
+        prefix_row.addWidget(QLabel("Sort prefix:"))
+        self.favorite_prefix_combo = QComboBox()
+        self.favorite_prefix_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToContents
+        )
+        # ASCII 32–64: space through @
+        self.favorite_prefix_combo.addItem("  (space)", userData=" ")
+        for code in range(33, 65):
+            char = chr(code)
+            self.favorite_prefix_combo.addItem(char, userData=char)
+        self._loaded_prefix = AppSettings.get_favorite_prefix()
+        for i in range(self.favorite_prefix_combo.count()):
+            if self.favorite_prefix_combo.itemData(i) == self._loaded_prefix:
+                self.favorite_prefix_combo.setCurrentIndex(i)
+                break
+        # Widen the popup list so every label is fully visible
+        self.favorite_prefix_combo.view().setMinimumWidth(
+            self.favorite_prefix_combo.sizeHint().width() + 20
+        )
+        prefix_row.addWidget(self.favorite_prefix_combo)
+
+        apply_prefix_btn = QPushButton("Apply")
+        apply_prefix_btn.setToolTip(
+            "Save the selected prefix and update all existing favorites to use it"
+        )
+        apply_prefix_btn.clicked.connect(self._apply_favorite_prefix)
+        prefix_row.addWidget(apply_prefix_btn)
+
+        prefix_row.addStretch()
+        favorites_layout.addLayout(prefix_row)
+        layout.addWidget(favorites_group)
+
         # Buttons
         button_layout = QHBoxLayout()
         save_btn = QPushButton("Save Configuration & Merge")
@@ -248,6 +334,41 @@ class ConfigTab(QWidget):
 
         button_layout.addStretch()
         layout.addLayout(button_layout)
+
+    def _apply_favorite_prefix(self):
+        """Save the new prefix and migrate all existing favorites in overrides.ini."""
+        new_prefix = self.favorite_prefix_combo.currentData()
+        if not new_prefix:
+            return
+
+        old_prefix = self._loaded_prefix
+
+        if new_prefix != old_prefix:
+            overrides_path = AppSettings.get_overrides_path()
+            if overrides_path.exists():
+                try:
+                    lines = overrides_path.read_text(encoding="utf-8").splitlines()
+                    updated = []
+                    migrated = 0
+                    for line in lines:
+                        if "=" in line:
+                            key, _, value = line.partition("=")
+                            if value.startswith(old_prefix):
+                                value = new_prefix + value[len(old_prefix):]
+                                migrated += 1
+                            updated.append(f"{key}={value}")
+                        else:
+                            updated.append(line)
+                    overrides_path.write_text("\n".join(updated), encoding="utf-8")
+                    logger.info(f"Migrated {migrated} favorites from '{old_prefix}' to '{new_prefix}'")
+                except Exception as e:
+                    logger.exception(f"Failed to migrate favorites: {e}")
+                    QMessageBox.critical(self, "Error", f"Failed to update favorites: {e}")
+                    return
+
+        AppSettings.set_favorite_prefix(new_prefix)
+        self._loaded_prefix = new_prefix
+        self.merge_requested.emit()
 
     def browse_game_path(self):
         """Browse for game installation path."""
@@ -271,6 +392,9 @@ class ConfigTab(QWidget):
                 return
 
             AppSettings.set_game_install_path(game_path)
+
+            # Save stats enhancements setting
+            AppSettings.set_stats_enabled(self.stats_enabled_checkbox.isChecked())
 
             # Get enabled sources and hierarchy
             enabled_sources = [
