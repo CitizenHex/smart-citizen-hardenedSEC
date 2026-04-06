@@ -117,7 +117,7 @@ def load_source_files(
             for key, value in source_data.items():
                 if StringEntry.extract_category(key) == category_filter:
                     filtered_data[key] = value
-            logger.info(f"Filtered {source_name}: {len(source_data)} keys → {len(filtered_data)} keys (category: {category_filter})")
+            logger.info(f"Filtered {source_name}: {len(source_data)} keys -> {len(filtered_data)} keys (category: {category_filter})")
             filtered_sources[source_name] = filtered_data
         else:
             # No filtering for this source

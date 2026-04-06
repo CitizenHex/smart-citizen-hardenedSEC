@@ -28,15 +28,15 @@ SCDirectoryDefaultDesc=This is typically located at:
 SCDirectoryDefaultPath=C:\Program Files\Roberts Space Industries\StarCitizen\LIVE
 
 [Files]
-Source: "dist\SCLocalizationEditor-v0.3.0.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\SCLocalizationEditor-v0.5.0.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\SC Localization Editor"; Filename: "{app}\SCLocalizationEditor-v0.3.0.exe"
+Name: "{group}\SC Localization Editor"; Filename: "{app}\SCLocalizationEditor-v0.5.0.exe"
 Name: "{group}\{cm:UninstallProgram,SC Localization Editor}"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\SC Localization Editor"; Filename: "{app}\SCLocalizationEditor-v0.3.0.exe"
+Name: "{commondesktop}\SC Localization Editor"; Filename: "{app}\SCLocalizationEditor-v0.5.0.exe"
 
 [Run]
-Filename: "{app}\SCLocalizationEditor-v0.3.0.exe"; Description: "{cm:LaunchProgram,SC Localization Editor}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\SCLocalizationEditor-v0.5.0.exe"; Description: "{cm:LaunchProgram,SC Localization Editor}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 var
