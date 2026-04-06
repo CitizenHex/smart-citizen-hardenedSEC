@@ -53,11 +53,17 @@ print()
 # Build executable with PyInstaller
 exe_name = f"SCLocalizationEditor-v{current_version}"
 
+assets_dir = os.path.join(root_dir, 'assets')
+icon_path  = os.path.join(assets_dir, 'logo.ico')
+
 pyinstaller_args = [
     os.path.join(root_dir, 'src', 'main.py'),
     '--name', exe_name,
     '--onefile',
     '--windowed',
+    '--icon', icon_path,
+    '--add-data', f'{version_file}{os.pathsep}.',
+    '--add-data', f'{assets_dir}{os.pathsep}assets',
     '--distpath', os.path.join(root_dir, 'dist'),
     '--workpath', os.path.join(root_dir, 'build'),
     '--specpath', root_dir,

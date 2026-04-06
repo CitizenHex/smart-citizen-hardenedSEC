@@ -1460,11 +1460,14 @@ Shows the current base file version and contracts.ini version. "✓" means up to
         """Apply background color to a row based on favorite state."""
         prefix = AppSettings.get_favorite_prefix()
         is_favorite = entry.category == "Ships" and entry.custom_value.startswith(prefix)
-        bg = QColor("#3a3000") if is_favorite else QColor()  # gold tint or default
         for col in range(self.table.columnCount()):
             item = self.table.item(row, col)
             if item:
-                item.setBackground(bg)
+                if is_favorite:
+                    item.setBackground(QColor("#3a3000"))
+                else:
+                    # Clear to system default — avoids black cells in light mode
+                    item.setData(Qt.ItemDataRole.BackgroundRole, None)
 
     def _status_color(self, status: str) -> QColor:
         """Get color for status."""
