@@ -15,6 +15,20 @@ class AppSettings:
     ORG_NAME = "Osiris DevWorks"
     APP_NAME = "SC Localization Editor"
 
+    # Settings keys - Favorites
+    FAVORITE_PREFIX = "favorite_prefix"
+
+    # Settings keys - Stats enhancements
+    STATS_ENABLED = "stats_enhancements_enabled"
+
+    # Stats cache filenames (written by generate_stats_ini.py into cache dir)
+    STATS_FILES = {
+        "ship_descs":          "ships_desc_stats.ini",
+        "component_descs":     "components_desc_stats.ini",
+        "ship_weapon_descs":   "ship_weapons_desc_stats.ini",
+        "fps_weapon_descs":    "fps_weapons_desc_stats.ini",
+    }
+
     # Settings keys - Legacy (kept for migration)
     BASE_GLOBAL_PATH = "base_global_path"
     VEHICLES_PATH = "vehicles_path"
@@ -42,6 +56,26 @@ class AppSettings:
     def settings() -> QSettings:
         """Get QSettings instance."""
         return QSettings(AppSettings.ORG_NAME, AppSettings.APP_NAME)
+
+    @staticmethod
+    def get_stats_enabled() -> bool:
+        """Check whether stats enhancements are enabled (default: True)."""
+        return AppSettings.settings().value(AppSettings.STATS_ENABLED, True, type=bool)
+
+    @staticmethod
+    def set_stats_enabled(enabled: bool) -> None:
+        """Enable or disable stats enhancements."""
+        AppSettings.settings().setValue(AppSettings.STATS_ENABLED, enabled)
+
+    @staticmethod
+    def get_favorite_prefix() -> str:
+        """Get the character prepended to favorited ship names (default '*')."""
+        return AppSettings.settings().value(AppSettings.FAVORITE_PREFIX, "*")
+
+    @staticmethod
+    def set_favorite_prefix(prefix: str) -> None:
+        """Set the character prepended to favorited ship names."""
+        AppSettings.settings().setValue(AppSettings.FAVORITE_PREFIX, prefix)
 
     @staticmethod
     def get_base_global_path() -> str:

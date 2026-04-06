@@ -373,6 +373,10 @@ class MainWindow(QMainWindow):
         self.hide_unmodified_check.stateChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.hide_unmodified_check)
 
+        self.favorites_only_check = QCheckBox("★ Favorites Only")
+        self.favorites_only_check.stateChanged.connect(self.apply_filters)
+        filter_layout.addWidget(self.favorites_only_check)
+
         self.clear_filters_btn = QPushButton("Clear Filters")
         self.clear_filters_btn.setMaximumWidth(100)
         self.clear_filters_btn.clicked.connect(self.clear_filters)
@@ -531,9 +535,9 @@ class MainWindow(QMainWindow):
 
         # Table
         self.table = QTableWidget()
-        self.table.setColumnCount(6)
+        self.table.setColumnCount(7)
         self.table.setHorizontalHeaderLabels([
-            "Category", "Key", "Default Value", "Current Value", "Custom Value", "Status"
+            "Category", "Key", "Default Value", "Current Value", "★", "Custom Value", "Status"
         ])
 
         # Table settings
@@ -548,16 +552,18 @@ class MainWindow(QMainWindow):
 
         # Set column widths
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # Category
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)           # Key
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)           # Default Value
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)           # Current Value
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # ★
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)           # Custom Value
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)  # Status
 
-        # Set custom delegate for editing
-        self.table.setItemDelegateForColumn(4, SelectAllDelegate())
+        # Set custom delegate for editing Custom Value column (col 5)
+        self.table.setItemDelegateForColumn(5, SelectAllDelegate())
         self.table.itemChanged.connect(self.on_item_changed)
+        self.table.cellClicked.connect(self.on_cell_clicked)
 
         layout.addWidget(self.table)
 
@@ -1394,24 +1400,31 @@ Shows the current base file version and contracts.ini version. "✓" means up to
         self.table.blockSignals(True)
 
         for row, entry in enumerate(self.entries):
+            # Col 0: Category
             self.table.setItem(row, 0, self._create_item(entry.category))
+
+            # Col 1: Key
             self.table.setItem(row, 1, self._create_item(entry.key))
 
-            # Default value from reference base file (for comparison)
+            # Col 2: Default value from reference base file (for comparison)
             default_value = self.default_values.get(entry.key, "")
             self.table.setItem(row, 2, self._create_item(default_value))
 
-            # Current value (original_value from loaded file)
+            # Col 3: Current value (original_value from loaded file)
             self.table.setItem(row, 3, self._create_item(entry.original_value))
 
-            # Custom value (editable)
-            custom_item = self._create_item(entry.custom_value)
-            self.table.setItem(row, 4, custom_item)
+            # Col 4: Favorite star (Ships only)
+            self.table.setItem(row, 4, self._create_star_item(entry))
 
-            # Status
+            # Col 5: Custom value (editable)
+            self.table.setItem(row, 5, self._create_item(entry.custom_value))
+
+            # Col 6: Status
             status_item = self._create_item(entry.status)
             status_item.setForeground(self._status_color(entry.status))
-            self.table.setItem(row, 5, status_item)
+            self.table.setItem(row, 6, status_item)
+
+            self._apply_row_style(row, entry)
 
         self.table.blockSignals(False)
 
@@ -1422,6 +1435,36 @@ Shows the current base file version and contracts.ini version. "✓" means up to
         # Show full text as tooltip (useful for long values)
         item.setToolTip(text)
         return item
+
+    def _create_star_item(self, entry: "StringEntry") -> QTableWidgetItem:
+        """Create the favorite star cell for a row. Only Ships get a clickable star."""
+        if entry.category != "Ships":
+            item = QTableWidgetItem("")
+            item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            return item
+
+        prefix = AppSettings.get_favorite_prefix()
+        is_fav = entry.custom_value.startswith(prefix)
+        item = QTableWidgetItem("★" if is_fav else "☆")
+        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        if is_fav:
+            item.setForeground(QColor("#FFD700"))  # gold
+            item.setToolTip("Favorite — click to remove")
+        else:
+            item.setForeground(QColor("#666666"))
+            item.setToolTip("Click to mark as favorite")
+        return item
+
+    def _apply_row_style(self, row: int, entry: "StringEntry"):
+        """Apply background color to a row based on favorite state."""
+        prefix = AppSettings.get_favorite_prefix()
+        is_favorite = entry.category == "Ships" and entry.custom_value.startswith(prefix)
+        bg = QColor("#3a3000") if is_favorite else QColor()  # gold tint or default
+        for col in range(self.table.columnCount()):
+            item = self.table.item(row, col)
+            if item:
+                item.setBackground(bg)
 
     def _status_color(self, status: str) -> QColor:
         """Get color for status."""
@@ -1467,6 +1510,8 @@ Shows the current base file version and contracts.ini version. "✓" means up to
         category_filter = self.category_combo.currentText()
         status_filter = self.status_combo.currentText()
         hide_unmodified = self.hide_unmodified_check.isChecked()
+        favorites_only = self.favorites_only_check.isChecked()
+        prefix = AppSettings.get_favorite_prefix()
 
         self.table.blockSignals(True)
         visible_count = 0
@@ -1489,6 +1534,9 @@ Shows the current base file version and contracts.ini version. "✓" means up to
             if hide_unmodified and entry.status == "Unmodified":
                 show = False
 
+            if favorites_only and not entry.custom_value.startswith(prefix):
+                show = False
+
             self.table.setRowHidden(row, not show)
             if show:
                 visible_count += 1
@@ -1504,16 +1552,19 @@ Shows the current base file version and contracts.ini version. "✓" means up to
         self.category_combo.blockSignals(True)
         self.status_combo.blockSignals(True)
         self.hide_unmodified_check.blockSignals(True)
+        self.favorites_only_check.blockSignals(True)
 
         self.search_input.clear()
         self.category_combo.setCurrentIndex(0)
         self.status_combo.setCurrentIndex(0)
         self.hide_unmodified_check.setChecked(False)
+        self.favorites_only_check.setChecked(False)
 
         self.search_input.blockSignals(False)
         self.category_combo.blockSignals(False)
         self.status_combo.blockSignals(False)
         self.hide_unmodified_check.blockSignals(False)
+        self.favorites_only_check.blockSignals(False)
 
         self.apply_filters()
 
@@ -1523,10 +1574,14 @@ Shows the current base file version and contracts.ini version. "✓" means up to
         row = item.row()
         col = item.column()
 
-        if col == 4 and row < len(self.entries):  # Custom Value column
+        if col == 5 and row < len(self.entries):  # Custom Value column
             self.entries[row].custom_value = item.text()
             self.entries[row].status = "Modified" if item.text() != self.entries[row].original_value else "Unmodified"
-            self.table.setItem(row, 5, self._create_item(self.entries[row].status))
+            status_item = self._create_item(self.entries[row].status)
+            status_item.setForeground(self._status_color(self.entries[row].status))
+            self.table.setItem(row, 6, status_item)
+            self.table.setItem(row, 4, self._create_star_item(self.entries[row]))
+            self._apply_row_style(row, self.entries[row])
 
     def show_context_menu(self, position):
         """Show right-click context menu."""
@@ -1538,15 +1593,27 @@ Shows the current base file version and contracts.ini version. "✓" means up to
         if row >= len(self.entries):
             return
 
+        entry = self.entries[row]
+        prefix = AppSettings.get_favorite_prefix()
+        is_favorite = entry.custom_value.startswith(prefix)
+
         menu = QMenu(self)
         menu.addAction("Edit", lambda: self.edit_cell(row))
         menu.addAction("Reset to Original", lambda: self.reset_to_original(row))
         menu.addAction("Copy Key", lambda: self.copy_key(row))
+
+        if entry.category == "Ships":
+            menu.addSeparator()
+            if is_favorite:
+                menu.addAction("★ Remove from Favorites", lambda: self.toggle_favorite(row))
+            else:
+                menu.addAction("★ Add to Favorites", lambda: self.toggle_favorite(row))
+
         menu.exec(self.table.mapToGlobal(position))
 
     def edit_cell(self, row: int):
         """Edit custom value cell."""
-        self.table.editItem(self.table.item(row, 3))
+        self.table.editItem(self.table.item(row, 5))
 
     def reset_to_original(self, row: int):
         """Reset custom value to original."""
@@ -1564,6 +1631,40 @@ Shows the current base file version and contracts.ini version. "✓" means up to
                 self.statusBar().showMessage(f"Copied: {self.entries[row].key}")
             except ImportError:
                 self.statusBar().showMessage("pyperclip not installed")
+
+    @pyqtSlot(int, int)
+    def on_cell_clicked(self, row: int, col: int):
+        """Handle cell clicks — col 0 (★) toggles favorite for Ship rows."""
+        if col == 4 and row < len(self.entries) and self.entries[row].category == "Ships":
+            self.toggle_favorite(row)
+
+    def toggle_favorite(self, row: int):
+        """Add or remove the sort prefix from a ship's custom value."""
+        if row >= len(self.entries):
+            return
+
+        entry = self.entries[row]
+        prefix = AppSettings.get_favorite_prefix()
+
+        if entry.custom_value.startswith(prefix):
+            # Remove favorite: strip prefix
+            new_value = entry.custom_value[len(prefix):]
+            entry.custom_value = new_value if new_value != entry.original_value else ""
+        else:
+            # Add favorite: prepend prefix to current display value
+            base = entry.custom_value if entry.custom_value else entry.original_value
+            entry.custom_value = prefix + base
+
+        entry.status = "Modified" if entry.custom_value else "Unmodified"
+
+        self.table.blockSignals(True)
+        self.table.setItem(row, 4, self._create_star_item(entry))
+        self.table.setItem(row, 5, self._create_item(entry.custom_value))
+        status_item = self._create_item(entry.status)
+        status_item.setForeground(self._status_color(entry.status))
+        self.table.setItem(row, 6, status_item)
+        self._apply_row_style(row, entry)
+        self.table.blockSignals(False)
 
     def restore_window_state(self):
         """Restore window geometry and state."""

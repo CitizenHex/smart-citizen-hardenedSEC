@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 SC Localization Editor is a PyQt6 GUI application for customizing Star Citizen localization strings. The app supports multiple configurable data sources with user-defined merge hierarchy. Users configure sources (Global, Contracts, Components, Ships), specify merge priority, make edits in the table, and apply changes directly to their game installation with automatic backup management.
 
-**Current Version**: 0.3.0 (from VERSION.TXT)
+**Current Version**: 0.4.0 (from VERSION.TXT)
 
 **Key Features**:
 - Multi-source data configuration (Global, Contracts, Components, Ships, User)
@@ -564,6 +564,21 @@ From CLAUDE.md history:
 ## Contact
 
 Osiris DevWorks - https://github.com/OsirisDevworks/sc-localization-editor
+
+## Recent Changes (v0.4.0)
+- **Source type filtering**: Each source now only loads keys relevant to its type (e.g., Ships source only loads `vehicle_Name*` keys), preventing category pollution across sources
+- **GitHub URL auto-conversion**: Config tab now auto-converts GitHub browser URLs to raw URLs for direct download
+- **Improved preview merge**: Better feedback in preview dialog; skips user source from required-source checks
+- **First-run overrides.ini creation**: App creates an empty overrides.ini on first run if missing
+
+## Recent Changes (v0.3.0)
+- **Multi-source configurable data system**: Replaced single base file with configurable Global, Contracts, Components, Ships, and User sources
+- **Drag-drop merge hierarchy**: Users define source merge order via Config tab
+- **Per-source auto-update flags**: Each source independently configured for auto-update
+- **Automatic cache file download on startup**: App bootstraps missing cache files from configured remote URLs
+- **Dynamic status bar**: Shows sync status per configured source in merge order
+- **Preview Merge**: Shows merge statistics and key counts before committing configuration
+- **Disabled automatic update checks**: Replaced with explicit save-and-merge flow via Config tab
 
 ## Recent Changes (v0.2.0)
 - **Auto-update system**: Background GitHub API check for latest base file

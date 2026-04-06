@@ -30,8 +30,13 @@ class StringEntry:
             return "Other"
 
         # Ship/vehicle names: vehicle_NameANVL_Carrack -> Ships
-        if key.startswith("vehicle_Name"):
-            return "Ships"
+        # Some newer entries use lowercase 'n': vehicle_nameMISC_Starlancer_MAX
+        # Wikelo-modified ships: TheCollector_Ships_F7_MK2_TItle -> Ships
+        # Exclude _Desc entries — those are long descriptions, not ship names
+        key_lower = key.lower()
+        if not key_lower.endswith("_desc"):
+            if key_lower.startswith("vehicle_name"):
+                return "Ships"
 
         # Ship components: item_NameSHLD_*, item_Name_SHLD_*, item_NamePOWR_*, etc.
         if key.startswith("item_Name"):
@@ -48,7 +53,6 @@ class StringEntry:
             "mission_", "Mission_",         # General missions
             "jt_", "JT_",                   # Job terminals
         ]
-        key_lower = key.lower()
         if any(key_lower.startswith(pattern.lower()) for pattern in mission_patterns):
             return "Missions"
 
