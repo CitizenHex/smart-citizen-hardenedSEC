@@ -337,6 +337,12 @@ class MainWindow(QMainWindow):
         self.apply_btn.clicked.connect(self.apply_to_game)
         button_layout.addWidget(self.apply_btn)
 
+        self.clear_loc_btn = QPushButton("Clear Localization")
+        self.clear_loc_btn.setStyleSheet("background-color: #9E9E9E; color: white; font-weight: bold; padding: 6px;")
+        self.clear_loc_btn.setToolTip("Delete the applied global.ini from the game's localization directory, reverting to vanilla game text")
+        self.clear_loc_btn.clicked.connect(self.clear_localization)
+        button_layout.addWidget(self.clear_loc_btn)
+
         button_layout.addStretch()
 
         self.help_btn = QPushButton("Help")
@@ -676,6 +682,7 @@ class MainWindow(QMainWindow):
         self.load_btn.setEnabled(enabled)
         self.apply_btn.setEnabled(enabled)
         self.restore_backup_btn.setEnabled(enabled)
+        self.clear_loc_btn.setEnabled(enabled)
 
     def load_default_values(self):
         """Load default values from cached base source in AppData."""
@@ -808,7 +815,7 @@ class MainWindow(QMainWindow):
 
             # Backup existing file if it exists
             if target_path.exists():
-                backup_dir = target_path.parent
+                backup_dir = AppSettings.get_backups_dir()
 
                 # Find all existing backups
                 backup_files = sorted(
@@ -885,6 +892,46 @@ class MainWindow(QMainWindow):
             logger.error(f"Error applying to game: {e}")
 
     @pyqtSlot()
+    def clear_localization(self):
+        """Delete global.ini from the game's localization directory, reverting to vanilla text."""
+        game_path = AppSettings.get_game_install_path()
+        if not game_path:
+            QMessageBox.warning(self, "Warning", "Please configure game install path in Config tab")
+            return
+
+        loc_dir = Path(game_path) / "LIVE/data/Localization/english"
+        global_ini = loc_dir / "global.ini"
+
+        if not global_ini.exists():
+            QMessageBox.information(self, "Nothing to Clear",
+                "No custom global.ini found in the game's localization directory.\n"
+                "The game is already using vanilla text.")
+            return
+
+        reply = QMessageBox.question(
+            self, "Clear Localization",
+            f"This will delete the custom global.ini from:\n{loc_dir}\n\n"
+            "The game will revert to its default (vanilla) localization text.\n\n"
+            "Your overrides are preserved in the app and can be re-applied at any time.\n\n"
+            "Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            global_ini.unlink()
+            logger.info(f"Deleted {global_ini}")
+            self.statusBar().showMessage("Localization cleared — game reverted to vanilla text")
+            QMessageBox.information(self, "Done",
+                "Custom localization removed.\n"
+                "The game will now use its default text.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to delete global.ini: {e}")
+            logger.error(f"Error clearing localization: {e}")
+
+    @pyqtSlot()
     def perform_merge_and_reload(self):
         """Perform merge of configured sources and reload table.
 
@@ -934,7 +981,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Warning", "Please configure game install path in Config tab")
             return
 
-        backup_dir = Path(game_path) / "LIVE/data/Localization/english"
+        backup_dir = AppSettings.get_backups_dir()
 
         # Open file dialog to select backup
         backup_file, _ = QFileDialog.getOpenFileName(
@@ -1396,12 +1443,16 @@ Shows the current base file version and contracts.ini version. "✓" means up to
 
     def populate_table(self):
         """Populate table with entries."""
+        self.table.setSortingEnabled(False)
         self.table.setRowCount(len(self.entries))
         self.table.blockSignals(True)
 
         for row, entry in enumerate(self.entries):
-            # Col 0: Category
-            self.table.setItem(row, 0, self._create_item(entry.category))
+            # Col 0: Category — also stores entry index as UserRole so row→entry
+            # lookups stay correct after the user sorts a column.
+            cat_item = self._create_item(entry.category)
+            cat_item.setData(Qt.ItemDataRole.UserRole, row)
+            self.table.setItem(row, 0, cat_item)
 
             # Col 1: Key
             self.table.setItem(row, 1, self._create_item(entry.key))
@@ -1427,6 +1478,7 @@ Shows the current base file version and contracts.ini version. "✓" means up to
             self._apply_row_style(row, entry)
 
         self.table.blockSignals(False)
+        self.table.setSortingEnabled(True)
 
     def _create_item(self, text: str):
         """Create table item with text and tooltip showing full value."""
@@ -1503,6 +1555,19 @@ Shows the current base file version and contracts.ini version. "✓" means up to
         self.filter_timer.stop()
         self.filter_timer.start()
 
+    def _entry_index_for_row(self, table_row: int) -> int:
+        """Return the self.entries index for a given table row.
+
+        After sorting, visual row order differs from self.entries order.
+        The entry index is stored as UserRole data on col 0 at populate time.
+        """
+        item = self.table.item(table_row, 0)
+        if item is not None:
+            idx = item.data(Qt.ItemDataRole.UserRole)
+            if idx is not None:
+                return idx
+        return table_row  # fallback (pre-sort or empty table)
+
     @pyqtSlot()
     def apply_filters(self):
         """Apply filters to table rows."""
@@ -1518,7 +1583,8 @@ Shows the current base file version and contracts.ini version. "✓" means up to
 
         self.table.blockSignals(True)
         visible_count = 0
-        for row, entry in enumerate(self.entries):
+        for table_row in range(self.table.rowCount()):
+            entry = self.entries[self._entry_index_for_row(table_row)]
             show = True
 
             if search_text and not (
@@ -1540,7 +1606,7 @@ Shows the current base file version and contracts.ini version. "✓" means up to
             if favorites_only and not entry.custom_value.startswith(prefix):
                 show = False
 
-            self.table.setRowHidden(row, not show)
+            self.table.setRowHidden(table_row, not show)
             if show:
                 visible_count += 1
 
@@ -1574,17 +1640,21 @@ Shows the current base file version and contracts.ini version. "✓" means up to
     @pyqtSlot(QTableWidgetItem)
     def on_item_changed(self, item: QTableWidgetItem):
         """Handle table item edit."""
-        row = item.row()
+        table_row = item.row()
         col = item.column()
 
-        if col == 5 and row < len(self.entries):  # Custom Value column
-            self.entries[row].custom_value = item.text()
-            self.entries[row].status = "Modified" if item.text() != self.entries[row].original_value else "Unmodified"
-            status_item = self._create_item(self.entries[row].status)
-            status_item.setForeground(self._status_color(self.entries[row].status))
-            self.table.setItem(row, 6, status_item)
-            self.table.setItem(row, 4, self._create_star_item(self.entries[row]))
-            self._apply_row_style(row, self.entries[row])
+        if col == 5:  # Custom Value column
+            entry_idx = self._entry_index_for_row(table_row)
+            if entry_idx >= len(self.entries):
+                return
+            entry = self.entries[entry_idx]
+            entry.custom_value = item.text()
+            entry.status = "Modified" if item.text() != entry.original_value else "Unmodified"
+            status_item = self._create_item(entry.status)
+            status_item.setForeground(self._status_color(entry.status))
+            self.table.setItem(table_row, 6, status_item)
+            self.table.setItem(table_row, 4, self._create_star_item(entry))
+            self._apply_row_style(table_row, entry)
 
     def show_context_menu(self, position):
         """Show right-click context menu."""
@@ -1592,25 +1662,26 @@ Shows the current base file version and contracts.ini version. "✓" means up to
         if not item:
             return
 
-        row = item.row()
-        if row >= len(self.entries):
+        table_row = item.row()
+        entry_idx = self._entry_index_for_row(table_row)
+        if entry_idx >= len(self.entries):
             return
 
-        entry = self.entries[row]
+        entry = self.entries[entry_idx]
         prefix = AppSettings.get_favorite_prefix()
         is_favorite = entry.custom_value.startswith(prefix)
 
         menu = QMenu(self)
-        menu.addAction("Edit", lambda: self.edit_cell(row))
-        menu.addAction("Reset to Original", lambda: self.reset_to_original(row))
-        menu.addAction("Copy Key", lambda: self.copy_key(row))
+        menu.addAction("Edit", lambda: self.edit_cell(table_row))
+        menu.addAction("Reset to Original", lambda: self.reset_to_original(table_row))
+        menu.addAction("Copy Key", lambda: self.copy_key(table_row))
 
         if entry.category == "Ships":
             menu.addSeparator()
             if is_favorite:
-                menu.addAction("★ Remove from Favorites", lambda: self.toggle_favorite(row))
+                menu.addAction("★ Remove from Favorites", lambda: self.toggle_favorite(table_row))
             else:
-                menu.addAction("★ Add to Favorites", lambda: self.toggle_favorite(row))
+                menu.addAction("★ Add to Favorites", lambda: self.toggle_favorite(table_row))
 
         menu.exec(self.table.mapToGlobal(position))
 
@@ -1618,35 +1689,40 @@ Shows the current base file version and contracts.ini version. "✓" means up to
         """Edit custom value cell."""
         self.table.editItem(self.table.item(row, 5))
 
-    def reset_to_original(self, row: int):
+    def reset_to_original(self, table_row: int):
         """Reset custom value to original."""
-        if row < len(self.entries):
-            self.entries[row].custom_value = ""
-            self.entries[row].status = "Unmodified"
+        entry_idx = self._entry_index_for_row(table_row)
+        if entry_idx < len(self.entries):
+            self.entries[entry_idx].custom_value = ""
+            self.entries[entry_idx].status = "Unmodified"
             self.populate_table()
 
-    def copy_key(self, row: int):
+    def copy_key(self, table_row: int):
         """Copy key to clipboard."""
-        if row < len(self.entries):
+        entry_idx = self._entry_index_for_row(table_row)
+        if entry_idx < len(self.entries):
             import pyperclip
             try:
-                pyperclip.copy(self.entries[row].key)
-                self.statusBar().showMessage(f"Copied: {self.entries[row].key}")
+                pyperclip.copy(self.entries[entry_idx].key)
+                self.statusBar().showMessage(f"Copied: {self.entries[entry_idx].key}")
             except ImportError:
                 self.statusBar().showMessage("pyperclip not installed")
 
     @pyqtSlot(int, int)
     def on_cell_clicked(self, row: int, col: int):
-        """Handle cell clicks — col 0 (★) toggles favorite for Ship rows."""
-        if col == 4 and row < len(self.entries) and self.entries[row].category == "Ships":
-            self.toggle_favorite(row)
+        """Handle cell clicks — col 4 (★) toggles favorite for Ship rows."""
+        if col == 4:
+            entry_idx = self._entry_index_for_row(row)
+            if entry_idx < len(self.entries) and self.entries[entry_idx].category == "Ships":
+                self.toggle_favorite(row)
 
-    def toggle_favorite(self, row: int):
+    def toggle_favorite(self, table_row: int):
         """Add or remove the sort prefix from a ship's custom value."""
-        if row >= len(self.entries):
+        entry_idx = self._entry_index_for_row(table_row)
+        if entry_idx >= len(self.entries):
             return
 
-        entry = self.entries[row]
+        entry = self.entries[entry_idx]
         prefix = AppSettings.get_favorite_prefix()
 
         if entry.custom_value.startswith(prefix):
@@ -1661,12 +1737,12 @@ Shows the current base file version and contracts.ini version. "✓" means up to
         entry.status = "Modified" if entry.custom_value else "Unmodified"
 
         self.table.blockSignals(True)
-        self.table.setItem(row, 4, self._create_star_item(entry))
-        self.table.setItem(row, 5, self._create_item(entry.custom_value))
+        self.table.setItem(table_row, 4, self._create_star_item(entry))
+        self.table.setItem(table_row, 5, self._create_item(entry.custom_value))
         status_item = self._create_item(entry.status)
         status_item.setForeground(self._status_color(entry.status))
-        self.table.setItem(row, 6, status_item)
-        self._apply_row_style(row, entry)
+        self.table.setItem(table_row, 6, status_item)
+        self._apply_row_style(table_row, entry)
         self.table.blockSignals(False)
 
     def restore_window_state(self):

@@ -123,47 +123,71 @@ def load_source_files(
             # No filtering for this source
             filtered_sources[source_name] = source_data
 
+    # Separate user overrides from the base merge so we can correctly populate
+    # custom_value and original_value independently.
+    # User data comes either from the explicit user_overrides param or sources_dict["user"].
+    effective_user_overrides: Dict[str, str] = {}
+    if user_overrides:
+        effective_user_overrides = dict(user_overrides)
+    elif AppSettings.SOURCE_USER in filtered_sources:
+        effective_user_overrides = dict(filtered_sources[AppSettings.SOURCE_USER])
+
+    # Build base-only hierarchy / sources (exclude user so original_value is the
+    # pre-user-edit baseline, not the already-overridden value).
+    base_hierarchy = [s for s in filtered_hierarchy if s != AppSettings.SOURCE_USER]
+    base_sources = {k: v for k, v in filtered_sources.items() if k != AppSettings.SOURCE_USER}
+
     try:
-        logger.info("Calling merge_sources_by_hierarchy...")
-        # Merge all sources in hierarchy order, with user overrides as highest priority
-        merged_values = merge_sources_by_hierarchy(filtered_sources, filtered_hierarchy, user_overrides)
-        logger.info(f"Merge complete. Result has {len(merged_values)} keys")
+        logger.info("Calling merge_sources_by_hierarchy (base only, no user)...")
+        base_merged = merge_sources_by_hierarchy(base_sources, base_hierarchy, None)
+        logger.info(f"Base merge complete. Result has {len(base_merged)} keys")
     except Exception as e:
         logger.exception(f"Error during merge: {e}")
         raise
 
-    # Track which source each key came from (for status calculation)
+    # Track which base source each key came from (for status of non-user entries)
     logger.info("Tracking source origin for each key...")
     source_origin: Dict[str, str] = {}
-    for source_name in filtered_hierarchy:
-        source_data = filtered_sources[source_name]
+    for source_name in base_hierarchy:
+        source_data = base_sources[source_name]
         for key in source_data.keys():
             source_origin[key] = source_name
-
-    # If user has pre-existing overrides, track those too
-    if user_overrides:
-        for key in user_overrides.keys():
-            source_origin[key] = 'user'
     logger.info(f"Source origin tracking complete. {len(source_origin)} keys tracked")
 
-    # Create StringEntry for each key in merged result
+    # Build the full key universe: all base keys + user-only "New" keys
+    all_keys = set(base_merged.keys()) | set(effective_user_overrides.keys())
+
+    # Create StringEntry for each key
     logger.info("Creating StringEntry objects...")
-    base_source = filtered_hierarchy[0] if filtered_hierarchy else 'global'
+    base_source = base_hierarchy[0] if base_hierarchy else 'global'
     entry_count = 0
-    for key, merged_value in merged_values.items():
+    for key in all_keys:
         # Skip abbreviated ship name entries (e.g. vehicle_Name*_short, vehicle_name*_short,P)
         if key.lower().startswith("vehicle_name") and "_short" in key:
             continue
 
         entry_count += 1
         if entry_count % 10000 == 0:
-            logger.debug(f"Processing entry {entry_count} of ~{len(merged_values)}...")
+            logger.debug(f"Processing entry {entry_count} of ~{len(all_keys)}...")
 
-        source = source_origin.get(key, base_source)
-        status = _determine_status_from_source(source, base_source)
+        original_value = base_merged.get(key, '')
+        custom_value = effective_user_overrides.get(key, '')
+
+        # Determine status
+        if key not in base_merged:
+            # Only in user overrides — user added a brand-new key
+            status = 'New'
+        elif custom_value:
+            # User has an override for this key
+            status = 'Modified'
+        else:
+            # No user override — use source-origin-based status
+            source = source_origin.get(key, base_source)
+            status = _determine_status_from_source(source, base_source)
+
+        source = source_origin.get(key, 'user' if key not in base_merged else base_source)
 
         # Determine category based on source
-        # Contracts/User entries are marked as Missions if they came from contracts
         if source == 'contracts':
             category = 'Missions'
         else:
@@ -173,9 +197,9 @@ def load_source_files(
             key=key,
             source_file=source,
             category=category,
-            original_value=merged_value,
-            custom_value='',  # Start empty; user edits populate this in UI
-            status=status
+            original_value=original_value,
+            custom_value=custom_value,
+            status=status,
         )
         entries.append(entry)
 

@@ -377,6 +377,17 @@ class AppSettings:
         return AppSettings.get_user_data_dir() / "overrides.ini"
 
     @staticmethod
+    def get_backups_dir() -> Path:
+        r"""Get canonical backups directory in Documents\SC Localization Editor\backups\.
+
+        Returns:
+            Path to Documents\SC Localization Editor\backups\ (created if needed)
+        """
+        backups_dir = AppSettings.get_user_data_dir() / "backups"
+        backups_dir.mkdir(parents=True, exist_ok=True)
+        return backups_dir
+
+    @staticmethod
     def migrate_data_to_documents() -> None:
         """Copy user data files from old AppData location to new Documents location.
 
@@ -413,6 +424,19 @@ class AppSettings:
                         logger.info(f"Migrated {ini_file.name} to Documents cache")
                     except Exception as e:
                         logger.warning(f"Could not migrate {ini_file.name}: {e}")
+
+        # Migrate backup files from old AppData location
+        old_backups = old_base / "backups"
+        if old_backups.exists():
+            new_backups = AppSettings.get_backups_dir()
+            for bak_file in old_backups.glob("global.ini.bak_*"):
+                dest = new_backups / bak_file.name
+                if not dest.exists():
+                    try:
+                        shutil.copy2(bak_file, dest)
+                        logger.info(f"Migrated {bak_file.name} to Documents backups")
+                    except Exception as e:
+                        logger.warning(f"Could not migrate {bak_file.name}: {e}")
 
     @staticmethod
     def ensure_overrides_file() -> None:

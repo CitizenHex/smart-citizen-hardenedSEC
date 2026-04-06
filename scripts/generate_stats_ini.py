@@ -455,7 +455,7 @@ def stats_fps_weapon(item: dict) -> str:
     if capacity is not None:
         lines.append(f"Magazine: {_fmt(capacity)}")
     if eff_range is not None:
-        lines.append(f"Effective Range: {_fmt(eff_range, ' m')}")
+        lines.append(f"Range: {_fmt(eff_range, ' m')}")
     if health is not None:
         lines.append(f"Durability: {_fmt(health)}")
     return "\\n".join(lines)
