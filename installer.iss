@@ -7,7 +7,7 @@ AppPublisherURL=https://github.com/Osiris-DevWorks/sc-localization-editor
 DefaultDirName={localappdata}\Osiris DevWorks\SC Localization Editor
 DefaultGroupName=SC Localization Editor
 OutputDir=dist
-OutputBaseFilename=SCLocalizationEditor-0.5.1-Setup
+OutputBaseFilename=SCLocalizationEditor-0.5.2-Setup
 Compression=lzma
 SolidCompression=yes
 ArchitecturesAllowed=x64
@@ -28,15 +28,15 @@ SCDirectoryDefaultDesc=This is typically located at:
 SCDirectoryDefaultPath=C:\Program Files\Roberts Space Industries\StarCitizen\LIVE
 
 [Files]
-Source: "dist\SCLocalizationEditor-v0.5.1.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\SCLocalizationEditor-v0.5.2.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\SC Localization Editor"; Filename: "{app}\SCLocalizationEditor-v0.5.1.exe"
+Name: "{group}\SC Localization Editor"; Filename: "{app}\SCLocalizationEditor-v0.5.2.exe"
 Name: "{group}\{cm:UninstallProgram,SC Localization Editor}"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\SC Localization Editor"; Filename: "{app}\SCLocalizationEditor-v0.5.1.exe"
+Name: "{commondesktop}\SC Localization Editor"; Filename: "{app}\SCLocalizationEditor-v0.5.2.exe"
 
 [Run]
-Filename: "{app}\SCLocalizationEditor-v0.5.1.exe"; Description: "{cm:LaunchProgram,SC Localization Editor}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\SCLocalizationEditor-v0.5.2.exe"; Description: "{cm:LaunchProgram,SC Localization Editor}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 var
