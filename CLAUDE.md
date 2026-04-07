@@ -6,15 +6,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 SC Localization Editor is a PyQt6 GUI application for customizing Star Citizen localization strings. The app supports multiple configurable data sources with user-defined merge hierarchy. Users configure sources (Global, Contracts, Components, Ships), specify merge priority, make edits in the table, and apply changes directly to their game installation with automatic backup management.
 
-**Current Version**: 0.4.0 (from VERSION.TXT)
+**Current Version**: 0.5.0 (from VERSION.TXT)
 
 **Key Features**:
 - Multi-source data configuration (Global, Contracts, Components, Ships, User)
 - User-configurable merge hierarchy (drag-and-drop priority)
 - Auto-update from external sources (GitHub, local files)
 - Persistent customizations via overrides.ini
-- Backup and restore system
+- Backup and restore system (stored in `Documents\SC Localization Editor\backups\`)
 - Category-based filtering with Mission detection
+- Ship Favorites (★ prefix toggle, filterable)
+- Stats enhancements (generated ship/component descriptions via `scripts/generate_stats_ini.py`)
+- Sortable table columns
+- Clear Localization (delete game's global.ini to revert to vanilla)
 
 ## Architecture
 
@@ -166,6 +170,7 @@ Located in `string_model.py`, each localization string is a dataclass with:
 - Category dropdown (Ships, Ship Components, Missions, Other) - always shows all standard categories
 - Status dropdown (Modified, Unmodified, New)
 - Hide Unmodified checkbox
+- "★ Favorites Only" checkbox (shows only entries with the favorite prefix in custom_value)
 - Debounced search (300ms) to prevent excessive filtering
 
 **Threading**: `FileLoaderWorker`, `UpdateCheckerWorker`, `DownloadWorker`, `ContractsCheckerWorker`, `ContractsDownloadWorker` all run in QThread with progress dialogs
@@ -214,7 +219,7 @@ The app can auto-download and update any configured source (Global, Contracts, C
 
 **Base File (Global Source)**:
 - **Default URL**: Pre-configured to MrKraken StarStrings repo: `https://raw.githubusercontent.com/MrKraken/StarStrings/master/Data/Localization/english/global.ini`
-- **Storage**: Downloaded and cached as `base.ini` in `%APPDATA%\Osiris DevWorks\SC Localization Editor\cache\`
+- **Storage**: Downloaded and cached as `base.ini` in `Documents\SC Localization Editor\cache\`
 - **Naming**: Saved as `base.ini` (not `global.ini`) to avoid confusion with the game's global.ini file
 - **Version tracking**: Stores current version in `base_version.txt` (same cache directory)
 - **Download**: User prompted before downloading ~2.2MB zip; only -LIVE releases accepted
@@ -223,7 +228,7 @@ The app can auto-download and update any configured source (Global, Contracts, C
 
 **Contracts Source**:
 - **Default URL**: Pre-configured to MrKraken StarStrings repo: `https://raw.githubusercontent.com/MrKraken/StarStrings/master/contracts.ini`
-- **Storage**: Downloaded and cached as `contracts.ini` in `%APPDATA%\Osiris DevWorks\SC Localization Editor\cache\`
+- **Storage**: Downloaded and cached as `contracts.ini` in `Documents\SC Localization Editor\cache\`
 - **Purpose**: Mission contract strings; merged with Global source in hierarchy order
 - **Note**: Global and Contracts are separate files and must both be loaded for complete localization
 - **Download**: User prompted before downloading ~49 KB file
@@ -237,22 +242,41 @@ The app can auto-download and update any configured source (Global, Contracts, C
 - Error dialog on failure with options: Specify new location, Skip source, or Cancel merge
 
 **File Naming Clarity**:
-- `base.ini` - Cached global source file in AppData (reference from external sources)
+- `base.ini` - Cached global source file in Documents (reference from external sources)
 - `global.ini` - Game installation file only (`LIVE/data/Localization/english/global.ini`)
 - This naming prevents confusion between the app's cached base file and the game's actual file
 
 ### 7. Overrides Persistence (overrides_manager.py)
-- **Location**: `%APPDATA%\Osiris DevWorks\SC Localization Editor\overrides.ini`
+- **Location**: `Documents\SC Localization Editor\overrides.ini` (via `AppSettings.get_overrides_path()`)
 - **Format**: Plain `key=value` per line (only modified entries)
 - **Save triggers**: On "Apply to Game" and on app close via `closeEvent()`
 - **Load**: Automatically applied when loading sources, merged as highest priority
-- **Bootstrap on First Run**: App automatically downloads missing cache files from configured sources on startup. Creates cache directory in AppData if needed. No fallback to game directory or legacy paths.
+- **Bootstrap on First Run**: App automatically downloads missing cache files from configured sources on startup. Creates Documents cache directory if needed. No fallback to game directory or legacy paths.
+
+### 8. Favorites System (main_window.py, settings.py)
+- **Mechanic**: Toggling a ship as a favorite prepends a configurable prefix (default `*`) to its `custom_value`
+- **Prefix setting**: `AppSettings.FAVORITE_PREFIX` (stored in Registry; configurable in Config tab)
+- **Filter**: "★ Favorites Only" checkbox in the filter row; `apply_filters()` checks `entry.custom_value.startswith(prefix)`
+- **Context menu**: Right-click shows "★ Add/Remove from Favorites" depending on current state (`toggle_favorite()`)
+- **Row lookup**: `_entry_index_for_row(table_row)` maps visible row → `self.entries` index via `UserRole` data on column 0 (required for sortable columns; all row→entry lookups must use this helper)
+
+### 9. Stats Enhancements (settings.py, generate_stats_ini.py)
+- **Purpose**: Adds auto-generated ship/component stat descriptions to the localization data
+- **Enable/disable**: `AppSettings.STATS_ENABLED` (default True); toggle in Config tab
+- **Script**: `scripts/generate_stats_ini.py` — reads Star Citizen game data and outputs four INI files to the cache directory
+- **Cache files** (`AppSettings.STATS_FILES`):
+  - `ships_desc_stats.ini` — ship description stats
+  - `components_desc_stats.ini` — component description stats
+  - `ship_weapons_desc_stats.ini` — ship weapon stats
+  - `fps_weapons_desc_stats.ini` — FPS weapon stats
+- **Loading**: Stats INI files are loaded and merged alongside configured sources when stats are enabled
 
 ## Workflow
 
 ### Standard Usage
 1. **First Run**: App:
-   - Creates AppData cache directory: `%APPDATA%\Osiris DevWorks\SC Localization Editor\cache\`
+   - Creates `Documents\SC Localization Editor\cache\` directory
+   - Migrates old AppData files to Documents if present
    - Migrates old settings (if any) and pre-configures Global and Contracts sources to MrKraken StarStrings repo
    - Auto-downloads missing cache files from configured sources (Global, Contracts)
    - Then loads and displays merged strings in table
@@ -269,10 +293,13 @@ The app can auto-download and update any configured source (Global, Contracts, C
    - Changes highlighted with color (green=Modified, orange=New, gray=Unmodified)
 5. **Apply Changes**:
    - Click "Apply to Game" → app merges all sources + user edits → writes to game
-   - Backup created automatically
-   - Edits saved to `overrides.ini` in AppData
+   - Backup created automatically in `Documents\SC Localization Editor\backups\`
+   - Edits saved to `overrides.ini` in Documents
 6. **Restore from Backup** (if needed):
    - Click "Restore Backup" → select backup file → restores, overrides still active
+7. **Clear Localization** (if needed):
+   - Click "Clear Localization" → deletes game's `global.ini` → game reverts to vanilla text
+   - Saved overrides are not affected and can be re-applied at any time
 
 ### Migration Scenario (after Star Citizen update)
 1. Load new base file (newer P4K means loose file is stale and incomplete)
@@ -288,6 +315,7 @@ The app can auto-download and update any configured source (Global, Contracts, C
 - **Source code**: `src/` folder
 - **Version**: `VERSION.TXT` in project root (single source of truth for all builds)
 - **Build scripts**: `scripts/build/build_exe.py` (primary build tool), `scripts/build/build_all.bat` (build exe + installer)
+- **Stats generator**: `scripts/generate_stats_ini.py` (generates ship/component description INI files from game data; outputs to cache dir)
 - **Assets**: `src/assets/` folder (Osiris DevWorks logo, PayPal/Venmo buttons)
 - **Build specs**: `SCLocalizationEditor.spec`, `SCLocalizationEditor-v0.1.0.spec`, `SCLocalizationEditor-v0.2.0.spec` (versioned backups; use current .spec)
 - **Installer config**: `installer.iss` (Inno Setup script)
@@ -301,17 +329,22 @@ The app can auto-download and update any configured source (Global, Contracts, C
 
 ### User Settings (Windows)
 - **Configuration**: Windows Registry at `HKEY_CURRENT_USER\Software\Osiris DevWorks\SC Localization Editor`
-  - Stores: data source paths, merge hierarchy, auto-update flags, window geometry, window state
-- **User overrides**: `%APPDATA%\Osiris DevWorks\SC Localization Editor\overrides.ini` (custom edits, persisted on Apply)
-- **Cached sources**: `%APPDATA%\Osiris DevWorks\SC Localization Editor\cache\` (downloaded files)
+  - Stores: data source paths, merge hierarchy, auto-update flags, window geometry, window state, favorite prefix, stats enabled flag
+- **User data root**: `Documents\SC Localization Editor\` (resolved via registry for OneDrive/folder-redirection support; `AppSettings.get_user_data_dir()`)
+- **User overrides**: `Documents\SC Localization Editor\overrides.ini` (custom edits, persisted on Apply)
+- **Cached sources**: `Documents\SC Localization Editor\cache\` (downloaded files)
   - `base.ini` - Downloaded global source file
   - `contracts.ini` - Downloaded contracts source file
   - `components.ini`, `ships.ini` - Other configured sources
   - `base_version.txt`, `contracts_version.txt` - Version tracking files
+  - `ships_desc_stats.ini`, `components_desc_stats.ini`, `ship_weapons_desc_stats.ini`, `fps_weapons_desc_stats.ini` - Stats data (generated by `scripts/generate_stats_ini.py`)
+- **Backups**: `Documents\SC Localization Editor\backups\` (max 5, oldest deleted; `AppSettings.get_backups_dir()`)
+- **Migration**: On startup, old AppData files are migrated to Documents automatically (`AppSettings.migrate_appdata_to_documents()`)
 
 ### Game Installation
 - **Game files location**: Configurable via Config tab; typically `Roberts Space Industries/StarCitizen/LIVE/data/Localization/english/`
-- **Game backups**: Same directory as applied file (`LIVE/data/Localization/english/global.ini.bak_YYYYMMDD_HHMMSS`)
+- **Applied file**: `LIVE/data/Localization/english/global.ini` (written on "Apply to Game")
+- **Clear Localization**: Deletes the game's `global.ini`, reverting to vanilla text (overrides.ini is preserved)
 
 ## Development
 
@@ -462,12 +495,16 @@ The app uses `QThread` workers to keep the UI responsive during I/O-bound operat
 ### Table Filtering
 - Uses `setRowHidden()` on each row (no proxy model for simplicity)
 - 300ms debounce on search input to avoid excessive filtering
-- Filters: text (key or value), category, status, hide unmodified
+- Filters: text (key or value), category, status, hide unmodified, favorites only
+
+### Sortable Columns
+- Columns are sortable; clicking a header sorts the visible rows
+- **Critical**: Row index no longer equals entry index when sorted. All row→entry lookups must use `_entry_index_for_row(table_row)`, which reads `Qt.ItemDataRole.UserRole` from column 0 (set to the entry's index in `self.entries` during table population)
 
 ### Cell Editing
 - `SelectAllDelegate` for in-place editing (auto-selects text)
 - Double-click Custom Value column to edit
-- Right-click context menu: Edit, Reset to Original, Copy Key
+- Right-click context menu: Edit, Reset to Original, Copy Key, ★ Add/Remove from Favorites
 
 ### Status Colors
 - Modified: Green (#4CAF50)
@@ -493,13 +530,16 @@ When making changes, look here for the relevant system:
 | Modify GitHub auto-update sources | `updater.py` | `check_for_updates()`, `download_base_file()`, `check_contracts()` |
 | Change backup retention policy | `main_window.py` | `manage_backups()` |
 | Modify file merge logic | `ini_merger.py` | `merge_and_write()` |
+| Change favorites prefix or logic | `settings.py`, `main_window.py` | `AppSettings.FAVORITE_PREFIX`, `toggle_favorite()` |
+| Add/modify stats INI generation | `scripts/generate_stats_ini.py` | (standalone script, outputs to cache dir) |
+| Change user data directory location | `settings.py` | `AppSettings.get_user_data_dir()` |
 
 ## Debugging Tips
 
 - **Registry issues**: Check `HKEY_CURRENT_USER\Software\Osiris DevWorks\SC Localization Editor` for stored settings. Use `regedit` to inspect or clear values if settings corrupt.
 - **Threading hangs**: Worker threads signal `finished()` when complete. If UI appears frozen, check that `worker.quit()` + `worker.wait()` are called in the slot.
 - **File encoding**: Parser expects UTF-8. Files with BOM or other encodings will fail silently. Use Notepad++ or VS Code to check/convert.
-- **Overrides not loading**: Check `%APPDATA%\Osiris DevWorks\SC Localization Editor\overrides.ini` exists and has correct format (`key=value` per line).
+- **Overrides not loading**: Check `Documents\SC Localization Editor\overrides.ini` exists and has correct format (`key=value` per line). Old AppData files are migrated on startup.
 - **GitHub API rate limit**: Requests use unauthenticated API; limit is 60 requests/hour per IP. Errors caught and logged to console.
 
 ## Testing
@@ -564,6 +604,15 @@ From CLAUDE.md history:
 ## Contact
 
 Osiris DevWorks - https://github.com/OsirisDevworks/sc-localization-editor
+
+## Recent Changes (v0.5.0)
+- **Ship Favorites**: Toggle ★ from right-click menu; configurable prefix (default `*`); "★ Favorites Only" filter
+- **Stats enhancements**: `scripts/generate_stats_ini.py` generates ship/component stat description INI files loaded alongside sources
+- **Sortable columns**: All table columns are now sortable; `_entry_index_for_row()` helper maps sorted rows to entries
+- **Clear Localization**: New toolbar button deletes game's `global.ini` to revert to vanilla (saved overrides unaffected)
+- **User data moved to Documents**: All user data (overrides.ini, cache, backups) now stored in `Documents\SC Localization Editor\`; old AppData files migrated on startup
+- **Backups moved**: Backups now go to `Documents\SC Localization Editor\backups\` (previously in game localization directory)
+- **Status persistence fix**: `original_value` is now the true pre-edit baseline (user source excluded from base merge); `custom_value` populated from overrides.ini on load so Modified status correctly persists across restarts
 
 ## Recent Changes (v0.4.0)
 - **Source type filtering**: Each source now only loads keys relevant to its type (e.g., Ships source only loads `vehicle_Name*` keys), preventing category pollution across sources

@@ -1,4 +1,6 @@
 """Auto-update utility for fetching latest base file (base.ini) from GitHub."""
+import datetime
+import email.utils
 import json
 import logging
 import socket
@@ -6,8 +8,8 @@ import zipfile
 from io import BytesIO
 from pathlib import Path
 from typing import Callable
-from urllib.request import urlopen
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
@@ -341,4 +343,46 @@ def download_file(url: str, output_path: str | Path) -> Path:
 
     except Exception as e:
         logger.error(f"Failed to download {url}: {e}")
+        raise
+
+
+def download_file_if_changed(url: str, output_path: str | Path) -> bool:
+    """Download a file only if it has changed since the cached version.
+
+    Uses an If-Modified-Since conditional GET based on the local file's mtime.
+    Falls back to a full download if the local file does not exist.
+
+    Args:
+        url: Raw URL to download from
+        output_path: Path to save/overwrite the downloaded file
+
+    Returns:
+        True if the file was downloaded (new or updated), False if already current (304).
+
+    Raises:
+        Exception on non-304 HTTP errors, timeouts, or write failures.
+    """
+    output_path = Path(output_path)
+    headers: dict[str, str] = {}
+
+    if output_path.exists():
+        mtime = output_path.stat().st_mtime
+        dt = datetime.datetime.fromtimestamp(mtime, tz=datetime.timezone.utc)
+        headers["If-Modified-Since"] = email.utils.format_datetime(dt, usegmt=True)
+
+    req = Request(url, headers=headers)
+    try:
+        with urlopen(req, timeout=60) as response:
+            data = response.read()
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(data)
+        logger.info(f"Downloaded updated {output_path.name} ({len(data):,} bytes) from {url}")
+        return True
+
+    except HTTPError as e:
+        if e.code == 304:
+            logger.info(f"{output_path.name} is up to date (304 Not Modified)")
+            return False
+        logger.error(f"HTTP {e.code} downloading {url}: {e}")
         raise

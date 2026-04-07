@@ -102,11 +102,12 @@ def load_source_files(
 
         # Map source types to their relevant categories
         source_category_filters = {
-            AppSettings.SOURCE_GLOBAL: None,      # No filtering - load all
+            AppSettings.SOURCE_GLOBAL: None,           # No filtering - load all
             AppSettings.SOURCE_CONTRACTS: "Missions",
             AppSettings.SOURCE_COMPONENTS: "Ship Components",
             AppSettings.SOURCE_SHIPS: "Ships",
-            "stats": None,                        # No filtering - description keys are "Other"
+            AppSettings.SOURCE_COMMODITIES: "Commodities",
+            "stats": None,                             # No filtering - description keys are "Other"
         }
 
         category_filter = source_category_filters.get(source_name)
@@ -226,10 +227,11 @@ def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str]]:
 
     # Map source names to their cached file names in AppData cache
     cache_mapping = {
-        AppSettings.SOURCE_GLOBAL: "base.ini",
-        AppSettings.SOURCE_CONTRACTS: "contracts.ini",
-        AppSettings.SOURCE_COMPONENTS: "components.ini",
-        AppSettings.SOURCE_SHIPS: "ships.ini",
+        AppSettings.SOURCE_GLOBAL:      "base.ini",
+        AppSettings.SOURCE_CONTRACTS:   "contracts.ini",
+        AppSettings.SOURCE_COMPONENTS:  "components.ini",
+        AppSettings.SOURCE_SHIPS:       "ships.ini",
+        AppSettings.SOURCE_COMMODITIES: "commodities.ini",
     }
 
     cache_dir = AppSettings.get_cache_dir()

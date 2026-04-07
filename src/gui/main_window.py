@@ -200,6 +200,60 @@ class ContractsDownloadWorker(QThread):
             self.error.emit(str(e))
 
 
+class StartupSyncWorker(QThread):
+    """Worker thread that syncs all enabled remote sources on startup.
+
+    Uses conditional GET (If-Modified-Since) so only changed files are downloaded.
+    Emits source_starting before each download, source_synced after, source_error on
+    failure. Always emits finished so loading proceeds even when sources fail.
+    """
+
+    source_starting = pyqtSignal(str)        # source_name (about to sync)
+    source_synced = pyqtSignal(str, bool)    # (source_name, was_updated)
+    source_error = pyqtSignal(str, str)      # (source_name, error_message)
+    finished = pyqtSignal()
+
+    def run(self):
+        from src.utils.updater import download_file_if_changed
+        from src.utils.settings import AppSettings
+
+        cache_dir = AppSettings.get_cache_dir()
+        cache_mapping = {
+            AppSettings.SOURCE_GLOBAL:      "base.ini",
+            AppSettings.SOURCE_CONTRACTS:   "contracts.ini",
+            AppSettings.SOURCE_COMPONENTS:  "components.ini",
+            AppSettings.SOURCE_SHIPS:       "ships.ini",
+            AppSettings.SOURCE_COMMODITIES: "commodities.ini",
+        }
+
+        for source_name in [
+            AppSettings.SOURCE_GLOBAL,
+            AppSettings.SOURCE_CONTRACTS,
+            AppSettings.SOURCE_COMPONENTS,
+            AppSettings.SOURCE_SHIPS,
+            AppSettings.SOURCE_COMMODITIES,
+        ]:
+            if not AppSettings.is_source_enabled(source_name):
+                continue
+            if not AppSettings.get_source_auto_update(source_name):
+                continue
+
+            source_url = AppSettings.get_source_path(source_name)
+            if not source_url or not source_url.startswith("http"):
+                continue
+
+            self.source_starting.emit(source_name)
+            cache_file = cache_dir / cache_mapping.get(source_name, f"{source_name}.ini")
+            try:
+                updated = download_file_if_changed(source_url, cache_file)
+                self.source_synced.emit(source_name, updated)
+            except Exception as e:
+                logger.warning(f"Startup sync failed for {source_name}: {e}")
+                self.source_error.emit(source_name, str(e))
+
+        self.finished.emit()
+
+
 class SelectAllDelegate(QStyledItemDelegate):
     """Custom delegate that selects all text on edit."""
 
@@ -241,6 +295,9 @@ class MainWindow(QMainWindow):
         self._contracts_checker_worker: Optional[ContractsCheckerWorker] = None
         self._contracts_download_worker: Optional[ContractsDownloadWorker] = None
 
+        # Startup sync worker
+        self._startup_sync_worker: Optional[StartupSyncWorker] = None
+
         # Status bar state (composed message) - tracks sync status per source
         self._source_status: dict[str, str] = {}  # source_name -> status_string
 
@@ -260,18 +317,9 @@ class MainWindow(QMainWindow):
         # Ensure cache directory exists
         AppSettings.get_cache_dir()
 
-        # Note: Automatic update checks disabled in new system
-        # Users now control their own source URLs via Config tab
-        # They can manually check for updates on their configured sources
-        # self._start_update_check()
-        # self._start_contracts_check()
-
-        # Download missing cache files from default configuration
-        self._ensure_cache_files()
-
-        # Then load files
-        self.load_default_values()
-        self.auto_load_default_files()
+        # Sync all enabled remote sources on startup (conditional GET — only downloads
+        # if file changed since last sync). Loading starts after sync finishes.
+        self._start_startup_sync()
 
         logger.info("MainWindow initialized")
 
@@ -813,6 +861,8 @@ class MainWindow(QMainWindow):
 
             target_path.parent.mkdir(parents=True, exist_ok=True)
 
+            backup_path = None  # Tracks the backup created this apply (used for restore on validation failure)
+
             # Backup existing file if it exists
             if target_path.exists():
                 backup_dir = AppSettings.get_backups_dir()
@@ -858,10 +908,11 @@ class MainWindow(QMainWindow):
                 if source_path and (source_path.startswith('http://') or source_path.startswith('https://')):
                     # Map source name to cache file
                     cache_mapping = {
-                        AppSettings.SOURCE_GLOBAL: "base.ini",
-                        AppSettings.SOURCE_CONTRACTS: "contracts.ini",
-                        AppSettings.SOURCE_COMPONENTS: "components.ini",
-                        AppSettings.SOURCE_SHIPS: "ships.ini",
+                        AppSettings.SOURCE_GLOBAL:      "base.ini",
+                        AppSettings.SOURCE_CONTRACTS:   "contracts.ini",
+                        AppSettings.SOURCE_COMPONENTS:  "components.ini",
+                        AppSettings.SOURCE_SHIPS:       "ships.ini",
+                        AppSettings.SOURCE_COMMODITIES: "commodities.ini",
                     }
                     if source_name in cache_mapping:
                         cache_file = AppSettings.get_cache_dir() / cache_mapping[source_name]
@@ -880,6 +931,37 @@ class MainWindow(QMainWindow):
             from src.merger.ini_merger import merge_ini_files
             merge_ini_files(str(base_file), merged_dict, str(target_path))
 
+            # Validate written file against stock base
+            validation_msg = self._validate_applied_file(target_path)
+
+            if validation_msg:
+                # Delete the bad file and restore the backup we just made
+                try:
+                    target_path.unlink()
+                    logger.warning(f"Deleted invalid output file: {target_path}")
+                except Exception as del_err:
+                    logger.error(f"Could not delete invalid file: {del_err}")
+
+                if backup_path and backup_path.exists():
+                    try:
+                        shutil.copy2(backup_path, target_path)
+                        logger.info(f"Restored backup: {backup_path.name}")
+                        restore_note = f"\n\nThe previous file has been restored from backup:\n{backup_path.name}"
+                    except Exception as restore_err:
+                        logger.error(f"Could not restore backup: {restore_err}")
+                        restore_note = "\n\nCould not restore backup — game will use vanilla text."
+                else:
+                    restore_note = "\n\nNo backup was available to restore."
+
+                self.statusBar().showMessage("Apply failed — validation error")
+                QMessageBox.critical(
+                    self, "Validation Failed",
+                    f"The written file failed validation and has been deleted.\n\n"
+                    f"{validation_msg}"
+                    f"{restore_note}"
+                )
+                return
+
             # Save user overrides to AppData
             from src.utils.overrides_manager import save_overrides
             count = save_overrides(self.entries, AppSettings.get_overrides_path())
@@ -890,6 +972,67 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to apply to game: {e}")
             logger.error(f"Error applying to game: {e}")
+
+    def _validate_applied_file(self, written_path: Path) -> str:
+        """Validate the written global.ini against the stock base.ini.
+
+        Checks that every key in base.ini is present in the written file.
+        Values are allowed to differ. Extra keys (from components/contracts/
+        commodities sources) are expected and not treated as errors.
+
+        Args:
+            written_path: Path to the global.ini just written to the game directory.
+
+        Returns:
+            Empty string if validation passed, or a human-readable warning message
+            describing any missing keys.
+        """
+        from src.parser.ini_parser import parse_ini_file
+
+        stock_path = AppSettings.get_cache_dir() / "base.ini"
+        if not stock_path.exists():
+            logger.warning("Validation skipped: base.ini not found in cache")
+            return ""
+
+        try:
+            stock_keys = set(parse_ini_file(stock_path).keys())
+            written_keys = set(parse_ini_file(written_path).keys())
+        except Exception as e:
+            logger.warning(f"Validation error reading files: {e}")
+            return ""
+
+        missing = stock_keys - written_keys
+        extra = written_keys - stock_keys
+
+        logger.info(
+            f"Validation: stock={len(stock_keys)} keys, "
+            f"written={len(written_keys)} keys, "
+            f"missing={len(missing)}, extra={len(extra)}"
+        )
+
+        if not missing and not extra:
+            return ""
+
+        lines = []
+
+        if missing:
+            sample = sorted(missing)[:20]
+            lines += [f"{len(missing)} key(s) missing from written file (present in base):"]
+            lines += [f"  {k}" for k in sample]
+            if len(missing) > 20:
+                lines.append(f"  ... and {len(missing) - 20} more")
+
+        if extra:
+            if lines:
+                lines.append("")
+            sample = sorted(extra)[:20]
+            lines += [f"{len(extra)} extra key(s) in written file (not in base):"]
+            lines += [f"  {k}" for k in sample]
+            if len(extra) > 20:
+                lines.append(f"  ... and {len(extra) - 20} more")
+
+        lines += ["", "The game file was still written. Check your source configuration."]
+        return "\n".join(lines)
 
     @pyqtSlot()
     def clear_localization(self):
@@ -1133,41 +1276,47 @@ Shows the sync status for each configured source. "✓" means up to date.
         self._source_status[source_name] = status
         self._update_status_bar()
 
-    def _ensure_cache_files(self):
-        """Download missing cache files from configured sources on first run.
+    def _start_startup_sync(self):
+        """Start async sync of all enabled remote sources, then load files when done."""
+        self.statusBar().showMessage("Starting up — syncing sources...")
+        self._startup_sync_worker = StartupSyncWorker()
+        self._startup_sync_worker.source_starting.connect(self._on_startup_source_starting)
+        self._startup_sync_worker.source_synced.connect(self._on_startup_source_synced)
+        self._startup_sync_worker.source_error.connect(self._on_startup_source_error)
+        self._startup_sync_worker.finished.connect(self._on_startup_sync_finished)
+        self._startup_sync_worker.start()
 
-        Checks if enabled sources have cached files. If not, downloads them from
-        the configured URL. This happens silently in the background on startup.
-        """
-        from src.utils.updater import download_file
+    @pyqtSlot(str)
+    def _on_startup_source_starting(self, source_name: str):
+        self.statusBar().showMessage(f"Syncing {source_name}...")
 
-        cache_dir = AppSettings.get_cache_dir()
-        cache_mapping = {
-            AppSettings.SOURCE_GLOBAL: "base.ini",
-            AppSettings.SOURCE_CONTRACTS: "contracts.ini",
-            AppSettings.SOURCE_COMPONENTS: "components.ini",
-            AppSettings.SOURCE_SHIPS: "ships.ini",
-        }
+    @pyqtSlot(str, bool)
+    def _on_startup_source_synced(self, source_name: str, updated: bool):
+        action = "updated" if updated else "up to date"
+        logger.info(f"Startup sync: {source_name} {action}")
+        label = "updated ↑" if updated else "✓"
+        self._set_source_status(source_name, f"{source_name.title()}: {label}")
 
-        # Check each enabled source and download if missing
-        for source_name in [AppSettings.SOURCE_GLOBAL, AppSettings.SOURCE_CONTRACTS]:
-            if not AppSettings.is_source_enabled(source_name):
-                continue
+    @pyqtSlot(str, str)
+    def _on_startup_source_error(self, source_name: str, message: str):
+        logger.warning(f"Startup sync error ({source_name}): {message}")
+        self._set_source_status(source_name, f"{source_name.title()}: ⚠ (offline?)")
 
-            source_path = AppSettings.get_source_path(source_name)
-            if not source_path or not source_path.startswith('http'):
-                continue  # Skip local paths
+    @pyqtSlot()
+    def _on_startup_sync_finished(self):
+        """Sync complete — clean up worker, then load sources."""
+        from PyQt6.QtWidgets import QApplication
 
-            cache_file = cache_dir / cache_mapping.get(source_name, f"{source_name}.ini")
+        if self._startup_sync_worker:
+            self._startup_sync_worker.quit()
+            self._startup_sync_worker.wait()
+            self._startup_sync_worker = None
 
-            if not cache_file.exists():
-                try:
-                    logger.info(f"Downloading {source_name} to cache: {source_path}")
-                    download_file(source_path, cache_file)
-                    logger.info(f"Successfully cached {source_name}: {cache_file}")
-                except Exception as e:
-                    logger.warning(f"Failed to download {source_name}: {e}")
-                    # Don't block on download failure - user can trigger update check manually
+        self.statusBar().showMessage("Loading strings...")
+        QApplication.processEvents()  # Render the message before the blocking load
+
+        self.load_default_values()
+        self.auto_load_default_files()
 
     def _start_update_check(self):
         """Start background check for latest base file version."""
@@ -1552,7 +1701,7 @@ Shows the sync status for each configured source. "✓" means up to date.
         entry_categories = set(e.category for e in self.entries)
 
         # Always include standard categories, even if no entries exist for them yet
-        standard_categories = {"Ships", "Ship Components", "Missions", "Other"}
+        standard_categories = {"Ships", "Ship Components", "Missions", "Commodities", "Other"}
         categories = sorted(standard_categories | entry_categories)
 
         self.category_combo.blockSignals(True)

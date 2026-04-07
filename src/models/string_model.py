@@ -44,6 +44,10 @@ class StringEntry:
             if any(key.startswith(f"item_Name{comp}_") or key.startswith(f"item_Name_{comp}_") for comp in components):
                 return "Ship Components"
 
+        # Commodity items
+        if key_lower.startswith("items_commodities_"):
+            return "Commodities"
+
         # Mission-related keys (from contracts.ini or similar mission sources)
         mission_patterns = [
             "shubin_", "Shubin_",           # Shubin mining missions
