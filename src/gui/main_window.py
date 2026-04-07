@@ -1069,7 +1069,8 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Localization cleared — game reverted to vanilla text")
             QMessageBox.information(self, "Done",
                 "Custom localization removed.\n"
-                "The game will now use its default text.")
+                "The game will now use its default text.\n\n"
+                "To re-apply your overrides and stat descriptions, click Apply to Game.")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to delete global.ini: {e}")
             logger.error(f"Error clearing localization: {e}")

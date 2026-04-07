@@ -29,20 +29,28 @@ class StringEntry:
         if not key:
             return "Other"
 
-        # Ship/vehicle names: vehicle_NameANVL_Carrack -> Ships
-        # Some newer entries use lowercase 'n': vehicle_nameMISC_Starlancer_MAX
-        # Wikelo-modified ships: TheCollector_Ships_F7_MK2_TItle -> Ships
-        # Exclude _Desc entries — those are long descriptions, not ship names
+        # Ship/vehicle names and descriptions: vehicle_NameANVL_Carrack, vehicle_DescANVL_Carrack -> Ships
         key_lower = key.lower()
-        if not key_lower.endswith("_desc"):
-            if key_lower.startswith("vehicle_name"):
-                return "Ships"
+        if key_lower.startswith("vehicle_name") or key_lower.startswith("vehicle_desc"):
+            return "Ships"
 
-        # Ship components: item_NameSHLD_*, item_Name_SHLD_*, item_NamePOWR_*, etc.
-        if key.startswith("item_Name"):
-            components = ["SHLD", "POWR", "COOL", "QDRV", "JUMP"]
-            if any(key.startswith(f"item_Name{comp}_") or key.startswith(f"item_Name_{comp}_") for comp in components):
+        # Ship components: item_NameSHLD_*, item_DescSHLD_*, item_NamePOWR_*, item_DescPOWR_*, etc.
+        components = ["SHLD", "POWR", "COOL", "QDRV", "JUMP"]
+        if key.startswith("item_Name") or key.startswith("item_Desc"):
+            if any(
+                key.startswith(f"item_Name{comp}_") or key.startswith(f"item_Name_{comp}_") or
+                key.startswith(f"item_Desc{comp}_") or key.startswith(f"item_Desc_{comp}_")
+                for comp in components
+            ):
                 return "Ship Components"
+
+        # Gear: FPS weapons (item_Name/DescMANUF_weapon_type_*) and armor/equipment (item_Name_*/item_Desc_*)
+        fps_weapon_words = ["_rifle_", "_pistol_", "_smg_", "_shotgun_", "_sniper_", "_launcher_", "_lmg_", "_hmg_", "_knife_", "_multi_"]
+        if key.startswith("item_Name_") or key.startswith("item_Desc_"):
+            return "Gear"
+        if key.startswith("item_Name") or key.startswith("item_Desc"):
+            if any(w in key_lower for w in fps_weapon_words):
+                return "Gear"
 
         # Commodity items
         if key_lower.startswith("items_commodities_"):

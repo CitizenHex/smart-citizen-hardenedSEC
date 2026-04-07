@@ -105,8 +105,9 @@ def load_source_files(
             AppSettings.SOURCE_GLOBAL: None,           # No filtering - load all
             AppSettings.SOURCE_CONTRACTS: "Missions",
             AppSettings.SOURCE_COMPONENTS: "Ship Components",
-            AppSettings.SOURCE_SHIPS: "Ships",
+            AppSettings.SOURCE_SHIPS: "Ships",         # vehicle_Name* and vehicle_Desc* both map to Ships
             AppSettings.SOURCE_COMMODITIES: "Commodities",
+            AppSettings.SOURCE_GEAR: "Gear",           # FPS weapons, armor, personal equipment
             "stats": None,                             # No filtering - description keys are "Other"
         }
 
@@ -225,13 +226,14 @@ def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str]]:
     sources_dict: Dict[str, Dict[str, str]] = {}
     hierarchy = AppSettings.get_merge_hierarchy()
 
-    # Map source names to their cached file names in AppData cache
+    # Map source names to their cached file names in Documents cache
     cache_mapping = {
         AppSettings.SOURCE_GLOBAL:      "base.ini",
         AppSettings.SOURCE_CONTRACTS:   "contracts.ini",
         AppSettings.SOURCE_COMPONENTS:  "components.ini",
         AppSettings.SOURCE_SHIPS:       "ships.ini",
         AppSettings.SOURCE_COMMODITIES: "commodities.ini",
+        AppSettings.SOURCE_GEAR:        "gear.ini",
     }
 
     cache_dir = AppSettings.get_cache_dir()

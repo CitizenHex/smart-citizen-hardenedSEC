@@ -463,7 +463,7 @@ def stats_fps_weapon(item: dict) -> str:
 
 # ── INI writer ───────────────────────────────────────────────────────────────
 
-STAT_SEPARATOR = "\\n\\n<EM4>== Stats ==</EM4>\\n"
+STAT_SEPARATOR = "\\n\\n== Stats ==\\n"
 
 
 def append_stats(existing_value: str, stats_block: str) -> str:
@@ -473,7 +473,7 @@ def append_stats(existing_value: str, stats_block: str) -> str:
     separator_marker = "== Stats =="
     if separator_marker in existing_value:
         # Replace existing stats block entirely
-        existing_value = existing_value[:existing_value.index("\\n\\n<EM4>== Stats ==")]
+        existing_value = existing_value[:existing_value.index("\\n\\n== Stats ==")]
     return existing_value + STAT_SEPARATOR + stats_block
 
 

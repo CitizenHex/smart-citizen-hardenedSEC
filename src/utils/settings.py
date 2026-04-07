@@ -50,8 +50,9 @@ class AppSettings:
     SOURCE_COMPONENTS = "components"
     SOURCE_SHIPS = "ships"
     SOURCE_COMMODITIES = "commodities"
+    SOURCE_GEAR = "gear"
     SOURCE_USER = "user"
-    AVAILABLE_SOURCES = [SOURCE_GLOBAL, SOURCE_CONTRACTS, SOURCE_COMPONENTS, SOURCE_SHIPS, SOURCE_COMMODITIES, SOURCE_USER]
+    AVAILABLE_SOURCES = [SOURCE_GLOBAL, SOURCE_CONTRACTS, SOURCE_COMPONENTS, SOURCE_SHIPS, SOURCE_COMMODITIES, SOURCE_GEAR, SOURCE_USER]
 
     @staticmethod
     def settings() -> QSettings:
@@ -431,6 +432,77 @@ class AppSettings:
             AppSettings.set_merge_hierarchy(hierarchy)
 
         logger.info("Configured Commodities source to OsirisDevworks default URL")
+        return True
+
+    @staticmethod
+    def migrate_ships_source_to_default() -> bool:
+        """Configure Ships source to OsirisDevworks repo default (v0.5.2+).
+
+        Only applies if Ships is not yet configured or uses a legacy wrong URL.
+
+        Returns:
+            True if migration was performed, False if already configured.
+        """
+        current_path = AppSettings.get_source_path(AppSettings.SOURCE_SHIPS)
+        ships_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/ships.ini"
+
+        if current_path and "OsirisDevworks" not in current_path:
+            return False  # Already configured with a correct URL — don't overwrite
+        AppSettings.set_source_path(AppSettings.SOURCE_SHIPS, ships_url)
+        AppSettings.set_source_enabled(AppSettings.SOURCE_SHIPS, True)
+        AppSettings.set_source_auto_update(AppSettings.SOURCE_SHIPS, True)
+
+        # Insert ships into hierarchy after components (before contracts)
+        hierarchy = AppSettings.get_merge_hierarchy()
+        if AppSettings.SOURCE_SHIPS not in hierarchy:
+            try:
+                idx = hierarchy.index(AppSettings.SOURCE_COMPONENTS) + 1
+            except ValueError:
+                try:
+                    idx = hierarchy.index(AppSettings.SOURCE_GLOBAL) + 1
+                except ValueError:
+                    idx = 0
+            hierarchy.insert(idx, AppSettings.SOURCE_SHIPS)
+            AppSettings.set_merge_hierarchy(hierarchy)
+
+        logger.info("Configured Ships source to OsirisDevworks default URL")
+        return True
+
+    @staticmethod
+    def migrate_gear_source_to_default() -> bool:
+        """Configure Gear source to OsirisDevworks repo default (v0.5.2+).
+
+        Only applies if Gear is not yet configured or uses a legacy wrong URL.
+
+        Returns:
+            True if migration was performed, False if already configured.
+        """
+        current_path = AppSettings.get_source_path(AppSettings.SOURCE_GEAR)
+        gear_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/gear.ini"
+
+        if current_path and "OsirisDevworks" not in current_path:
+            return False  # Already configured with a correct URL — don't overwrite
+        AppSettings.set_source_path(AppSettings.SOURCE_GEAR, gear_url)
+        AppSettings.set_source_enabled(AppSettings.SOURCE_GEAR, True)
+        AppSettings.set_source_auto_update(AppSettings.SOURCE_GEAR, True)
+
+        # Insert gear after ships in hierarchy (before contracts)
+        hierarchy = AppSettings.get_merge_hierarchy()
+        if AppSettings.SOURCE_GEAR not in hierarchy:
+            try:
+                idx = hierarchy.index(AppSettings.SOURCE_SHIPS) + 1
+            except ValueError:
+                try:
+                    idx = hierarchy.index(AppSettings.SOURCE_COMPONENTS) + 1
+                except ValueError:
+                    try:
+                        idx = hierarchy.index(AppSettings.SOURCE_GLOBAL) + 1
+                    except ValueError:
+                        idx = 0
+            hierarchy.insert(idx, AppSettings.SOURCE_GEAR)
+            AppSettings.set_merge_hierarchy(hierarchy)
+
+        logger.info("Configured Gear source to OsirisDevworks default URL")
         return True
 
     @staticmethod

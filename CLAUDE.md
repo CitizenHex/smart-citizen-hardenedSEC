@@ -409,8 +409,9 @@ build_all.bat
 
 **Option B: Command line** (after building exe):
 ```bash
-"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+powershell -Command "& 'C:\Users\aabou\AppData\Local\Programs\Inno Setup 6\ISCC.exe' installer.iss"
 ```
+Note: Inno Setup is installed per-user at `C:\Users\aabou\AppData\Local\Programs\Inno Setup 6\`. Use PowerShell `&` operator — `cmd /c` does not work for this path.
 
 **Option C: GUI**:
 1. Open Inno Setup Compiler
