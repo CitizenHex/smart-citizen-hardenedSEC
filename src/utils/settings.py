@@ -49,8 +49,9 @@ class AppSettings:
     SOURCE_CONTRACTS = "contracts"
     SOURCE_COMPONENTS = "components"
     SOURCE_SHIPS = "ships"
+    SOURCE_COMMODITIES = "commodities"
     SOURCE_USER = "user"
-    AVAILABLE_SOURCES = [SOURCE_GLOBAL, SOURCE_CONTRACTS, SOURCE_COMPONENTS, SOURCE_SHIPS, SOURCE_USER]
+    AVAILABLE_SOURCES = [SOURCE_GLOBAL, SOURCE_CONTRACTS, SOURCE_COMPONENTS, SOURCE_SHIPS, SOURCE_COMMODITIES, SOURCE_USER]
 
     @staticmethod
     def settings() -> QSettings:
@@ -299,9 +300,9 @@ class AppSettings:
         if old_base_path:
             AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, old_base_path)
 
-        # Pre-configure global.ini from MrKraken StarStrings repo
+        # Pre-configure global.ini from BeltaKoda's stock (vanilla) file
         if not old_base_path:  # Only if not already set
-            global_url = "https://raw.githubusercontent.com/MrKraken/StarStrings/master/Data/Localization/english/global.ini"
+            global_url = "https://raw.githubusercontent.com/BeltaKoda/ScCompLangPackRemix/main/LIVE/stock-global.ini"
             AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, global_url)
 
         # Contracts: Configure from MrKraken StarStrings repo
@@ -310,27 +311,127 @@ class AppSettings:
         AppSettings.set_source_path(AppSettings.SOURCE_CONTRACTS, contracts_url)
         AppSettings.set_source_enabled(AppSettings.SOURCE_CONTRACTS, True)
 
-        # Components and Ships sources: empty by default
-        AppSettings.set_source_path(AppSettings.SOURCE_COMPONENTS, "")
-        AppSettings.set_source_enabled(AppSettings.SOURCE_COMPONENTS, False)
+        # Components: default to OsirisDevworks repo (MrKraken delta + custom additions)
+        components_url = "https://raw.githubusercontent.com/OsirisDevworks/sc-localization-editor/main/data/components.ini"
+        AppSettings.set_source_path(AppSettings.SOURCE_COMPONENTS, components_url)
+        AppSettings.set_source_enabled(AppSettings.SOURCE_COMPONENTS, True)
+
+        # Ships source: empty by default
         AppSettings.set_source_path(AppSettings.SOURCE_SHIPS, "")
         AppSettings.set_source_enabled(AppSettings.SOURCE_SHIPS, False)
+
+        # Commodities: default to OsirisDevworks repo
+        commodities_url = "https://raw.githubusercontent.com/OsirisDevworks/sc-localization-editor/main/data/commodities.ini"
+        AppSettings.set_source_path(AppSettings.SOURCE_COMMODITIES, commodities_url)
+        AppSettings.set_source_enabled(AppSettings.SOURCE_COMMODITIES, True)
 
         # User source: set to overrides path
         user_path = str(AppSettings.get_overrides_path())
         AppSettings.set_source_path(AppSettings.SOURCE_USER, user_path)
 
-        # Default hierarchy: global, contracts, user
-        # (User is implicit, always added last, but include for clarity)
+        # Default hierarchy: global → components → contracts → commodities → user
         AppSettings.set_merge_hierarchy(
-            [AppSettings.SOURCE_GLOBAL, AppSettings.SOURCE_CONTRACTS, AppSettings.SOURCE_USER]
+            [AppSettings.SOURCE_GLOBAL, AppSettings.SOURCE_COMPONENTS,
+             AppSettings.SOURCE_CONTRACTS, AppSettings.SOURCE_COMMODITIES,
+             AppSettings.SOURCE_USER]
         )
 
-        # Auto-update: enable for Global and Contracts by default
+        # Auto-update: enable for Global, Components, Contracts, and Commodities by default
         AppSettings.set_source_auto_update(AppSettings.SOURCE_GLOBAL, True)
         AppSettings.set_source_auto_update(AppSettings.SOURCE_CONTRACTS, True)
-        AppSettings.set_source_auto_update(AppSettings.SOURCE_COMPONENTS, False)
+        AppSettings.set_source_auto_update(AppSettings.SOURCE_COMPONENTS, True)
         AppSettings.set_source_auto_update(AppSettings.SOURCE_SHIPS, False)
+        AppSettings.set_source_auto_update(AppSettings.SOURCE_COMMODITIES, True)
+
+    @staticmethod
+    def migrate_global_source_to_stock() -> bool:
+        """Migrate global source URL from MrKraken to BeltaKoda stock-global.ini (v0.5.1+).
+
+        Only updates if the current URL still points to MrKraken's repo. Deletes the
+        old base.ini cache so the stock file is re-downloaded on next startup sync.
+
+        Returns:
+            True if migration was performed, False if already on stock URL or custom URL.
+        """
+        current_url = AppSettings.get_source_path(AppSettings.SOURCE_GLOBAL)
+        if "MrKraken" not in current_url and "StarStrings" not in current_url:
+            return False
+
+        stock_url = "https://raw.githubusercontent.com/BeltaKoda/ScCompLangPackRemix/main/LIVE/stock-global.ini"
+        AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, stock_url)
+
+        # Do NOT delete base.ini here — the startup sync will overwrite it with the
+        # stock file on the next launch. Deleting it would prevent extract_components.py
+        # from running against the old MrKraken file if needed.
+        logger.info("Migrated global source URL to BeltaKoda stock-global.ini")
+        return True
+
+    @staticmethod
+    def migrate_components_source_to_default() -> bool:
+        """Configure Components source to OsirisDevworks repo default (v0.5.1+).
+
+        Only applies if Components is currently disabled with no path set.
+        Users who have already configured a custom Components source are not affected.
+
+        Returns:
+            True if migration was performed, False if already configured.
+        """
+        current_path = AppSettings.get_source_path(AppSettings.SOURCE_COMPONENTS)
+        if current_path:
+            return False  # Already configured — don't overwrite
+
+        components_url = "https://raw.githubusercontent.com/OsirisDevworks/sc-localization-editor/main/data/components.ini"
+        AppSettings.set_source_path(AppSettings.SOURCE_COMPONENTS, components_url)
+        AppSettings.set_source_enabled(AppSettings.SOURCE_COMPONENTS, True)
+        AppSettings.set_source_auto_update(AppSettings.SOURCE_COMPONENTS, True)
+
+        # Insert components into hierarchy after global (before contracts)
+        hierarchy = AppSettings.get_merge_hierarchy()
+        if AppSettings.SOURCE_COMPONENTS not in hierarchy:
+            try:
+                idx = hierarchy.index(AppSettings.SOURCE_GLOBAL) + 1
+            except ValueError:
+                idx = 0
+            hierarchy.insert(idx, AppSettings.SOURCE_COMPONENTS)
+            AppSettings.set_merge_hierarchy(hierarchy)
+
+        logger.info("Configured Components source to OsirisDevworks default URL")
+        return True
+
+    @staticmethod
+    def migrate_commodities_source_to_default() -> bool:
+        """Configure Commodities source to OsirisDevworks repo default (v0.5.1+).
+
+        Only applies if Commodities is not yet configured. Users with a custom
+        Commodities source are not affected.
+
+        Returns:
+            True if migration was performed, False if already configured.
+        """
+        current_path = AppSettings.get_source_path(AppSettings.SOURCE_COMMODITIES)
+        if current_path:
+            return False  # Already configured
+
+        commodities_url = "https://raw.githubusercontent.com/OsirisDevworks/sc-localization-editor/main/data/commodities.ini"
+        AppSettings.set_source_path(AppSettings.SOURCE_COMMODITIES, commodities_url)
+        AppSettings.set_source_enabled(AppSettings.SOURCE_COMMODITIES, True)
+        AppSettings.set_source_auto_update(AppSettings.SOURCE_COMMODITIES, True)
+
+        # Insert commodities into hierarchy before user (after contracts if present)
+        hierarchy = AppSettings.get_merge_hierarchy()
+        if AppSettings.SOURCE_COMMODITIES not in hierarchy:
+            try:
+                idx = hierarchy.index(AppSettings.SOURCE_CONTRACTS) + 1
+            except ValueError:
+                try:
+                    idx = hierarchy.index(AppSettings.SOURCE_USER)
+                except ValueError:
+                    idx = len(hierarchy)
+            hierarchy.insert(idx, AppSettings.SOURCE_COMMODITIES)
+            AppSettings.set_merge_hierarchy(hierarchy)
+
+        logger.info("Configured Commodities source to OsirisDevworks default URL")
+        return True
 
     @staticmethod
     def get_user_data_dir() -> Path:

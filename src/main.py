@@ -29,6 +29,15 @@ def main():
     # Migrate legacy settings to new data source format
     AppSettings.migrate_legacy_settings()
 
+    # Migrate global source URL from MrKraken to BeltaKoda stock-global.ini (v0.5.1+)
+    AppSettings.migrate_global_source_to_stock()
+
+    # Configure Components source to OsirisDevworks default if not already set (v0.5.1+)
+    AppSettings.migrate_components_source_to_default()
+
+    # Configure Commodities source to OsirisDevworks default if not already set (v0.5.1+)
+    AppSettings.migrate_commodities_source_to_default()
+
     # Move user data files from old AppData location to Documents (idempotent)
     AppSettings.migrate_data_to_documents()
 
