@@ -312,7 +312,7 @@ class AppSettings:
         AppSettings.set_source_enabled(AppSettings.SOURCE_CONTRACTS, True)
 
         # Components: default to OsirisDevworks repo (MrKraken delta + custom additions)
-        components_url = "https://raw.githubusercontent.com/OsirisDevworks/sc-localization-editor/main/data/components.ini"
+        components_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/components.ini"
         AppSettings.set_source_path(AppSettings.SOURCE_COMPONENTS, components_url)
         AppSettings.set_source_enabled(AppSettings.SOURCE_COMPONENTS, True)
 
@@ -321,7 +321,7 @@ class AppSettings:
         AppSettings.set_source_enabled(AppSettings.SOURCE_SHIPS, False)
 
         # Commodities: default to OsirisDevworks repo
-        commodities_url = "https://raw.githubusercontent.com/OsirisDevworks/sc-localization-editor/main/data/commodities.ini"
+        commodities_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/commodities.ini"
         AppSettings.set_source_path(AppSettings.SOURCE_COMMODITIES, commodities_url)
         AppSettings.set_source_enabled(AppSettings.SOURCE_COMMODITIES, True)
 
@@ -380,7 +380,7 @@ class AppSettings:
         if current_path:
             return False  # Already configured — don't overwrite
 
-        components_url = "https://raw.githubusercontent.com/OsirisDevworks/sc-localization-editor/main/data/components.ini"
+        components_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/components.ini"
         AppSettings.set_source_path(AppSettings.SOURCE_COMPONENTS, components_url)
         AppSettings.set_source_enabled(AppSettings.SOURCE_COMPONENTS, True)
         AppSettings.set_source_auto_update(AppSettings.SOURCE_COMPONENTS, True)
@@ -412,7 +412,7 @@ class AppSettings:
         if current_path:
             return False  # Already configured
 
-        commodities_url = "https://raw.githubusercontent.com/OsirisDevworks/sc-localization-editor/main/data/commodities.ini"
+        commodities_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/commodities.ini"
         AppSettings.set_source_path(AppSettings.SOURCE_COMMODITIES, commodities_url)
         AppSettings.set_source_enabled(AppSettings.SOURCE_COMMODITIES, True)
         AppSettings.set_source_auto_update(AppSettings.SOURCE_COMMODITIES, True)
