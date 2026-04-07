@@ -377,10 +377,10 @@ class AppSettings:
             True if migration was performed, False if already configured.
         """
         current_path = AppSettings.get_source_path(AppSettings.SOURCE_COMPONENTS)
-        if current_path:
-            return False  # Already configured — don't overwrite
-
         components_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/components.ini"
+
+        if current_path and "OsirisDevworks" not in current_path:
+            return False  # Already configured with a correct URL — don't overwrite
         AppSettings.set_source_path(AppSettings.SOURCE_COMPONENTS, components_url)
         AppSettings.set_source_enabled(AppSettings.SOURCE_COMPONENTS, True)
         AppSettings.set_source_auto_update(AppSettings.SOURCE_COMPONENTS, True)
@@ -409,10 +409,10 @@ class AppSettings:
             True if migration was performed, False if already configured.
         """
         current_path = AppSettings.get_source_path(AppSettings.SOURCE_COMMODITIES)
-        if current_path:
-            return False  # Already configured
-
         commodities_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/commodities.ini"
+
+        if current_path and "OsirisDevworks" not in current_path:
+            return False  # Already configured with a correct URL — don't overwrite
         AppSettings.set_source_path(AppSettings.SOURCE_COMMODITIES, commodities_url)
         AppSettings.set_source_enabled(AppSettings.SOURCE_COMMODITIES, True)
         AppSettings.set_source_auto_update(AppSettings.SOURCE_COMMODITIES, True)
