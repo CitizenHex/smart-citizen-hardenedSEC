@@ -24,7 +24,8 @@ jobs:
 
       - name: Send Discord notification
         run: |
-          python scripts/discord_notify.py "${{ steps.tag.outputs.version }}" "${{ github.event.release.body }}"
+          python scripts/discord_notify.py "${{ steps.tag.outputs.version }}" "$RELEASE_BODY"
         env:
           DISCORD_RELEASE_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
+          RELEASE_BODY: ${{ github.event.release.body }}
         continue-on-error: true
