@@ -163,7 +163,9 @@ class SourceConfigWidget(QWidget):
 class ConfigTab(QWidget):
     """Configuration tab widget with data source management."""
 
-    merge_requested = pyqtSignal()  # Signal when merge should be performed
+    merge_requested = pyqtSignal()          # Signal when merge should be performed
+    p4k_extract_requested = pyqtSignal()    # Signal to trigger P4K extraction
+    stats_generate_requested = pyqtSignal() # Signal to trigger stats generation
 
     def __init__(self):
         super().__init__()
@@ -233,6 +235,38 @@ class ConfigTab(QWidget):
         game_layout.addLayout(game_input_layout)
         layout.addWidget(game_group)
 
+        # P4K extraction group
+        p4k_group = QGroupBox("P4K Extraction")
+        p4k_layout = QVBoxLayout(p4k_group)
+
+        p4k_desc = QLabel(
+            "Extract global.ini directly from your installed Data.p4k. "
+            "This gives you stock game strings that always match your installed version."
+        )
+        p4k_desc.setStyleSheet("font-size: 11px; color: #666;")
+        p4k_desc.setWordWrap(True)
+        p4k_layout.addWidget(p4k_desc)
+
+        p4k_status_row = QHBoxLayout()
+        self._p4k_status_dot = QLabel("●")
+        self._p4k_status_dot.setStyleSheet("font-size: 14px;")
+        p4k_status_row.addWidget(self._p4k_status_dot)
+
+        self._p4k_status_label = QLabel()
+        self._p4k_status_label.setStyleSheet("font-size: 11px; color: #666;")
+        p4k_status_row.addWidget(self._p4k_status_label)
+        p4k_status_row.addStretch()
+
+        extract_btn = QPushButton("Extract from Data.p4k")
+        extract_btn.setMaximumWidth(180)
+        extract_btn.clicked.connect(self.p4k_extract_requested.emit)
+        p4k_status_row.addWidget(extract_btn)
+
+        p4k_layout.addLayout(p4k_status_row)
+        layout.addWidget(p4k_group)
+
+        self._refresh_p4k_status()
+
         # Stats data group
         # Stats enhancements group
         stats_group = QGroupBox("Stats Enhancements")
@@ -251,7 +285,6 @@ class ConfigTab(QWidget):
         stats_layout.addWidget(stats_desc)
 
         # Status row for each stats file
-        cache_dir = AppSettings.get_cache_dir()
         self._stats_status_labels: dict = {}
         stats_file_names = {
             "ship_descs":        "Ships",
@@ -261,10 +294,8 @@ class ConfigTab(QWidget):
         }
         status_row = QHBoxLayout()
         for key, label in stats_file_names.items():
-            filename = AppSettings.STATS_FILES[key]
-            present = (cache_dir / filename).exists()
             dot = QLabel("●")
-            dot.setStyleSheet(f"color: {'#4caf50' if present else '#f44336'}; font-size: 12px;")
+            dot.setStyleSheet("color: #999; font-size: 12px;")
             status_row.addWidget(dot)
             lbl = QLabel(label)
             lbl.setStyleSheet("font-size: 11px;")
@@ -272,8 +303,20 @@ class ConfigTab(QWidget):
             status_row.addSpacing(8)
             self._stats_status_labels[key] = dot
         status_row.addStretch()
+
+        generate_stats_btn = QPushButton("Generate Stats")
+        generate_stats_btn.setMaximumWidth(130)
+        generate_stats_btn.setToolTip(
+            "Generate stats INI files from scunpacked-data.\n"
+            "Downloads ~109 MB of game data on first run; cached afterwards."
+        )
+        generate_stats_btn.clicked.connect(self.stats_generate_requested.emit)
+        status_row.addWidget(generate_stats_btn)
+
         stats_layout.addLayout(status_row)
         layout.addWidget(stats_group)
+
+        self.refresh_stats_status()
 
         # Favorites settings group
         favorites_group = QGroupBox("Favorites")
@@ -369,6 +412,38 @@ class ConfigTab(QWidget):
         AppSettings.set_favorite_prefix(new_prefix)
         self._loaded_prefix = new_prefix
         self.merge_requested.emit()
+
+    def refresh_stats_status(self):
+        """Update stats file status indicators based on cache contents."""
+        cache_dir = AppSettings.get_cache_dir()
+        for key, dot in self._stats_status_labels.items():
+            filename = AppSettings.STATS_FILES[key]
+            present = (cache_dir / filename).exists()
+            dot.setStyleSheet(f"color: {'#4caf50' if present else '#f44336'}; font-size: 12px;")
+
+    def _refresh_p4k_status(self):
+        """Update the P4K status indicator based on Data.p4k availability."""
+        p4k_path = AppSettings.get_p4k_path()
+        base_ini = AppSettings.get_cache_dir() / 'base.ini'
+
+        if p4k_path.exists():
+            self._p4k_status_dot.setStyleSheet("color: #4caf50; font-size: 14px;")
+            if base_ini.exists():
+                try:
+                    extracted_dt = datetime.fromtimestamp(base_ini.stat().st_mtime)
+                    last_str = extracted_dt.strftime("%Y-%m-%d %H:%M")
+                except Exception:
+                    last_str = "unknown"
+                self._p4k_status_label.setText(f"Data.p4k found  |  base.ini last updated: {last_str}")
+            else:
+                self._p4k_status_label.setText("Data.p4k found  |  base.ini not yet extracted")
+        else:
+            self._p4k_status_dot.setStyleSheet("color: #f44336; font-size: 14px;")
+            game_path = AppSettings.get_game_install_path()
+            if game_path:
+                self._p4k_status_label.setText(f"Data.p4k not found at: {p4k_path}")
+            else:
+                self._p4k_status_label.setText("Game install path not configured")
 
     def browse_game_path(self):
         """Browse for game installation path."""

@@ -29,8 +29,11 @@ def main():
     # Migrate legacy settings to new data source format
     AppSettings.migrate_legacy_settings()
 
-    # Migrate global source URL from MrKraken to BeltaKoda stock-global.ini (v0.5.1+)
-    AppSettings.migrate_global_source_to_stock()
+    # Migrate global source from any remote URL to local P4K cache path (v0.6.0+)
+    AppSettings.migrate_global_to_p4k_local()
+
+    # Migrate contracts source from MrKraken to OsirisDevworks-hosted (v0.6.0+)
+    AppSettings.migrate_contracts_to_osiris()
 
     # Configure Components source to OsirisDevworks default if not already set (v0.5.1+)
     AppSettings.migrate_components_source_to_default()

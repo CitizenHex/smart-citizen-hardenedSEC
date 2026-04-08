@@ -254,6 +254,64 @@ class StartupSyncWorker(QThread):
         self.finished.emit()
 
 
+class StatsGeneratorWorker(QThread):
+    """Worker thread for generating stats INI files via generate_stats_ini.py."""
+
+    progress = pyqtSignal(str)
+    finished = pyqtSignal(bool)
+    error = pyqtSignal(str)
+
+    def run(self):
+        import importlib.util
+        try:
+            if getattr(sys, 'frozen', False):
+                script_path = Path(sys._MEIPASS) / 'scripts' / 'generate_stats_ini.py'
+            else:
+                # src/gui/main_window.py → src/gui → src → project root
+                script_path = Path(__file__).parent.parent.parent / 'scripts' / 'generate_stats_ini.py'
+
+            if not script_path.exists():
+                raise FileNotFoundError(f"Stats generator script not found: {script_path}")
+
+            self.progress.emit("Loading stats generator...")
+            spec = importlib.util.spec_from_file_location("generate_stats_ini", script_path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+
+            self.progress.emit("Generating stats (may take a few minutes on first run)...")
+            base_ini = AppSettings.get_cache_dir() / 'base.ini'
+            mod.main(base_ini)
+            self.finished.emit(True)
+        except Exception as e:
+            logger.exception(f"Stats generation failed: {e}")
+            self.error.emit(str(e))
+            self.finished.emit(False)
+
+
+class P4kExtractWorker(QThread):
+    """Worker thread for extracting global.ini from Data.p4k via unp4k.exe."""
+
+    progress = pyqtSignal(str)   # status message
+    finished = pyqtSignal(bool)  # True = success
+    error = pyqtSignal(str)      # error message (emitted before finished(False))
+
+    def __init__(self, p4k_path, output_path, unp4k_exe):
+        super().__init__()
+        self._p4k = p4k_path
+        self._out = output_path
+        self._exe = unp4k_exe
+
+    def run(self):
+        from src.utils.pak_extractor import extract_global_ini
+        try:
+            extract_global_ini(self._p4k, self._out, self._exe, self.progress.emit)
+            self.finished.emit(True)
+        except Exception as e:
+            logger.exception(f"P4K extraction failed: {e}")
+            self.error.emit(str(e))
+            self.finished.emit(False)
+
+
 class SelectAllDelegate(QStyledItemDelegate):
     """Custom delegate that selects all text on edit."""
 
@@ -297,6 +355,14 @@ class MainWindow(QMainWindow):
 
         # Startup sync worker
         self._startup_sync_worker: Optional[StartupSyncWorker] = None
+
+        # P4K extraction worker and progress dialog
+        self._p4k_worker: Optional[P4kExtractWorker] = None
+        self._p4k_progress: Optional[QProgressDialog] = None
+
+        # Stats generation worker and progress dialog
+        self._stats_worker: Optional[StatsGeneratorWorker] = None
+        self._stats_progress: Optional[QProgressDialog] = None
 
         # Status bar state (composed message) - tracks sync status per source
         self._source_status: dict[str, str] = {}  # source_name -> status_string
@@ -350,6 +416,8 @@ class MainWindow(QMainWindow):
         # Config tab with merge signal connection
         self.config_tab = ConfigTab()
         self.config_tab.merge_requested.connect(self.perform_merge_and_reload)
+        self.config_tab.p4k_extract_requested.connect(self._run_p4k_extraction)
+        self.config_tab.stats_generate_requested.connect(self._run_stats_generation)
         tabs.addTab(self.config_tab, "Config")
 
         tabs.addTab(self.create_about_tab(), "About")
@@ -390,6 +458,18 @@ class MainWindow(QMainWindow):
         self.clear_loc_btn.setToolTip("Delete the applied global.ini from the game's localization directory, reverting to vanilla game text")
         self.clear_loc_btn.clicked.connect(self.clear_localization)
         button_layout.addWidget(self.clear_loc_btn)
+
+        self.clear_cache_btn = QPushButton("Clear Cache")
+        self.clear_cache_btn.setStyleSheet("background-color: #9E9E9E; color: white; font-weight: bold; padding: 6px;")
+        self.clear_cache_btn.setToolTip("Delete all cached source files (base.ini, contracts.ini, etc.) from the local cache directory")
+        self.clear_cache_btn.clicked.connect(self.clear_cache)
+        button_layout.addWidget(self.clear_cache_btn)
+
+        self.open_loc_dir_btn = QPushButton("Open Localization Dir")
+        self.open_loc_dir_btn.setStyleSheet("background-color: #2196F3; color: white; font-weight: bold; padding: 6px;")
+        self.open_loc_dir_btn.setToolTip("Open the game's localization directory in Windows Explorer")
+        self.open_loc_dir_btn.clicked.connect(self.open_localization_dir)
+        button_layout.addWidget(self.open_loc_dir_btn)
 
         button_layout.addStretch()
 
@@ -477,18 +557,6 @@ class MainWindow(QMainWindow):
         self.osiris_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.osiris_button.mousePressEvent = self.open_discord_link
         footer_layout.addWidget(self.osiris_button)
-
-        # GitHub attribution links
-        for label_text, url in [
-            ("MrKraken", "https://github.com/MrKraken/StarStrings"),
-            ("ExoAE", "https://github.com/ExoAE/ScCompLangPack"),
-            ("BeltaKoda", "https://github.com/BeltaKoda/ScCompLangPackRemix"),
-        ]:
-            link = QLabel(f'<a href="{url}" style="color: #888; font-size: 11px;">{label_text}</a>')
-            link.setOpenExternalLinks(True)
-            link.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-            footer_layout.addSpacing(12)
-            footer_layout.addWidget(link)
 
         # Stretch to push donation buttons to the right
         footer_layout.addStretch()
@@ -889,6 +957,28 @@ class MainWindow(QMainWindow):
             # This ensures Apply uses latest source versions and user edits
             sources_dict, hierarchy = load_sources_from_settings()
 
+            # Warn if any enabled non-user sources are missing from the loaded dict
+            missing_sources = [
+                name for name in hierarchy
+                if name != AppSettings.SOURCE_USER and name != "stats"
+                and name not in sources_dict
+                and AppSettings.is_source_enabled(name)
+            ]
+            if missing_sources:
+                names = ", ".join(missing_sources)
+                reply = QMessageBox.warning(
+                    self, "Missing Sources",
+                    f"The following enabled sources could not be loaded:\n\n  {names}\n\n"
+                    "Their customizations will NOT be included in the applied file.\n\n"
+                    "This usually means the cache files are missing. "
+                    "Try clearing the cache and re-syncing sources first.\n\n"
+                    "Apply anyway?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+
             # Build user overrides dict from entries with custom_value
             user_overrides_dict = {
                 entry.key: entry.custom_value
@@ -1074,6 +1164,75 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to delete global.ini: {e}")
             logger.error(f"Error clearing localization: {e}")
+
+    @pyqtSlot()
+    def clear_cache(self):
+        """Delete all cached source files from the cache directory."""
+        cache_dir = AppSettings.get_cache_dir()
+        cached_files = list(cache_dir.glob("*.ini")) + list(cache_dir.glob("*.txt"))
+
+        if not cached_files:
+            QMessageBox.information(self, "Cache Empty", "The cache directory is already empty.")
+            return
+
+        file_list = "\n".join(f"  {f.name}" for f in sorted(cached_files))
+        reply = QMessageBox.question(
+            self, "Clear Cache",
+            f"This will delete the following cached files:\n\n{file_list}\n\n"
+            "base.ini will need to be re-extracted from Data.p4k before strings can be loaded.\n\n"
+            "Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        deleted, failed = [], []
+        for f in cached_files:
+            try:
+                f.unlink()
+                deleted.append(f.name)
+            except Exception as e:
+                failed.append(f"{f.name}: {e}")
+                logger.error(f"Failed to delete cache file {f}: {e}")
+
+        self.config_tab._refresh_p4k_status()
+        self.entries = []
+        self.populate_table()
+
+        msg = f"Deleted {len(deleted)} file(s) from cache."
+        if failed:
+            msg += f"\n\nFailed to delete:\n" + "\n".join(failed)
+        QMessageBox.information(self, "Cache Cleared", msg)
+
+        # Re-sync all remote sources so they're available for the next Apply.
+        # The sync completion will also prompt for p4k extraction if base.ini is missing.
+        if self._startup_sync_worker is None:
+            self._start_startup_sync()
+
+    @pyqtSlot()
+    def open_localization_dir(self):
+        """Open the game's localization directory in Windows Explorer."""
+        game_path = AppSettings.get_game_install_path()
+        if not game_path:
+            QMessageBox.warning(self, "Warning", "Please configure game install path in Config tab")
+            return
+
+        game_path_obj = Path(game_path)
+        if game_path_obj.name.upper() == "LIVE":
+            loc_dir = game_path_obj / "data/Localization/english"
+        else:
+            loc_dir = game_path_obj / "LIVE/data/Localization/english"
+
+        if not loc_dir.exists():
+            QMessageBox.warning(
+                self, "Directory Not Found",
+                f"Localization directory not found:\n{loc_dir}\n\n"
+                "Check your game install path in the Config tab."
+            )
+            return
+
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(loc_dir)))
 
     @pyqtSlot()
     def perform_merge_and_reload(self):
@@ -1305,7 +1464,7 @@ Shows the sync status for each configured source. "✓" means up to date.
 
     @pyqtSlot()
     def _on_startup_sync_finished(self):
-        """Sync complete — clean up worker, then load sources."""
+        """Sync complete — clean up worker, check p4k freshness, then load sources."""
         from PyQt6.QtWidgets import QApplication
 
         if self._startup_sync_worker:
@@ -1313,11 +1472,149 @@ Shows the sync status for each configured source. "✓" means up to date.
             self._startup_sync_worker.wait()
             self._startup_sync_worker = None
 
+        # Prompt user to extract from p4k if base.ini is missing or outdated
+        self._check_p4k_freshness()
+
+        # Prompt to generate stats if any stats files are missing
+        self._check_stats_freshness()
+
         self.statusBar().showMessage("Loading strings...")
         QApplication.processEvents()  # Render the message before the blocking load
 
         self.load_default_values()
         self.auto_load_default_files()
+
+    def _check_p4k_freshness(self):
+        """Prompt to extract from Data.p4k if base.ini is missing or outdated."""
+        unp4k_exe = AppSettings.get_unp4k_exe_path()
+        p4k_path = AppSettings.get_p4k_path()
+        base_ini = AppSettings.get_cache_dir() / 'base.ini'
+
+        if not unp4k_exe.exists() or not p4k_path.exists():
+            return  # silently skip — unp4k not bundled yet or game path not set
+
+        base_missing = not base_ini.exists()
+        p4k_newer = (not base_missing) and (p4k_path.stat().st_mtime > base_ini.stat().st_mtime)
+
+        if not base_missing and not p4k_newer:
+            return  # cache is present and up to date
+
+        if base_missing:
+            msg = (
+                "No base localization file found in cache.\n\n"
+                "Extract global.ini from Data.p4k now?\n"
+                "(Required to load and display localization strings.)"
+            )
+        else:
+            msg = (
+                "Data.p4k is newer than your cached base.ini.\n\n"
+                "Extract global.ini from Data.p4k now?\n"
+                "(This gives you stock strings matching your exact installed game version.)"
+            )
+
+        reply = QMessageBox.question(
+            self, "Extract from Data.p4k", msg,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._run_p4k_extraction()
+
+    def _check_stats_freshness(self):
+        """If stats INI files are missing and base.ini exists, prompt to generate."""
+        cache_dir = AppSettings.get_cache_dir()
+        if not (cache_dir / 'base.ini').exists():
+            return  # can't generate without base.ini
+        if self._stats_worker is not None:
+            return  # already running
+
+        missing = [f for f in AppSettings.STATS_FILES.values()
+                   if not (cache_dir / f).exists()]
+        if not missing:
+            return  # all present
+
+        json_cached = (cache_dir / 'stats_cache').exists() and any(
+            (cache_dir / 'stats_cache').glob('*.json')
+        )
+        size_note = "(uses cached data — fast)" if json_cached else "(downloads ~109 MB on first run, cached afterwards)"
+
+        reply = QMessageBox.question(
+            self, "Generate Stats",
+            f"{len(missing)} of 4 stats files are missing.\n\n"
+            f"Generate ship, component, and weapon stats now?\n{size_note}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._run_stats_generation()
+
+    def _run_stats_generation(self):
+        """Launch StatsGeneratorWorker with a progress dialog."""
+        if self._stats_worker is not None:
+            return  # already running
+
+        self._stats_worker = StatsGeneratorWorker()
+        self._stats_progress = QProgressDialog("Generating stats...", None, 0, 0, self)
+        self._stats_progress.setWindowTitle("Stats Generation")
+        self._stats_progress.setModal(True)
+        self._stats_progress.show()
+
+        self._stats_worker.progress.connect(self._stats_progress.setLabelText)
+        self._stats_worker.error.connect(lambda err: QMessageBox.warning(self, "Stats Generation Error", err))
+        self._stats_worker.finished.connect(self._on_stats_generation_finished)
+        self._stats_worker.start()
+
+    def _on_stats_generation_finished(self, success: bool):
+        """Handle stats generation completion."""
+        self._stats_progress.close()
+        self._stats_worker.quit()
+        self._stats_worker.wait()
+        self._stats_worker = None
+
+        if success:
+            self.statusBar().showMessage("Stats generated — reloading...")
+            self.config_tab.refresh_stats_status()
+            self.load_default_values()
+            self.auto_load_default_files()
+
+    def _run_p4k_extraction(self):
+        """Launch P4kExtractWorker with a progress dialog; reload sources on success."""
+        p4k_path = AppSettings.get_p4k_path()
+        output_path = AppSettings.get_cache_dir() / 'base.ini'
+        unp4k_exe = AppSettings.get_unp4k_exe_path()
+
+        self._p4k_worker = P4kExtractWorker(p4k_path, output_path, unp4k_exe)
+        self._p4k_progress = QProgressDialog("Extracting global.ini from Data.p4k...", None, 0, 0, self)
+        self._p4k_progress.setWindowTitle("P4K Extraction")
+        self._p4k_progress.setModal(True)
+        self._p4k_progress.show()
+
+        self._p4k_worker.progress.connect(self._p4k_progress.setLabelText)
+        self._p4k_worker.error.connect(lambda err: QMessageBox.warning(self, "Extraction Error", err))
+        self._p4k_worker.finished.connect(self._on_p4k_extract_finished)
+        self._p4k_worker.start()
+
+    def _on_p4k_extract_finished(self, success: bool):
+        """Handle P4K extraction completion."""
+        self._p4k_progress.close()
+        self._p4k_worker.quit()
+        self._p4k_worker.wait()
+        self._p4k_worker = None
+
+        if success:
+            # Lock Global source to the local cache path with auto-update off,
+            # so future startups don't overwrite the extracted file from a remote URL.
+            local_path = str(AppSettings.get_cache_dir() / 'base.ini')
+            AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, local_path)
+            AppSettings.set_source_auto_update(AppSettings.SOURCE_GLOBAL, False)
+            # Refresh the config tab widget so the path/checkbox reflect the new state
+            self.config_tab.source_widgets[AppSettings.SOURCE_GLOBAL].load_settings()
+            self.config_tab._refresh_p4k_status()
+
+            self.statusBar().showMessage("Extracted base.ini from Data.p4k — reloading...")
+            self.load_default_values()
+            self.auto_load_default_files()
+
+            # Now that base.ini exists, check whether stats need to be generated
+            self._check_stats_freshness()
 
     def _start_update_check(self):
         """Start background check for latest base file version."""
