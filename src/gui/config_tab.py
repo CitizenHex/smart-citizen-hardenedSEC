@@ -163,9 +163,10 @@ class SourceConfigWidget(QWidget):
 class ConfigTab(QWidget):
     """Configuration tab widget with data source management."""
 
-    merge_requested = pyqtSignal()          # Signal when merge should be performed
-    p4k_extract_requested = pyqtSignal()    # Signal to trigger P4K extraction
-    stats_generate_requested = pyqtSignal() # Signal to trigger stats generation
+    merge_requested = pyqtSignal()               # Signal when merge should be performed
+    p4k_extract_requested = pyqtSignal()         # Signal to trigger P4K extraction
+    stats_generate_requested = pyqtSignal()      # Signal to trigger stats generation
+    dataforge_extract_requested = pyqtSignal()   # Signal to trigger DataForge extraction
 
     def __init__(self):
         super().__init__()
@@ -304,16 +305,33 @@ class ConfigTab(QWidget):
             self._stats_status_labels[key] = dot
         status_row.addStretch()
 
+        extract_forge_btn = QPushButton("Extract DataForge")
+        extract_forge_btn.setMaximumWidth(140)
+        extract_forge_btn.setToolTip(
+            "Extract DataForge entity data from Data.p4k.\n"
+            "Required for component and weapon stats.\n"
+            "Takes ~5–10 minutes; cached until game updates."
+        )
+        extract_forge_btn.clicked.connect(self.dataforge_extract_requested.emit)
+        status_row.addWidget(extract_forge_btn)
+
         generate_stats_btn = QPushButton("Generate Stats")
-        generate_stats_btn.setMaximumWidth(130)
+        generate_stats_btn.setMaximumWidth(120)
         generate_stats_btn.setToolTip(
-            "Generate stats INI files from scunpacked-data.\n"
-            "Downloads ~109 MB of game data on first run; cached afterwards."
+            "Generate stats INI files from DataForge data.\n"
+            "Run 'Extract DataForge' first if not yet done.\n"
+            "Downloads ~39 MB ships.json on first run; cached afterwards."
         )
         generate_stats_btn.clicked.connect(self.stats_generate_requested.emit)
         status_row.addWidget(generate_stats_btn)
 
         stats_layout.addLayout(status_row)
+
+        # DataForge cache status row
+        self._forge_status_label = QLabel()
+        self._forge_status_label.setStyleSheet("font-size: 10px; color: #666;")
+        stats_layout.addWidget(self._forge_status_label)
+        self.refresh_forge_status()
         layout.addWidget(stats_group)
 
         self.refresh_stats_status()
@@ -420,6 +438,23 @@ class ConfigTab(QWidget):
             filename = AppSettings.STATS_FILES[key]
             present = (cache_dir / filename).exists()
             dot.setStyleSheet(f"color: {'#4caf50' if present else '#f44336'}; font-size: 12px;")
+        self.refresh_forge_status()
+
+    def refresh_forge_status(self):
+        """Update the DataForge cache status label."""
+        from src.utils.pak_extractor import dataforge_cache_is_fresh
+        forge_dir = AppSettings.get_dataforge_cache_dir()
+        p4k_path  = AppSettings.get_p4k_path()
+        stamp = forge_dir / ".p4k_mtime"
+        if not stamp.exists():
+            self._forge_status_label.setText("DataForge: not extracted — click 'Extract DataForge' to enable component/weapon stats")
+            self._forge_status_label.setStyleSheet("font-size: 10px; color: #f44336;")
+        elif p4k_path.exists() and not dataforge_cache_is_fresh(p4k_path, forge_dir):
+            self._forge_status_label.setText("DataForge: cache outdated — re-extract to update stats")
+            self._forge_status_label.setStyleSheet("font-size: 10px; color: #ff9800;")
+        else:
+            self._forge_status_label.setText("DataForge: cache up to date ✓")
+            self._forge_status_label.setStyleSheet("font-size: 10px; color: #4caf50;")
 
     def _refresh_p4k_status(self):
         """Update the P4K status indicator based on Data.p4k availability."""

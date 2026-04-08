@@ -76,3 +76,135 @@ def extract_global_ini(
         logger.info(f"Extracted global.ini → {output_path}")
 
     return True
+
+
+# Subdirectories (relative to the Data/ dir created by unp4k) that we keep
+# from the full DataForge extraction.  Everything else is discarded.
+_DATAFORGE_KEEP = [
+    "libs/foundry/records/entities/scitem/ships/shieldgenerator",
+    "libs/foundry/records/entities/scitem/ships/cooler",
+    "libs/foundry/records/entities/scitem/ships/powerplant",
+    "libs/foundry/records/entities/scitem/ships/quantumdrive",
+    "libs/foundry/records/entities/scitem/ships/weapons",
+    "libs/foundry/records/entities/scitem/weapons/fps_weapons",
+    "libs/foundry/records/ammoparams/vehicle",
+    "libs/foundry/records/ammoparams/fps",
+    "libs/foundry/records/entities/spaceships",
+]
+
+
+def extract_dataforge(
+    p4k_path: Path,
+    unp4k_exe: Path,
+    unforge_exe: Path,
+    dataforge_cache_dir: Path,
+    progress_callback=None,
+) -> bool:
+    """Extract DataForge entity XMLs from Data.p4k and cache relevant subdirectories.
+
+    Pipeline:
+      1. unp4k.exe extracts Game2.dcb from the p4k into a temp directory.
+      2. unforge.exe converts Game2.dcb → individual XML entity files.
+      3. Only the subdirectories needed for stats generation are copied to
+         dataforge_cache_dir; everything else is discarded.
+
+    This is slow the first time (~several minutes) but results are cached and
+    only need to be re-run when the p4k file changes.
+
+    Args:
+        p4k_path: Path to Data.p4k.
+        unp4k_exe: Path to bundled unp4k.exe.
+        unforge_exe: Path to bundled unforge.exe.
+        dataforge_cache_dir: Destination directory for the cached entity XMLs.
+        progress_callback: Optional callable(str) for status messages.
+
+    Returns:
+        True on success.
+
+    Raises:
+        FileNotFoundError: If required executables or Data.p4k are missing.
+        RuntimeError: If either subprocess fails.
+    """
+    for exe, name in [(unp4k_exe, "unp4k.exe"), (unforge_exe, "unforge.exe")]:
+        if not exe.exists():
+            raise FileNotFoundError(f"{name} not found at: {exe}")
+    if not p4k_path.exists():
+        raise FileNotFoundError(f"Data.p4k not found at: {p4k_path}")
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp = Path(tmp_dir)
+
+        # ── Step 1: Extract Game2.dcb ─────────────────────────────────────────
+        if progress_callback:
+            progress_callback("Extracting Game2.dcb from Data.p4k…")
+        logger.info(f"Running unp4k to extract .dcb: {unp4k_exe} {p4k_path} .dcb")
+        result = subprocess.run(
+            [str(unp4k_exe), str(p4k_path), ".dcb"],
+            cwd=tmp_dir,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"unp4k.exe failed (code {result.returncode}):\n{result.stderr or result.stdout}")
+
+        # unp4k preserves archive structure: Data/Game2.dcb
+        dcb_candidates = list(tmp.glob("Data/Game*.dcb"))
+        if not dcb_candidates:
+            raise FileNotFoundError("Game*.dcb not found in p4k output — check game install path.")
+        dcb_path = dcb_candidates[0]
+        logger.info(f"Found DCB: {dcb_path} ({dcb_path.stat().st_size / 1_048_576:.0f} MB)")
+
+        # ── Step 2: Run unforge to produce entity XMLs ────────────────────────
+        if progress_callback:
+            progress_callback("Converting DataForge database — this takes several minutes…")
+        logger.info(f"Running unforge: {unforge_exe} {dcb_path}")
+        result = subprocess.run(
+            [str(unforge_exe), str(dcb_path)],
+            capture_output=True,
+            text=True,
+            timeout=1800,   # 30 minutes max
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"unforge.exe failed (code {result.returncode}):\n{result.stderr or result.stdout}")
+
+        # unforge writes entity XMLs into libs/ next to the dcb file
+        libs_dir = dcb_path.parent / "libs"
+        if not libs_dir.exists():
+            raise FileNotFoundError("unforge ran but libs/ directory was not created — unexpected output structure.")
+
+        # ── Step 3: Copy only the needed subdirectories to cache ──────────────
+        if progress_callback:
+            progress_callback("Caching entity files…")
+        if dataforge_cache_dir.exists():
+            shutil.rmtree(dataforge_cache_dir)
+        dataforge_cache_dir.mkdir(parents=True, exist_ok=True)
+
+        for rel in _DATAFORGE_KEEP:
+            src = libs_dir / rel
+            if not src.exists():
+                logger.warning(f"Expected DataForge subdir not found (skipping): {src}")
+                continue
+            dst = dataforge_cache_dir / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(src, dst)
+            logger.info(f"Cached {rel} ({sum(f.stat().st_size for f in dst.rglob('*') if f.is_file()) // 1024} KB)")
+
+        # Write a stamp so we know when this was extracted (p4k mtime)
+        stamp = dataforge_cache_dir / ".p4k_mtime"
+        stamp.write_text(str(p4k_path.stat().st_mtime))
+        logger.info(f"DataForge cache written to {dataforge_cache_dir}")
+
+    return True
+
+
+def dataforge_cache_is_fresh(p4k_path: Path, dataforge_cache_dir: Path) -> bool:
+    """Return True if the cached DataForge XMLs are up-to-date with the p4k."""
+    stamp = dataforge_cache_dir / ".p4k_mtime"
+    if not stamp.exists():
+        return False
+    try:
+        cached_mtime = float(stamp.read_text().strip())
+        return cached_mtime >= p4k_path.stat().st_mtime
+    except Exception:
+        return False

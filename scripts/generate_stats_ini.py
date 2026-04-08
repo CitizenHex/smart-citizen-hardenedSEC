@@ -1,36 +1,39 @@
 """
 generate_stats_ini.py
 ─────────────────────
-Downloads scunpacked-data JSON files and generates stats-augmented INI files
-for use as additional sources in SC Localization Editor.
+Generates stats-augmented INI files for use as additional sources in
+SC Localization Editor.
 
-Output files (written to OUTPUT_DIR):
+Component / weapon stats are sourced directly from the game's DataForge
+entity XML files (extracted from Data.p4k via unforge).  Ship flight stats
+(SCM speed, cargo, etc.) still come from the scunpacked-data JSON until
+a full DataForge-based ship parser is implemented.
+
+Output files (written to OUTPUT_DIR / cache):
   ships_desc_stats.ini        – vehicle_Desc* entries with flight/cargo/shield stats
   components_desc_stats.ini   – item_Desc* COOL/SHLD/POWR/QDRV with numerical stats
-  ship_weapons_desc_stats.ini – item_Desc* WeaponGun/Missile/Bomb with weapon stats
-  fps_weapons_desc_stats.ini  – item_Desc* WeaponPersonal with weapon stats
+  ship_weapons_desc_stats.ini – item_Desc* ship weapon stats
+  fps_weapons_desc_stats.ini  – item_Desc* FPS weapon stats
 
 Usage:
-  python scripts/generate_stats_ini.py [base_ini_path]
-
-  base_ini_path defaults to the app's AppData cache (base.ini).
-  Scunpacked JSON files are cached in OUTPUT_DIR/cache/ and re-used on subsequent runs.
+  python scripts/generate_stats_ini.py [base_ini_path [dataforge_cache_dir]]
 """
 
-import json
 import os
 import sys
+import json
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.request import urlopen, Request
 from urllib.error import URLError
 
-# ── Paths ────────────────────────────────────────────────────────────────────
+# ── Paths ─────────────────────────────────────────────────────────────────────
 
 SCRIPT_DIR   = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 
+
 def _get_documents_dir() -> Path:
-    """Resolve real Documents folder (handles OneDrive redirection)."""
     try:
         import winreg
         key = winreg.OpenKey(
@@ -46,21 +49,16 @@ def _get_documents_dir() -> Path:
 
 APP_CACHE_DIR    = _get_documents_dir() / "SC Localization Editor" / "cache"
 DEFAULT_BASE_INI = APP_CACHE_DIR / "base.ini"
+DEFAULT_FORGE_DIR = APP_CACHE_DIR / "dataforge"
 
-# Stats output goes to AppData cache so the app finds it automatically.
-# JSON source cache lives in a sub-folder to keep it separate.
-OUTPUT_DIR = APP_CACHE_DIR
-CACHE_DIR  = APP_CACHE_DIR / "stats_cache"
+OUTPUT_DIR  = APP_CACHE_DIR
+# JSON cache for ships (still scunpacked-based)
+SHIPS_CACHE_DIR = APP_CACHE_DIR / "stats_cache"
 
-REPO_BASE = "https://raw.githubusercontent.com/StarCitizenWiki/scunpacked-data/master/"
+SHIPS_JSON_URL = "https://raw.githubusercontent.com/StarCitizenWiki/scunpacked-data/master/ships.json"
 
-SOURCES = {
-    "ships":      "ships.json",
-    "ship_items": "ship-items.json",
-    "fps_items":  "fps-items.json",
-}
 
-# ── Download ─────────────────────────────────────────────────────────────────
+# ── Download helper (ships.json only) ─────────────────────────────────────────
 
 def download(url: str, dest: Path) -> None:
     print(f"  Downloading {url}")
@@ -79,19 +77,18 @@ def download(url: str, dest: Path) -> None:
         print()
 
 
-def load_json(key: str) -> list | dict:
-    dest = CACHE_DIR / SOURCES[key]
+def load_ships_json() -> list:
+    dest = SHIPS_CACHE_DIR / "ships.json"
     if not dest.exists():
-        download(REPO_BASE + SOURCES[key], dest)
+        download(SHIPS_JSON_URL, dest)
     else:
         print(f"  Using cached {dest.name}")
     return json.loads(dest.read_text(encoding="utf-8"))
 
 
-# ── INI parsing ──────────────────────────────────────────────────────────────
+# ── INI helpers ───────────────────────────────────────────────────────────────
 
 def parse_ini(path: Path) -> dict[str, str]:
-    """Return key → value dict from a plain key=value INI file."""
     result = {}
     with open(path, encoding="utf-8-sig") as f:
         for line in f:
@@ -101,74 +98,31 @@ def parse_ini(path: Path) -> dict[str, str]:
             if "=" not in line:
                 continue
             k, _, v = line.partition("=")
-            k = k.strip()
-            # Strip plural marker from key for lookup purposes
-            lookup_key = k.split(",")[0].strip()
+            lookup_key = k.strip().split(",")[0].strip()
             if lookup_key:
                 result[lookup_key] = v.strip()
     return result
 
 
-# ── Lookup builders ──────────────────────────────────────────────────────────
-
-def _normalize_classname(cls: str) -> str:
-    """Strip common suffixes like _SCItem that are absent from localization keys."""
-    return cls.removesuffix("_SCItem")
-
-
-def build_lookup(records: list, extra_name_map: dict[str, str] | None = None) -> dict[str, dict]:
-    """
-    Build two-level lookup for a list of scunpacked records:
-      by_class[classname_lower] → record   (suffix-normalized)
-      by_name[name_lower]       → record   (fallback)
-    Returns a single dict with both keys merged (class takes priority).
-    """
-    by_class: dict[str, dict] = {}
-    by_name:  dict[str, dict] = {}
-    for rec in records:
-        cls  = (rec.get("ClassName") or rec.get("className") or "")
-        name = (rec.get("Name")      or rec.get("name")      or "").lower().strip()
-        if cls:
-            by_class[_normalize_classname(cls).lower()] = rec
-        if name:
-            by_name[name] = rec
-    return {"class": by_class, "name": by_name}
+def write_ini(path: Path, entries: dict[str, str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [f"{k}={v}" for k, v in sorted(entries.items())]
+    path.write_text("\n".join(lines), encoding="utf-8")
+    print(f"  Written {len(entries):,} entries → {path}")
 
 
-def find_record(lookup: dict, loc_key: str, prefix: str, name_values: dict) -> dict | None:
-    """
-    Look up a scunpacked record for a localization _desc key.
-
-    Strategy:
-      1. Strip `prefix` from loc_key → try as ClassName (case-insensitive)
-      2. Fallback: find the corresponding Name key in name_values, then match by Name
-    """
-    # Strip plural marker from key before extracting class name
-    bare = loc_key.split(",")[0]
-    if not bare.startswith(prefix):
-        return None
-    cls_candidate = bare[len(prefix):].lower()
-
-    rec = lookup["class"].get(cls_candidate)
-    if rec:
-        return rec
-
-    # Fallback: look up the display name from the localization (item_Name* or vehicle_Name*)
-    if prefix == "vehicle_Desc":
-        name_key = "vehicle_Name" + bare[len(prefix):]
-    else:
-        name_key = "item_Name" + bare[len(prefix):]
-
-    display_name = name_values.get(name_key, "").lower().strip()
-    if display_name:
-        rec = lookup["name"].get(display_name)
-        if rec:
-            return rec
-
-    return None
+STAT_SEPARATOR = "\\n\\n== Stats ==\\n"
 
 
-# ── Stat formatters ──────────────────────────────────────────────────────────
+def append_stats(existing_value: str, stats_block: str) -> str:
+    if not stats_block:
+        return existing_value
+    if "== Stats ==" in existing_value:
+        existing_value = existing_value[:existing_value.index("\\n\\n== Stats ==")]
+    return existing_value + STAT_SEPARATOR + stats_block
+
+
+# ── Stat formatters ───────────────────────────────────────────────────────────
 
 def _fmt(value, unit="", decimals=0) -> str:
     if value is None:
@@ -182,64 +136,219 @@ def _fmt(value, unit="", decimals=0) -> str:
         return str(value)
 
 
-def _get_std(item: dict) -> dict:
-    """Return stdItem sub-dict (ship-items.json nests data there)."""
-    return item.get("stdItem") or item
+# ── XML parsing helpers ───────────────────────────────────────────────────────
+
+def _find(root: ET.Element, tag: str) -> ET.Element | None:
+    """Find first element with the given tag anywhere in the tree."""
+    return root.find(f".//{tag}")
 
 
-def _rn_generation(item: dict, resource: str) -> float | None:
-    """Extract ResourceNetwork generation rate for a given resource type.
+def _attr(root: ET.Element, tag: str, attr: str, default=None):
+    el = _find(root, tag)
+    return el.get(attr, default) if el is not None else default
 
-    Walks all state Deltas looking for Type=Generation with the matching Resource.
-    """
-    std = _get_std(item)
-    rn = std.get("ResourceNetwork") or {}
-    for state in (rn.get("States") or []):
-        for delta in (state.get("Deltas") or []):
-            dtype    = delta.get("Type") or delta.get("type") or ""
-            dresource = delta.get("Resource") or delta.get("resource") or ""
-            if dtype == "Generation" and dresource == resource:
-                return delta.get("Rate") or delta.get("GeneratedRate")
-            # Conversion: Resource consumed, GeneratedResource produced
-            if dtype == "Conversion" and (delta.get("GeneratedResource") or "") == resource:
-                return delta.get("GeneratedRate")
+
+def _loc_key(root: ET.Element) -> str | None:
+    """Extract the item_Desc* localization key from the entity XML."""
+    for el in root.iter("Localization"):
+        desc = el.get("Description", "")
+        if desc.startswith("@") and "LOC_EMPTY" not in desc and "UNINITIALIZED" not in desc:
+            return desc.lstrip("@")
     return None
 
 
-def _rn_usage(item: dict, resource: str) -> float | None:
-    """Extract ResourceNetwork consumption rate for a given resource type.
-
-    Walks all state Deltas looking for Consumption/Conversion that consumes the resource.
-    """
-    std = _get_std(item)
-    rn = std.get("ResourceNetwork") or {}
-    for state in (rn.get("States") or []):
-        for delta in (state.get("Deltas") or []):
-            dtype    = delta.get("Type") or delta.get("type") or ""
-            dresource = delta.get("Resource") or delta.get("resource") or ""
-            if dtype in ("Consumption", "Conversion") and dresource == resource:
-                return delta.get("Rate")
+def _resource_amount(amount_el: ET.Element) -> str | None:
+    """Extract the numeric value from a resourceAmountPerSecond element."""
+    unit = amount_el.find(".//SPowerSegmentResourceUnit")
+    if unit is not None:
+        return unit.get("units")
+    std = amount_el.find(".//SStandardResourceUnit")
+    if std is not None:
+        return std.get("standardResourceUnits")
     return None
 
 
-def _turret_summary(turrets: list) -> str:
-    """Summarise a list of turret dicts as e.g. '2× S5, 1× S3'."""
-    if not turrets:
+def _find_resource(root: ET.Element, resource: str) -> str | None:
+    """
+    Find the amount/s for a given resource anywhere in the resource network,
+    searching both Generation and Conversion delta types.
+
+    For Conversion deltas, checks both <consumption> and <generation> children.
+    """
+    for delta_type in ("ItemResourceDeltaGeneration", "ItemResourceDeltaConversion"):
+        for delta in root.iter(delta_type):
+            for child in delta:
+                if child.get("resource") == resource:
+                    val = _resource_amount(child)
+                    if val is not None:
+                        return val
+    return None
+
+
+def _fire_rate(root: ET.Element) -> str | None:
+    """Return the highest fire rate found across all weapon fire actions."""
+    best = None
+    for el in root.iter():
+        if "WeaponActionFire" in el.tag:
+            fr = el.get("fireRate")
+            if fr:
+                try:
+                    v = float(fr)
+                    if best is None or v > best:
+                        best = v
+                except ValueError:
+                    pass
+    return str(best) if best else None
+
+
+def _fire_modes(root: ET.Element) -> list[str]:
+    names = []
+    for el in root.iter():
+        if "WeaponActionFire" in el.tag:
+            n = el.get("name") or el.get("localisedName")
+            if n and n not in names:
+                names.append(n)
+    return names
+
+
+def _ammo_damage(ammo_root: ET.Element) -> float:
+    """Sum all damage types from the ammo's DamageInfo element."""
+    total = 0.0
+    for info in ammo_root.iter("DamageInfo"):
+        for attr in ("DamagePhysical", "DamageEnergy", "DamageDistortion",
+                     "DamageThermal", "DamageBiochemical", "DamageStun"):
+            try:
+                total += float(info.get(attr, 0))
+            except ValueError:
+                pass
+    return total
+
+
+# ── Per-type stat generators ──────────────────────────────────────────────────
+
+def stats_shield(root: ET.Element) -> str:
+    el = _find(root, "SCItemShieldGeneratorParams")
+    if el is None:
         return ""
-    size_counts: dict[int, int] = {}
-    for t in turrets:
-        sz = t.get("MaxSizeClass") or t.get("Size") or t.get("size") or 0
-        try:
-            sz = int(sz)
-        except (TypeError, ValueError):
-            sz = 0
-        size_counts[sz] = size_counts.get(sz, 0) + 1
-    parts = []
-    for sz in sorted(size_counts, reverse=True):
-        label = f"S{sz}" if sz else "?"
-        count = size_counts[sz]
-        parts.append(f"{count}× {label}")
-    return ", ".join(parts)
+    hp      = el.get("MaxShieldHealth")
+    regen   = el.get("MaxShieldRegen")
+    downed  = el.get("DownedRegenDelay")
+    damaged = el.get("DamagedRegenDelay")
+    pwr     = _find_resource(root, "Power")
+
+    lines = []
+    if hp is not None or regen is not None:
+        lines.append(f"Max HP: {_fmt(hp)}  |  Regen: {_fmt(regen, ' HP/s')}")
+    delays = []
+    if downed  is not None: delays.append(f"Downed Delay: {_fmt(downed, 's', 1)}")
+    if damaged is not None: delays.append(f"Damaged Delay: {_fmt(damaged, 's', 1)}")
+    if delays:
+        lines.append("  |  ".join(delays))
+    if pwr is not None:
+        lines.append(f"Power Draw: {_fmt(pwr, ' PU/s')}")
+    return "\\n".join(lines)
+
+
+def stats_cooler(root: ET.Element) -> str:
+    cooling = _find_resource(root, "Coolant")
+    pwr     = _find_resource(root, "Power")
+
+    lines = []
+    if cooling is not None:
+        lines.append(f"Cooling Rate: {_fmt(cooling, ' CR/s')}")
+    if pwr is not None:
+        lines.append(f"Power Draw: {_fmt(pwr, ' PU/s')}")
+    return "\\n".join(lines)
+
+
+def stats_powerplant(root: ET.Element) -> str:
+    gen          = _find_resource(root, "Power")
+    cooling_draw = _find_resource(root, "Coolant")
+
+    lines = []
+    if gen is not None:
+        lines.append(f"Power Output: {_fmt(gen, ' PU/s')}")
+    if cooling_draw is not None:
+        lines.append(f"Cooling Draw: {_fmt(cooling_draw, ' CR/s')}")
+    return "\\n".join(lines)
+
+
+def stats_quantum_drive(root: ET.Element) -> str:
+    qd = _find(root, "SCItemQuantumDriveParams")
+    if qd is None:
+        return ""
+    fuel_req = qd.get("quantumFuelRequirement")
+
+    params = _find(root, "SQuantumDriveParams")
+    speed  = params.get("driveSpeed")  if params is not None else None
+    spool  = params.get("spoolUpTime") if params is not None else None
+
+    pwr = _find_resource(root, "Power")
+
+    lines = []
+    if speed is not None:
+        speed_mm = float(speed) / 1_000_000
+        spool_str = _fmt(spool, "s") if spool else "?"
+        lines.append(f"QT Speed: {speed_mm:,.0f} Mm/s  |  Spool: {spool_str}")
+    if fuel_req is not None:
+        lines.append(f"Fuel/Gm: {float(fuel_req):.4f}")
+    if pwr is not None:
+        lines.append(f"Power Draw: {_fmt(pwr, ' PU/s')}")
+    return "\\n".join(lines)
+
+
+def stats_weapon(root: ET.Element, ammo_lookup: dict[str, ET.Element]) -> str:
+    """Ship or FPS weapon stats."""
+    fr    = _fire_rate(root)
+    modes = _fire_modes(root)
+    pwr   = _power_units(root, "Power", "ItemResourceDeltaConversion")
+
+    # Ammo damage — look up the ammo record by GUID
+    ammo_container = _find(root, "SAmmoContainerComponentParams")
+    ammo_record_id = ammo_container.get("ammoParamsRecord") if ammo_container is not None else None
+    ammo_damage = None
+    dps = None
+    if ammo_record_id and ammo_record_id != "00000000-0000-0000-0000-000000000000":
+        ammo_root = ammo_lookup.get(ammo_record_id)
+        if ammo_root is not None:
+            ammo_damage = _ammo_damage(ammo_root)
+            if ammo_damage and fr:
+                try:
+                    dps = ammo_damage * float(fr) / 60.0
+                except ValueError:
+                    pass
+
+    # Capacity from regen consumer or ammo container
+    regen = _find(root, "SWeaponRegenConsumerParams")
+    capacity = None
+    if regen is not None:
+        capacity = regen.get("maxAmmoLoad")
+
+    lines = []
+    if fr:
+        lines.append(f"Fire Rate: {_fmt(fr, ' RPM')}")
+    if modes:
+        lines.append(f"Fire Modes: {' / '.join(modes)}")
+    if ammo_damage is not None or dps is not None:
+        parts = []
+        if ammo_damage: parts.append(f"Dmg/Shot: {_fmt(ammo_damage, '', 1)}")
+        if dps:         parts.append(f"DPS: {_fmt(dps, '', 1)}")
+        lines.append("  |  ".join(parts))
+    if capacity:
+        lines.append(f"Ammo: {_fmt(capacity)}")
+    if pwr:
+        lines.append(f"Power Draw: {_fmt(pwr, ' PU/s')}")
+    return "\\n".join(lines)
+
+
+# ── Ship stats (scunpacked-based, kept until DataForge parser covers it) ──────
+
+def _normalize_classname(cls: str) -> str:
+    return cls.removesuffix("_SCItem")
+
+
+def _fmt_ship(value, unit="", decimals=0) -> str:
+    return _fmt(value, unit, decimals)
 
 
 def stats_ship(ship: dict) -> str:
@@ -251,386 +360,240 @@ def stats_ship(ship: dict) -> str:
     pitch   = fc.get("Pitch")
     yaw     = fc.get("Yaw")
     roll    = fc.get("Roll")
-
     cargo   = ship.get("Cargo")
     crew    = ship.get("Crew")
     length  = ship.get("Length")
     mass    = ship.get("MassTotal") or ship.get("Mass")
     shields = ship.get("ShieldHp")
-
     qt_speed = qt.get("Speed")
     qt_range = qt.get("Range")
 
-    # Hardpoints
     manned_turrets  = ship.get("MannedTurrets")  or []
     remote_turrets  = ship.get("RemoteTurrets")  or []
     wep_defensive   = ship.get("WeaponDefensive") or {}
     countermeasures = wep_defensive.get("CountermeasureLauncher")
 
+    def turret_summary(turrets):
+        size_counts: dict[int, int] = {}
+        for t in turrets:
+            sz = t.get("MaxSizeClass") or t.get("Size") or t.get("size") or 0
+            try: sz = int(sz)
+            except: sz = 0
+            size_counts[sz] = size_counts.get(sz, 0) + 1
+        return ", ".join(
+            f"{cnt}× S{sz}" if sz else f"{cnt}× ?"
+            for sz, cnt in sorted(size_counts.items(), reverse=True)
+        )
+
     lines = []
-    # Flight
     if scm is not None or max_spd is not None:
-        lines.append(f"SCM Speed: {_fmt(scm, ' m/s')}  |  Max Speed: {_fmt(max_spd, ' m/s')}")
+        lines.append(f"SCM Speed: {_fmt_ship(scm, ' m/s')}  |  Max Speed: {_fmt_ship(max_spd, ' m/s')}")
     if pitch is not None:
-        lines.append(f"Pitch: {_fmt(pitch, '°/s')}  |  Yaw: {_fmt(yaw, '°/s')}  |  Roll: {_fmt(roll, '°/s')}")
-    # Dimensions / crew
+        lines.append(f"Pitch: {_fmt_ship(pitch, '°/s')}  |  Yaw: {_fmt_ship(yaw, '°/s')}  |  Roll: {_fmt_ship(roll, '°/s')}")
     if length is not None or crew is not None:
-        lines.append(f"Length: {_fmt(length, ' m')}  |  Crew: {_fmt(crew)}")
-    # Cargo / shields / mass
+        lines.append(f"Length: {_fmt_ship(length, ' m')}  |  Crew: {_fmt_ship(crew)}")
     parts = []
-    if cargo is not None:
-        parts.append(f"Cargo: {_fmt(cargo, ' SCU')}")
-    if shields is not None:
-        parts.append(f"Shields: {_fmt(shields, ' HP')}")
-    if mass is not None:
-        parts.append(f"Mass: {_fmt(mass, ' kg')}")
-    if parts:
-        lines.append("  |  ".join(parts))
-    # Quantum travel (no spool — not meaningful without context)
+    if cargo   is not None: parts.append(f"Cargo: {_fmt_ship(cargo, ' SCU')}")
+    if shields is not None: parts.append(f"Shields: {_fmt_ship(shields, ' HP')}")
+    if mass    is not None: parts.append(f"Mass: {_fmt_ship(mass, ' kg')}")
+    if parts: lines.append("  |  ".join(parts))
     if qt_speed is not None:
-        qt_speed_mm = float(qt_speed) / 1_000_000
-        lines.append(f"QT Speed: {qt_speed_mm:,.0f} Mm/s")
+        lines.append(f"QT Speed: {float(qt_speed) / 1_000_000:,.0f} Mm/s")
     if qt_range is not None:
-        qt_range_gm = float(qt_range) / 1_000_000
-        lines.append(f"QT Range: {qt_range_gm:,.1f} Gm")
-    # Hardpoints
+        lines.append(f"QT Range: {float(qt_range) / 1_000_000:,.1f} Gm")
     turret_parts = []
-    if manned_turrets:
-        turret_parts.append(f"Manned Turrets: {_turret_summary(manned_turrets)}")
-    if remote_turrets:
-        turret_parts.append(f"Remote Turrets: {_turret_summary(remote_turrets)}")
-    if turret_parts:
-        lines.append("  |  ".join(turret_parts))
+    if manned_turrets: turret_parts.append(f"Manned Turrets: {turret_summary(manned_turrets)}")
+    if remote_turrets: turret_parts.append(f"Remote Turrets: {turret_summary(remote_turrets)}")
+    if turret_parts: lines.append("  |  ".join(turret_parts))
     if countermeasures is not None:
-        lines.append(f"Countermeasures: {_fmt(countermeasures)}")
-
+        lines.append(f"Countermeasures: {_fmt_ship(countermeasures)}")
     return "\\n".join(lines)
 
 
-def stats_shield(item: dict) -> str:
-    std  = _get_std(item)
-    shld = std.get("Shield") or {}
-    hp      = shld.get("MaxShieldHealth")
-    regen   = shld.get("MaxShieldRegen")
-    downed  = shld.get("DownedDelay")
-    damaged = shld.get("DamagedDelay")
-    pwr     = _rn_usage(item, "Power")
+# ── Ammo lookup builder ───────────────────────────────────────────────────────
 
-    lines = []
-    if hp is not None or regen is not None:
-        lines.append(f"Max HP: {_fmt(hp)}  |  Regen: {_fmt(regen, ' HP/s')}")
-    delays = []
-    if downed  is not None: delays.append(f"Downed Delay: {_fmt(downed, 's', 1)}")
-    if damaged is not None: delays.append(f"Damaged Delay: {_fmt(damaged, 's', 1)}")
-    if delays:
-        lines.append("  |  ".join(delays))
-    if pwr is not None:
-        lines.append(f"Power Draw: {_fmt(pwr, '/s')}")
-    return "\\n".join(lines)
+def build_ammo_lookup(ammo_dir: Path) -> dict[str, ET.Element]:
+    """Parse all ammo XML files and index them by their __ref GUID."""
+    lookup: dict[str, ET.Element] = {}
+    if not ammo_dir.exists():
+        return lookup
+    for xml_file in ammo_dir.rglob("*.xml"):
+        try:
+            root = ET.parse(xml_file).getroot()
+            ref = root.get("__ref")
+            if ref:
+                lookup[ref] = root
+        except ET.ParseError:
+            pass
+    return lookup
 
 
-def stats_cooler(item: dict) -> str:
-    std     = _get_std(item)
-    cooling = _rn_generation(item, "Coolant")
-    pwr     = _rn_usage(item, "Power")
-    em_max  = ((std.get("Emission") or {}).get("Em") or {}).get("Maximum")
-    ir      = (std.get("Emission") or {}).get("Ir")
+# ── DataForge directory scanner ───────────────────────────────────────────────
 
-    lines = []
-    if cooling is not None:
-        lines.append(f"Cooling Rate: {_fmt(cooling, '/s')}")
-    if pwr is not None:
-        lines.append(f"Power Draw: {_fmt(pwr, '/s')}")
-    sigs = []
-    if em_max is not None: sigs.append(f"EM: {_fmt(em_max)}")
-    if ir     is not None: sigs.append(f"IR: {_fmt(ir)}")
-    if sigs:
-        lines.append("Signatures:  " + "  |  ".join(sigs))
-    return "\\n".join(lines)
+def scan_entity_dir(
+    entity_dir: Path,
+    stat_fn,
+    ammo_lookup: dict | None = None,
+    loc: dict | None = None,
+) -> dict[str, str]:
+    """
+    Scan all XML files in entity_dir, extract localization key + stats,
+    and return {loc_key: augmented_value} for keys found in `loc`.
 
+    ammo_lookup is passed to stat_fn only when it accepts it (weapons).
+    loc is the base.ini localization dict for value lookup.
+    """
+    out: dict[str, str] = {}
+    matched = missed = skipped = 0
 
-def stats_powerplant(item: dict) -> str:
-    std     = _get_std(item)
-    pwr_gen = _rn_generation(item, "Power")
-    em_max  = ((std.get("Emission") or {}).get("Em") or {}).get("Maximum")
-    cooling = _rn_usage(item, "Coolant")
+    for xml_file in entity_dir.rglob("*.xml"):
+        try:
+            root = ET.parse(xml_file).getroot()
+        except ET.ParseError:
+            continue
 
-    lines = []
-    if pwr_gen is not None:
-        lines.append(f"Power Output: {_fmt(pwr_gen, '/s')}")
-    if cooling is not None:
-        lines.append(f"Cooling Draw: {_fmt(cooling, '/s')}")
-    if em_max is not None:
-        lines.append(f"EM Signature: {_fmt(em_max)}")
-    return "\\n".join(lines)
+        key = _loc_key(root)
+        if not key:
+            skipped += 1
+            continue
 
+        base_value = (loc or {}).get(key)
+        if base_value is None:
+            missed += 1
+            continue
 
-def stats_quantum_drive(item: dict) -> str:
-    std      = _get_std(item)
-    qd       = std.get("QuantumDrive") or {}
-    jump     = qd.get("StandardJump") or {}
-    speed    = jump.get("DriveSpeed")
-    spool    = jump.get("SpoolUpTime")
-    fuel_req = qd.get("QuantumFuelRequirement")
-    fuel_eff = qd.get("FuelEfficiencyGMPerSCU")
-    pwr      = _rn_usage(item, "Power")
+        try:
+            if ammo_lookup is not None:
+                stats_block = stat_fn(root, ammo_lookup)
+            else:
+                stats_block = stat_fn(root)
+        except Exception as e:
+            print(f"  Warning: stats failed for {xml_file.name}: {e}")
+            continue
 
-    lines = []
-    if speed is not None:
-        speed_mm = float(speed) / 1_000_000
-        lines.append(f"QT Speed: {speed_mm:,.0f} Mm/s  |  Spool: {_fmt(spool, 's')}")
-    if fuel_req is not None:
-        lines.append(f"Fuel/Gm: {fuel_req:.4f}")
-    if fuel_eff is not None:
-        lines.append(f"Efficiency: {_fmt(fuel_eff, ' Gm/SCU', 2)}")
-    if pwr is not None:
-        lines.append(f"Power Draw: {_fmt(pwr, '/s')}")
-    return "\\n".join(lines)
+        if stats_block:
+            out[key] = append_stats(base_value, stats_block)
+            matched += 1
+        else:
+            missed += 1
+
+    print(f"    {entity_dir.name}: {matched} matched, {missed} no stats, {skipped} no loc key")
+    return out
 
 
-def stats_ship_weapon(item: dict) -> str:
-    """Ship weapon (WeaponGun / Missile / Bomb) stats."""
-    std   = _get_std(item)
-    wep   = std.get("Weapon") or {}
-    modes = wep.get("Modes") or []
+# ── Main ──────────────────────────────────────────────────────────────────────
 
-    rof       = wep.get("RateOfFire")
-    capacity  = wep.get("Capacity")
-    dmg       = wep.get("Damage") or {}
-    alpha     = dmg.get("AlphaTotal")
-    dps       = dmg.get("DpsTotal")
-    pwr       = _rn_usage(item, "Power")
-    health    = (std.get("Durability") or {}).get("Health")
+def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
+    print("\n=== SC Stats INI Generator (DataForge edition) ===\n")
 
-    mode_labels = [m.get("LocalisedName") or m.get("Name") for m in modes
-                   if m.get("LocalisedName") or m.get("Name")]
-
-    lines = []
-    if rof is not None:
-        lines.append(f"Fire Rate: {_fmt(rof, ' RPM')}")
-    if mode_labels:
-        lines.append(f"Fire Modes: {' / '.join(mode_labels)}")
-    if alpha is not None or dps is not None:
-        parts = []
-        if alpha is not None: parts.append(f"Dmg/Shot: {_fmt(alpha, '', 1)}")
-        if dps   is not None: parts.append(f"DPS: {_fmt(dps, '', 1)}")
-        lines.append("  |  ".join(parts))
-    if capacity is not None:
-        lines.append(f"Ammo Capacity: {_fmt(capacity)}")
-    if pwr is not None:
-        lines.append(f"Power Draw: {_fmt(pwr, '/s')}")
-    if health is not None:
-        lines.append(f"Health: {_fmt(health)}")
-    return "\\n".join(lines)
-
-
-def stats_fps_weapon(item: dict) -> str:
-    """FPS personal weapon stats."""
-    std  = _get_std(item)
-    wep  = std.get("Weapon") or {}
-    modes = wep.get("Modes") or []
-
-    rof         = wep.get("RateOfFire")      # primary fire mode RPM
-    capacity    = wep.get("Capacity")        # magazine size
-    eff_range   = wep.get("EffectiveRange")
-    dmg         = wep.get("Damage") or {}
-    alpha       = dmg.get("AlphaTotal")      # damage per shot
-    dps         = dmg.get("DpsTotal")        # damage per second
-    health      = (std.get("Durability") or {}).get("Health")
-
-    # Fire mode names from Modes list
-    mode_labels = [m.get("LocalisedName") or m.get("Name") for m in modes
-                   if m.get("LocalisedName") or m.get("Name")]
-
-    lines = []
-    if rof is not None:
-        lines.append(f"Fire Rate: {_fmt(rof, ' RPM')}")
-    if mode_labels:
-        lines.append(f"Fire Modes: {' / '.join(mode_labels)}")
-    if alpha is not None or dps is not None:
-        parts = []
-        if alpha is not None: parts.append(f"Dmg/Shot: {_fmt(alpha, '', 1)}")
-        if dps   is not None: parts.append(f"DPS: {_fmt(dps, '', 1)}")
-        lines.append("  |  ".join(parts))
-    if capacity is not None:
-        lines.append(f"Magazine: {_fmt(capacity)}")
-    if eff_range is not None:
-        lines.append(f"Range: {_fmt(eff_range, ' m')}")
-    if health is not None:
-        lines.append(f"Durability: {_fmt(health)}")
-    return "\\n".join(lines)
-
-
-# ── INI writer ───────────────────────────────────────────────────────────────
-
-STAT_SEPARATOR = "\\n\\n== Stats ==\\n"
-
-
-def append_stats(existing_value: str, stats_block: str) -> str:
-    """Append stats_block after existing description, avoiding duplicates."""
-    if not stats_block:
-        return existing_value
-    separator_marker = "== Stats =="
-    if separator_marker in existing_value:
-        # Replace existing stats block entirely
-        existing_value = existing_value[:existing_value.index("\\n\\n== Stats ==")]
-    return existing_value + STAT_SEPARATOR + stats_block
-
-
-def write_ini(path: Path, entries: dict[str, str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines = [f"{k}={v}" for k, v in sorted(entries.items())]
-    path.write_text("\n".join(lines), encoding="utf-8")
-    print(f"  Written {len(entries):,} entries -> {path}")
-
-
-# ── Main ─────────────────────────────────────────────────────────────────────
-
-def main(base_ini_path: Path) -> None:
-    print("\n=== SC Stats INI Generator ===\n")
+    if forge_dir is None:
+        forge_dir = DEFAULT_FORGE_DIR
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-    # ── Load scunpacked data ──────────────────────────────────────────────────
-    print("Loading ships.json...")
-    ships_raw: list = load_json("ships")
-
-    print("Loading ship-items.json...")
-    ship_items_raw: list = load_json("ship_items")
-
-    print("Loading fps-items.json...")
-    fps_items_raw: list = load_json("fps_items")
-
-    # ── Parse base.ini ────────────────────────────────────────────────────────
-    print(f"\nParsing base.ini: {base_ini_path}")
+    # ── Parse base.ini ─────────────────────────────────────────────────────────
+    print(f"Parsing base.ini: {base_ini_path}")
     if not base_ini_path.exists():
         print(f"ERROR: base.ini not found at {base_ini_path}")
         sys.exit(1)
     loc = parse_ini(base_ini_path)
-    print(f"  Loaded {len(loc):,} localization keys")
+    print(f"  Loaded {len(loc):,} localization keys\n")
 
-    # ── Build lookups ─────────────────────────────────────────────────────────
-    print("\nBuilding lookups...")
+    # ── Check DataForge cache ─────────────────────────────────────────────────
+    records = forge_dir / "libs" / "foundry" / "records"
+    if not forge_dir.exists() or not records.exists():
+        print(f"ERROR: DataForge cache not found at {forge_dir}")
+        print("  Run 'Extract DataForge' in the app first (Config tab → Stats section).")
+        sys.exit(1)
 
-    ships_lookup      = build_lookup(ships_raw)
-    ship_items_lookup = build_lookup(ship_items_raw)
-    fps_items_lookup  = build_lookup(fps_items_raw)
+    # ── Build ammo lookups ────────────────────────────────────────────────────
+    print("Building ammo damage lookups…")
+    vehicle_ammo = build_ammo_lookup(records / "ammoparams" / "vehicle")
+    fps_ammo     = build_ammo_lookup(records / "ammoparams" / "fps")
+    print(f"  Vehicle ammo: {len(vehicle_ammo)} records")
+    print(f"  FPS ammo:     {len(fps_ammo)} records\n")
 
-    # ── Bucket ship items by type ─────────────────────────────────────────────
-    SHIP_ITEM_TYPES = {
-        "Shield":          (stats_shield,       "components"),
-        "Cooler":          (stats_cooler,       "components"),
-        "PowerPlant":      (stats_powerplant,   "components"),
-        "QuantumDrive":    (stats_quantum_drive,"components"),
-        "WeaponGun":       (stats_ship_weapon,  "ship_weapons"),
-        "Missile":         (stats_ship_weapon,  "ship_weapons"),
-        "Bomb":            (stats_ship_weapon,  "ship_weapons"),
-    }
+    # ── Process components ────────────────────────────────────────────────────
+    ships_scitem = records / "entities" / "scitem" / "ships"
 
-    item_by_type: dict[str, dict] = {}  # type → lookup dict
-    for item in ship_items_raw:
-        itype = item.get("Type") or item.get("type") or ""
-        if itype in SHIP_ITEM_TYPES:
-            cls  = (item.get("ClassName") or item.get("className") or "")
-            name = (item.get("Name")      or item.get("name")      or "").lower().strip()
-            if itype not in item_by_type:
-                item_by_type[itype] = {"class": {}, "name": {}}
-            if cls:
-                item_by_type[itype]["class"][_normalize_classname(cls).lower()] = item
-            if name:
-                item_by_type[itype]["name"][name] = item
+    print("Processing ship components…")
+    out_components: dict[str, str] = {}
+    for subdir, fn in [
+        ("shieldgenerator", stats_shield),
+        ("cooler",          stats_cooler),
+        ("powerplant",      stats_powerplant),
+        ("quantumdrive",    stats_quantum_drive),
+    ]:
+        out_components.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc))
 
-    fps_lookup = build_lookup([i for i in fps_items_raw if (i.get("Type") or i.get("type")) == "WeaponPersonal"])
-
-    # ── Process each category ─────────────────────────────────────────────────
-    out_ships      : dict[str, str] = {}
-    out_components : dict[str, str] = {}
+    # ── Process ship weapons ──────────────────────────────────────────────────
+    print("\nProcessing ship weapons…")
     out_ship_weapons: dict[str, str] = {}
-    out_fps_weapons : dict[str, str] = {}
+    weapons_dir = ships_scitem / "weapons"
+    if weapons_dir.exists():
+        out_ship_weapons = scan_entity_dir(
+            weapons_dir,
+            lambda root: stats_weapon(root, vehicle_ammo),
+            loc=loc,
+        )
 
+    # ── Process FPS weapons ───────────────────────────────────────────────────
+    print("\nProcessing FPS weapons…")
+    out_fps_weapons: dict[str, str] = {}
+    fps_dir = records / "entities" / "scitem" / "weapons" / "fps_weapons"
+    if fps_dir.exists():
+        out_fps_weapons = scan_entity_dir(
+            fps_dir,
+            lambda root: stats_weapon(root, fps_ammo),
+            loc=loc,
+        )
+
+    # ── Process ships (scunpacked-based) ──────────────────────────────────────
+    print("\nLoading ships.json (scunpacked-data)…")
+    SHIPS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    ships_raw = load_ships_json()
+    ships_by_class: dict[str, dict] = {}
+    ships_by_name:  dict[str, dict] = {}
+    for s in ships_raw:
+        cls  = (s.get("ClassName") or s.get("className") or "")
+        name = (s.get("Name")      or s.get("name")      or "").lower().strip()
+        if cls:  ships_by_class[_normalize_classname(cls).lower()] = s
+        if name: ships_by_name[name] = s
+
+    print("Processing ship descriptions…")
+    out_ships: dict[str, str] = {}
     matched_ships = missed_ships = 0
-    matched_comp  = missed_comp  = 0
-    matched_sw    = missed_sw    = 0
-    matched_fps   = missed_fps   = 0
-
     for key, value in loc.items():
-        # ── Ships ──────────────────────────────────────────────────────────────
-        if key.startswith("vehicle_Desc"):
-            bare = key.split(",")[0][len("vehicle_Desc"):].lower()
-            rec  = ships_lookup["class"].get(bare)
-            if not rec:
-                # Fallback: match via vehicle_Name* display value
-                name_key = "vehicle_Name" + key.split(",")[0][len("vehicle_Desc"):]
-                display  = loc.get(name_key, "").lower().strip()
-                if display:
-                    rec = ships_lookup["name"].get(display)
-            if rec:
-                stats = stats_ship(rec)
-                if stats:
-                    out_ships[key] = append_stats(value, stats)
-                    matched_ships += 1
-            else:
-                missed_ships += 1
-
-        # ── Components & ship weapons ─────────────────────────────────────────
-        elif key.startswith("item_Desc"):
-            bare = key.split(",")[0][len("item_Desc"):].lower()
-            matched = False
-            for itype, (stat_fn, bucket) in SHIP_ITEM_TYPES.items():
-                lookup = item_by_type.get(itype, {"class": {}, "name": {}})
-                rec = lookup["class"].get(bare)
-                if not rec:
-                    name_key = "item_Name" + key.split(",")[0][len("item_Desc"):]
-                    display  = loc.get(name_key, "").lower().strip()
-                    if display:
-                        rec = lookup["name"].get(display)
-                if rec:
-                    stats = stat_fn(rec)
-                    if stats:
-                        entry = append_stats(value, stats)
-                        if bucket == "components":
-                            out_components[key]  = entry
-                            matched_comp  += 1
-                        else:
-                            out_ship_weapons[key] = entry
-                            matched_sw    += 1
-                    matched = True
-                    break
-            if not matched:
-                # Try FPS weapons
-                rec = fps_lookup["class"].get(bare)
-                if not rec:
-                    name_key = "item_Name" + key.split(",")[0][len("item_Desc"):]
-                    display  = loc.get(name_key, "").lower().strip()
-                    if display:
-                        rec = fps_lookup["name"].get(display)
-                if rec:
-                    stats = stats_fps_weapon(rec)
-                    if stats:
-                        out_fps_weapons[key] = append_stats(value, stats)
-                        matched_fps += 1
-                else:
-                    missed_comp += 1
+        if not key.startswith("vehicle_Desc"):
+            continue
+        bare = key.split(",")[0][len("vehicle_Desc"):].lower()
+        rec  = ships_by_class.get(bare)
+        if not rec:
+            name_key = "vehicle_Name" + key.split(",")[0][len("vehicle_Desc"):]
+            display  = loc.get(name_key, "").lower().strip()
+            if display:
+                rec = ships_by_name.get(display)
+        if rec:
+            block = stats_ship(rec)
+            if block:
+                out_ships[key] = append_stats(value, block)
+                matched_ships += 1
+        else:
+            missed_ships += 1
+    print(f"  Ships: {matched_ships} matched, {missed_ships} unmatched")
 
     # ── Write output ──────────────────────────────────────────────────────────
-    print("\nWriting output files...")
+    print("\nWriting output files…")
     write_ini(OUTPUT_DIR / "ships_desc_stats.ini",       out_ships)
     write_ini(OUTPUT_DIR / "components_desc_stats.ini",  out_components)
     write_ini(OUTPUT_DIR / "ship_weapons_desc_stats.ini",out_ship_weapons)
     write_ini(OUTPUT_DIR / "fps_weapons_desc_stats.ini", out_fps_weapons)
 
-    print(f"""
-Results:
-  Ships:         {matched_ships:,} matched  ({missed_ships:,} unmatched)
-  Components:    {matched_comp:,} matched
-  Ship Weapons:  {matched_sw:,} matched
-  FPS Weapons:   {matched_fps:,} matched
-
-Output: {OUTPUT_DIR}
-""")
+    total = len(out_ships) + len(out_components) + len(out_ship_weapons) + len(out_fps_weapons)
+    print(f"\nDone — {total:,} total stat entries written to {OUTPUT_DIR}\n")
 
 
 if __name__ == "__main__":
-    base_ini = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_BASE_INI
-    main(base_ini)
+    base_ini  = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_BASE_INI
+    forge_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_FORGE_DIR
+    main(base_ini, forge_dir)

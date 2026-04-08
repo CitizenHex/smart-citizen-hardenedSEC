@@ -281,8 +281,9 @@ class StatsGeneratorWorker(QThread):
             spec.loader.exec_module(mod)
 
             self.progress.emit("Generating stats (may take a few minutes on first run)...")
-            base_ini = AppSettings.get_cache_dir() / 'base.ini'
-            mod.main(base_ini)
+            base_ini  = AppSettings.get_cache_dir() / 'base.ini'
+            forge_dir = AppSettings.get_dataforge_cache_dir()
+            mod.main(base_ini, forge_dir)
             self.finished.emit(True)
         except Exception as e:
             logger.exception(f"Stats generation failed: {e}")
@@ -310,6 +311,37 @@ class P4kExtractWorker(QThread):
             self.finished.emit(True)
         except Exception as e:
             logger.exception(f"P4K extraction failed: {e}")
+            self.error.emit(str(e))
+            self.finished.emit(False)
+
+
+class DataForgeExtractWorker(QThread):
+    """Worker thread for extracting DataForge entity XMLs from Data.p4k."""
+
+    progress = pyqtSignal(str)
+    finished = pyqtSignal(bool)
+    error = pyqtSignal(str)
+
+    def __init__(self, p4k_path, unp4k_exe, unforge_exe, cache_dir):
+        super().__init__()
+        self._p4k       = p4k_path
+        self._unp4k_exe = unp4k_exe
+        self._unforge_exe = unforge_exe
+        self._cache_dir = cache_dir
+
+    def run(self):
+        from src.utils.pak_extractor import extract_dataforge
+        try:
+            extract_dataforge(
+                self._p4k,
+                self._unp4k_exe,
+                self._unforge_exe,
+                self._cache_dir,
+                self.progress.emit,
+            )
+            self.finished.emit(True)
+        except Exception as e:
+            logger.exception(f"DataForge extraction failed: {e}")
             self.error.emit(str(e))
             self.finished.emit(False)
 
@@ -366,6 +398,10 @@ class MainWindow(QMainWindow):
         self._stats_worker: Optional[StatsGeneratorWorker] = None
         self._stats_progress: Optional[QProgressDialog] = None
 
+        # DataForge extraction worker and progress dialog
+        self._forge_worker: Optional[DataForgeExtractWorker] = None
+        self._forge_progress: Optional[QProgressDialog] = None
+
         # Status bar state (composed message) - tracks sync status per source
         self._source_status: dict[str, str] = {}  # source_name -> status_string
 
@@ -420,6 +456,7 @@ class MainWindow(QMainWindow):
         self.config_tab.merge_requested.connect(self.perform_merge_and_reload)
         self.config_tab.p4k_extract_requested.connect(self._run_p4k_extraction)
         self.config_tab.stats_generate_requested.connect(self._run_stats_generation)
+        self.config_tab.dataforge_extract_requested.connect(self._run_dataforge_extraction)
         tabs.addTab(self.config_tab, "Config")
 
         tabs.addTab(self.create_about_tab(), "About")
@@ -1110,7 +1147,7 @@ class MainWindow(QMainWindow):
 
         if missing:
             sample = sorted(missing)[:20]
-            lines += [f"{len(missing)} key(s) missing from written file (present in base):"]
+            lines += [f"{len(missing)} key(s) from base.ini are missing from the written file:"]
             lines += [f"  {k}" for k in sample]
             if len(missing) > 20:
                 lines.append(f"  ... and {len(missing) - 20} more")
@@ -1119,12 +1156,12 @@ class MainWindow(QMainWindow):
             if lines:
                 lines.append("")
             sample = sorted(extra)[:20]
-            lines += [f"{len(extra)} extra key(s) in written file (not in base):"]
+            lines += [f"{len(extra)} unexpected key(s) in written file (not in base.ini):"]
             lines += [f"  {k}" for k in sample]
             if len(extra) > 20:
                 lines.append(f"  ... and {len(extra) - 20} more")
 
-        lines += ["", "The game file was still written. Check your source configuration."]
+        lines += ["", "The previous file has been restored. Check your source configuration."]
         return "\n".join(lines)
 
     @pyqtSlot()
@@ -1523,7 +1560,11 @@ Shows the sync status for each configured source. "✓" means up to date.
             self._run_p4k_extraction()
 
     def _check_stats_freshness(self):
-        """If stats INI files are missing and base.ini exists, prompt to generate."""
+        """If stats INI files are missing and base.ini exists, prompt to generate.
+
+        If the DataForge cache is also missing, offer to extract it first.
+        """
+        from src.utils.pak_extractor import dataforge_cache_is_fresh
         cache_dir = AppSettings.get_cache_dir()
         if not (cache_dir / 'base.ini').exists():
             return  # can't generate without base.ini
@@ -1535,19 +1576,33 @@ Shows the sync status for each configured source. "✓" means up to date.
         if not missing:
             return  # all present
 
-        json_cached = (cache_dir / 'stats_cache').exists() and any(
-            (cache_dir / 'stats_cache').glob('*.json')
-        )
-        size_note = "(uses cached data — fast)" if json_cached else "(downloads ~109 MB on first run, cached afterwards)"
+        forge_dir = AppSettings.get_dataforge_cache_dir()
+        p4k_path  = AppSettings.get_p4k_path()
+        forge_fresh = dataforge_cache_is_fresh(p4k_path, forge_dir) if p4k_path.exists() else False
 
-        reply = QMessageBox.question(
-            self, "Generate Stats",
-            f"{len(missing)} of 4 stats files are missing.\n\n"
-            f"Generate ship, component, and weapon stats now?\n{size_note}",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            self._run_stats_generation()
+        if not forge_fresh and p4k_path.exists():
+            reply = QMessageBox.question(
+                self, "Extract DataForge + Generate Stats",
+                f"{len(missing)} of 4 stats files are missing.\n\n"
+                "Component and weapon stats are sourced directly from your game's Data.p4k.\n"
+                "This requires a one-time DataForge extraction (~5–10 min) that will be cached.\n\n"
+                "Extract DataForge data and generate stats now?\n"
+                "(Ships stats still download ~39 MB of JSON on first run)",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self._run_dataforge_extraction()
+        else:
+            ships_json_cached = (cache_dir / 'stats_cache' / 'ships.json').exists()
+            size_note = "(uses cached data — fast)" if ships_json_cached else "(downloads ~39 MB ships.json on first run)"
+            reply = QMessageBox.question(
+                self, "Generate Stats",
+                f"{len(missing)} of 4 stats files are missing.\n\n"
+                f"Generate ship, component, and weapon stats now?\n{size_note}",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self._run_stats_generation()
 
     def _run_stats_generation(self):
         """Launch StatsGeneratorWorker with a progress dialog."""
@@ -1577,6 +1632,42 @@ Shows the sync status for each configured source. "✓" means up to date.
             self.config_tab.refresh_stats_status()
             self.load_default_values()
             self.auto_load_default_files()
+
+    def _run_dataforge_extraction(self):
+        """Launch DataForgeExtractWorker; on success, run stats generation."""
+        if self._forge_worker is not None:
+            return
+
+        p4k_path    = AppSettings.get_p4k_path()
+        unp4k_exe   = AppSettings.get_unp4k_exe_path()
+        unforge_exe = AppSettings.get_unforge_exe_path()
+        forge_dir   = AppSettings.get_dataforge_cache_dir()
+
+        self._forge_worker = DataForgeExtractWorker(p4k_path, unp4k_exe, unforge_exe, forge_dir)
+        self._forge_progress = QProgressDialog(
+            "Extracting DataForge from Data.p4k…\nThis takes several minutes.", None, 0, 0, self
+        )
+        self._forge_progress.setWindowTitle("DataForge Extraction")
+        self._forge_progress.setModal(True)
+        self._forge_progress.show()
+
+        self._forge_worker.progress.connect(self._forge_progress.setLabelText)
+        self._forge_worker.error.connect(lambda err: QMessageBox.warning(self, "DataForge Extraction Error", err))
+        self._forge_worker.finished.connect(self._on_dataforge_extract_finished)
+        self._forge_worker.start()
+
+    def _on_dataforge_extract_finished(self, success: bool):
+        self._forge_progress.close()
+        self._forge_worker.quit()
+        self._forge_worker.wait()
+        self._forge_worker = None
+
+        if success:
+            self.statusBar().showMessage("DataForge extracted — generating stats…")
+            self.config_tab.refresh_stats_status()
+            self._run_stats_generation()
+        else:
+            self.statusBar().showMessage("DataForge extraction failed")
 
     def _run_p4k_extraction(self):
         """Launch P4kExtractWorker with a progress dialog; reload sources on success."""

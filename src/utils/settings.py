@@ -633,6 +633,21 @@ class AppSettings:
         return base / 'assets' / 'unp4k' / 'unp4k.exe'
 
     @staticmethod
+    def get_unforge_exe_path() -> Path:
+        """Resolve bundled unforge.exe — works both frozen (PyInstaller) and in dev."""
+        import sys
+        if getattr(sys, 'frozen', False):
+            base = Path(sys._MEIPASS)
+        else:
+            base = Path(__file__).parent.parent.parent
+        return base / 'assets' / 'unp4k' / 'unforge.exe'
+
+    @staticmethod
+    def get_dataforge_cache_dir() -> Path:
+        """Return the directory where DataForge entity XMLs are cached after unforge."""
+        return AppSettings.get_cache_dir() / 'dataforge'
+
+    @staticmethod
     def get_p4k_path() -> Path:
         """Return path to Data.p4k based on configured game install path.
 
