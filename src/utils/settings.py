@@ -296,35 +296,36 @@ class AppSettings:
         if settings.value(f"{AppSettings.DATA_SOURCES_PREFIX}/{AppSettings.SOURCE_CONTRACTS}/path"):
             return  # Already migrated
 
-        # Migrate base_global_path to global source
-        old_base_path = settings.value(AppSettings.BASE_GLOBAL_PATH, "")
-        if old_base_path:
-            AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, old_base_path)
+        # Global: point to local cached base.ini (populated by P4K extraction).
+        # No remote URL — users extract from their own Data.p4k.
+        global_local_path = str(AppSettings.get_cache_dir() / 'base.ini')
+        AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, global_local_path)
+        AppSettings.set_source_enabled(AppSettings.SOURCE_GLOBAL, True)
+        AppSettings.set_source_auto_update(AppSettings.SOURCE_GLOBAL, False)
 
-        # Pre-configure global.ini from BeltaKoda's stock (vanilla) file
-        if not old_base_path:  # Only if not already set
-            global_url = "https://raw.githubusercontent.com/BeltaKoda/ScCompLangPackRemix/main/LIVE/stock-global.ini"
-            AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, global_url)
-
-        # Contracts: Configure from MrKraken StarStrings repo
-        # Contracts and global are separate files that must both be loaded
-        contracts_url = "https://raw.githubusercontent.com/MrKraken/StarStrings/master/contracts.ini"
+        # Contracts: OsirisDevworks-hosted
+        contracts_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/contracts.ini"
         AppSettings.set_source_path(AppSettings.SOURCE_CONTRACTS, contracts_url)
         AppSettings.set_source_enabled(AppSettings.SOURCE_CONTRACTS, True)
+        AppSettings.set_source_auto_update(AppSettings.SOURCE_CONTRACTS, True)
 
-        # Components: default to OsirisDevworks repo (MrKraken delta + custom additions)
+        # Components: OsirisDevworks-hosted
         components_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/components.ini"
         AppSettings.set_source_path(AppSettings.SOURCE_COMPONENTS, components_url)
         AppSettings.set_source_enabled(AppSettings.SOURCE_COMPONENTS, True)
+        AppSettings.set_source_auto_update(AppSettings.SOURCE_COMPONENTS, True)
 
-        # Ships source: empty by default
-        AppSettings.set_source_path(AppSettings.SOURCE_SHIPS, "")
-        AppSettings.set_source_enabled(AppSettings.SOURCE_SHIPS, False)
+        # Ships: OsirisDevworks-hosted
+        ships_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/ships.ini"
+        AppSettings.set_source_path(AppSettings.SOURCE_SHIPS, ships_url)
+        AppSettings.set_source_enabled(AppSettings.SOURCE_SHIPS, True)
+        AppSettings.set_source_auto_update(AppSettings.SOURCE_SHIPS, True)
 
-        # Commodities: default to OsirisDevworks repo
+        # Commodities: OsirisDevworks-hosted
         commodities_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/commodities.ini"
         AppSettings.set_source_path(AppSettings.SOURCE_COMMODITIES, commodities_url)
         AppSettings.set_source_enabled(AppSettings.SOURCE_COMMODITIES, True)
+        AppSettings.set_source_auto_update(AppSettings.SOURCE_COMMODITIES, True)
 
         # User source: set to overrides path
         user_path = str(AppSettings.get_overrides_path())
@@ -337,35 +338,44 @@ class AppSettings:
              AppSettings.SOURCE_USER]
         )
 
-        # Auto-update: enable for Global, Components, Contracts, and Commodities by default
-        AppSettings.set_source_auto_update(AppSettings.SOURCE_GLOBAL, True)
-        AppSettings.set_source_auto_update(AppSettings.SOURCE_CONTRACTS, True)
-        AppSettings.set_source_auto_update(AppSettings.SOURCE_COMPONENTS, True)
-        AppSettings.set_source_auto_update(AppSettings.SOURCE_SHIPS, False)
-        AppSettings.set_source_auto_update(AppSettings.SOURCE_COMMODITIES, True)
-
     @staticmethod
-    def migrate_global_source_to_stock() -> bool:
-        """Migrate global source URL from MrKraken to BeltaKoda stock-global.ini (v0.5.1+).
+    def migrate_global_to_p4k_local() -> bool:
+        """Migrate global source from any remote URL to local cached base.ini (v0.6.0+).
 
-        Only updates if the current URL still points to MrKraken's repo. Deletes the
-        old base.ini cache so the stock file is re-downloaded on next startup sync.
+        For existing users whose Global source still points to MrKraken, BeltaKoda,
+        or any other remote URL: switch to local cache path and disable auto-update
+        so the file is managed by P4K extraction instead of remote download.
 
         Returns:
-            True if migration was performed, False if already on stock URL or custom URL.
+            True if migration was performed, False if already using local path.
         """
-        current_url = AppSettings.get_source_path(AppSettings.SOURCE_GLOBAL)
-        if "MrKraken" not in current_url and "StarStrings" not in current_url:
-            return False
+        current_path = AppSettings.get_source_path(AppSettings.SOURCE_GLOBAL)
+        if current_path.startswith('http'):
+            local_path = str(AppSettings.get_cache_dir() / 'base.ini')
+            AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, local_path)
+            AppSettings.set_source_auto_update(AppSettings.SOURCE_GLOBAL, False)
+            logger.info("Migrated global source from remote URL to local P4K cache path")
+            return True
+        return False
 
-        stock_url = "https://raw.githubusercontent.com/BeltaKoda/ScCompLangPackRemix/main/LIVE/stock-global.ini"
-        AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, stock_url)
+    @staticmethod
+    def migrate_contracts_to_osiris() -> bool:
+        """Migrate contracts source from MrKraken to OsirisDevworks-hosted URL (v0.6.0+).
 
-        # Do NOT delete base.ini here — the startup sync will overwrite it with the
-        # stock file on the next launch. Deleting it would prevent extract_components.py
-        # from running against the old MrKraken file if needed.
-        logger.info("Migrated global source URL to BeltaKoda stock-global.ini")
-        return True
+        Only applies if Contracts still points to MrKraken's repo.
+
+        Returns:
+            True if migration was performed, False if already on OsirisDevworks or custom URL.
+        """
+        current_path = AppSettings.get_source_path(AppSettings.SOURCE_CONTRACTS)
+        osiris_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/contracts.ini"
+        if "MrKraken" in current_path or "StarStrings" in current_path:
+            AppSettings.set_source_path(AppSettings.SOURCE_CONTRACTS, osiris_url)
+            AppSettings.set_source_enabled(AppSettings.SOURCE_CONTRACTS, True)
+            AppSettings.set_source_auto_update(AppSettings.SOURCE_CONTRACTS, True)
+            logger.info("Migrated contracts source to OsirisDevworks-hosted URL")
+            return True
+        return False
 
     @staticmethod
     def migrate_components_source_to_default() -> bool:
@@ -610,6 +620,29 @@ class AppSettings:
                         logger.info(f"Migrated {bak_file.name} to Documents backups")
                     except Exception as e:
                         logger.warning(f"Could not migrate {bak_file.name}: {e}")
+
+    @staticmethod
+    def get_unp4k_exe_path() -> Path:
+        """Resolve bundled unp4k.exe — works both frozen (PyInstaller) and in dev."""
+        import sys
+        if getattr(sys, 'frozen', False):
+            base = Path(sys._MEIPASS)
+        else:
+            # src/utils/settings.py → src/utils → src → project root
+            base = Path(__file__).parent.parent.parent
+        return base / 'assets' / 'unp4k' / 'unp4k.exe'
+
+    @staticmethod
+    def get_p4k_path() -> Path:
+        """Return path to Data.p4k based on configured game install path.
+
+        Handles both the SC root directory and the LIVE subdirectory, since the
+        stored path may point to either depending on how it was configured.
+        """
+        game_path = Path(AppSettings.get_game_install_path())
+        if game_path.name.upper() == "LIVE":
+            return game_path / 'Data.p4k'
+        return game_path / 'LIVE' / 'Data.p4k'
 
     @staticmethod
     def ensure_overrides_file() -> None:

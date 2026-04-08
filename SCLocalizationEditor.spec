@@ -5,7 +5,7 @@ a = Analysis(
     ['src/main.py'],
     pathex=[],
     binaries=[],
-    datas=[('VERSION.TXT', '.'), ('assets', 'assets')],
+    datas=[('VERSION.TXT', '.'), ('assets', 'assets'), ('scripts/generate_stats_ini.py', 'scripts')],
     hiddenimports=['PyQt6.QtCore', 'PyQt6.QtGui', 'PyQt6.QtWidgets'],
     hookspath=[],
     hooksconfig={},

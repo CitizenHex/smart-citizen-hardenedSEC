@@ -61,6 +61,8 @@ dist/
 # Runtime Data Files (auto-generated/downloaded)
 data/global.ini
 data/global.ini.bak
-data/contracts.ini
 data/base_version.txt
 data/contracts_version.txt
+
+# Stats JSON source cache (downloaded by generate_stats_ini.py, ~109 MB)
+**/stats_cache/
