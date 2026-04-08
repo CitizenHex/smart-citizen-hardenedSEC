@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 
 
@@ -34,21 +35,31 @@ class StringEntry:
         if key_lower.startswith("vehicle_name") or key_lower.startswith("vehicle_desc"):
             return "Ships"
 
-        # Ship components: item_NameSHLD_*, item_DescSHLD_*, item_NamePOWR_*, item_DescPOWR_*, etc.
-        components = ["SHLD", "POWR", "COOL", "QDRV", "JUMP"]
+        # item_Name* / item_Desc* keys — resolve in priority order
+        fps_weapon_words = ["_rifle_", "_pistol_", "_smg_", "_shotgun_", "_sniper_", "_launcher_", "_lmg_", "_hmg_", "_knife_", "_multi_"]
         if key.startswith("item_Name") or key.startswith("item_Desc"):
+            # Turrets are ship components despite having the item_Name_/item_Desc_ prefix
+            if key.startswith("item_Name_Turret") or key.startswith("item_Desc_Turret"):
+                return "Ship Components"
+
+            # FPS gear uses item_Name_ / item_Desc_ (underscore directly after Name/Desc)
+            if key.startswith("item_Name_") or key.startswith("item_Desc_"):
+                return "Gear"
+
+            # Ship component type codes: SHLD, POWR, COOL, QDRV, JUMP, MISL, BOMB
+            components = ["SHLD", "POWR", "COOL", "QDRV", "JUMP", "MISL", "GMISL", "BOMB"]
             if any(
-                key.startswith(f"item_Name{comp}_") or key.startswith(f"item_Name_{comp}_") or
-                key.startswith(f"item_Desc{comp}_") or key.startswith(f"item_Desc_{comp}_")
+                key.startswith(f"item_Name{comp}_") or
+                key.startswith(f"item_Desc{comp}_")
                 for comp in components
             ):
                 return "Ship Components"
 
-        # Gear: FPS weapons (item_Name/DescMANUF_weapon_type_*) and armor/equipment (item_Name_*/item_Desc_*)
-        fps_weapon_words = ["_rifle_", "_pistol_", "_smg_", "_shotgun_", "_sniper_", "_launcher_", "_lmg_", "_hmg_", "_knife_", "_multi_"]
-        if key.startswith("item_Name_") or key.startswith("item_Desc_"):
-            return "Gear"
-        if key.startswith("item_Name") or key.startswith("item_Desc"):
+            # Ship weapons: contain a ship-size designator (_S1, _S02, etc.)
+            if re.search(r'_S\d+', key):
+                return "Ship Components"
+
+            # FPS weapons without underscore separator (e.g. item_NameGMNI_rifle_*)
             if any(w in key_lower for w in fps_weapon_words):
                 return "Gear"
 

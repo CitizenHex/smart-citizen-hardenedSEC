@@ -224,6 +224,7 @@ class StartupSyncWorker(QThread):
             AppSettings.SOURCE_COMPONENTS:  "components.ini",
             AppSettings.SOURCE_SHIPS:       "ships.ini",
             AppSettings.SOURCE_COMMODITIES: "commodities.ini",
+            AppSettings.SOURCE_GEAR:        "gear.ini",
         }
 
         for source_name in [
@@ -232,6 +233,7 @@ class StartupSyncWorker(QThread):
             AppSettings.SOURCE_COMPONENTS,
             AppSettings.SOURCE_SHIPS,
             AppSettings.SOURCE_COMMODITIES,
+            AppSettings.SOURCE_GEAR,
         ]:
             if not AppSettings.is_source_enabled(source_name):
                 continue
@@ -1003,6 +1005,7 @@ class MainWindow(QMainWindow):
                         AppSettings.SOURCE_COMPONENTS:  "components.ini",
                         AppSettings.SOURCE_SHIPS:       "ships.ini",
                         AppSettings.SOURCE_COMMODITIES: "commodities.ini",
+                        AppSettings.SOURCE_GEAR:        "gear.ini",
                     }
                     if source_name in cache_mapping:
                         cache_file = AppSettings.get_cache_dir() / cache_mapping[source_name]
