@@ -77,6 +77,9 @@ pyinstaller_args = [
     '--hidden-import=src.merger',
     '--hidden-import=src.models',
     '--hidden-import=src.utils',
+    '--hidden-import=xml',
+    '--hidden-import=xml.etree',
+    '--hidden-import=xml.etree.ElementTree',
 ]
 
 print("Building executable with PyInstaller...")
