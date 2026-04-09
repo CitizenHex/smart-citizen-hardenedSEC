@@ -1601,9 +1601,6 @@ Shows the sync status for each configured source. "✓" means up to date.
             self.load_default_values()
             self.auto_load_default_files()
 
-            # Now that base.ini exists, check whether stats need to be generated
-            self._check_stats_freshness()
-
     def closeEvent(self, event):
         """Save state and overrides before closing."""
         # Auto-save overrides if there are unsaved edits
