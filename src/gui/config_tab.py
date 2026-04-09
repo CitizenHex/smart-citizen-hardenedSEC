@@ -6,9 +6,9 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLineEdit,
     QPushButton, QCheckBox, QLabel, QFileDialog, QMessageBox,
-    QListWidget, QListWidgetItem, QScrollArea, QComboBox
+    QScrollArea
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 
 from src.utils.settings import AppSettings
 
@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 class SourceConfigWidget(QWidget):
     """Widget for configuring a single data source."""
 
+    changed = pyqtSignal()   # emitted whenever any field is edited
+
     def __init__(self, source_name: str, parent=None):
         super().__init__(parent)
         self.source_name = source_name
@@ -26,18 +28,17 @@ class SourceConfigWidget(QWidget):
         self.load_settings()
 
     def setup_ui(self):
-        """Build source configuration UI."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
-        # Header with enable checkbox and source name
+        # Header: enable checkbox + status dot
         header_layout = QHBoxLayout()
         self.enable_checkbox = QCheckBox(self.source_display_name)
         self.enable_checkbox.setMinimumWidth(100)
+        self.enable_checkbox.toggled.connect(self.changed)
         header_layout.addWidget(self.enable_checkbox)
 
-        # Status indicator (color dot) and stats
         self.status_label = QLabel("●")
         self.status_label.setStyleSheet("color: #999; font-size: 14px;")
         header_layout.addWidget(self.status_label)
@@ -49,7 +50,7 @@ class SourceConfigWidget(QWidget):
         header_layout.addStretch()
         layout.addLayout(header_layout)
 
-        # Path/URL input
+        # Path / URL input
         path_layout = QHBoxLayout()
         path_label = QLabel("Path/URL:")
         path_label.setMaximumWidth(80)
@@ -64,11 +65,12 @@ class SourceConfigWidget(QWidget):
             "  • Raw URL: raw.githubusercontent.com/user/repo/branch/file.ini\n"
             "Both formats will work - web URLs are auto-converted."
         )
+        self.path_input.editingFinished.connect(self.changed)
         path_layout.addWidget(self.path_input)
 
         browse_btn = QPushButton("Browse...")
         browse_btn.setMaximumWidth(100)
-        browse_btn.clicked.connect(self.browse_source)
+        browse_btn.clicked.connect(self._browse_source)
         path_layout.addWidget(browse_btn)
 
         layout.addLayout(path_layout)
@@ -76,48 +78,57 @@ class SourceConfigWidget(QWidget):
         # Auto-update checkbox (hidden for User source)
         if self.source_name != AppSettings.SOURCE_USER:
             self.auto_update_checkbox = QCheckBox("Auto-update from source")
+            self.auto_update_checkbox.toggled.connect(self.changed)
             layout.addWidget(self.auto_update_checkbox)
         else:
             self.auto_update_checkbox = None
 
-        # Separator
-        layout.addWidget(QLabel(""))
+        layout.addWidget(QLabel(""))   # spacer
 
     def load_settings(self):
-        """Load source configuration from settings."""
-        is_enabled = AppSettings.is_source_enabled(self.source_name)
-        self.enable_checkbox.setChecked(is_enabled)
-
-        path = AppSettings.get_source_path(self.source_name)
-        self.path_input.setText(path)
-
+        """Load source configuration from settings (does not emit changed)."""
+        # Block signals so load doesn't fire auto-save
+        self.enable_checkbox.blockSignals(True)
+        self.path_input.blockSignals(True)
         if self.auto_update_checkbox:
-            auto_update = AppSettings.get_source_auto_update(self.source_name)
-            self.auto_update_checkbox.setChecked(auto_update)
+            self.auto_update_checkbox.blockSignals(True)
+
+        self.enable_checkbox.setChecked(AppSettings.is_source_enabled(self.source_name))
+        self.path_input.setText(AppSettings.get_source_path(self.source_name))
+        if self.auto_update_checkbox:
+            self.auto_update_checkbox.setChecked(
+                AppSettings.get_source_auto_update(self.source_name)
+            )
+
+        self.enable_checkbox.blockSignals(False)
+        self.path_input.blockSignals(False)
+        if self.auto_update_checkbox:
+            self.auto_update_checkbox.blockSignals(False)
 
         self.update_status()
 
     def save_settings(self):
-        """Save source configuration to settings."""
+        """Persist current widget state to settings."""
         AppSettings.set_source_enabled(self.source_name, self.enable_checkbox.isChecked())
 
-        # Convert GitHub web URLs to raw URLs
         path = self.path_input.text()
+        # Auto-convert GitHub web URLs to raw URLs
         if path.startswith('https://github.com/'):
-            # Convert https://github.com/user/repo/blob/branch/path to raw URL
             path = path.replace('https://github.com/', 'https://raw.githubusercontent.com/')
             path = path.replace('/blob/', '/')
-            self.path_input.setText(path)  # Update UI to show converted URL
+            self.path_input.blockSignals(True)
+            self.path_input.setText(path)
+            self.path_input.blockSignals(False)
 
         AppSettings.set_source_path(self.source_name, path)
 
         if self.auto_update_checkbox:
-            AppSettings.set_source_auto_update(self.source_name, self.auto_update_checkbox.isChecked())
+            AppSettings.set_source_auto_update(
+                self.source_name, self.auto_update_checkbox.isChecked()
+            )
 
-    def browse_source(self):
-        """Browse for source file."""
+    def _browse_source(self):
         if self.source_name == AppSettings.SOURCE_USER:
-            # User source is auto-managed, can't browse
             QMessageBox.information(self, "Info", "User source is automatically managed in AppData")
             return
 
@@ -127,46 +138,37 @@ class SourceConfigWidget(QWidget):
         )
         if path:
             self.path_input.setText(path)
+            self.changed.emit()
 
     def update_status(self):
-        """Update status indicator based on source availability."""
+        """Update the status dot based on source availability."""
         if not self.enable_checkbox.isChecked():
-            self.status_label.setText("●")
             self.status_label.setStyleSheet("color: #999; font-size: 14px;")
             self.stats_label.setText("(disabled)")
             return
 
         source_path = self.path_input.text()
         if not source_path:
-            self.status_label.setText("●")
             self.status_label.setStyleSheet("color: #ff9800; font-size: 14px;")
             self.stats_label.setText("(no path configured)")
             return
 
-        # Check if file exists (for local files)
-        if not (source_path.startswith('http://') or source_path.startswith('https://')):
-            if Path(source_path).exists():
-                self.status_label.setText("●")
-                self.status_label.setStyleSheet("color: #4caf50; font-size: 14px;")
-                self.stats_label.setText("(available)")
-            else:
-                self.status_label.setText("●")
-                self.status_label.setStyleSheet("color: #f44336; font-size: 14px;")
-                self.stats_label.setText("(file not found)")
-        else:
-            # For URLs, we can't easily check without downloading
-            self.status_label.setText("●")
+        if source_path.startswith('http://') or source_path.startswith('https://'):
             self.status_label.setStyleSheet("color: #4caf50; font-size: 14px;")
             self.stats_label.setText("(remote URL)")
+        elif Path(source_path).exists():
+            self.status_label.setStyleSheet("color: #4caf50; font-size: 14px;")
+            self.stats_label.setText("(available)")
+        else:
+            self.status_label.setStyleSheet("color: #f44336; font-size: 14px;")
+            self.stats_label.setText("(file not found)")
 
 
 class ConfigTab(QWidget):
-    """Configuration tab widget with data source management."""
+    """Configuration tab — data sources and game path, auto-saves on any change."""
 
-    merge_requested = pyqtSignal()               # Signal when merge should be performed
-    p4k_extract_requested = pyqtSignal()         # Signal to trigger P4K extraction
-    stats_generate_requested = pyqtSignal()      # Signal to trigger stats generation
-    dataforge_extract_requested = pyqtSignal()   # Signal to trigger DataForge extraction
+    merge_requested = pyqtSignal()
+    p4k_extract_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -174,39 +176,36 @@ class ConfigTab(QWidget):
         self.setup_ui()
 
     def setup_ui(self):
-        """Build configuration UI."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        # Title
         title = QLabel("Data Sources Configuration")
         title.setStyleSheet("font-weight: bold; font-size: 14px;")
         layout.addWidget(title)
 
-        # Instructions
         instructions = QLabel(
-            "Configure your data sources below. Sources are merged in the order shown, "
-            "with sources lower in the list overwriting those above."
+            "Changes are saved and reloaded automatically. "
+            "Sources are merged in the order shown, with sources lower in the list "
+            "overwriting those above."
         )
         instructions.setStyleSheet("font-size: 11px; color: #666;")
         instructions.setWordWrap(True)
         layout.addWidget(instructions)
 
-        # Data sources group
+        # Data sources
         sources_group = QGroupBox("Data Sources")
         sources_layout = QVBoxLayout(sources_group)
 
-        # Scroll area for sources (in case many sources)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         sources_container = QWidget()
         container_layout = QVBoxLayout(sources_container)
         container_layout.setSpacing(12)
 
-        # Create widgets for each source
         for source_name in AppSettings.AVAILABLE_SOURCES:
             widget = SourceConfigWidget(source_name, self)
+            widget.changed.connect(self._auto_save)
             self.source_widgets[source_name] = widget
             container_layout.addWidget(widget)
 
@@ -215,7 +214,7 @@ class ConfigTab(QWidget):
         sources_layout.addWidget(scroll)
         layout.addWidget(sources_group)
 
-        # Game install path group
+        # Game install path
         game_group = QGroupBox("Star Citizen Installation")
         game_layout = QVBoxLayout(game_group)
 
@@ -226,17 +225,20 @@ class ConfigTab(QWidget):
         game_input_layout = QHBoxLayout()
         self.game_path_input = QLineEdit()
         self.game_path_input.setText(AppSettings.get_game_install_path())
-        self.game_path_input.setPlaceholderText(r"C:\Program Files\Roberts Space Industries\StarCitizen\LIVE")
+        self.game_path_input.setPlaceholderText(
+            r"C:\Program Files\Roberts Space Industries\StarCitizen\LIVE"
+        )
+        self.game_path_input.editingFinished.connect(self._auto_save)
         game_input_layout.addWidget(self.game_path_input)
 
         game_browse_btn = QPushButton("Browse...")
         game_browse_btn.setMaximumWidth(100)
-        game_browse_btn.clicked.connect(self.browse_game_path)
+        game_browse_btn.clicked.connect(self._browse_game_path)
         game_input_layout.addWidget(game_browse_btn)
         game_layout.addLayout(game_input_layout)
         layout.addWidget(game_group)
 
-        # P4K extraction group
+        # P4K extraction
         p4k_group = QGroupBox("P4K Extraction")
         p4k_layout = QVBoxLayout(p4k_group)
 
@@ -268,196 +270,55 @@ class ConfigTab(QWidget):
 
         self._refresh_p4k_status()
 
-        # Stats data group
-        # Stats enhancements group
-        stats_group = QGroupBox("Stats Enhancements")
-        stats_layout = QVBoxLayout(stats_group)
-
-        self.stats_enabled_checkbox = QCheckBox("Append stats to ship, component, and weapon descriptions")
-        self.stats_enabled_checkbox.setChecked(AppSettings.get_stats_enabled())
-        stats_layout.addWidget(self.stats_enabled_checkbox)
-
-        stats_desc = QLabel(
-            "When enabled, numerical stats (speed, DPS, shield HP, etc.) are appended to "
-            "description entries."
-        )
-        stats_desc.setStyleSheet("font-size: 11px; color: #666;")
-        stats_desc.setWordWrap(True)
-        stats_layout.addWidget(stats_desc)
-
-        # Status row for each stats file
-        self._stats_status_labels: dict = {}
-        stats_file_names = {
-            "ship_descs":        "Ships",
-            "component_descs":   "Components",
-            "ship_weapon_descs": "Ship Weapons",
-            "fps_weapon_descs":  "FPS Weapons",
-        }
-        status_row = QHBoxLayout()
-        for key, label in stats_file_names.items():
-            dot = QLabel("●")
-            dot.setStyleSheet("color: #999; font-size: 12px;")
-            status_row.addWidget(dot)
-            lbl = QLabel(label)
-            lbl.setStyleSheet("font-size: 11px;")
-            status_row.addWidget(lbl)
-            status_row.addSpacing(8)
-            self._stats_status_labels[key] = dot
-        status_row.addStretch()
-
-        extract_forge_btn = QPushButton("Extract DataForge")
-        extract_forge_btn.setMaximumWidth(140)
-        extract_forge_btn.setToolTip(
-            "Extract DataForge entity data from Data.p4k.\n"
-            "Required for component and weapon stats.\n"
-            "Takes ~5–10 minutes; cached until game updates."
-        )
-        extract_forge_btn.clicked.connect(self.dataforge_extract_requested.emit)
-        status_row.addWidget(extract_forge_btn)
-
-        generate_stats_btn = QPushButton("Generate Stats")
-        generate_stats_btn.setMaximumWidth(120)
-        generate_stats_btn.setToolTip(
-            "Generate stats INI files from DataForge data.\n"
-            "Run 'Extract DataForge' first if not yet done.\n"
-            "Downloads ~39 MB ships.json on first run; cached afterwards."
-        )
-        generate_stats_btn.clicked.connect(self.stats_generate_requested.emit)
-        status_row.addWidget(generate_stats_btn)
-
-        stats_layout.addLayout(status_row)
-
-        # DataForge cache status row
-        self._forge_status_label = QLabel()
-        self._forge_status_label.setStyleSheet("font-size: 10px; color: #666;")
-        stats_layout.addWidget(self._forge_status_label)
-        self.refresh_forge_status()
-        layout.addWidget(stats_group)
-
-        self.refresh_stats_status()
-
-        # Favorites settings group
-        favorites_group = QGroupBox("Favorites")
-        favorites_layout = QVBoxLayout(favorites_group)
-
-        favorites_desc = QLabel(
-            "Favorited ships have a prefix character prepended to their name so they "
-            "sort to the top of the in-game ship list. Choose which character to use:"
-        )
-        favorites_desc.setStyleSheet("font-size: 11px; color: #666;")
-        favorites_desc.setWordWrap(True)
-        favorites_layout.addWidget(favorites_desc)
-
-        prefix_row = QHBoxLayout()
-        prefix_row.addWidget(QLabel("Sort prefix:"))
-        self.favorite_prefix_combo = QComboBox()
-        self.favorite_prefix_combo.setSizeAdjustPolicy(
-            QComboBox.SizeAdjustPolicy.AdjustToContents
-        )
-        # ASCII 32–64: space through @
-        self.favorite_prefix_combo.addItem("  (space)", userData=" ")
-        for code in range(33, 65):
-            char = chr(code)
-            self.favorite_prefix_combo.addItem(char, userData=char)
-        self._loaded_prefix = AppSettings.get_favorite_prefix()
-        for i in range(self.favorite_prefix_combo.count()):
-            if self.favorite_prefix_combo.itemData(i) == self._loaded_prefix:
-                self.favorite_prefix_combo.setCurrentIndex(i)
-                break
-        # Widen the popup list so every label is fully visible
-        self.favorite_prefix_combo.view().setMinimumWidth(
-            self.favorite_prefix_combo.sizeHint().width() + 20
-        )
-        prefix_row.addWidget(self.favorite_prefix_combo)
-
-        apply_prefix_btn = QPushButton("Apply")
-        apply_prefix_btn.setToolTip(
-            "Save the selected prefix and update all existing favorites to use it"
-        )
-        apply_prefix_btn.clicked.connect(self._apply_favorite_prefix)
-        prefix_row.addWidget(apply_prefix_btn)
-
-        prefix_row.addStretch()
-        favorites_layout.addLayout(prefix_row)
-        layout.addWidget(favorites_group)
-
-        # Buttons
+        # Preview button (Save button removed — changes auto-save)
         button_layout = QHBoxLayout()
-        save_btn = QPushButton("Save Configuration & Merge")
-        save_btn.setMaximumWidth(200)
-        save_btn.clicked.connect(self.save_config)
-        button_layout.addWidget(save_btn)
-
-        test_btn = QPushButton("Preview Merge")
-        test_btn.setMaximumWidth(150)
-        test_btn.clicked.connect(self.preview_merge)
-        button_layout.addWidget(test_btn)
-
+        preview_btn = QPushButton("Preview Merge")
+        preview_btn.setMaximumWidth(150)
+        preview_btn.clicked.connect(self.preview_merge)
+        button_layout.addWidget(preview_btn)
         button_layout.addStretch()
         layout.addLayout(button_layout)
 
-    def _apply_favorite_prefix(self):
-        """Save the new prefix and migrate all existing favorites in overrides.ini."""
-        new_prefix = self.favorite_prefix_combo.currentData()
-        if not new_prefix:
-            return
+    # ── Auto-save ─────────────────────────────────────────────────────────────
 
-        old_prefix = self._loaded_prefix
+    def _auto_save(self):
+        """Save all source and game-path settings, then trigger a merge reload."""
+        try:
+            for widget in self.source_widgets.values():
+                widget.save_settings()
+                widget.update_status()
 
-        if new_prefix != old_prefix:
-            overrides_path = AppSettings.get_overrides_path()
-            if overrides_path.exists():
-                try:
-                    lines = overrides_path.read_text(encoding="utf-8").splitlines()
-                    updated = []
-                    migrated = 0
-                    for line in lines:
-                        if "=" in line:
-                            key, _, value = line.partition("=")
-                            if value.startswith(old_prefix):
-                                value = new_prefix + value[len(old_prefix):]
-                                migrated += 1
-                            updated.append(f"{key}={value}")
-                        else:
-                            updated.append(line)
-                    overrides_path.write_text("\n".join(updated), encoding="utf-8")
-                    logger.info(f"Migrated {migrated} favorites from '{old_prefix}' to '{new_prefix}'")
-                except Exception as e:
-                    logger.exception(f"Failed to migrate favorites: {e}")
-                    QMessageBox.critical(self, "Error", f"Failed to update favorites: {e}")
-                    return
+            game_path = self.game_path_input.text()
+            if game_path and not Path(game_path).exists():
+                # Don't block the user — just log; they may still be typing
+                logger.warning(f"Game path does not exist: {game_path}")
+            else:
+                AppSettings.set_game_install_path(game_path)
 
-        AppSettings.set_favorite_prefix(new_prefix)
-        self._loaded_prefix = new_prefix
-        self.merge_requested.emit()
+            enabled_sources = [
+                name for name in AppSettings.AVAILABLE_SOURCES
+                if AppSettings.is_source_enabled(name)
+            ]
+            if enabled_sources:
+                AppSettings.set_merge_hierarchy(enabled_sources)
+                self.merge_requested.emit()
+            else:
+                logger.warning("Auto-save skipped merge: no sources enabled")
 
-    def refresh_stats_status(self):
-        """Update stats file status indicators based on cache contents."""
-        cache_dir = AppSettings.get_cache_dir()
-        for key, dot in self._stats_status_labels.items():
-            filename = AppSettings.STATS_FILES[key]
-            present = (cache_dir / filename).exists()
-            dot.setStyleSheet(f"color: {'#4caf50' if present else '#f44336'}; font-size: 12px;")
-        self.refresh_forge_status()
+        except Exception as e:
+            logger.exception(f"Auto-save error: {e}")
 
-    def refresh_forge_status(self):
-        """Update the DataForge cache status label."""
-        from src.utils.pak_extractor import dataforge_cache_is_fresh
-        forge_dir = AppSettings.get_dataforge_cache_dir()
-        p4k_path  = AppSettings.get_p4k_path()
-        stamp = forge_dir / ".p4k_mtime"
-        if not stamp.exists():
-            self._forge_status_label.setText("DataForge: not extracted — click 'Extract DataForge' to enable component/weapon stats")
-            self._forge_status_label.setStyleSheet("font-size: 10px; color: #f44336;")
-        elif p4k_path.exists() and not dataforge_cache_is_fresh(p4k_path, forge_dir):
-            self._forge_status_label.setText("DataForge: cache outdated — re-extract to update stats")
-            self._forge_status_label.setStyleSheet("font-size: 10px; color: #ff9800;")
-        else:
-            self._forge_status_label.setText("DataForge: cache up to date ✓")
-            self._forge_status_label.setStyleSheet("font-size: 10px; color: #4caf50;")
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def _browse_game_path(self):
+        path = QFileDialog.getExistingDirectory(
+            self, "Select Star Citizen Installation Path"
+        )
+        if path:
+            self.game_path_input.setText(path)
+            self._auto_save()
 
     def _refresh_p4k_status(self):
-        """Update the P4K status indicator based on Data.p4k availability."""
         p4k_path = AppSettings.get_p4k_path()
         base_ini = AppSettings.get_cache_dir() / 'base.ini'
 
@@ -465,130 +326,68 @@ class ConfigTab(QWidget):
             self._p4k_status_dot.setStyleSheet("color: #4caf50; font-size: 14px;")
             if base_ini.exists():
                 try:
-                    extracted_dt = datetime.fromtimestamp(base_ini.stat().st_mtime)
-                    last_str = extracted_dt.strftime("%Y-%m-%d %H:%M")
+                    last_str = datetime.fromtimestamp(
+                        base_ini.stat().st_mtime
+                    ).strftime("%Y-%m-%d %H:%M")
                 except Exception:
                     last_str = "unknown"
-                self._p4k_status_label.setText(f"Data.p4k found  |  base.ini last updated: {last_str}")
+                self._p4k_status_label.setText(
+                    f"Data.p4k found  |  base.ini last updated: {last_str}"
+                )
             else:
                 self._p4k_status_label.setText("Data.p4k found  |  base.ini not yet extracted")
         else:
             self._p4k_status_dot.setStyleSheet("color: #f44336; font-size: 14px;")
-            game_path = AppSettings.get_game_install_path()
-            if game_path:
+            if AppSettings.get_game_install_path():
                 self._p4k_status_label.setText(f"Data.p4k not found at: {p4k_path}")
             else:
                 self._p4k_status_label.setText("Game install path not configured")
 
-    def browse_game_path(self):
-        """Browse for game installation path."""
-        path = QFileDialog.getExistingDirectory(
-            self, "Select Star Citizen Installation Path"
-        )
-        if path:
-            self.game_path_input.setText(path)
-
-    def save_config(self):
-        """Save configuration and trigger merge."""
-        try:
-            # Save all source configurations
-            for widget in self.source_widgets.values():
-                widget.save_settings()
-
-            # Save game path
-            game_path = self.game_path_input.text()
-            if game_path and not Path(game_path).exists():
-                QMessageBox.warning(self, "Warning", "Game path does not exist")
-                return
-
-            AppSettings.set_game_install_path(game_path)
-
-            # Save stats enhancements setting
-            AppSettings.set_stats_enabled(self.stats_enabled_checkbox.isChecked())
-
-            # Get enabled sources and hierarchy
-            enabled_sources = [
-                name for name in AppSettings.AVAILABLE_SOURCES
-                if AppSettings.is_source_enabled(name)
-            ]
-
-            if not enabled_sources:
-                QMessageBox.warning(self, "Warning", "No sources enabled. Please enable at least the Global source.")
-                return
-
-            # Update hierarchy with enabled sources only
-            AppSettings.set_merge_hierarchy(enabled_sources)
-
-            QMessageBox.information(self, "Success", "Configuration saved and sources merged.")
-            self.merge_requested.emit()
-
-        except Exception as e:
-            logger.exception(f"Error saving configuration: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to save configuration: {e}")
-
     def preview_merge(self):
-        """Preview the merge result."""
+        """Show a dry-run summary of the current merge configuration."""
         try:
             from src.parser.ini_parser import load_sources_from_settings, load_source_files
 
             sources_dict, hierarchy = load_sources_from_settings()
 
-            # Check for missing sources (skip user source - it's optional)
-            missing_sources = []
-            for source_name in hierarchy:
-                # User source is optional - skip it
-                if source_name == AppSettings.SOURCE_USER:
-                    continue
-
-                if source_name not in sources_dict:
-                    source_path = AppSettings.get_source_path(source_name)
-                    missing_sources.append((source_name, source_path))
+            missing_sources = [
+                (name, AppSettings.get_source_path(name))
+                for name in hierarchy
+                if name != AppSettings.SOURCE_USER and name not in sources_dict
+            ]
 
             if missing_sources:
                 msg = "Missing or uncached sources:\n\n"
-                for source_name, source_path in missing_sources:
-                    if source_path.startswith('http'):
-                        msg += f"• {source_name}: Remote source not downloaded yet\n"
-                        msg += f"  URL: {source_path}\n\n"
+                for name, path in missing_sources:
+                    if path.startswith('http'):
+                        msg += f"• {name}: remote source not yet downloaded\n  URL: {path}\n\n"
                     else:
-                        msg += f"• {source_name}: Local file not found\n"
-                        msg += f"  Path: {source_path}\n\n"
-
-                msg += "\nNote: Remote sources are downloaded when you save configuration.\n"
-                msg += "Save the configuration first to cache all sources, then preview again."
-                QMessageBox.information(self, "Info", msg)
+                        msg += f"• {name}: local file not found\n  Path: {path}\n\n"
+                QMessageBox.information(self, "Preview Merge", msg)
                 return
 
             if not sources_dict:
-                QMessageBox.warning(self, "Warning", "No sources available to merge. Check your source paths.")
+                QMessageBox.warning(self, "Warning", "No sources available to merge.")
                 return
 
             entries = load_source_files(sources_dict, hierarchy)
 
-            # Count by source
             source_counts = {}
             for entry in entries:
-                source = entry.source_file
-                source_counts[source] = source_counts.get(source, 0) + 1
+                source_counts[entry.source_file] = source_counts.get(entry.source_file, 0) + 1
 
-            # Build preview message
-            preview_text = "Merge Preview\n\n"
-            preview_text += f"Merge Order (top to bottom):\n"
-            for i, source_name in enumerate(hierarchy, 1):
-                count = source_counts.get(source_name, 0)
-                preview_text += f"  {i}. {source_name.capitalize()} ({count} keys)\n"
+            text = "Merge Preview\n\nMerge Order (top to bottom):\n"
+            for i, name in enumerate(hierarchy, 1):
+                text += f"  {i}. {name.capitalize()} ({source_counts.get(name, 0)} keys)\n"
 
-            preview_text += f"\nTotal Keys: {len(entries)}\n"
-            preview_text += f"Status Breakdown:\n"
+            text += f"\nTotal Keys: {len(entries)}\nStatus Breakdown:\n"
             status_counts = {}
             for entry in entries:
-                status = entry.status
-                status_counts[status] = status_counts.get(status, 0) + 1
-
+                status_counts[entry.status] = status_counts.get(entry.status, 0) + 1
             for status, count in status_counts.items():
-                preview_text += f"  {status}: {count}\n"
+                text += f"  {status}: {count}\n"
 
-            QMessageBox.information(self, "Merge Preview", preview_text)
+            QMessageBox.information(self, "Merge Preview", text)
 
         except Exception as e:
             logger.exception(f"Error previewing merge: {e}")

@@ -23,6 +23,8 @@ from src.utils.settings import AppSettings
 from src.merger.ini_merger import merge_sources_by_hierarchy
 from src.utils.version import get_version
 from src.gui.config_tab import ConfigTab
+from src.gui.enhancements_tab import EnhancementsTab
+from src.gui.log_tab import LogTab
 
 logger = logging.getLogger(__name__)
 
@@ -94,109 +96,6 @@ class FileLoaderWorker(QThread):
             self.finished.emit(entries)
         except Exception as e:
             logger.exception(f"Error loading files: {e}")
-            self.error.emit(str(e))
-
-
-class UpdateCheckerWorker(QThread):
-    """Worker thread for checking latest release on GitHub."""
-
-    finished = pyqtSignal(str, str)  # (tag_name, download_url)
-    up_to_date = pyqtSignal(str)     # (current_tag)
-    error = pyqtSignal(str)          # error message
-
-    def run(self):
-        from src.utils.updater import check_latest_release, get_current_base_version
-
-        try:
-            current_version = get_current_base_version()
-            result = check_latest_release()
-
-            if result is None:
-                # No update available or API error
-                if current_version:
-                    self.up_to_date.emit(current_version)
-                else:
-                    # First run, no version yet
-                    self.error.emit("Could not check for updates")
-                return
-
-            latest_tag, download_url = result
-
-            if latest_tag == current_version:
-                self.up_to_date.emit(latest_tag)
-            else:
-                self.finished.emit(latest_tag, download_url)
-
-        except Exception as e:
-            self.error.emit(str(e))
-
-
-class DownloadWorker(QThread):
-    """Worker thread for downloading and extracting base file."""
-
-    progress = pyqtSignal(int, int)  # (bytes_done, bytes_total)
-    finished = pyqtSignal()
-    error = pyqtSignal(str)
-
-    def __init__(self, download_url: str, version: str):
-        super().__init__()
-        self.download_url = download_url
-        self.version = version
-
-    def run(self):
-        from src.utils.updater import download_and_extract_base, save_base_version
-
-        try:
-            download_and_extract_base(self.download_url, self.progress.emit)
-            save_base_version(self.version)
-            self.finished.emit()
-        except Exception as e:
-            self.error.emit(str(e))
-
-
-class ContractsCheckerWorker(QThread):
-    """Worker thread for checking latest contracts.ini commit."""
-
-    update_available = pyqtSignal(str, str)  # (sha, date_str)
-    up_to_date = pyqtSignal(str, str)       # (sha, date_str)
-    error = pyqtSignal(str)
-
-    def run(self):
-        from src.utils.updater import check_contracts_update, get_current_contracts_version
-
-        try:
-            result = check_contracts_update()
-            if result is None:
-                # Already up to date or API error
-                sha, date_str = get_current_contracts_version()
-                self.up_to_date.emit(sha, date_str)
-            else:
-                sha, date_str = result
-                self.update_available.emit(sha, date_str)
-        except Exception as e:
-            self.error.emit(str(e))
-
-
-class ContractsDownloadWorker(QThread):
-    """Worker thread for downloading contracts.ini."""
-
-    progress = pyqtSignal(int, int)  # (bytes_done, bytes_total)
-    finished = pyqtSignal()
-    error = pyqtSignal(str)
-
-    def __init__(self, sha: str, date_str: str):
-        super().__init__()
-        self.sha = sha
-        self.date_str = date_str
-
-    def run(self):
-        from src.utils.updater import download_contracts, save_contracts_version
-
-        try:
-            download_contracts(self.progress.emit)
-            save_contracts_version(self.sha, self.date_str)
-            self.finished.emit()
-        except Exception as e:
             self.error.emit(str(e))
 
 
@@ -377,16 +276,6 @@ class MainWindow(QMainWindow):
         # File loader worker
         self._loader_worker: Optional[FileLoaderWorker] = None
 
-        # Update checker and download workers (base file)
-        self._update_checker_worker: Optional[UpdateCheckerWorker] = None
-        self._download_worker: Optional[DownloadWorker] = None
-        self._pending_download_url: Optional[str] = None
-        self._pending_download_version: Optional[str] = None
-
-        # Contracts checker and download workers
-        self._contracts_checker_worker: Optional[ContractsCheckerWorker] = None
-        self._contracts_download_worker: Optional[ContractsDownloadWorker] = None
-
         # Startup sync worker
         self._startup_sync_worker: Optional[StartupSyncWorker] = None
 
@@ -394,13 +283,11 @@ class MainWindow(QMainWindow):
         self._p4k_worker: Optional[P4kExtractWorker] = None
         self._p4k_progress: Optional[QProgressDialog] = None
 
-        # Stats generation worker and progress dialog
+        # Stats generation worker
         self._stats_worker: Optional[StatsGeneratorWorker] = None
-        self._stats_progress: Optional[QProgressDialog] = None
 
-        # DataForge extraction worker and progress dialog
+        # DataForge extraction worker
         self._forge_worker: Optional[DataForgeExtractWorker] = None
-        self._forge_progress: Optional[QProgressDialog] = None
 
         # Status bar state (composed message) - tracks sync status per source
         self._source_status: dict[str, str] = {}  # source_name -> status_string
@@ -451,13 +338,20 @@ class MainWindow(QMainWindow):
         tabs = QTabWidget()
         tabs.addTab(self.create_strings_tab(), "Strings")
 
-        # Config tab with merge signal connection
+        # Config tab
         self.config_tab = ConfigTab()
         self.config_tab.merge_requested.connect(self.perform_merge_and_reload)
         self.config_tab.p4k_extract_requested.connect(self._run_p4k_extraction)
-        self.config_tab.stats_generate_requested.connect(self._run_stats_generation)
-        self.config_tab.dataforge_extract_requested.connect(self._run_dataforge_extraction)
         tabs.addTab(self.config_tab, "Config")
+
+        # Enhancements tab
+        self.enhancements_tab = EnhancementsTab()
+        self.enhancements_tab.merge_requested.connect(self.perform_merge_and_reload)
+        self.enhancements_tab.stats_pipeline_requested.connect(self._run_stats_pipeline)
+        tabs.addTab(self.enhancements_tab, "Enhancements")
+
+        self.log_tab = LogTab()
+        tabs.addTab(self.log_tab, "Log")
 
         tabs.addTab(self.create_about_tab(), "About")
         main_layout.addWidget(tabs)
@@ -1560,81 +1454,81 @@ Shows the sync status for each configured source. "✓" means up to date.
             self._run_p4k_extraction()
 
     def _check_stats_freshness(self):
-        """If stats INI files are missing and base.ini exists, prompt to generate.
-
-        If the DataForge cache is also missing, offer to extract it first.
-        """
-        from src.utils.pak_extractor import dataforge_cache_is_fresh
+        """If stats INI files are missing on startup, prompt to generate them."""
         cache_dir = AppSettings.get_cache_dir()
         if not (cache_dir / 'base.ini').exists():
-            return  # can't generate without base.ini
-        if self._stats_worker is not None:
-            return  # already running
+            return
+        if self._stats_worker is not None or self._forge_worker is not None:
+            return
 
         missing = [f for f in AppSettings.STATS_FILES.values()
                    if not (cache_dir / f).exists()]
         if not missing:
-            return  # all present
+            return
 
+        p4k_path = AppSettings.get_p4k_path()
+        if not p4k_path.exists():
+            return  # can't generate without the game files; user can trigger manually
+
+        reply = QMessageBox.question(
+            self, "Generate Stats",
+            f"{len(missing)} of 4 stats files are missing.\n\n"
+            "Generate ship, component, and weapon stats from your installed Data.p4k?\n"
+            "DataForge data will be extracted automatically if not already cached\n"
+            "(first run takes ~5–10 minutes).",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._run_stats_pipeline()
+
+    def _run_stats_pipeline(self):
+        """Entry point for the stats button: extract DataForge if needed, then generate stats."""
+        if self._stats_worker is not None or self._forge_worker is not None:
+            return  # already running
+
+        from src.utils.pak_extractor import dataforge_cache_is_fresh
         forge_dir = AppSettings.get_dataforge_cache_dir()
         p4k_path  = AppSettings.get_p4k_path()
-        forge_fresh = dataforge_cache_is_fresh(p4k_path, forge_dir) if p4k_path.exists() else False
 
-        if not forge_fresh and p4k_path.exists():
-            reply = QMessageBox.question(
-                self, "Extract DataForge + Generate Stats",
-                f"{len(missing)} of 4 stats files are missing.\n\n"
-                "Component and weapon stats are sourced directly from your game's Data.p4k.\n"
-                "This requires a one-time DataForge extraction (~5–10 min) that will be cached.\n\n"
-                "Extract DataForge data and generate stats now?\n"
-                "(Ships stats still download ~39 MB of JSON on first run)",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            if reply == QMessageBox.StandardButton.Yes:
-                self._run_dataforge_extraction()
+        if dataforge_cache_is_fresh(p4k_path, forge_dir):
+            self._run_stats_generation()
         else:
-            ships_json_cached = (cache_dir / 'stats_cache' / 'ships.json').exists()
-            size_note = "(uses cached data — fast)" if ships_json_cached else "(downloads ~39 MB ships.json on first run)"
-            reply = QMessageBox.question(
-                self, "Generate Stats",
-                f"{len(missing)} of 4 stats files are missing.\n\n"
-                f"Generate ship, component, and weapon stats now?\n{size_note}",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            if reply == QMessageBox.StandardButton.Yes:
-                self._run_stats_generation()
+            self._run_dataforge_extraction()
 
     def _run_stats_generation(self):
-        """Launch StatsGeneratorWorker with a progress dialog."""
+        """Launch StatsGeneratorWorker in the background (non-blocking)."""
         if self._stats_worker is not None:
             return  # already running
 
         self._stats_worker = StatsGeneratorWorker()
-        self._stats_progress = QProgressDialog("Generating stats...", None, 0, 0, self)
-        self._stats_progress.setWindowTitle("Stats Generation")
-        self._stats_progress.setModal(True)
-        self._stats_progress.show()
+        self.enhancements_tab.set_operation_running("Generating stats…")
+        self.statusBar().showMessage("Generating stats in background…")
 
-        self._stats_worker.progress.connect(self._stats_progress.setLabelText)
-        self._stats_worker.error.connect(lambda err: QMessageBox.warning(self, "Stats Generation Error", err))
+        self._stats_worker.progress.connect(self.enhancements_tab.set_operation_progress)
+        self._stats_worker.progress.connect(self.statusBar().showMessage)
+        self._stats_worker.error.connect(self._on_stats_generation_error)
         self._stats_worker.finished.connect(self._on_stats_generation_finished)
         self._stats_worker.start()
 
+    def _on_stats_generation_error(self, message: str):
+        logger.error(f"Stats generation error: {message}")
+
     def _on_stats_generation_finished(self, success: bool):
-        """Handle stats generation completion."""
-        self._stats_progress.close()
         self._stats_worker.quit()
         self._stats_worker.wait()
         self._stats_worker = None
+        self.enhancements_tab.set_operation_idle()
+        self.enhancements_tab.refresh_stats_status()
 
         if success:
-            self.statusBar().showMessage("Stats generated — reloading...")
-            self.config_tab.refresh_stats_status()
+            self.statusBar().showMessage("Stats generated — reloading…")
             self.load_default_values()
             self.auto_load_default_files()
+        else:
+            self.statusBar().showMessage("Stats generation failed — check the Log tab for details")
 
     def _run_dataforge_extraction(self):
-        """Launch DataForgeExtractWorker; on success, run stats generation."""
+        """Launch DataForgeExtractWorker in the background (non-blocking)."""
         if self._forge_worker is not None:
             return
 
@@ -1644,30 +1538,30 @@ Shows the sync status for each configured source. "✓" means up to date.
         forge_dir   = AppSettings.get_dataforge_cache_dir()
 
         self._forge_worker = DataForgeExtractWorker(p4k_path, unp4k_exe, unforge_exe, forge_dir)
-        self._forge_progress = QProgressDialog(
-            "Extracting DataForge from Data.p4k…\nThis takes several minutes.", None, 0, 0, self
-        )
-        self._forge_progress.setWindowTitle("DataForge Extraction")
-        self._forge_progress.setModal(True)
-        self._forge_progress.show()
+        self.enhancements_tab.set_operation_running("Extracting DataForge from Data.p4k…")
+        self.statusBar().showMessage("Extracting DataForge in background — this takes several minutes…")
 
-        self._forge_worker.progress.connect(self._forge_progress.setLabelText)
-        self._forge_worker.error.connect(lambda err: QMessageBox.warning(self, "DataForge Extraction Error", err))
+        self._forge_worker.progress.connect(self.enhancements_tab.set_operation_progress)
+        self._forge_worker.progress.connect(self.statusBar().showMessage)
+        self._forge_worker.error.connect(self._on_dataforge_extract_error)
         self._forge_worker.finished.connect(self._on_dataforge_extract_finished)
         self._forge_worker.start()
 
+    def _on_dataforge_extract_error(self, message: str):
+        logger.error(f"DataForge extraction error: {message}")
+
     def _on_dataforge_extract_finished(self, success: bool):
-        self._forge_progress.close()
         self._forge_worker.quit()
         self._forge_worker.wait()
         self._forge_worker = None
+        self.enhancements_tab.refresh_forge_status()
 
         if success:
             self.statusBar().showMessage("DataForge extracted — generating stats…")
-            self.config_tab.refresh_stats_status()
             self._run_stats_generation()
         else:
-            self.statusBar().showMessage("DataForge extraction failed")
+            self.enhancements_tab.set_operation_idle()
+            self.statusBar().showMessage("DataForge extraction failed — check the Log tab for details")
 
     def _run_p4k_extraction(self):
         """Launch P4kExtractWorker with a progress dialog; reload sources on success."""
@@ -1710,257 +1604,6 @@ Shows the sync status for each configured source. "✓" means up to date.
             # Now that base.ini exists, check whether stats need to be generated
             self._check_stats_freshness()
 
-    def _start_update_check(self):
-        """Start background check for latest base file version."""
-        self._update_checker_worker = UpdateCheckerWorker()
-        self._update_checker_worker.finished.connect(self._on_update_available)
-        self._update_checker_worker.up_to_date.connect(self._on_up_to_date)
-        self._update_checker_worker.error.connect(self._on_update_error)
-        self._update_checker_worker.start()
-
-    @pyqtSlot(str, str)
-    def _on_update_available(self, latest_tag: str, download_url: str):
-        """Handle update available signal."""
-        # Clean up checker worker
-        if self._update_checker_worker:
-            self._update_checker_worker.quit()
-            self._update_checker_worker.wait()
-            self._update_checker_worker = None
-
-        self._pending_download_url = download_url
-        self._pending_download_version = latest_tag
-
-        reply = QMessageBox.question(
-            self,
-            "Base File Update Available",
-            f"New base file available: {latest_tag}\n\nUpdate now? (~2.2 MB)",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-
-        if reply == QMessageBox.StandardButton.Yes:
-            self._start_download(download_url, latest_tag)
-        else:
-            from src.utils.updater import get_current_base_version
-            current = get_current_base_version()
-            self._set_source_status(AppSettings.SOURCE_GLOBAL, f"Global: {current} (update: {latest_tag})")
-
-    @pyqtSlot(str)
-    def _on_up_to_date(self, current_tag: str):
-        """Handle up-to-date signal."""
-        # Clean up checker worker
-        if self._update_checker_worker:
-            self._update_checker_worker.quit()
-            self._update_checker_worker.wait()
-            self._update_checker_worker = None
-        self._set_source_status(AppSettings.SOURCE_GLOBAL, f"Global: {current_tag} ✓")
-
-    @pyqtSlot(str)
-    def _on_update_error(self, message: str):
-        """Handle update check error."""
-        # Clean up checker worker
-        if self._update_checker_worker:
-            self._update_checker_worker.quit()
-            self._update_checker_worker.wait()
-            self._update_checker_worker = None
-
-        from src.utils.updater import get_current_base_version
-        current = get_current_base_version()
-        if current:
-            self._set_source_status(AppSettings.SOURCE_GLOBAL, f"Global: {current}")
-        logger.warning(f"Update check error: {message}")
-
-    def _start_download(self, download_url: str, version: str):
-        """Start downloading and extracting base file."""
-        # Show progress dialog
-        progress = QProgressDialog(
-            "Downloading base file...", None, 0, 100, self
-        )
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setAutoClose(False)
-        progress.show()
-
-        # Create and start download worker
-        self._download_worker = DownloadWorker(download_url, version)
-        self._download_worker.progress.connect(
-            lambda done, total: progress.setValue(
-                int((done / total * 100) if total > 0 else 0)
-            ) if total > 0 else None
-        )
-        self._download_worker.finished.connect(
-            lambda: self._on_download_finished(progress, version)
-        )
-        self._download_worker.error.connect(
-            lambda msg: self._on_download_error(progress, msg)
-        )
-        self._download_worker.start()
-
-    def _on_download_finished(self, progress: QProgressDialog, version: str):
-        """Handle successful download and extraction."""
-        progress.close()
-        self._set_source_status(AppSettings.SOURCE_GLOBAL, f"Global: {version} ✓")
-
-        # Clean up worker
-        if self._download_worker:
-            self._download_worker.quit()
-            self._download_worker.wait()
-
-        # Show info (non-blocking)
-        reply = QMessageBox.question(
-            self,
-            "Update Complete",
-            f"Base file updated to {version}.\n\nReload sources now to apply changes?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-
-        logger.info(f"Base file updated to {version}")
-
-        if reply == QMessageBox.StandardButton.Yes:
-            # Reload immediately
-            self.perform_merge_and_reload()
-        self._download_worker = None
-
-    def _on_download_error(self, progress: QProgressDialog, message: str):
-        """Handle download error."""
-        progress.close()
-
-        # Clean up worker
-        if self._download_worker:
-            self._download_worker.quit()
-            self._download_worker.wait()
-            self._download_worker = None
-
-        QMessageBox.critical(
-            self,
-            "Download Failed",
-            f"Failed to download base file: {message}"
-        )
-        logger.error(f"Download error: {message}")
-
-    def _start_contracts_check(self):
-        """Start background check for latest contracts.ini version."""
-        self._contracts_checker_worker = ContractsCheckerWorker()
-        self._contracts_checker_worker.update_available.connect(self._on_contracts_update_available)
-        self._contracts_checker_worker.up_to_date.connect(self._on_contracts_up_to_date)
-        self._contracts_checker_worker.error.connect(self._on_contracts_check_error)
-        self._contracts_checker_worker.start()
-
-    @pyqtSlot(str, str)
-    def _on_contracts_update_available(self, sha: str, date_str: str):
-        """Handle contracts update available signal."""
-        # Clean up checker worker
-        if self._contracts_checker_worker:
-            self._contracts_checker_worker.quit()
-            self._contracts_checker_worker.wait()
-            self._contracts_checker_worker = None
-
-        display_date = date_str[:10] if date_str else sha[:8]
-        reply = QMessageBox.question(
-            self,
-            "Contracts Update Available",
-            f"A newer contracts.ini is available (updated {display_date}).\n\nDownload now? (~49 KB)",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-
-        if reply == QMessageBox.StandardButton.Yes:
-            self._start_contracts_download(sha, date_str)
-        else:
-            self._set_source_status(AppSettings.SOURCE_CONTRACTS, f"Contracts: update available ({display_date})")
-
-    @pyqtSlot(str, str)
-    def _on_contracts_up_to_date(self, sha: str, date_str: str):
-        """Handle contracts up-to-date signal."""
-        # Clean up checker worker
-        if self._contracts_checker_worker:
-            self._contracts_checker_worker.quit()
-            self._contracts_checker_worker.wait()
-            self._contracts_checker_worker = None
-
-        if sha:  # Only show status if we have a stored version
-            display_date = date_str[:10] if date_str else sha[:8]
-            self._set_source_status(AppSettings.SOURCE_CONTRACTS, f"Contracts: {display_date} ✓")
-        else:
-            # Clear contracts status if not available
-            if AppSettings.SOURCE_CONTRACTS in self._source_status:
-                del self._source_status[AppSettings.SOURCE_CONTRACTS]
-            self._update_status_bar()
-
-    @pyqtSlot(str)
-    def _on_contracts_check_error(self, message: str):
-        """Handle contracts check error."""
-        # Clean up checker worker
-        if self._contracts_checker_worker:
-            self._contracts_checker_worker.quit()
-            self._contracts_checker_worker.wait()
-            self._contracts_checker_worker = None
-
-        # Graceful degradation: log warning, don't show dialog or status
-        logger.warning(f"Contracts update check error: {message}")
-
-    def _start_contracts_download(self, sha: str, date_str: str):
-        """Start downloading contracts.ini."""
-        progress = QProgressDialog(
-            "Downloading contracts.ini...", None, 0, 100, self
-        )
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setAutoClose(False)
-        progress.show()
-
-        self._contracts_download_worker = ContractsDownloadWorker(sha, date_str)
-        self._contracts_download_worker.progress.connect(
-            lambda done, total: progress.setValue(
-                int((done / total * 100) if total > 0 else 0)
-            ) if total > 0 else None
-        )
-        self._contracts_download_worker.finished.connect(
-            lambda: self._on_contracts_download_finished(progress, date_str)
-        )
-        self._contracts_download_worker.error.connect(
-            lambda msg: self._on_contracts_download_error(progress, msg)
-        )
-        self._contracts_download_worker.start()
-
-    def _on_contracts_download_finished(self, progress: QProgressDialog, date_str: str):
-        """Handle successful contracts download."""
-        progress.close()
-        display_date = date_str[:10] if date_str else "recent"
-        self._set_source_status(AppSettings.SOURCE_CONTRACTS, f"Contracts: {display_date} ✓")
-
-        # Clean up worker
-        if self._contracts_download_worker:
-            self._contracts_download_worker.quit()
-            self._contracts_download_worker.wait()
-            self._contracts_download_worker = None
-
-        reply = QMessageBox.question(
-            self,
-            "Contracts Updated",
-            f"contracts.ini updated ({display_date}).\n\nReload sources now to see Mission strings?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-
-        logger.info(f"Contracts updated to {display_date}")
-
-        if reply == QMessageBox.StandardButton.Yes:
-            # Reload immediately
-            self.perform_merge_and_reload()
-
-    def _on_contracts_download_error(self, progress: QProgressDialog, message: str):
-        """Handle contracts download error."""
-        progress.close()
-
-        # Clean up worker
-        if self._contracts_download_worker:
-            self._contracts_download_worker.quit()
-            self._contracts_download_worker.wait()
-            self._contracts_download_worker = None
-
-        QMessageBox.critical(
-            self,
-            "Download Failed",
-            f"Failed to download contracts.ini: {message}"
-        )
-        logger.error(f"Contracts download error: {message}")
-
     def closeEvent(self, event):
         """Save state and overrides before closing."""
         # Auto-save overrides if there are unsaved edits
@@ -1971,19 +1614,10 @@ Shows the sync status for each configured source. "✓" means up to date.
             except Exception as e:
                 logger.error(f"Failed to auto-save overrides on exit: {e}")
 
+        # Detach log handler before widgets are destroyed
+        self.log_tab.remove_handler()
+
         # Clean up workers
-        if self._update_checker_worker:
-            self._update_checker_worker.quit()
-            self._update_checker_worker.wait()
-        if self._download_worker:
-            self._download_worker.quit()
-            self._download_worker.wait()
-        if self._contracts_checker_worker:
-            self._contracts_checker_worker.quit()
-            self._contracts_checker_worker.wait()
-        if self._contracts_download_worker:
-            self._contracts_download_worker.quit()
-            self._contracts_download_worker.wait()
         if self._loader_worker:
             self._loader_worker.quit()
             self._loader_worker.wait()

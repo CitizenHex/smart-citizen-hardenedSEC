@@ -4,13 +4,11 @@ generate_stats_ini.py
 Generates stats-augmented INI files for use as additional sources in
 SC Localization Editor.
 
-Component / weapon stats are sourced directly from the game's DataForge
-entity XML files (extracted from Data.p4k via unforge).  Ship flight stats
-(SCM speed, cargo, etc.) still come from the scunpacked-data JSON until
-a full DataForge-based ship parser is implemented.
+All stats are sourced directly from the game's DataForge entity XML files
+(extracted from Data.p4k via unp4k + unforge).  No external JSON sources.
 
 Output files (written to OUTPUT_DIR / cache):
-  ships_desc_stats.ini        – vehicle_Desc* entries with flight/cargo/shield stats
+  ships_desc_stats.ini        – vehicle_Desc* entries with flight/specs stats
   components_desc_stats.ini   – item_Desc* COOL/SHLD/POWR/QDRV with numerical stats
   ship_weapons_desc_stats.ini – item_Desc* ship weapon stats
   fps_weapons_desc_stats.ini  – item_Desc* FPS weapon stats
@@ -19,13 +17,13 @@ Usage:
   python scripts/generate_stats_ini.py [base_ini_path [dataforge_cache_dir]]
 """
 
-import os
+import logging
+import re
 import sys
-import json
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from urllib.request import urlopen, Request
-from urllib.error import URLError
+
+logger = logging.getLogger(__name__)
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -51,39 +49,7 @@ APP_CACHE_DIR    = _get_documents_dir() / "SC Localization Editor" / "cache"
 DEFAULT_BASE_INI = APP_CACHE_DIR / "base.ini"
 DEFAULT_FORGE_DIR = APP_CACHE_DIR / "dataforge"
 
-OUTPUT_DIR  = APP_CACHE_DIR
-# JSON cache for ships (still scunpacked-based)
-SHIPS_CACHE_DIR = APP_CACHE_DIR / "stats_cache"
-
-SHIPS_JSON_URL = "https://raw.githubusercontent.com/StarCitizenWiki/scunpacked-data/master/ships.json"
-
-
-# ── Download helper (ships.json only) ─────────────────────────────────────────
-
-def download(url: str, dest: Path) -> None:
-    print(f"  Downloading {url}")
-    req = Request(url, headers={"User-Agent": "sc-localization-editor-stats/1.0"})
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    with urlopen(req, timeout=120) as resp:
-        total = int(resp.headers.get("Content-Length", 0))
-        done  = 0
-        with open(dest, "wb") as f:
-            while chunk := resp.read(1 << 16):
-                f.write(chunk)
-                done += len(chunk)
-                if total:
-                    pct = done * 100 // total
-                    print(f"\r  {pct}% ({done:,} / {total:,} bytes)", end="", flush=True)
-        print()
-
-
-def load_ships_json() -> list:
-    dest = SHIPS_CACHE_DIR / "ships.json"
-    if not dest.exists():
-        download(SHIPS_JSON_URL, dest)
-    else:
-        print(f"  Using cached {dest.name}")
-    return json.loads(dest.read_text(encoding="utf-8"))
+OUTPUT_DIR = APP_CACHE_DIR
 
 
 # ── INI helpers ───────────────────────────────────────────────────────────────
@@ -108,7 +74,7 @@ def write_ini(path: Path, entries: dict[str, str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = [f"{k}={v}" for k, v in sorted(entries.items())]
     path.write_text("\n".join(lines), encoding="utf-8")
-    print(f"  Written {len(entries):,} entries → {path}")
+    logger.info(f"Written {len(entries):,} entries -> {path}")
 
 
 STAT_SEPARATOR = "\\n\\n== Stats ==\\n"
@@ -143,6 +109,14 @@ def _find(root: ET.Element, tag: str) -> ET.Element | None:
     return root.find(f".//{tag}")
 
 
+def _find_by_type(root: ET.Element, type_name: str) -> ET.Element | None:
+    """Find first element with __type attribute matching type_name (DataForge inline structs)."""
+    for el in root.iter():
+        if el.get("__type") == type_name:
+            return el
+    return None
+
+
 def _attr(root: ET.Element, tag: str, attr: str, default=None):
     el = _find(root, tag)
     return el.get(attr, default) if el is not None else default
@@ -165,6 +139,9 @@ def _resource_amount(amount_el: ET.Element) -> str | None:
     std = amount_el.find(".//SStandardResourceUnit")
     if std is not None:
         return std.get("standardResourceUnits")
+    micro = amount_el.find(".//SMicroResourceUnit")
+    if micro is not None:
+        return micro.get("microResourceUnits")
     return None
 
 
@@ -175,7 +152,7 @@ def _find_resource(root: ET.Element, resource: str) -> str | None:
 
     For Conversion deltas, checks both <consumption> and <generation> children.
     """
-    for delta_type in ("ItemResourceDeltaGeneration", "ItemResourceDeltaConversion"):
+    for delta_type in ("ItemResourceDeltaGeneration", "ItemResourceDeltaConversion", "ItemResourceDeltaConsumption"):
         for delta in root.iter(delta_type):
             for child in delta:
                 if child.get("resource") == resource:
@@ -201,27 +178,52 @@ def _fire_rate(root: ET.Element) -> str | None:
     return str(best) if best else None
 
 
-def _fire_modes(root: ET.Element) -> list[str]:
+def _fire_modes(root: ET.Element, loc: dict | None = None) -> list[str]:
     names = []
     for el in root.iter():
         if "WeaponActionFire" in el.tag:
-            n = el.get("name") or el.get("localisedName")
+            loc_key = el.get("localisedName", "")
+            if loc_key.startswith("@") and loc is not None:
+                n = loc.get(loc_key[1:]) or el.get("name", "")
+            else:
+                n = el.get("name") or loc_key
             if n and n not in names:
                 names.append(n)
     return names
+
+
+_DAMAGE_TYPES = ("DamagePhysical", "DamageEnergy", "DamageDistortion",
+                 "DamageThermal", "DamageBiochemical", "DamageStun")
+_DAMAGE_LABELS = {"DamagePhysical": "Phys", "DamageEnergy": "Energy",
+                  "DamageDistortion": "Distort", "DamageThermal": "Thermal",
+                  "DamageBiochemical": "Bio", "DamageStun": "Stun"}
 
 
 def _ammo_damage(ammo_root: ET.Element) -> float:
     """Sum all damage types from the ammo's DamageInfo element."""
     total = 0.0
     for info in ammo_root.iter("DamageInfo"):
-        for attr in ("DamagePhysical", "DamageEnergy", "DamageDistortion",
-                     "DamageThermal", "DamageBiochemical", "DamageStun"):
+        for attr in _DAMAGE_TYPES:
             try:
                 total += float(info.get(attr, 0))
             except ValueError:
                 pass
     return total
+
+
+def _ammo_damage_breakdown(ammo_root: ET.Element) -> tuple[float, dict]:
+    """Return (total_damage, {label: amount}) for non-zero damage types."""
+    totals: dict[str, float] = {}
+    for info in ammo_root.iter("DamageInfo"):
+        for attr in _DAMAGE_TYPES:
+            try:
+                v = float(info.get(attr, 0))
+                if v:
+                    lbl = _DAMAGE_LABELS[attr]
+                    totals[lbl] = totals.get(lbl, 0.0) + v
+            except ValueError:
+                pass
+    return sum(totals.values()), totals
 
 
 # ── Per-type stat generators ──────────────────────────────────────────────────
@@ -235,6 +237,7 @@ def stats_shield(root: ET.Element) -> str:
     downed  = el.get("DownedRegenDelay")
     damaged = el.get("DamagedRegenDelay")
     pwr     = _find_resource(root, "Power")
+    comp_hp = _attr(root, "SHealthComponentParams", "Health")
 
     lines = []
     if hp is not None or regen is not None:
@@ -246,30 +249,58 @@ def stats_shield(root: ET.Element) -> str:
         lines.append("  |  ".join(delays))
     if pwr is not None:
         lines.append(f"Power Draw: {_fmt(pwr, ' PU/s')}")
+    if comp_hp is not None:
+        lines.append(f"Component HP: {_fmt(comp_hp)}")
     return "\\n".join(lines)
 
 
 def stats_cooler(root: ET.Element) -> str:
-    cooling = _find_resource(root, "Coolant")
-    pwr     = _find_resource(root, "Power")
+    cooling   = _find_resource(root, "Coolant")
+    pwr       = _find_resource(root, "Power")
+    comp_hp   = _attr(root, "SHealthComponentParams", "Health")
+    em_sig    = _attr(root, "EMSignature", "nominalSignature")
+    ir_sig    = _attr(root, "IRSignature", "nominalSignature")
+    overheat  = _attr(root, "itemResourceParams", "overheatTemperature")
 
     lines = []
     if cooling is not None:
         lines.append(f"Cooling Rate: {_fmt(cooling, ' CR/s')}")
     if pwr is not None:
         lines.append(f"Power Draw: {_fmt(pwr, ' PU/s')}")
+    if comp_hp is not None:
+        lines.append(f"Component HP: {_fmt(comp_hp)}")
+    if em_sig is not None or ir_sig is not None:
+        parts = []
+        if em_sig is not None: parts.append(f"EM: {_fmt(em_sig)}")
+        if ir_sig is not None: parts.append(f"IR: {_fmt(ir_sig)}")
+        lines.append("Signatures:  " + "  |  ".join(parts))
+    if overheat is not None:
+        lines.append(f"Overheat Temp: {_fmt(overheat, 'K')}")
     return "\\n".join(lines)
 
 
 def stats_powerplant(root: ET.Element) -> str:
-    gen          = _find_resource(root, "Power")
-    cooling_draw = _find_resource(root, "Coolant")
+    gen       = _find_resource(root, "Power")
+    comp_hp   = _attr(root, "SHealthComponentParams", "Health")
+    em_sig    = _attr(root, "EMSignature", "nominalSignature")
+    ir_sig    = _attr(root, "IRSignature", "nominalSignature")
+    overheat  = _attr(root, "itemResourceParams", "overheatTemperature")
+    distort   = _attr(root, "SDistortionParams", "Maximum")
 
     lines = []
     if gen is not None:
         lines.append(f"Power Output: {_fmt(gen, ' PU/s')}")
-    if cooling_draw is not None:
-        lines.append(f"Cooling Draw: {_fmt(cooling_draw, ' CR/s')}")
+    if comp_hp is not None:
+        lines.append(f"Component HP: {_fmt(comp_hp)}")
+    if em_sig is not None or ir_sig is not None:
+        parts = []
+        if em_sig is not None: parts.append(f"EM: {_fmt(em_sig)}")
+        if ir_sig is not None: parts.append(f"IR: {_fmt(ir_sig)}")
+        lines.append("Signatures:  " + "  |  ".join(parts))
+    if overheat is not None:
+        lines.append(f"Overheat Temp: {_fmt(overheat, 'K')}")
+    if distort is not None:
+        lines.append(f"Max Distortion: {_fmt(distort)}")
     return "\\n".join(lines)
 
 
@@ -279,135 +310,422 @@ def stats_quantum_drive(root: ET.Element) -> str:
         return ""
     fuel_req = qd.get("quantumFuelRequirement")
 
-    params = _find(root, "SQuantumDriveParams")
-    speed  = params.get("driveSpeed")  if params is not None else None
-    spool  = params.get("spoolUpTime") if params is not None else None
+    # SQuantumDriveParams is an inline struct: <params __type="SQuantumDriveParams" driveSpeed=... />
+    params   = _find_by_type(root, "SQuantumDriveParams")
+    speed    = params.get("driveSpeed")           if params is not None else None
+    spool    = params.get("spoolUpTime")          if params is not None else None
+    cooldown = params.get("cooldownTime")         if params is not None else None
+    cal_rate = params.get("calibrationRate")      if params is not None else None
+    cal_min  = params.get("minCalibrationRequirement") if params is not None else None
+    cal_max  = params.get("maxCalibrationRequirement") if params is not None else None
+    accel1   = params.get("stageOneAccelRate")    if params is not None else None
+    accel2   = params.get("stageTwoAccelRate")    if params is not None else None
 
-    pwr = _find_resource(root, "Power")
+    pwr      = _find_resource(root, "Power")
+    qt_fuel  = _find_resource(root, "QuantumFuel")
+    comp_hp  = _attr(root, "SHealthComponentParams", "Health")
+    em_sig   = _attr(root, "EMSignature", "nominalSignature")
+    ir_sig   = _attr(root, "IRSignature", "nominalSignature")
+    overheat = _attr(root, "itemResourceParams", "overheatTemperature")
+    distort  = _attr(root, "SDistortionParams", "Maximum")
 
     lines = []
     if speed is not None:
         speed_mm = float(speed) / 1_000_000
         spool_str = _fmt(spool, "s") if spool else "?"
         lines.append(f"QT Speed: {speed_mm:,.0f} Mm/s  |  Spool: {spool_str}")
+    if cooldown is not None:
+        lines.append(f"Cooldown: {_fmt(cooldown, 's', 1)}")
     if fuel_req is not None:
         lines.append(f"Fuel/Gm: {float(fuel_req):.4f}")
+    if qt_fuel is not None:
+        lines.append(f"QT Fuel Use: {_fmt(qt_fuel)} μ/s")
+    if accel1 is not None or accel2 is not None:
+        parts = []
+        if accel1: parts.append(f"S1: {_fmt(accel1)}")
+        if accel2: parts.append(f"S2: {_fmt(accel2)}")
+        lines.append("Accel:  " + "  |  ".join(parts))
+    if cal_rate is not None:
+        lines.append(f"Cal Rate: {_fmt(cal_rate)}  |  Required: {_fmt(cal_min)}–{_fmt(cal_max)}")
     if pwr is not None:
         lines.append(f"Power Draw: {_fmt(pwr, ' PU/s')}")
+    if comp_hp is not None:
+        lines.append(f"Component HP: {_fmt(comp_hp)}")
+    if em_sig is not None or ir_sig is not None:
+        parts = []
+        if em_sig is not None: parts.append(f"EM: {_fmt(em_sig)}")
+        if ir_sig is not None: parts.append(f"IR: {_fmt(ir_sig)}")
+        lines.append("Signatures:  " + "  |  ".join(parts))
+    if overheat is not None:
+        lines.append(f"Overheat Temp: {_fmt(overheat, 'K')}")
+    if distort is not None:
+        lines.append(f"Max Distortion: {_fmt(distort)}")
     return "\\n".join(lines)
 
 
-def stats_weapon(root: ET.Element, ammo_lookup: dict[str, ET.Element]) -> str:
+def stats_weapon(root: ET.Element, ammo_lookup: dict[str, ET.Element],
+                 loc: dict | None = None) -> str:
     """Ship or FPS weapon stats."""
     fr    = _fire_rate(root)
-    modes = _fire_modes(root)
-    pwr   = _power_units(root, "Power", "ItemResourceDeltaConversion")
+    modes = _fire_modes(root, loc)
+    pwr   = _find_resource(root, "Power")
+
+    # Component health / signatures / heat
+    comp_hp  = _attr(root, "SHealthComponentParams", "Health")
+    em_sig   = _attr(root, "EMSignature", "nominalSignature")
+    ir_sig   = _attr(root, "IRSignature", "nominalSignature")
+    overheat = _attr(root, "itemResourceParams", "overheatTemperature")
 
     # Ammo damage — look up the ammo record by GUID
     ammo_container = _find(root, "SAmmoContainerComponentParams")
     ammo_record_id = ammo_container.get("ammoParamsRecord") if ammo_container is not None else None
-    ammo_damage = None
+    total_dmg = breakdown = proj_speed = proj_lifetime = None
     dps = None
     if ammo_record_id and ammo_record_id != "00000000-0000-0000-0000-000000000000":
         ammo_root = ammo_lookup.get(ammo_record_id)
         if ammo_root is not None:
-            ammo_damage = _ammo_damage(ammo_root)
-            if ammo_damage and fr:
+            total_dmg, breakdown = _ammo_damage_breakdown(ammo_root)
+            proj_speed    = ammo_root.get("speed")
+            proj_lifetime = ammo_root.get("lifetime")
+            if total_dmg and fr:
                 try:
-                    dps = ammo_damage * float(fr) / 60.0
+                    dps = total_dmg * float(fr) / 60.0
                 except ValueError:
                     pass
 
-    # Capacity from regen consumer or ammo container
-    regen = _find(root, "SWeaponRegenConsumerParams")
+    # Capacity: energy weapons use regen pool; ballistic use fixed container
+    regen    = _find(root, "SWeaponRegenConsumerParams")
     capacity = None
+    regen_rate = regen_cooldown = regen_cost = None
     if regen is not None:
-        capacity = regen.get("maxAmmoLoad")
+        capacity      = regen.get("maxAmmoLoad")
+        regen_rate    = regen.get("requestedRegenPerSec")
+        regen_cooldown = regen.get("regenerationCooldown")
+        regen_cost    = regen.get("regenerationCostPerBullet")
+    elif ammo_container is not None:
+        capacity = ammo_container.get("maxAmmoCount")
 
     lines = []
     if fr:
         lines.append(f"Fire Rate: {_fmt(fr, ' RPM')}")
     if modes:
         lines.append(f"Fire Modes: {' / '.join(modes)}")
-    if ammo_damage is not None or dps is not None:
-        parts = []
-        if ammo_damage: parts.append(f"Dmg/Shot: {_fmt(ammo_damage, '', 1)}")
-        if dps:         parts.append(f"DPS: {_fmt(dps, '', 1)}")
-        lines.append("  |  ".join(parts))
+
+    # Damage line with per-type breakdown
+    if total_dmg is not None and total_dmg > 0:
+        type_str = ""
+        if breakdown and len(breakdown) == 1:
+            type_str = f" ({list(breakdown.keys())[0]})"
+        elif breakdown and len(breakdown) > 1:
+            type_str = " (" + " / ".join(f"{lbl}: {v:.1f}" for lbl, v in breakdown.items()) + ")"
+        dmg_part = f"Dmg/Shot: {_fmt(total_dmg, '', 1)}{type_str}"
+        dps_part = f"DPS: {_fmt(dps, '', 1)}" if dps else ""
+        lines.append("  |  ".join(p for p in [dmg_part, dps_part] if p))
+
     if capacity:
         lines.append(f"Ammo: {_fmt(capacity)}")
+    if regen_rate or regen_cooldown:
+        parts = []
+        if regen_rate:    parts.append(f"Regen: {_fmt(regen_rate)}/s")
+        if regen_cooldown: parts.append(f"Cooldown: {_fmt(regen_cooldown, 's', 1)}")
+        if regen_cost:    parts.append(f"Cost/Shot: {_fmt(regen_cost)}")
+        lines.append("  |  ".join(parts))
+    if proj_speed is not None:
+        try:
+            rng_m = float(proj_speed) * float(proj_lifetime)
+            lines.append(f"Velocity: {_fmt(proj_speed, ' m/s')}  |  Range: {rng_m / 1000:,.1f} km")
+        except (TypeError, ValueError):
+            pass
     if pwr:
         lines.append(f"Power Draw: {_fmt(pwr, ' PU/s')}")
+    if comp_hp is not None:
+        lines.append(f"Component HP: {_fmt(comp_hp)}")
+    if em_sig is not None or ir_sig is not None:
+        parts = []
+        if em_sig is not None: parts.append(f"EM: {_fmt(em_sig)}")
+        if ir_sig is not None: parts.append(f"IR: {_fmt(ir_sig)}")
+        lines.append("Signatures:  " + "  |  ".join(parts))
+    if overheat is not None:
+        lines.append(f"Overheat Temp: {_fmt(overheat, 'K')}")
     return "\\n".join(lines)
 
 
-# ── Ship stats (scunpacked-based, kept until DataForge parser covers it) ──────
+# ── Ship stats (DataForge-based) ──────────────────────────────────────────────
 
-def _normalize_classname(cls: str) -> str:
-    return cls.removesuffix("_SCItem")
-
-
-def _fmt_ship(value, unit="", decimals=0) -> str:
-    return _fmt(value, unit, decimals)
+def _extract_item_size(cls: str) -> str | None:
+    """Extract size code from entity class name, e.g. 'SHLD_ASAS_S01_Shimmer_SCItem' → 'S1'."""
+    m = re.search(r'_S0*(\d+)_', cls)
+    return f"S{int(m.group(1))}" if m else None
 
 
-def stats_ship(ship: dict) -> str:
-    fc = ship.get("FlightCharacteristics") or {}
-    qt = ship.get("QuantumTravel") or {}
+def _loadout_summary(root: ET.Element) -> tuple[str, str]:
+    """Parse SEntityComponentDefaultLoadoutParams and return (weapons_line, core_line).
 
-    scm     = fc.get("ScmSpeed")
-    max_spd = fc.get("MaxSpeed")
-    pitch   = fc.get("Pitch")
-    yaw     = fc.get("Yaw")
-    roll    = fc.get("Roll")
-    cargo   = ship.get("Cargo")
-    crew    = ship.get("Crew")
-    length  = ship.get("Length")
-    mass    = ship.get("MassTotal") or ship.get("Mass")
-    shields = ship.get("ShieldHp")
-    qt_speed = qt.get("Speed")
-    qt_range = qt.get("Range")
+    Only iterates TOP-LEVEL ship hardpoints (not nested sub-items inside turrets or
+    mounted equipment) to avoid double-counting turret weapon slots as ship guns.
 
-    manned_turrets  = ship.get("MannedTurrets")  or []
-    remote_turrets  = ship.get("RemoteTurrets")  or []
-    wep_defensive   = ship.get("WeaponDefensive") or {}
-    countermeasures = wep_defensive.get("CountermeasureLauncher")
+    Gun detection handles two naming conventions:
+    - Avenger-style fixed slot: hardpoint_weapon_gun_class1_*  (size in port name)
+    - Connie-style gimbal/fixed mount: hardpoint_weapon_* with Mount_Gimbal_S3 entity
+      → size extracted from mount entity class name (Mount_Gimbal_S3 → S3)
+    """
+    guns:    list[tuple[str, bool]] = []   # (size_str, filled)
+    turrets: list[tuple[str, bool]] = []
+    mracks:  list[tuple[str, bool]] = []
+    shields: list[str] = []               # size strings for filled slots
+    powers:  list[str] = []
+    coolers: list[str] = []
+    qd:      list[str] = []
 
-    def turret_summary(turrets):
-        size_counts: dict[int, int] = {}
-        for t in turrets:
-            sz = t.get("MaxSizeClass") or t.get("Size") or t.get("size") or 0
-            try: sz = int(sz)
-            except: sz = 0
-            size_counts[sz] = size_counts.get(sz, 0) + 1
-        return ", ".join(
-            f"{cnt}× S{sz}" if sz else f"{cnt}× ?"
-            for sz, cnt in sorted(size_counts.items(), reverse=True)
-        )
+    # Only process direct children of the top-level loadout entries element
+    # to avoid counting nested sub-weapon slots inside turrets/mounts
+    comp = _find(root, "SEntityComponentDefaultLoadoutParams")
+    if comp is None:
+        return "", ""
+    top_entries = comp.find(".//entries")
+    if top_entries is None:
+        return "", ""
+
+    for entry in top_entries:
+        if entry.tag != "SItemPortLoadoutEntryParams":
+            continue
+        port = entry.get("itemPortName", "").lower()
+        cls  = entry.get("entityClassName", "")
+
+        if "controller" in port:
+            continue
+
+        # Size: _classN in port name (Avenger-style), or _S0N_ in entity class name
+        sz = None
+        m = re.search(r'_class_?(\d+)', port)
+        if m:
+            sz = f"S{int(m.group(1))}"
+        elif cls:
+            sz = _extract_item_size(cls)
+
+        # Gimbal/fixed mount → counts as a gun slot; size from the mount entity (Mount_Gimbal_S3)
+        if cls.startswith("Mount_Gimbal_") or cls.startswith("Mount_Fixed_"):
+            guns.append((sz or "?", True))   # mount exists = slot is equipped
+        # Avenger-style bare gun slot (may be empty)
+        elif "weapon_gun" in port:
+            guns.append((sz or "?", bool(cls)))
+        elif "turret" in port and cls:
+            turrets.append((sz or "?", bool(cls)))
+        elif "missilerack" in port or "missilelauncher" in port:
+            if cls:
+                mracks.append((sz or "?", True))
+        elif "shield_generator" in port and cls:
+            shields.append(sz or "?")
+        elif ("power_plant" in port or "powerplant" in port) and cls:
+            powers.append(sz or "?")
+        elif "cooler" in port and cls:
+            coolers.append(sz or "?")
+        elif "quantum_drive" in port and "fuel" not in port and cls:
+            qd.append(sz or "?")
+
+    def summarize_slots(slots: list[tuple[str, bool]]) -> str:
+        counts: dict = {}
+        for sz, filled in slots:
+            key = (sz, filled)
+            counts[key] = counts.get(key, 0) + 1
+        parts = []
+        for (sz, filled), cnt in sorted(counts.items()):
+            suffix = "" if filled else " (empty)"
+            if sz == "?":
+                # Unknown size: show just count (e.g. turrets with no size info)
+                parts.append(str(cnt))
+            else:
+                n = f"{cnt}× " if cnt > 1 else ""
+                parts.append(f"{n}{sz}{suffix}")
+        return "  ".join(p for p in parts if p)
+
+    def summarize_items(sizes: list[str]) -> str:
+        counts: dict = {}
+        for sz in sizes:
+            counts[sz] = counts.get(sz, 0) + 1
+        parts = []
+        for sz, cnt in sorted(counts.items()):
+            n = f"{cnt}× " if cnt > 1 else ""
+            parts.append(f"{n}{sz}")
+        return "  ".join(parts)
+
+    weapon_parts = []
+    if guns:
+        weapon_parts.append(f"Guns: {summarize_slots(guns)}")
+    if turrets:
+        weapon_parts.append(f"Turrets: {summarize_slots(turrets)}")
+    if mracks:
+        weapon_parts.append(f"MRacks: {summarize_slots(mracks)}")
+
+    core_parts = []
+    if shields:
+        core_parts.append(f"Shields: {summarize_items(shields)}")
+    if coolers:
+        core_parts.append(f"Coolers: {summarize_items(coolers)}")
+    if powers:
+        core_parts.append(f"Power: {summarize_items(powers)}")
+    if qd:
+        core_parts.append(f"QD: {summarize_items(qd)}")
+
+    return "  |  ".join(weapon_parts), "  |  ".join(core_parts)
+
+
+def build_controller_lookup(controller_dir: Path) -> dict[str, ET.Element]:
+    """Build lookup: ship_class_lower → flight controller XML root.
+
+    Controller files are named 'controller_flight_{ship_class}.xml'.
+    Blade/variant controllers (with '_flight_' in the class suffix) are
+    included so each spaceship entity can find its exact match.
+    """
+    lookup: dict[str, ET.Element] = {}
+    if not controller_dir.exists():
+        logger.warning(f"Controller dir not found: {controller_dir}")
+        return lookup
+    for xml_file in controller_dir.glob("controller_flight_*.xml"):
+        ship_class = xml_file.stem[len("controller_flight_"):]
+        try:
+            root = ET.parse(xml_file).getroot()
+            lookup[ship_class.lower()] = root
+        except ET.ParseError:
+            pass
+    return lookup
+
+
+def stats_ship_dataforge(
+    root: ET.Element,
+    controller_root: ET.Element | None,
+    loc: dict | None = None,
+) -> str:
+    """Generate stats block for a spaceship from DataForge entity + flight controller."""
+    vpc = _find(root, "VehicleComponentParams")
+    if vpc is None:
+        return ""
+
+    crew_size = vpc.get("crewSize")
+    career_key = (vpc.get("vehicleCareer") or "").lstrip("@")
+    role_key   = (vpc.get("vehicleRole")   or "").lstrip("@")
+    career = (loc or {}).get(career_key) if career_key else None
+    role   = (loc or {}).get(role_key)   if role_key   else None
+
+    bbox   = vpc.find("maxBoundingBoxSize")
+    length = bbox.get("y") if bbox is not None else None
+
+    # Insurance — DataForge tag is lowercase 'shipInsuranceParams', __type is 'ShipInsuranceParams'
+    ins         = _find(root, "shipInsuranceParams")
+    ins_base    = ins.get("baseWaitTimeMinutes")      if ins is not None else None
+    ins_express = ins.get("mandatoryWaitTimeMinutes") if ins is not None else None
+
+    # Default loadout summary
+    weapons_line, core_line = _loadout_summary(root)
+
+    # Flight stats from controller
+    scm = max_spd = boost_fwd = boost_bwd = None
+    pitch = roll = yaw = None
+    if controller_root is not None:
+        ifcs = _find(controller_root, "IFCSParams")
+        if ifcs is not None:
+            scm       = ifcs.get("scmSpeed")
+            max_spd   = ifcs.get("maxSpeed")
+            boost_fwd = ifcs.get("boostSpeedForward")
+            boost_bwd = ifcs.get("boostSpeedBackward")
+        sp = _find_by_type(controller_root, "SIFCSSpeedProfile")
+        if sp is not None:
+            av = sp.find("angularVelocity")
+            if av is not None:
+                pitch = av.get("x")   # pitch rate °/s
+                roll  = av.get("y")   # roll rate  °/s
+                yaw   = av.get("z")   # yaw rate   °/s
 
     lines = []
+
     if scm is not None or max_spd is not None:
-        lines.append(f"SCM Speed: {_fmt_ship(scm, ' m/s')}  |  Max Speed: {_fmt_ship(max_spd, ' m/s')}")
+        lines.append(f"SCM: {_fmt(scm, ' m/s')}  |  Max: {_fmt(max_spd, ' m/s')}")
+    if boost_fwd is not None or boost_bwd is not None:
+        lines.append(f"Boost: +{_fmt(boost_fwd, ' m/s')}  /  -{_fmt(boost_bwd, ' m/s')}")
     if pitch is not None:
-        lines.append(f"Pitch: {_fmt_ship(pitch, '°/s')}  |  Yaw: {_fmt_ship(yaw, '°/s')}  |  Roll: {_fmt_ship(roll, '°/s')}")
-    if length is not None or crew is not None:
-        lines.append(f"Length: {_fmt_ship(length, ' m')}  |  Crew: {_fmt_ship(crew)}")
-    parts = []
-    if cargo   is not None: parts.append(f"Cargo: {_fmt_ship(cargo, ' SCU')}")
-    if shields is not None: parts.append(f"Shields: {_fmt_ship(shields, ' HP')}")
-    if mass    is not None: parts.append(f"Mass: {_fmt_ship(mass, ' kg')}")
-    if parts: lines.append("  |  ".join(parts))
-    if qt_speed is not None:
-        lines.append(f"QT Speed: {float(qt_speed) / 1_000_000:,.0f} Mm/s")
-    if qt_range is not None:
-        lines.append(f"QT Range: {float(qt_range) / 1_000_000:,.1f} Gm")
-    turret_parts = []
-    if manned_turrets: turret_parts.append(f"Manned Turrets: {turret_summary(manned_turrets)}")
-    if remote_turrets: turret_parts.append(f"Remote Turrets: {turret_summary(remote_turrets)}")
-    if turret_parts: lines.append("  |  ".join(turret_parts))
-    if countermeasures is not None:
-        lines.append(f"Countermeasures: {_fmt_ship(countermeasures)}")
+        lines.append(
+            f"Pitch: {_fmt(pitch, '°/s')}  |  Roll: {_fmt(roll, '°/s')}  |  Yaw: {_fmt(yaw, '°/s')}"
+        )
+
+    basics = []
+    if crew_size is not None: basics.append(f"Crew: {_fmt(crew_size)}")
+    if length    is not None: basics.append(f"Length: {_fmt(length, 'm', 1)}")
+    if career    is not None: basics.append(f"Class: {career}")
+    if role      is not None: basics.append(f"Role: {role}")
+    if basics:
+        lines.append("  |  ".join(basics))
+
+    if weapons_line:
+        lines.append(weapons_line)
+    if core_line:
+        lines.append(core_line)
+
+    if ins_base is not None:
+        lines.append(
+            f"Insurance: {_fmt(ins_base, ' min', 2)} base  |  {_fmt(ins_express, ' min', 2)} express"
+        )
+
     return "\\n".join(lines)
+
+
+def scan_spaceships(
+    spaceships_dir: Path,
+    controller_lookup: dict,
+    loc: dict,
+) -> dict[str, str]:
+    """Scan DataForge spaceship entities and generate ship stat descriptions."""
+    out: dict[str, str] = {}
+    matched = missed = skipped = 0
+
+    for xml_file in sorted(spaceships_dir.glob("*.xml")):
+        # Skip AI variants, templates, and unmanned variants
+        stem = xml_file.stem.lower()
+        if "_pu_ai_" in stem or "_ai_template" in stem or "_unmanned_" in stem:
+            skipped += 1
+            continue
+
+        try:
+            root = ET.parse(xml_file).getroot()
+        except ET.ParseError:
+            continue
+
+        # Loc key from VehicleComponentParams.vehicleDescription
+        vpc = _find(root, "VehicleComponentParams")
+        if vpc is None:
+            skipped += 1
+            continue
+        desc_attr = vpc.get("vehicleDescription", "")
+        if not desc_attr.startswith("@"):
+            skipped += 1
+            continue
+        loc_key = desc_attr.lstrip("@")
+
+        base_value = loc.get(loc_key)
+        if base_value is None:
+            missed += 1
+            continue
+
+        # Match ship class to flight controller
+        root_tag = root.tag
+        ship_class = root_tag.split(".", 1)[1].lower() if "." in root_tag else stem
+        controller_root = controller_lookup.get(ship_class)
+
+        try:
+            block = stats_ship_dataforge(root, controller_root, loc)
+        except Exception as e:
+            logger.warning(f"Ship stats failed for {xml_file.name}: {e}")
+            continue
+
+        if block:
+            # Deduplicate: first match for a given key wins
+            if loc_key not in out:
+                out[loc_key] = append_stats(base_value, block)
+                matched += 1
+        else:
+            missed += 1
+
+    logger.info(f"Spaceships: {matched} matched, {missed} no stats/key, {skipped} skipped (AI/templates)")
+    return out
 
 
 # ── Ammo lookup builder ───────────────────────────────────────────────────────
@@ -468,7 +786,7 @@ def scan_entity_dir(
             else:
                 stats_block = stat_fn(root)
         except Exception as e:
-            print(f"  Warning: stats failed for {xml_file.name}: {e}")
+            logger.warning(f"Stats failed for {xml_file.name}: {e}")
             continue
 
         if stats_block:
@@ -477,14 +795,14 @@ def scan_entity_dir(
         else:
             missed += 1
 
-    print(f"    {entity_dir.name}: {matched} matched, {missed} no stats, {skipped} no loc key")
+    logger.info(f"{entity_dir.name}: {matched} matched, {missed} no stats, {skipped} no loc key")
     return out
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
-    print("\n=== SC Stats INI Generator (DataForge edition) ===\n")
+    logger.info("=== SC Stats INI Generator (DataForge edition) ===")
 
     if forge_dir is None:
         forge_dir = DEFAULT_FORGE_DIR
@@ -492,31 +810,30 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # ── Parse base.ini ─────────────────────────────────────────────────────────
-    print(f"Parsing base.ini: {base_ini_path}")
+    logger.info(f"Parsing base.ini: {base_ini_path}")
     if not base_ini_path.exists():
-        print(f"ERROR: base.ini not found at {base_ini_path}")
-        sys.exit(1)
+        raise FileNotFoundError(f"base.ini not found at {base_ini_path}")
     loc = parse_ini(base_ini_path)
-    print(f"  Loaded {len(loc):,} localization keys\n")
+    logger.info(f"Loaded {len(loc):,} localization keys")
 
     # ── Check DataForge cache ─────────────────────────────────────────────────
     records = forge_dir / "libs" / "foundry" / "records"
     if not forge_dir.exists() or not records.exists():
-        print(f"ERROR: DataForge cache not found at {forge_dir}")
-        print("  Run 'Extract DataForge' in the app first (Config tab → Stats section).")
-        sys.exit(1)
+        raise FileNotFoundError(
+            f"DataForge cache not found at {forge_dir}\n"
+            "Run 'Extract DataForge' in the app first (Enhancements tab)."
+        )
 
     # ── Build ammo lookups ────────────────────────────────────────────────────
-    print("Building ammo damage lookups…")
+    logger.info("Building ammo damage lookups…")
     vehicle_ammo = build_ammo_lookup(records / "ammoparams" / "vehicle")
     fps_ammo     = build_ammo_lookup(records / "ammoparams" / "fps")
-    print(f"  Vehicle ammo: {len(vehicle_ammo)} records")
-    print(f"  FPS ammo:     {len(fps_ammo)} records\n")
+    logger.info(f"Vehicle ammo: {len(vehicle_ammo)} records, FPS ammo: {len(fps_ammo)} records")
 
     # ── Process components ────────────────────────────────────────────────────
     ships_scitem = records / "entities" / "scitem" / "ships"
 
-    print("Processing ship components…")
+    logger.info("Processing ship components…")
     out_components: dict[str, str] = {}
     for subdir, fn in [
         ("shieldgenerator", stats_shield),
@@ -527,70 +844,46 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
         out_components.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc))
 
     # ── Process ship weapons ──────────────────────────────────────────────────
-    print("\nProcessing ship weapons…")
+    logger.info("Processing ship weapons…")
     out_ship_weapons: dict[str, str] = {}
     weapons_dir = ships_scitem / "weapons"
     if weapons_dir.exists():
         out_ship_weapons = scan_entity_dir(
             weapons_dir,
-            lambda root: stats_weapon(root, vehicle_ammo),
+            lambda root: stats_weapon(root, vehicle_ammo, loc),
             loc=loc,
         )
 
     # ── Process FPS weapons ───────────────────────────────────────────────────
-    print("\nProcessing FPS weapons…")
+    logger.info("Processing FPS weapons…")
     out_fps_weapons: dict[str, str] = {}
     fps_dir = records / "entities" / "scitem" / "weapons" / "fps_weapons"
     if fps_dir.exists():
         out_fps_weapons = scan_entity_dir(
             fps_dir,
-            lambda root: stats_weapon(root, fps_ammo),
+            lambda root: stats_weapon(root, fps_ammo, loc),
             loc=loc,
         )
 
-    # ── Process ships (scunpacked-based) ──────────────────────────────────────
-    print("\nLoading ships.json (scunpacked-data)…")
-    SHIPS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    ships_raw = load_ships_json()
-    ships_by_class: dict[str, dict] = {}
-    ships_by_name:  dict[str, dict] = {}
-    for s in ships_raw:
-        cls  = (s.get("ClassName") or s.get("className") or "")
-        name = (s.get("Name")      or s.get("name")      or "").lower().strip()
-        if cls:  ships_by_class[_normalize_classname(cls).lower()] = s
-        if name: ships_by_name[name] = s
+    # ── Process ships (DataForge spaceship entities + flight controllers) ──────
+    logger.info("Building flight controller lookup…")
+    controller_dir = records / "entities" / "scitem" / "ships" / "controller"
+    controller_lookup = build_controller_lookup(controller_dir)
+    logger.info(f"Controllers: {len(controller_lookup)} loaded")
 
-    print("Processing ship descriptions…")
-    out_ships: dict[str, str] = {}
-    matched_ships = missed_ships = 0
-    for key, value in loc.items():
-        if not key.startswith("vehicle_Desc"):
-            continue
-        bare = key.split(",")[0][len("vehicle_Desc"):].lower()
-        rec  = ships_by_class.get(bare)
-        if not rec:
-            name_key = "vehicle_Name" + key.split(",")[0][len("vehicle_Desc"):]
-            display  = loc.get(name_key, "").lower().strip()
-            if display:
-                rec = ships_by_name.get(display)
-        if rec:
-            block = stats_ship(rec)
-            if block:
-                out_ships[key] = append_stats(value, block)
-                matched_ships += 1
-        else:
-            missed_ships += 1
-    print(f"  Ships: {matched_ships} matched, {missed_ships} unmatched")
+    logger.info("Processing ship descriptions…")
+    spaceships_dir = records / "entities" / "spaceships"
+    out_ships = scan_spaceships(spaceships_dir, controller_lookup, loc)
 
     # ── Write output ──────────────────────────────────────────────────────────
-    print("\nWriting output files…")
+    logger.info("Writing output files…")
     write_ini(OUTPUT_DIR / "ships_desc_stats.ini",       out_ships)
     write_ini(OUTPUT_DIR / "components_desc_stats.ini",  out_components)
     write_ini(OUTPUT_DIR / "ship_weapons_desc_stats.ini",out_ship_weapons)
     write_ini(OUTPUT_DIR / "fps_weapons_desc_stats.ini", out_fps_weapons)
 
     total = len(out_ships) + len(out_components) + len(out_ship_weapons) + len(out_fps_weapons)
-    print(f"\nDone — {total:,} total stat entries written to {OUTPUT_DIR}\n")
+    logger.info(f"Done — {total:,} total stat entries written to {OUTPUT_DIR}")
 
 
 if __name__ == "__main__":

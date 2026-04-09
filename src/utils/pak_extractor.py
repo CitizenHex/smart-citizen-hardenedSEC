@@ -90,6 +90,7 @@ _DATAFORGE_KEEP = [
     "libs/foundry/records/ammoparams/vehicle",
     "libs/foundry/records/ammoparams/fps",
     "libs/foundry/records/entities/spaceships",
+    "libs/foundry/records/entities/scitem/ships/controller",
 ]
 
 
@@ -168,9 +169,11 @@ def extract_dataforge(
         if result.returncode != 0:
             raise RuntimeError(f"unforge.exe failed (code {result.returncode}):\n{result.stderr or result.stdout}")
 
-        # unforge writes entity XMLs into libs/ next to the dcb file
-        libs_dir = dcb_path.parent / "libs"
-        if not libs_dir.exists():
+        # unforge writes entity XMLs into a libs/ subdirectory next to the dcb file.
+        # _DATAFORGE_KEEP paths already start with "libs/...", so use dcb_path.parent
+        # as the base to avoid a doubled "libs/libs/..." path.
+        libs_dir = dcb_path.parent
+        if not (libs_dir / "libs").exists():
             raise FileNotFoundError("unforge ran but libs/ directory was not created — unexpected output structure.")
 
         # ── Step 3: Copy only the needed subdirectories to cache ──────────────
@@ -199,9 +202,17 @@ def extract_dataforge(
 
 
 def dataforge_cache_is_fresh(p4k_path: Path, dataforge_cache_dir: Path) -> bool:
-    """Return True if the cached DataForge XMLs are up-to-date with the p4k."""
+    """Return True if the cached DataForge XMLs are up-to-date with the p4k.
+
+    Requires both a matching mtime stamp AND actual XML content in the cache
+    so a stamp-only remnant from a failed/partial extraction returns False.
+    """
     stamp = dataforge_cache_dir / ".p4k_mtime"
-    if not stamp.exists():
+    libs_dir = dataforge_cache_dir / "libs"
+    if not stamp.exists() or not libs_dir.exists():
+        return False
+    # Verify there is at least one XML file — guards against empty extractions
+    if not any(libs_dir.rglob("*.xml")):
         return False
     try:
         cached_mtime = float(stamp.read_text().strip())

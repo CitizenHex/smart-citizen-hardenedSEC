@@ -137,12 +137,18 @@ end;
 procedure InitializeWizard();
 var
   DefaultPath: String;
+  RegPath: String;
+  SavedPath: String;
 begin
-  { Create custom page for Star Citizen directory selection }
-  DefaultPath := 'C:\Program Files\Roberts Space Industries\StarCitizen\LIVE';
+  RegPath := 'Software\Osiris DevWorks\SC Localization Editor';
+  DefaultPath := '';
 
-  { Check if default SC directory exists }
-  if DirExists('C:\Program Files\Roberts Space Industries\StarCitizen\LIVE') then
+  { Prefer previously saved SC directory (installer key, then Config tab QSettings key) }
+  if RegQueryStringValue(HKCU, RegPath, 'sc_directory', SavedPath) and (SavedPath <> '') then
+    DefaultPath := SavedPath
+  else if RegQueryStringValue(HKCU, RegPath, 'game_install_path', SavedPath) and (SavedPath <> '') then
+    DefaultPath := SavedPath
+  else if DirExists('C:\Program Files\Roberts Space Industries\StarCitizen\LIVE') then
     DefaultPath := 'C:\Program Files\Roberts Space Industries\StarCitizen\LIVE'
   else if DirExists('C:\Program Files (x86)\Roberts Space Industries\StarCitizen\LIVE') then
     DefaultPath := 'C:\Program Files (x86)\Roberts Space Industries\StarCitizen\LIVE'
