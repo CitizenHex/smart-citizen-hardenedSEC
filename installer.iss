@@ -1,13 +1,13 @@
 [Setup]
 AppId={{9A8B7C6D-4E3F-5B2A-0D1E-8F7G6H5I4J3K}
 AppName=SC Localization Editor
-AppVersion=0.5.3
+AppVersion=0.6.0
 AppPublisher=Osiris DevWorks
 AppPublisherURL=https://github.com/Osiris-DevWorks/sc-localization-editor
 DefaultDirName={localappdata}\Osiris DevWorks\SC Localization Editor
 DefaultGroupName=SC Localization Editor
 OutputDir=dist
-OutputBaseFilename=SCLocalizationEditor-0.5.3-Setup
+OutputBaseFilename=SCLocalizationEditor-0.6.0-Setup
 Compression=lzma
 SolidCompression=yes
 ArchitecturesAllowed=x64
