@@ -289,6 +289,9 @@ class MainWindow(QMainWindow):
         # DataForge extraction worker
         self._forge_worker: Optional[DataForgeExtractWorker] = None
 
+        # Track whether we've prompted for stats on startup (prevents duplicate dialogs)
+        self._stats_prompted_on_startup = False
+
         # Status bar state (composed message) - tracks sync status per source
         self._source_status: dict[str, str] = {}  # source_name -> status_string
 
@@ -1454,7 +1457,11 @@ Shows the sync status for each configured source. "✓" means up to date.
             self._run_p4k_extraction()
 
     def _check_stats_freshness(self):
-        """If stats INI files are missing on startup, prompt to generate them."""
+        """If stats INI files are missing, prompt to generate them.
+
+        On startup, shows a dialog if stats are missing. If called again after P4K
+        extraction and we already prompted, skips the dialog and runs stats directly.
+        """
         cache_dir = AppSettings.get_cache_dir()
         if not (cache_dir / 'base.ini').exists():
             return
@@ -1470,6 +1477,14 @@ Shows the sync status for each configured source. "✓" means up to date.
         if not p4k_path.exists():
             return  # can't generate without the game files; user can trigger manually
 
+        # If we already prompted at startup and user said Yes, just run stats generation
+        # (they're here because P4K extraction completed)
+        if self._stats_prompted_on_startup:
+            self._run_stats_pipeline()
+            return
+
+        # First prompt - show dialog to user
+        self._stats_prompted_on_startup = True
         reply = QMessageBox.question(
             self, "Generate Stats",
             f"{len(missing)} of 4 stats files are missing.\n\n"
@@ -1600,6 +1615,9 @@ Shows the sync status for each configured source. "✓" means up to date.
             self.statusBar().showMessage("Extracted base.ini from Data.p4k — reloading...")
             self.load_default_values()
             self.auto_load_default_files()
+
+            # Check if stats need to be generated (if user prompted at startup, continues without re-prompting)
+            self._check_stats_freshness()
 
     def closeEvent(self, event):
         """Save state and overrides before closing."""
