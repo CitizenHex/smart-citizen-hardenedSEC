@@ -163,19 +163,43 @@ def _find_resource(root: ET.Element, resource: str) -> str | None:
 
 
 def _fire_rate(root: ET.Element) -> str | None:
-    """Return the highest fire rate found across all weapon fire actions."""
-    best = None
-    for el in root.iter():
-        if "WeaponActionFire" in el.tag:
-            fr = el.get("fireRate")
-            if fr:
+    """Return the primary fire rate found in weapon fire actions.
+
+    Searches in priority order:
+    1. Default or primary fire mode (if marked)
+    2. Highest fire rate if multiple modes exist
+    """
+    fire_rates = []  # List of (rate_value, is_primary)
+
+    try:
+        for el in root.iter():
+            if "WeaponActionFire" in el.tag:
+                fr = el.get("fireRate")
+                if not fr:
+                    continue
+
                 try:
                     v = float(fr)
-                    if best is None or v > best:
-                        best = v
-                except ValueError:
+                    if v <= 0:
+                        continue
+
+                    # Check if this is marked as default/primary
+                    is_default = el.get("default") == "1" or el.get("isDefault") == "true"
+                    action_type = el.get("actionType", "")
+                    is_primary = (is_default or "primary" in action_type.lower())
+
+                    fire_rates.append((v, is_primary))
+                except (ValueError, TypeError):
                     pass
-    return str(best) if best else None
+    except Exception:
+        pass
+
+    if not fire_rates:
+        return None
+
+    # Sort by primary first, then by rate (highest)
+    fire_rates.sort(key=lambda x: (-int(x[1]), -x[0]))
+    return str(fire_rates[0][0])
 
 
 def _fire_modes(root: ET.Element, loc: dict | None = None) -> list[str]:
@@ -252,6 +276,183 @@ def stats_shield(root: ET.Element) -> str:
     if comp_hp is not None:
         lines.append(f"Component HP: {_fmt(comp_hp)}")
     return "\\n".join(lines)
+
+
+def stats_missile(root: ET.Element) -> str:
+    """Extract missile/rocket/bomb stats (velocity, guidance, tracking range, fuel/lifetime)."""
+    lines = []
+
+    try:
+        # Primary missile params container
+        for el in root.iter():
+            try:
+                # Missile velocity and lifetime
+                if "missile" in el.tag.lower() or "projectile" in el.tag.lower():
+                    velocity = el.get("speed") or el.get("velocity") or el.get("initialVelocity")
+                    if velocity and velocity != "0":
+                        try:
+                            vel_val = float(velocity)
+                            if vel_val > 0:
+                                lines.append(f"Velocity: {vel_val:,.0f} m/s")
+                        except (ValueError, TypeError):
+                            pass
+
+                    lifetime = el.get("lifetime") or el.get("maxLifetime") or el.get("burnTime")
+                    if lifetime and lifetime != "0":
+                        try:
+                            life_val = float(lifetime)
+                            if life_val > 0:
+                                lines.append(f"Lifetime: {life_val:.2f}s")
+                        except (ValueError, TypeError):
+                            pass
+
+                # Guidance and tracking parameters
+                if "guidance" in el.tag.lower() or "tracking" in el.tag.lower():
+                    guidance_type = el.get("guidanceType") or el.get("type") or el.tag.replace("Guidance", "").replace("Tracking", "")
+                    if guidance_type and "none" not in guidance_type.lower():
+                        lines.append(f"Guidance: {guidance_type}")
+
+                    # Lock-on and tracking range
+                    lock_range = el.get("lockOnRange") or el.get("launchRange") or el.get("maxLockRange")
+                    if lock_range and lock_range != "0":
+                        try:
+                            lock_val = float(lock_range) / 1000  # Convert to km
+                            if lock_val > 0:
+                                lines.append(f"Lock Range: {lock_val:,.1f} km")
+                        except (ValueError, TypeError):
+                            pass
+
+                    # Tracking range (how far missile can follow locked target)
+                    track_range = el.get("trackingRange") or el.get("engagementRange") or el.get("maxEngagementRange")
+                    if track_range and track_range != "0":
+                        try:
+                            track_val = float(track_range) / 1000  # Convert to km
+                            if track_val > 0:
+                                lines.append(f"Tracking Range: {track_val:,.1f} km")
+                        except (ValueError, TypeError):
+                            pass
+
+                    # Turn rate for guided missiles
+                    turn_rate = el.get("turnRate") or el.get("maxTurnRate") or el.get("angularVelocity")
+                    if turn_rate and turn_rate != "0":
+                        try:
+                            turn_val = float(turn_rate)
+                            if turn_val > 0:
+                                lines.append(f"Turn Rate: {turn_val:.1f}°/s")
+                        except (ValueError, TypeError):
+                            pass
+
+                # Fuel/propellant for rockets and missiles
+                if "propellant" in el.tag.lower() or "fuel" in el.tag.lower():
+                    fuel_amount = el.get("amount") or el.get("fuelAmount")
+                    if fuel_amount and fuel_amount != "0":
+                        try:
+                            fuel_val = float(fuel_amount)
+                            if fuel_val > 0:
+                                lines.append(f"Fuel: {fuel_val:.1f}s")
+                        except (ValueError, TypeError):
+                            pass
+            except Exception:
+                pass
+
+        # Damage (inherited from base weapon/ammo structure)
+        damage_info = _find(root, "DamageInfo")
+        if damage_info is not None:
+            total_dmg, breakdown = _ammo_damage_breakdown(root)
+            if total_dmg and total_dmg > 0:
+                type_str = ""
+                if breakdown and len(breakdown) == 1:
+                    type_str = f" ({list(breakdown.keys())[0]})"
+                elif breakdown and len(breakdown) > 1:
+                    type_str = " (" + " / ".join(f"{lbl}: {v:.1f}" for lbl, v in breakdown.items()) + ")"
+                lines.append(f"Damage: {_fmt(total_dmg, '', 1)}{type_str}")
+
+        # Component HP
+        comp_hp = _attr(root, "SHealthComponentParams", "Health")
+        if comp_hp is not None:
+            lines.append(f"Component HP: {_fmt(comp_hp)}")
+    except Exception:
+        pass
+
+    return "\\n".join(lines) if lines else ""
+
+
+def stats_radar(root: ET.Element) -> str:
+    """Extract radar/sensor detection and tracking stats."""
+    lines = []
+
+    try:
+        # Look for radar/sensor parameter structures
+        for el in root.iter():
+            try:
+                # Scan for detection range fields
+                if "detection" in el.tag.lower() or "range" in el.tag.lower() or "sensor" in el.tag.lower():
+                    # Detection range
+                    det_range = el.get("detectionRange") or el.get("range") or el.get("maxRange")
+                    if det_range and det_range != "0":
+                        try:
+                            range_val = float(det_range)
+                            if range_val > 0:
+                                lines.append(f"Detection Range: {range_val / 1000:,.1f} km")
+                        except (ValueError, TypeError):
+                            pass
+
+                    # Tracking range (how far it can track locked targets)
+                    track_range = el.get("trackingRange") or el.get("trackRange") or el.get("maxTrackingRange")
+                    if track_range and track_range != "0":
+                        try:
+                            track_val = float(track_range)
+                            if track_val > 0:
+                                lines.append(f"Tracking Range: {track_val / 1000:,.1f} km")
+                        except (ValueError, TypeError):
+                            pass
+
+                    # Signature detection threshold
+                    sig_threshold = el.get("signatureThreshold") or el.get("minSignature") or el.get("detectionThreshold")
+                    if sig_threshold and sig_threshold != "0":
+                        try:
+                            sig_val = float(sig_threshold)
+                            lines.append(f"Signature Threshold: {sig_val}")
+                        except (ValueError, TypeError):
+                            pass
+
+                    # Track count (number of simultaneous tracks)
+                    track_count = el.get("maxTargets") or el.get("trackCount") or el.get("trackingCapacity")
+                    if track_count and track_count != "0":
+                        try:
+                            count_val = int(float(track_count))
+                            if count_val > 0:
+                                lines.append(f"Max Targets: {count_val}")
+                        except (ValueError, TypeError):
+                            pass
+
+                # Power and signature characteristics
+                if el.tag == "EMSignature" or el.tag == "IRSignature":
+                    nom_sig = el.get("nominalSignature")
+                    if nom_sig and nom_sig != "0":
+                        try:
+                            sig_val = float(nom_sig)
+                            sig_type = "EM" if el.tag == "EMSignature" else "IR"
+                            if not any(f"{sig_type} Sig:" in line for line in lines):
+                                lines.append(f"{sig_type} Signature: {sig_val}")
+                        except (ValueError, TypeError):
+                            pass
+            except Exception:
+                pass
+
+        # Power consumption for radar/sensors
+        pwr = _find_resource(root, "Power")
+        if pwr is not None:
+            lines.append(f"Power Draw: {_fmt(pwr, ' PU/s')}")
+
+        # Component health
+        comp_hp = _attr(root, "SHealthComponentParams", "Health")
+        if comp_hp is not None:
+            lines.append(f"Component HP: {_fmt(comp_hp)}")
+    except Exception:
+        pass
+
+    return "\\n".join(lines) if lines else ""
 
 
 def stats_cooler(root: ET.Element) -> str:
@@ -363,6 +564,116 @@ def stats_quantum_drive(root: ET.Element) -> str:
     return "\\n".join(lines)
 
 
+def stats_mission(root: ET.Element) -> str:
+    """Extract mission/contract reward stats (XP, aUEC, reputation)."""
+    lines = []
+
+    try:
+        # Look for reward containers or direct fields
+        for el in root.iter():
+            try:
+                # Check for xpReward field
+                xp = el.get("xpReward")
+                if xp and xp != "0":
+                    try:
+                        xp_val = int(float(xp))
+                        if xp_val > 0:
+                            lines.append(f"XP Reward: {xp_val:,}")
+                    except (ValueError, TypeError):
+                        pass
+
+                # Check for aUEC (Alpha UEC / in-game currency)
+                auec = el.get("aUEC") or el.get("auec")
+                if auec and auec != "0":
+                    try:
+                        auec_val = int(float(auec))
+                        if auec_val > 0:
+                            lines.append(f"aUEC: {auec_val:,}")
+                    except (ValueError, TypeError):
+                        pass
+
+                # Check for reputation rewards
+                rep = el.get("reputationReward") or el.get("reputation")
+                if rep and rep != "0":
+                    try:
+                        rep_val = float(rep)
+                        if rep_val > 0:
+                            lines.append(f"Reputation: +{rep_val:,.2f}")
+                    except (ValueError, TypeError):
+                        pass
+
+                # Check for other reward types in reward containers
+                if "Reward" in el.tag:
+                    # Look for amount fields within reward containers
+                    amount = el.get("amount")
+                    reward_type = el.get("type") or el.get("rewardType") or el.tag.replace("Reward", "").replace("Params", "")
+                    if amount and amount != "0":
+                        try:
+                            amount_val = int(float(amount))
+                            if amount_val > 0:
+                                lines.append(f"{reward_type}: {amount_val:,}")
+                        except (ValueError, TypeError):
+                            pass
+            except Exception:
+                # Skip individual elements that cause errors
+                pass
+    except Exception:
+        pass
+
+    return "\\n".join(lines) if lines else ""
+
+
+def scan_crafting_recipes(recipes_dir: Path) -> dict[str, list[str]]:
+    """Scan crafting recipe entities to build a map of commodity → crafted items.
+
+    Returns a dict mapping commodity localization keys (e.g., "items_commodities_agricium")
+    to lists of crafted item names that use that commodity as an ingredient.
+    """
+    commodity_recipes: dict[str, list[str]] = {}  # commodity_key → [item1, item2, ...]
+
+    if not recipes_dir.exists():
+        return commodity_recipes
+
+    try:
+        for xml_file in recipes_dir.rglob("*.xml"):
+            try:
+                root = ET.parse(xml_file).getroot()
+            except ET.ParseError:
+                continue
+
+            try:
+                # Extract the output item's localization key (the result of the recipe)
+                output_key = _loc_key(root)
+                if not output_key:
+                    continue
+
+                # Scan for ingredient references (commodity keys)
+                for el in root.iter():
+                    try:
+                        # Look for commodity ingredient references
+                        if "ingredient" in el.tag.lower() or "input" in el.tag.lower():
+                            # Try to find commodity references
+                            item_guid = el.get("itemGUID") or el.get("itemGuid") or el.get("itemClass")
+                            item_ref = el.get("item") or el.get("ref")
+
+                            # If we find a commodity reference, map it to this output
+                            if item_ref and "commodities" in item_ref.lower():
+                                # Extract commodity key from reference
+                                commodity_key = item_ref.lower().replace("@", "")
+                                if commodity_key not in commodity_recipes:
+                                    commodity_recipes[commodity_key] = []
+                                if output_key not in commodity_recipes[commodity_key]:
+                                    commodity_recipes[commodity_key].append(output_key)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    return commodity_recipes
+
+
 def stats_weapon(root: ET.Element, ammo_lookup: dict[str, ET.Element],
                  loc: dict | None = None) -> str:
     """Ship or FPS weapon stats."""
@@ -385,8 +696,15 @@ def stats_weapon(root: ET.Element, ammo_lookup: dict[str, ET.Element],
         ammo_root = ammo_lookup.get(ammo_record_id)
         if ammo_root is not None:
             total_dmg, breakdown = _ammo_damage_breakdown(ammo_root)
-            proj_speed    = ammo_root.get("speed")
-            proj_lifetime = ammo_root.get("lifetime")
+            # Try multiple field names for projectile speed (varies by ammo type)
+            proj_speed = (ammo_root.get("speed") or
+                         ammo_root.get("velocity") or
+                         ammo_root.get("projectileSpeed") or
+                         ammo_root.get("initialSpeed"))
+            # Try multiple field names for lifetime
+            proj_lifetime = (ammo_root.get("lifetime") or
+                           ammo_root.get("projectileLifetime") or
+                           ammo_root.get("maxLifetime"))
             if total_dmg and fr:
                 try:
                     dps = total_dmg * float(fr) / 60.0
@@ -731,16 +1049,23 @@ def scan_spaceships(
 # ── Ammo lookup builder ───────────────────────────────────────────────────────
 
 def build_ammo_lookup(ammo_dir: Path) -> dict[str, ET.Element]:
-    """Parse all ammo XML files and index them by their __ref GUID."""
+    """Parse all ammo XML files and index them by their __ref GUID.
+
+    Falls back to root tag name if __ref is not available.
+    """
     lookup: dict[str, ET.Element] = {}
     if not ammo_dir.exists():
         return lookup
     for xml_file in ammo_dir.rglob("*.xml"):
         try:
             root = ET.parse(xml_file).getroot()
+            # Primary: use __ref attribute (GUID)
             ref = root.get("__ref")
             if ref:
                 lookup[ref] = root
+            # Fallback: index by file stem if no __ref (helps with FPS ammo)
+            else:
+                lookup[xml_file.stem] = root
         except ET.ParseError:
             pass
     return lookup
@@ -843,6 +1168,29 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
     ]:
         out_components.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc))
 
+    # ── Process radar/sensors ─────────────────────────────────────────────────
+    logger.info("Processing radar/sensor components…")
+    scitem_dir = records / "entities" / "scitem"
+    for radar_dir in [
+        scitem_dir / "radar",
+        scitem_dir / "sensors",
+        scitem_dir / "avionics" / "radar",
+    ]:
+        if radar_dir.exists():
+            out_components.update(scan_entity_dir(radar_dir, stats_radar, loc=loc))
+
+    # ── Process missiles/rockets/bombs ────────────────────────────────────────
+    logger.info("Processing missile/rocket/bomb stats…")
+    out_missiles: dict[str, str] = {}
+    ammo_dir = scitem_dir / "ammo"
+    for missile_dir in [
+        ammo_dir / "missiles",
+        ammo_dir / "rockets",
+        ammo_dir / "bombs",
+    ]:
+        if missile_dir.exists():
+            out_missiles.update(scan_entity_dir(missile_dir, stats_missile, loc=loc))
+
     # ── Process ship weapons ──────────────────────────────────────────────────
     logger.info("Processing ship weapons…")
     out_ship_weapons: dict[str, str] = {}
@@ -875,14 +1223,59 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
     spaceships_dir = records / "entities" / "spaceships"
     out_ships = scan_spaceships(spaceships_dir, controller_lookup, loc)
 
+    # ── Process missions/contracts ────────────────────────────────────────────
+    logger.info("Processing mission/contract rewards…")
+    out_missions: dict[str, str] = {}
+    for mission_dir in [
+        records / "entities" / "missions",
+        records / "entities" / "contracts",
+        records / "entities" / "jobterminal",
+    ]:
+        if mission_dir.exists():
+            out_missions.update(scan_entity_dir(mission_dir, stats_mission, loc=loc))
+
+    # ── Process crafting recipes and augment commodities ─────────────────────
+    logger.info("Processing crafting recipes…")
+    out_commodities: dict[str, str] = {}
+
+    # Scan all crafting-related directories for recipes
+    commodity_recipes: dict[str, list[str]] = {}
+    for recipes_dir in [
+        records / "entities" / "crafting",
+        records / "entities" / "recipes",
+        records / "entities" / "manufacturing",
+    ]:
+        if recipes_dir.exists():
+            commodity_recipes.update(scan_crafting_recipes(recipes_dir))
+
+    # Augment commodity descriptions with crafting usage information
+    if commodity_recipes:
+        logger.info(f"Found {len(commodity_recipes)} commodities used in crafting")
+        for commodity_key, crafted_items in commodity_recipes.items():
+            if commodity_key in loc:
+                base_value = loc[commodity_key]
+                # Add crafting marker and list of items
+                crafted_items_str = ", ".join(crafted_items[:5])  # Limit to first 5
+                if len(crafted_items) > 5:
+                    crafted_items_str += f" + {len(crafted_items) - 5} more"
+                stats_block = f"[CRAFTING] Used in: {crafted_items_str}"
+                out_commodities[commodity_key] = append_stats(base_value, stats_block)
+
     # ── Write output ──────────────────────────────────────────────────────────
     logger.info("Writing output files…")
     write_ini(OUTPUT_DIR / "ships_desc_stats.ini",       out_ships)
     write_ini(OUTPUT_DIR / "components_desc_stats.ini",  out_components)
     write_ini(OUTPUT_DIR / "ship_weapons_desc_stats.ini",out_ship_weapons)
     write_ini(OUTPUT_DIR / "fps_weapons_desc_stats.ini", out_fps_weapons)
+    if out_missions:
+        write_ini(OUTPUT_DIR / "mission_rewards_stats.ini", out_missions)
+    if out_commodities:
+        write_ini(OUTPUT_DIR / "commodity_crafting_stats.ini", out_commodities)
+    if out_missiles:
+        write_ini(OUTPUT_DIR / "missile_stats.ini", out_missiles)
 
-    total = len(out_ships) + len(out_components) + len(out_ship_weapons) + len(out_fps_weapons)
+    total = (len(out_ships) + len(out_components) + len(out_ship_weapons) +
+             len(out_fps_weapons) + len(out_missions) + len(out_commodities) + len(out_missiles))
     logger.info(f"Done — {total:,} total stat entries written to {OUTPUT_DIR}")
 
 

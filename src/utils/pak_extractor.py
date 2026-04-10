@@ -1,7 +1,9 @@
 """Extracts files from Star Citizen's Data.p4k using bundled unp4k.exe."""
 import logging
+import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -9,6 +11,19 @@ logger = logging.getLogger(__name__)
 
 # Path of global.ini inside the p4k archive (unp4k preserves directory structure)
 _GLOBAL_INI_RELATIVE = Path("data/Localization/english/global.ini")
+
+
+def _get_subprocess_kwargs() -> dict:
+    """Return subprocess kwargs to suppress window on Windows."""
+    kwargs = {
+        "capture_output": True,
+        "text": True,
+    }
+    # On Windows, suppress the subprocess window completely
+    if sys.platform == "win32":
+        # CREATE_NO_WINDOW = 0x08000000
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0x08000000
+    return kwargs
 
 
 def extract_global_ini(
@@ -49,9 +64,8 @@ def extract_global_ini(
         result = subprocess.run(
             [str(unp4k_exe), str(p4k_path), "global.ini"],
             cwd=tmp_dir,
-            capture_output=True,
-            text=True,
             timeout=300,
+            **_get_subprocess_kwargs()
         )
 
         if result.returncode != 0:
@@ -91,6 +105,22 @@ _DATAFORGE_KEEP = [
     "libs/foundry/records/ammoparams/fps",
     "libs/foundry/records/entities/spaceships",
     "libs/foundry/records/entities/scitem/ships/controller",
+    # Mission/contract/job terminal entities (for XP and reward extraction)
+    "libs/foundry/records/entities/missions",
+    "libs/foundry/records/entities/contracts",
+    "libs/foundry/records/entities/jobterminal",
+    # Crafting/recipe entities (for commodity crafting usage markers)
+    "libs/foundry/records/entities/crafting",
+    "libs/foundry/records/entities/recipes",
+    "libs/foundry/records/entities/manufacturing",
+    # Radar/sensor entities (for detection range and sensitivity stats)
+    "libs/foundry/records/entities/scitem/radar",
+    "libs/foundry/records/entities/scitem/sensors",
+    "libs/foundry/records/entities/scitem/avionics/radar",
+    # Missile/rocket entities (for tracking and velocity stats)
+    "libs/foundry/records/entities/scitem/ammo/missiles",
+    "libs/foundry/records/entities/scitem/ammo/rockets",
+    "libs/foundry/records/entities/scitem/ammo/bombs",
 ]
 
 
@@ -142,9 +172,8 @@ def extract_dataforge(
         result = subprocess.run(
             [str(unp4k_exe), str(p4k_path), ".dcb"],
             cwd=tmp_dir,
-            capture_output=True,
-            text=True,
             timeout=600,
+            **_get_subprocess_kwargs()
         )
         if result.returncode != 0:
             raise RuntimeError(f"unp4k.exe failed (code {result.returncode}):\n{result.stderr or result.stdout}")
@@ -162,9 +191,8 @@ def extract_dataforge(
         logger.info(f"Running unforge: {unforge_exe} {dcb_path}")
         result = subprocess.run(
             [str(unforge_exe), str(dcb_path)],
-            capture_output=True,
-            text=True,
             timeout=1800,   # 30 minutes max
+            **_get_subprocess_kwargs()
         )
         if result.returncode != 0:
             raise RuntimeError(f"unforge.exe failed (code {result.returncode}):\n{result.stderr or result.stdout}")

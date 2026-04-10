@@ -17,6 +17,29 @@ from PyQt6.QtGui import QColor, QFont, QCursor, QPixmap, QIcon
 from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices
 
+
+class AnimatedProgressDialog(QProgressDialog):
+    """Reusable animated progress dialog for long-running operations.
+
+    Creates an indeterminate progress bar that automatically animates.
+    Use like: dialog = AnimatedProgressDialog("Loading...", parent)
+    """
+
+    def __init__(self, message: str, parent=None, title: str = "Processing"):
+        """Initialize indeterminate progress dialog.
+
+        Args:
+            message: Status message to display
+            parent: Parent widget
+            title: Window title
+        """
+        # Range (0, 0) creates an indeterminate, auto-animating progress bar
+        super().__init__(message, None, 0, 0, parent)
+        self.setWindowTitle(title)
+        self.setModal(True)
+        self.setMinimumWidth(400)
+        self.show()
+
 from src.models.string_model import StringEntry
 from src.parser.ini_parser import load_source_files, load_sources_from_settings, parse_ini_file
 from src.utils.settings import AppSettings
@@ -285,6 +308,7 @@ class MainWindow(QMainWindow):
 
         # Stats generation worker
         self._stats_worker: Optional[StatsGeneratorWorker] = None
+        self._stats_progress_dialog: Optional[AnimatedProgressDialog] = None
 
         # DataForge extraction worker
         self._forge_worker: Optional[DataForgeExtractWorker] = None
@@ -301,8 +325,8 @@ class MainWindow(QMainWindow):
         self.filter_timer.timeout.connect(self.apply_filters)
         self.filter_timer.setInterval(300)  # 300ms delay
 
-        # Progress dialog for file loading
-        self._progress_dialog: Optional[QProgressDialog] = None
+        # Progress dialog for file loading and other operations
+        self._loading_progress: Optional[QProgressDialog] = None
 
         # Build UI
         self.setup_ui()
@@ -773,12 +797,8 @@ class MainWindow(QMainWindow):
                     self.populate_table()
                     self.apply_filters()
 
-                    # Show override count in status bar
-                    modified_count = sum(1 for e in self.entries if e.status in ("Modified", "New"))
-                    msg = f"Loaded {len(self.entries)} entries"
-                    if modified_count:
-                        msg += f" | {modified_count} overrides active"
-                    self.statusBar().showMessage(msg)
+                    # Update status bar with entry counts and per-source status
+                    self._update_status_bar()
                     return
                 except Exception as e:
                     logger.exception(f"Error loading sources synchronously: {e}")
@@ -1104,20 +1124,27 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def clear_cache(self):
-        """Delete all cached source files from the cache directory."""
+        """Delete cached source files from the cache directory. Optionally clear DataForge cache."""
+        import shutil
+        from PyQt6.QtWidgets import QApplication
         cache_dir = AppSettings.get_cache_dir()
         cached_files = list(cache_dir.glob("*.ini")) + list(cache_dir.glob("*.txt"))
 
-        if not cached_files:
+        # Also check for dataforge directory
+        dataforge_dir = cache_dir / "dataforge"
+        has_dataforge = dataforge_dir.exists()
+
+        if not cached_files and not has_dataforge:
             QMessageBox.information(self, "Cache Empty", "The cache directory is already empty.")
             return
 
+        # First dialog: clear regular cache files
         file_list = "\n".join(f"  {f.name}" for f in sorted(cached_files))
+        msg = f"This will delete the following cached files:\n\n{file_list}\n\n"
+        msg += "base.ini will need to be re-extracted from Data.p4k before strings can be loaded."
+
         reply = QMessageBox.question(
-            self, "Clear Cache",
-            f"This will delete the following cached files:\n\n{file_list}\n\n"
-            "base.ini will need to be re-extracted from Data.p4k before strings can be loaded.\n\n"
-            "Continue?",
+            self, "Clear Cache", msg,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -1125,19 +1152,60 @@ class MainWindow(QMainWindow):
             return
 
         deleted, failed = [], []
+
+        # Show progress dialog while deleting files
+        progress = AnimatedProgressDialog("Clearing cache files...", parent=self, title="Clearing Cache")
+
+        # Delete cache files
         for f in cached_files:
             try:
+                progress.setLabelText(f"Deleting {f.name}...")
+                QApplication.processEvents()  # Keep dialog responsive
                 f.unlink()
                 deleted.append(f.name)
             except Exception as e:
                 failed.append(f"{f.name}: {e}")
                 logger.error(f"Failed to delete cache file {f}: {e}")
 
+        # Second dialog: ask about DataForge cache (only if it exists)
+        clear_dataforge = False
+        if has_dataforge:
+            progress.close()  # Close progress dialog while asking user
+            reply = QMessageBox.question(
+                self, "Clear DataForge Cache?",
+                "Also clear the DataForge entity cache?\n\n"
+                "⚠️  Warning: Recreating the DataForge cache takes 5–10 minutes on first run.\n\n"
+                "The DataForge cache contains extracted entity data used for generating\n"
+                "ship and weapon stats. You can keep this cache and only clear the INI files\n"
+                "if you just want to refresh the localization strings.\n\n"
+                "Clear DataForge cache?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                clear_dataforge = True
+                # Show progress dialog again for DataForge deletion
+                progress = AnimatedProgressDialog("Clearing DataForge cache...", parent=self, title="Clearing Cache")
+
+        # Delete dataforge directory if user agreed
+        if clear_dataforge:
+            try:
+                progress.setLabelText("Deleting DataForge directory...")
+                QApplication.processEvents()
+                shutil.rmtree(dataforge_dir)
+                deleted.append("dataforge/")
+                logger.info("Deleted DataForge cache directory")
+            except Exception as e:
+                failed.append(f"dataforge/: {e}")
+                logger.error(f"Failed to delete DataForge cache: {e}")
+
+        progress.close()
+
         self.config_tab._refresh_p4k_status()
         self.entries = []
         self.populate_table()
 
-        msg = f"Deleted {len(deleted)} file(s) from cache."
+        msg = f"Deleted {len(deleted)} item(s) from cache."
         if failed:
             msg += f"\n\nFailed to delete:\n" + "\n".join(failed)
         QMessageBox.information(self, "Cache Cleared", msg)
@@ -1198,12 +1266,8 @@ class MainWindow(QMainWindow):
                 self.populate_table()
                 self.apply_filters()
 
-                # Show override count in status bar
-                modified_count = sum(1 for e in self.entries if e.status in ("Modified", "New"))
-                msg = f"Merged {len(self.entries)} entries"
-                if modified_count:
-                    msg += f" | {modified_count} overrides active"
-                self.statusBar().showMessage(msg)
+                # Update status bar with entry counts and per-source status
+                self._update_status_bar()
             except Exception as e:
                 logger.exception(f"Error during merge: {e}")
                 QMessageBox.critical(self, "Error", f"Failed to merge sources: {e}")
@@ -1251,8 +1315,10 @@ class MainWindow(QMainWindow):
             self.populate_table()
             self.apply_filters()
 
+            # Update status bar with entry counts and per-source status
+            self._update_status_bar()
+
             logger.info(f"Restored backup from {backup_file} to {target_path}")
-            self.statusBar().showMessage(f"Restored backup from {backup_file_path.name}")
             QMessageBox.information(self, "Success", f"Backup restored from:\n{backup_file_path.name}")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to restore backup: {e}")
@@ -1352,7 +1418,11 @@ Shows the sync status for each configured source. "✓" means up to date.
         dialog.exec()
 
     def _update_status_bar(self):
-        """Compose sync status from all configured sources into status bar message."""
+        """Compose sync status from all configured sources plus entry counts and game version.
+
+        Shows per-source sync status in hierarchy order, then entry count, override count, and game version.
+        Example: "Global: 4.7.0-LIVE ✓  |  Contracts: ✓  |  Ships: ✓  |  82,934 entries | 5 overrides | SC v4.7.176"
+        """
         # Build status message from all configured sources in hierarchy order
         hierarchy = AppSettings.get_merge_hierarchy()
         parts = []
@@ -1360,6 +1430,22 @@ Shows the sync status for each configured source. "✓" means up to date.
         for source_name in hierarchy:
             if source_name in self._source_status:
                 parts.append(self._source_status[source_name])
+
+        # Add entry and override counts if data is loaded
+        if self.entries:
+            modified_count = sum(1 for e in self.entries if e.status in ("Modified", "New"))
+            entry_info = f"{len(self.entries):,} entries"
+            if modified_count:
+                entry_info += f" | {modified_count} overrides"
+            parts.append(entry_info)
+
+        # Add game version if available
+        game_version = AppSettings.get_game_version()
+        if game_version:
+            # Extract major version (e.g., "4.7.176" from "4.7.176.58286")
+            version_parts = game_version.split(".")
+            short_version = ".".join(version_parts[:3]) if len(version_parts) >= 3 else game_version
+            parts.append(f"SC v{short_version}")
 
         self.statusBar().showMessage("  |  ".join(parts) if parts else "Ready")
 
@@ -1410,31 +1496,38 @@ Shows the sync status for each configured source. "✓" means up to date.
             self._startup_sync_worker = None
 
         # Prompt user to extract from p4k if base.ini is missing or outdated
-        self._check_p4k_freshness()
+        p4k_extraction_started = self._check_p4k_freshness()
+
+        # If P4K extraction was started, don't load files yet.
+        # The P4K extraction finished handler will do the loading.
+        if p4k_extraction_started:
+            return
 
         # Prompt to generate stats if any stats files are missing
         self._check_stats_freshness()
 
-        self.statusBar().showMessage("Loading strings...")
-        QApplication.processEvents()  # Render the message before the blocking load
+        # Show progress dialog during file loading
+        self._show_loading_progress()
 
-        self.load_default_values()
-        self.auto_load_default_files()
+    def _check_p4k_freshness(self) -> bool:
+        """Prompt to extract from Data.p4k if base.ini is missing or outdated.
 
-    def _check_p4k_freshness(self):
-        """Prompt to extract from Data.p4k if base.ini is missing or outdated."""
+        Returns:
+            True if P4K extraction was started (caller should defer file loading).
+            False if no extraction is needed or user declined.
+        """
         unp4k_exe = AppSettings.get_unp4k_exe_path()
         p4k_path = AppSettings.get_p4k_path()
         base_ini = AppSettings.get_cache_dir() / 'base.ini'
 
         if not unp4k_exe.exists() or not p4k_path.exists():
-            return  # silently skip — unp4k not bundled yet or game path not set
+            return False  # silently skip — unp4k not bundled yet or game path not set
 
         base_missing = not base_ini.exists()
         p4k_newer = (not base_missing) and (p4k_path.stat().st_mtime > base_ini.stat().st_mtime)
 
         if not base_missing and not p4k_newer:
-            return  # cache is present and up to date
+            return False  # cache is present and up to date
 
         if base_missing:
             msg = (
@@ -1455,6 +1548,8 @@ Shows the sync status for each configured source. "✓" means up to date.
         )
         if reply == QMessageBox.StandardButton.Yes:
             self._run_p4k_extraction()
+            return True
+        return False
 
     def _check_stats_freshness(self):
         """If stats INI files are missing, prompt to generate them.
@@ -1496,6 +1591,58 @@ Shows the sync status for each configured source. "✓" means up to date.
         if reply == QMessageBox.StandardButton.Yes:
             self._run_stats_pipeline()
 
+    def _show_loading_progress(self, message: str = "Loading localization strings...") -> None:
+        """Show an animated progress dialog while loading files in a worker thread.
+
+        Uses FileLoaderWorker to load files asynchronously so the progress dialog
+        can animate properly. Shares the same progress dialog implementation as P4K extraction.
+
+        Args:
+            message: Status message to display in the progress dialog
+        """
+        # Load sources in background worker thread
+        self._loader_worker = FileLoaderWorker()
+
+        # Create reusable animated progress dialog
+        self._loading_progress = AnimatedProgressDialog(message, parent=self, title="Loading")
+
+        # Connect worker signals to progress dialog label updates
+        self._loader_worker.finished.connect(self._on_loading_finished)
+        self._loader_worker.error.connect(self._on_loading_error)
+        self._loader_worker.start()
+
+    @pyqtSlot(list)
+    def _on_loading_finished(self, entries: list):
+        """Handle file loading completion. Keep dialog open until all work is done."""
+        # Keep dialog open while doing synchronous UI work
+        try:
+            self.load_default_values()
+            self.entries = entries
+            self.update_category_combo()
+            self.populate_table()
+            self.apply_filters()
+
+            # Update status bar with entry counts and per-source status
+            self._update_status_bar()
+        finally:
+            # Now close the dialog - everything is truly complete
+            self._loading_progress.close()
+            self._loading_progress = None
+            self._loader_worker.quit()
+            self._loader_worker.wait()
+            self._loader_worker = None
+
+    @pyqtSlot(str)
+    def _on_loading_error(self, error_msg: str):
+        """Handle file loading error."""
+        self._loading_progress.close()
+        self._loading_progress = None
+        QMessageBox.critical(self, "Error", f"Failed to load sources: {error_msg}")
+        if self._loader_worker:
+            self._loader_worker.quit()
+            self._loader_worker.wait()
+            self._loader_worker = None
+
     def _run_stats_pipeline(self):
         """Entry point for the stats button: extract DataForge if needed, then generate stats."""
         if self._stats_worker is not None or self._forge_worker is not None:
@@ -1511,7 +1658,7 @@ Shows the sync status for each configured source. "✓" means up to date.
             self._run_dataforge_extraction()
 
     def _run_stats_generation(self):
-        """Launch StatsGeneratorWorker in the background (non-blocking)."""
+        """Launch StatsGeneratorWorker in the background with animated progress dialog."""
         if self._stats_worker is not None:
             return  # already running
 
@@ -1519,16 +1666,33 @@ Shows the sync status for each configured source. "✓" means up to date.
         self.enhancements_tab.set_operation_running("Generating stats…")
         self.statusBar().showMessage("Generating stats in background…")
 
+        # Show animated progress dialog
+        self._stats_progress_dialog = AnimatedProgressDialog(
+            "Generating ship, component, and weapon stats from DataForge…\n\nThis may take a few minutes on the first run.",
+            parent=self,
+            title="Generating Stats",
+        )
+
         self._stats_worker.progress.connect(self.enhancements_tab.set_operation_progress)
         self._stats_worker.progress.connect(self.statusBar().showMessage)
+        self._stats_worker.progress.connect(self._stats_progress_dialog.setLabelText)
         self._stats_worker.error.connect(self._on_stats_generation_error)
         self._stats_worker.finished.connect(self._on_stats_generation_finished)
         self._stats_worker.start()
 
     def _on_stats_generation_error(self, message: str):
         logger.error(f"Stats generation error: {message}")
+        # Close progress dialog on error
+        if self._stats_progress_dialog is not None:
+            self._stats_progress_dialog.close()
+            self._stats_progress_dialog = None
 
     def _on_stats_generation_finished(self, success: bool):
+        # Close progress dialog
+        if self._stats_progress_dialog is not None:
+            self._stats_progress_dialog.close()
+            self._stats_progress_dialog = None
+
         self._stats_worker.quit()
         self._stats_worker.wait()
         self._stats_worker = None
@@ -1585,10 +1749,11 @@ Shows the sync status for each configured source. "✓" means up to date.
         unp4k_exe = AppSettings.get_unp4k_exe_path()
 
         self._p4k_worker = P4kExtractWorker(p4k_path, output_path, unp4k_exe)
-        self._p4k_progress = QProgressDialog("Extracting global.ini from Data.p4k...", None, 0, 0, self)
-        self._p4k_progress.setWindowTitle("P4K Extraction")
-        self._p4k_progress.setModal(True)
-        self._p4k_progress.show()
+        self._p4k_progress = AnimatedProgressDialog(
+            "Extracting global.ini from Data.p4k...",
+            parent=self,
+            title="P4K Extraction"
+        )
 
         self._p4k_worker.progress.connect(self._p4k_progress.setLabelText)
         self._p4k_worker.error.connect(lambda err: QMessageBox.warning(self, "Extraction Error", err))
@@ -1612,12 +1777,11 @@ Shows the sync status for each configured source. "✓" means up to date.
             self.config_tab.source_widgets[AppSettings.SOURCE_GLOBAL].load_settings()
             self.config_tab._refresh_p4k_status()
 
-            self.statusBar().showMessage("Extracted base.ini from Data.p4k — reloading...")
-            self.load_default_values()
-            self.auto_load_default_files()
-
             # Check if stats need to be generated (if user prompted at startup, continues without re-prompting)
             self._check_stats_freshness()
+
+            # Show progress dialog while reloading with extracted data
+            self._show_loading_progress("Reloading with extracted base.ini...")
 
     def closeEvent(self, event):
         """Save state and overrides before closing."""

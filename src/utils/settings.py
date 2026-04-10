@@ -27,6 +27,9 @@ class AppSettings:
         "component_descs":     "components_desc_stats.ini",
         "ship_weapon_descs":   "ship_weapons_desc_stats.ini",
         "fps_weapon_descs":    "fps_weapons_desc_stats.ini",
+        "mission_rewards":     "mission_rewards_stats.ini",
+        "commodity_crafting":  "commodity_crafting_stats.ini",
+        "missile_stats":       "missile_stats.ini",
     }
 
     # Settings keys - Legacy (kept for migration)
@@ -143,6 +146,31 @@ class AppSettings:
                 return candidate
 
         return ""
+
+    @staticmethod
+    def get_game_version() -> str:
+        """Get Star Citizen game version from build_manifest.id.
+
+        Returns:
+            Version string (e.g., "4.7.176.58286") or empty string if not found/invalid
+        """
+        import json
+        game_path = AppSettings.get_game_install_path()
+        if not game_path:
+            return ""
+
+        manifest_path = Path(game_path) / "build_manifest.id"
+        if not manifest_path.exists():
+            return ""
+
+        try:
+            with open(manifest_path, 'r') as f:
+                data = json.load(f)
+                version = data.get("Data", {}).get("Version", "")
+                return version
+        except Exception as e:
+            logger.debug(f"Could not read game version from {manifest_path}: {e}")
+            return ""
 
     @staticmethod
     def set_game_install_path(path: str) -> None:

@@ -12,6 +12,10 @@ logger = logging.getLogger(__name__)
 def parse_ini_file(path: str | Path) -> Dict[str, str]:
     """Parse INI file line-by-line, preserving efficiency.
 
+    Strips any comma-based metadata suffix from keys (e.g., "key,P" → "key").
+    This ensures keys from different sources (especially downloaded base.ini) are
+    normalized and don't get written with unwanted suffixes.
+
     Args:
         path: Path to INI file
 
@@ -42,7 +46,11 @@ def parse_ini_file(path: str | Path) -> Dict[str, str]:
                 value = value.strip()
 
                 if key:
-                    result[key] = value
+                    # Strip comma-based metadata suffix (e.g., "key,P" → "key")
+                    # This is used in some source files to track properties
+                    clean_key = key.split(',')[0].strip()
+                    if clean_key:
+                        result[clean_key] = value
     except Exception as e:
         print(f"Error parsing INI file {path}: {e}")
 

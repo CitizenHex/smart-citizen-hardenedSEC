@@ -14,6 +14,9 @@ def merge_sources_by_hierarchy(
     overwrite earlier ones. User overrides (if provided) always have highest priority
     and are applied last.
 
+    Syncs values across key variants (e.g., item_Name_QDRV_RSI_S02_Hemera and
+    item_nameQDRV_RSI_S02_Hemera_SCItem get the same value).
+
     Args:
         sources_dict: Dictionary mapping source name to its key-value pairs.
                      e.g., {"global": {"key1": "val1", ...}, "contracts": {...}}
@@ -24,7 +27,8 @@ def merge_sources_by_hierarchy(
                        Applied last, overwrites all other sources.
 
     Returns:
-        Merged dictionary with final values from all sources applied in order.
+        Merged dictionary with final values from all sources applied in order,
+        with variant keys synced to have matching values.
 
     Example:
         >>> sources = {
@@ -59,7 +63,92 @@ def merge_sources_by_hierarchy(
         for key, value in user_overrides.items():
             result[key] = value
 
+    # Sync values across key variants (e.g., item_Name_QDRV vs item_nameQDRV_SCItem)
+    sync_key_variants(result)
+
     return result
+
+
+def _get_canonical_key(key: str) -> str:
+    """Get the canonical form of a key for variant matching.
+
+    Variant keys like:
+      - item_Name_QDRV_RSI_S02_Hemera
+      - item_nameQDRV_RSI_S02_Hemera_SCItem
+
+    Both normalize to: item_name_qdrv_rsi_s02_hemera
+
+    Steps:
+    1. Remove _SCItem suffix (case-insensitive)
+    2. Lowercase
+    3. Remove underscores
+    4. Insert underscores only before SHLD/POWR/COOL/QDRV/JUMP/MISL/GMISL/BOMB component codes
+    """
+    # Remove _SCItem suffix (case-insensitive)
+    if key.lower().endswith('_scitem'):
+        key = key[:-7]  # Remove last 7 chars (_SCItem)
+
+    # Lowercase
+    key = key.lower()
+
+    # Remove all underscores for normalization
+    key_no_underscore = key.replace('_', '')
+
+    # Re-insert underscores before component codes for readability
+    # (This ensures item_nameqdrv_rsi_s02_hemera is canonical)
+    components = ['shld', 'powr', 'cool', 'qdrv', 'jump', 'misl', 'gmisl', 'bomb']
+    for comp in components:
+        key_no_underscore = key_no_underscore.replace(comp, f'_{comp}')
+
+    # Clean up: replace multiple underscores with single, strip leading underscore
+    key_no_underscore = '_'.join(p for p in key_no_underscore.split('_') if p)
+
+    return key_no_underscore
+
+
+def sync_key_variants(merged_dict: Dict[str, str]) -> None:
+    """Sync values across key variants in a merged dictionary.
+
+    If item_Name_QDRV_RSI_S02_Hemera has value X, then
+    item_nameQDRV_RSI_S02_Hemera_SCItem also gets value X.
+
+    This modifies merged_dict in-place.
+
+    Args:
+        merged_dict: Dictionary of keys to values from merged sources
+    """
+    # Build a mapping of canonical → list of actual keys with that canonical form
+    canonical_keys: Dict[str, List[str]] = {}
+
+    for key in list(merged_dict.keys()):
+        canonical = _get_canonical_key(key)
+        if canonical not in canonical_keys:
+            canonical_keys[canonical] = []
+        canonical_keys[canonical].append(key)
+
+    # For each canonical form with multiple variants, sync their values
+    for canonical, variants in canonical_keys.items():
+        if len(variants) > 1:
+            # Use the value from the first variant (they should all have the same after merge)
+            # Or prioritize: prefer the one without _SCItem suffix
+            synced_value = None
+            preferred_key = None
+
+            # Prefer non-_SCItem variants
+            for var in variants:
+                if not var.lower().endswith('_scitem'):
+                    preferred_key = var
+                    synced_value = merged_dict[var]
+                    break
+
+            # If all have _SCItem (unlikely), just use the first
+            if synced_value is None:
+                preferred_key = variants[0]
+                synced_value = merged_dict[preferred_key]
+
+            # Apply this value to all variants
+            for var in variants:
+                merged_dict[var] = synced_value
 
 
 def merge_ini_files(
@@ -70,11 +159,15 @@ def merge_ini_files(
     """Merge source INI with overrides, preserving all lines.
 
     Reads source file line-by-line, replaces values for matching keys,
-    and writes to output as UTF-8.
+    and writes to output as UTF-8. Strips comma-based metadata suffixes
+    (e.g., "key,P") from keys to match normalized override keys.
+
+    Note: Variant key syncing happens in merge_sources_by_hierarchy(), so
+    the overrides_dict already has synced values when this is called.
 
     Args:
         source_path: Path to base file (base.ini or game's global.ini)
-        overrides_dict: Dictionary of key-value overrides
+        overrides_dict: Dictionary of key-value overrides (with clean keys, already synced)
         output_path: Path to write merged output
     """
     source_path = Path(source_path)
@@ -107,15 +200,20 @@ def merge_ini_files(
                 key, value = line_rstrip.split('=', 1)
                 key_stripped = key.strip()
 
-                # Check if we have an override for this key
-                if key_stripped in overrides_dict:
-                    # Replace value, preserving key spacing
-                    new_value = overrides_dict[key_stripped]
-                    new_line = f"{key}={new_value}{original_ending}"
+                # Strip comma-based metadata suffix (e.g., "key,P" → "key")
+                # This ensures keys from different sources match up correctly
+                clean_key = key_stripped.split(',')[0].strip()
+
+                # Check if we have an override for this key (using clean key)
+                if clean_key in overrides_dict:
+                    # Replace value with override, using clean key without metadata
+                    new_value = overrides_dict[clean_key]
+                    new_line = f"{clean_key}={new_value}{original_ending}"
                     outfile.write(new_line)
                 else:
-                    # Keep original line
-                    outfile.write(line)
+                    # Keep original line (but with clean key, no metadata)
+                    new_line = f"{clean_key}={value}{original_ending}"
+                    outfile.write(new_line)
 
     except Exception as e:
         raise IOError(f"Error merging INI files: {e}")

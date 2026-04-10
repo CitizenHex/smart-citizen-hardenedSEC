@@ -37,30 +37,40 @@ class StringEntry:
 
         # item_Name* / item_Desc* keys — resolve in priority order
         fps_weapon_words = ["_rifle_", "_pistol_", "_smg_", "_shotgun_", "_sniper_", "_launcher_", "_lmg_", "_hmg_", "_knife_", "_multi_"]
-        if key.startswith("item_Name") or key.startswith("item_Desc"):
+        if key_lower.startswith("item_name") or key_lower.startswith("item_desc"):
             # Turrets are ship components despite having the item_Name_/item_Desc_ prefix
-            if key.startswith("item_Name_Turret") or key.startswith("item_Desc_Turret"):
+            if key_lower.startswith("item_name_turret") or key_lower.startswith("item_desc_turret"):
                 return "Ship Components"
 
-            # FPS gear uses item_Name_ / item_Desc_ (underscore directly after Name/Desc)
-            if key.startswith("item_Name_") or key.startswith("item_Desc_"):
-                return "Gear"
-
-            # Ship component type codes: SHLD, POWR, COOL, QDRV, JUMP, MISL, BOMB
+            # Ship component type codes: SHLD, POWR, COOL, QDRV, JUMP, MISL, BOMB (check BEFORE FPS gear)
+            # Handles both: item_NameQDRV_... and item_Name_QDRV_... (with or without underscore)
+            # Case-insensitive matching for items with lowercase names
             components = ["SHLD", "POWR", "COOL", "QDRV", "JUMP", "MISL", "GMISL", "BOMB"]
             if any(
-                key.startswith(f"item_Name{comp}_") or
-                key.startswith(f"item_Desc{comp}_")
+                key_lower.startswith(f"item_name{comp.lower()}_") or
+                key_lower.startswith(f"item_desc{comp.lower()}_") or
+                key_lower.startswith(f"item_name_{comp.lower()}_") or
+                key_lower.startswith(f"item_desc_{comp.lower()}_")
                 for comp in components
             ):
                 return "Ship Components"
 
-            # Ship weapons: contain a ship-size designator (_S1, _S02, etc.)
-            if re.search(r'_S\d+', key):
+            # Ship weapons: contain a ship-size designator (_S1, _S02, _XL-1, etc.)
+            # Matches: _S\d+ (S1, S02), _XL, _XXL, _L, _M, _S (size codes with optional hyphen+number)
+            if re.search(r'_S\d+|_X{1,2}L(-\d+)?|_[LMS](-\d+)?', key, re.IGNORECASE):
                 return "Ship Components"
 
-            # FPS weapons without underscore separator (e.g. item_NameGMNI_rifle_*)
+            # FPS weapons: check for FPS weapon words or patterns (BEFORE generic item_Name_ check)
             if any(w in key_lower for w in fps_weapon_words):
+                return "Gear"
+
+            # FPS armor/equipment (armor, helmet, suit, vest)
+            if any(armor in key_lower for armor in ["armor", "helmet", "suit", "vest", "glasses"]):
+                return "Gear"
+
+            # FPS gear uses item_Name_ / item_Desc_ (underscore directly after Name/Desc)
+            # Only if it doesn't match any ship component pattern above
+            if key_lower.startswith("item_name_") or key_lower.startswith("item_desc_"):
                 return "Gear"
 
         # Commodity items
@@ -80,3 +90,28 @@ class StringEntry:
             return "Missions"
 
         return "Other"
+
+
+def test_category_extraction():
+    """Test category extraction for edge cases."""
+    # Ship components with underscore between Name and component code
+    assert StringEntry.extract_category("item_Name_QDRV_RSI_S02_Hemera") == "Ship Components"
+    assert StringEntry.extract_category("item_Desc_QDRV_RSI_S02_Hemera") == "Ship Components"
+
+    # Ship components with lowercase item_name (from Data.p4k extraction)
+    assert StringEntry.extract_category("item_nameQDRV_RSI_S02_Hemera_SCItem") == "Ship Components"
+    assert StringEntry.extract_category("item_descqdrv_rsi_s02_hemera_scitem") == "Ship Components"
+
+    # Ship weapons with XL size designator
+    assert StringEntry.extract_category("item_Name_XL-1_something") == "Ship Components"
+    assert StringEntry.extract_category("item_Name_XXL_something") == "Ship Components"
+
+    # Regular ship components (original patterns)
+    assert StringEntry.extract_category("item_NameSHLD_Aspirum") == "Ship Components"
+    assert StringEntry.extract_category("item_NamePOWR_TR1") == "Ship Components"
+    assert StringEntry.extract_category("item_Name_Turret_S1") == "Ship Components"
+
+    # FPS weapons (should still work)
+    assert StringEntry.extract_category("item_Name_rifle") == "Gear"
+
+    print("[PASS] All category extraction tests passed!")
