@@ -94,6 +94,9 @@ def extract_global_ini(
 
 # Subdirectories (relative to the Data/ dir created by unp4k) that we keep
 # from the full DataForge extraction.  Everything else is discarded.
+# NOTE: Radars, missiles, missions, and crafting data are not stored as separate
+# XML entity files in DataForge. They exist in .ini files or embedded in other
+# structures, so they cannot be extracted as standalone entities.
 _DATAFORGE_KEEP = [
     "libs/foundry/records/entities/scitem/ships/shieldgenerator",
     "libs/foundry/records/entities/scitem/ships/cooler",
@@ -105,22 +108,6 @@ _DATAFORGE_KEEP = [
     "libs/foundry/records/ammoparams/fps",
     "libs/foundry/records/entities/spaceships",
     "libs/foundry/records/entities/scitem/ships/controller",
-    # Mission/contract/job terminal entities (for XP and reward extraction)
-    "libs/foundry/records/entities/missions",
-    "libs/foundry/records/entities/contracts",
-    "libs/foundry/records/entities/jobterminal",
-    # Crafting/recipe entities (for commodity crafting usage markers)
-    "libs/foundry/records/entities/crafting",
-    "libs/foundry/records/entities/recipes",
-    "libs/foundry/records/entities/manufacturing",
-    # Radar/sensor entities (for detection range and sensitivity stats)
-    "libs/foundry/records/entities/scitem/radar",
-    "libs/foundry/records/entities/scitem/sensors",
-    "libs/foundry/records/entities/scitem/avionics/radar",
-    # Missile/rocket entities (for tracking and velocity stats)
-    "libs/foundry/records/entities/scitem/ammo/missiles",
-    "libs/foundry/records/entities/scitem/ammo/rockets",
-    "libs/foundry/records/entities/scitem/ammo/bombs",
 ]
 
 
@@ -204,12 +191,20 @@ def extract_dataforge(
         if not (libs_dir / "libs").exists():
             raise FileNotFoundError("unforge ran but libs/ directory was not created — unexpected output structure.")
 
-        # ── Step 3: Copy only the needed subdirectories to cache ──────────────
+        # ── Step 3: Save raw extraction and filtered cache ──────────────────────
         if progress_callback:
             progress_callback("Caching entity files…")
         if dataforge_cache_dir.exists():
             shutil.rmtree(dataforge_cache_dir)
         dataforge_cache_dir.mkdir(parents=True, exist_ok=True)
+
+        # Save the complete unfiltered extraction for inspection
+        raw_dir = dataforge_cache_dir / "raw"
+        if raw_dir.exists():
+            shutil.rmtree(raw_dir)
+        logger.info(f"Saving complete DataForge extraction to {raw_dir}…")
+        shutil.copytree(libs_dir / "libs", raw_dir / "libs")
+        logger.info(f"Raw DataForge saved to {raw_dir}")
 
         for rel in _DATAFORGE_KEEP:
             src = libs_dir / rel
