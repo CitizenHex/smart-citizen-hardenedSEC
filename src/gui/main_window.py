@@ -359,6 +359,10 @@ class MainWindow(QMainWindow):
         # if file changed since last sync). Loading starts after sync finishes.
         self._start_startup_sync()
 
+        # Ensure user.cfg has language setting
+        from src.utils.user_cfg import ensure_user_cfg_language
+        ensure_user_cfg_language()
+
         logger.info("MainWindow initialized")
 
     def setup_ui(self):
@@ -1032,6 +1036,10 @@ class MainWindow(QMainWindow):
             # Save user overrides to AppData
             from src.utils.overrides_manager import save_overrides
             count = save_overrides(self.entries, AppSettings.get_overrides_path())
+
+            # Ensure user.cfg has language setting
+            from src.utils.user_cfg import ensure_user_cfg_language
+            ensure_user_cfg_language()
 
             logger.info(f"Applied to game: {target_path}")
             self.statusBar().showMessage(f"Applied to game | {count} overrides saved")
