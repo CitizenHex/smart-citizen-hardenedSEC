@@ -1602,10 +1602,11 @@ Shows the sync status for each configured source. "✓" means up to date.
 
         # First prompt - show dialog to user
         self._stats_prompted_on_startup = True
+        total_stats = len(AppSettings.STATS_FILES)
         reply = QMessageBox.question(
             self, "Generate Stats",
-            f"{len(missing)} of 4 stats files are missing.\n\n"
-            "Generate ship, component, and weapon stats from your installed Data.p4k?\n"
+            f"{len(missing)} of {total_stats} stats files are missing.\n\n"
+            "Generate ship, component, weapon, mission, and missile stats from your installed Data.p4k?\n"
             "DataForge data will be extracted automatically if not already cached\n"
             "(first run takes ~5–10 minutes).",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
