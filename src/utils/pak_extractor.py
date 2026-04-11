@@ -1,10 +1,12 @@
 """Extracts files from Star Citizen's Data.p4k using bundled unp4k.exe."""
+import gc
 import logging
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -165,6 +167,11 @@ def extract_dataforge(
         if result.returncode != 0:
             raise RuntimeError(f"unp4k.exe failed (code {result.returncode}):\n{result.stderr or result.stdout}")
 
+        # Explicit cleanup: ensure subprocess is fully released
+        del result
+        gc.collect()
+        time.sleep(0.1)  # Brief pause for file system to release locks
+
         # unp4k preserves archive structure: Data/Game2.dcb
         dcb_candidates = list(tmp.glob("Data/Game*.dcb"))
         if not dcb_candidates:
@@ -184,6 +191,11 @@ def extract_dataforge(
         if result.returncode != 0:
             raise RuntimeError(f"unforge.exe failed (code {result.returncode}):\n{result.stderr or result.stdout}")
 
+        # Explicit cleanup: ensure subprocess is fully released
+        del result
+        gc.collect()
+        time.sleep(0.1)  # Brief pause for file system to release locks
+
         # unforge writes entity XMLs into a libs/ subdirectory next to the dcb file.
         # _DATAFORGE_KEEP paths already start with "libs/...", so use dcb_path.parent
         # as the base to avoid a doubled "libs/libs/..." path.
@@ -194,6 +206,11 @@ def extract_dataforge(
         # ── Step 3: Save raw extraction and filtered cache ──────────────────────
         if progress_callback:
             progress_callback("Caching entity files…")
+
+        # Ensure all file handles from extraction are released before copying
+        gc.collect()
+        time.sleep(0.1)
+
         if dataforge_cache_dir.exists():
             shutil.rmtree(dataforge_cache_dir)
         dataforge_cache_dir.mkdir(parents=True, exist_ok=True)
@@ -221,6 +238,8 @@ def extract_dataforge(
         stamp.write_text(str(p4k_path.stat().st_mtime))
         logger.info(f"DataForge cache written to {dataforge_cache_dir}")
 
+    # Ensure all file handles are released before returning
+    gc.collect()
     return True
 
 
