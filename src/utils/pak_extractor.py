@@ -96,15 +96,13 @@ def extract_global_ini(
 
 # Subdirectories (relative to the Data/ dir created by unp4k) that we keep
 # from the full DataForge extraction.  Everything else is discarded.
-# NOTE: Radars, missiles, missions, and crafting data are not stored as separate
-# XML entity files in DataForge. They exist in .ini files or embedded in other
-# structures, so they cannot be extracted as standalone entities.
 _DATAFORGE_KEEP = [
     "libs/foundry/records/entities/scitem/ships/shieldgenerator",
     "libs/foundry/records/entities/scitem/ships/cooler",
     "libs/foundry/records/entities/scitem/ships/powerplant",
     "libs/foundry/records/entities/scitem/ships/quantumdrive",
     "libs/foundry/records/entities/scitem/ships/weapons",
+    "libs/foundry/records/entities/scitem/ships/radar",
     "libs/foundry/records/entities/scitem/weapons/fps_weapons",
     "libs/foundry/records/ammoparams/vehicle",
     "libs/foundry/records/ammoparams/fps",

@@ -1282,30 +1282,24 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
         out_components.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc))
 
     # ── Process radar/sensors ─────────────────────────────────────────────────
-    logger.info("Processing radar/sensor components…")
+    logger.info("Processing radar components…")
     scitem_dir = records / "entities" / "scitem"
-    radar_dirs = [
-        scitem_dir / "radar",
-        scitem_dir / "sensors",
-        scitem_dir / "avionics" / "radar",
-    ]
-    for radar_dir in radar_dirs:
-        if radar_dir.exists():
-            logger.info(f"  Found radar directory: {radar_dir}")
-            out_components.update(scan_entity_dir(radar_dir, stats_radar, loc=loc))
-        else:
-            logger.debug(f"  Radar directory not found: {radar_dir}")
+    ships_scitem = scitem_dir / "ships"
+    radar_dir = ships_scitem / "radar"
+    if radar_dir.exists():
+        logger.info(f"Processing radars from {radar_dir}…")
+        out_components.update(scan_entity_dir(radar_dir, stats_radar, loc=loc))
 
     # ── Process missiles/rockets/bombs ────────────────────────────────────────
     logger.info("Processing missile/rocket/bomb stats…")
     out_missiles: dict[str, str] = {}
-    ammo_dir = scitem_dir / "ammo"
+    weapons_dir = ships_scitem / "weapons"
     for missile_dir in [
-        ammo_dir / "missiles",
-        ammo_dir / "rockets",
-        ammo_dir / "bombs",
+        weapons_dir / "missiles",
+        weapons_dir / "rocket_pods",
     ]:
         if missile_dir.exists():
+            logger.info(f"Processing from {missile_dir}…")
             out_missiles.update(scan_entity_dir(missile_dir, stats_missile, loc=loc))
 
     # ── Process ship weapons ──────────────────────────────────────────────────
