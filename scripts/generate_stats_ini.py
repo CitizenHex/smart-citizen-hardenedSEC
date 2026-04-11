@@ -131,6 +131,17 @@ def _loc_key(root: ET.Element) -> str | None:
     return None
 
 
+def _mission_loc_key(root: ET.Element) -> str | None:
+    """Extract the mission description localization key from MissionBrokerEntry XML.
+
+    Missions store the localization key in the 'description' attribute of the root element.
+    """
+    desc = root.get("description", "")
+    if desc.startswith("@") and "LOC_EMPTY" not in desc and "UNINITIALIZED" not in desc:
+        return desc.lstrip("@")
+    return None
+
+
 def _resource_amount(amount_el: ET.Element) -> str | None:
     """Extract the numeric value from a resourceAmountPerSecond element."""
     unit = amount_el.find(".//SPowerSegmentResourceUnit")
@@ -430,7 +441,13 @@ def stats_missile(root: ET.Element) -> str:
                 lines.append(f"Damage: {_fmt(total_dmg, '', 1)}{type_str}")
 
         # Blast radius (warhead explosion radius)
-        blast = _attr(root, "DamageInfo", "DamageDropOffEnd") or _attr(root, "Warhead", "blastRadius") or _attr(root, "ExplosionParams", "radius")
+        blast = _attr(root, "ExplosionParams", "maxRadius")
+        if not blast:
+            blast = _attr(root, "ExplosionParams", "minRadius")
+        if not blast:
+            blast = _attr(root, "Warhead", "blastRadius")
+        if not blast:
+            blast = _attr(root, "DamageInfo", "DamageDropOffEnd")
         if blast:
             try:
                 blast_val = float(blast)
@@ -479,67 +496,67 @@ def stats_missile(root: ET.Element) -> str:
 
 
 def stats_radar(root: ET.Element) -> str:
-    """Extract radar/sensor detection and tracking stats."""
+    """Extract radar/sensor stats.
+
+    Note: Detection range is stored in shared parameter definitions (referenced by UUID)
+    which are not included in the extracted XML, so we extract available stats like
+    sensitivity and signature detection capabilities instead.
+    """
     lines = []
 
     try:
-        # Look for radar/sensor parameter structures (detection range, tracking, signature threshold, etc.)
-        for el in root.iter():
+        # Radar sensitivity for different signature types
+        sensitivity_values = []
+        for el in root.iter("SCItemRadarSignatureDetection"):
             try:
-                # Scan for detection range fields
-                if "detection" in el.tag.lower() or "range" in el.tag.lower() or "sensor" in el.tag.lower():
-                    # Detection range
-                    det_range = el.get("detectionRange") or el.get("range") or el.get("maxRange")
-                    if det_range and det_range != "0":
-                        try:
-                            range_val = float(det_range)
-                            if range_val > 0:
-                                lines.append(f"Detection Range: {range_val / 1000:,.1f} km")
-                        except (ValueError, TypeError):
-                            pass
-
-                    # Tracking range (how far it can track locked targets)
-                    track_range = el.get("trackingRange") or el.get("trackRange") or el.get("maxTrackingRange")
-                    if track_range and track_range != "0":
-                        try:
-                            track_val = float(track_range)
-                            if track_val > 0:
-                                lines.append(f"Tracking Range: {track_val / 1000:,.1f} km")
-                        except (ValueError, TypeError):
-                            pass
-
-                    # Signature detection threshold
-                    sig_threshold = el.get("signatureThreshold") or el.get("minSignature") or el.get("detectionThreshold")
-                    if sig_threshold and sig_threshold != "0":
-                        try:
-                            sig_val = float(sig_threshold)
-                            lines.append(f"Signature Threshold: {sig_val}")
-                        except (ValueError, TypeError):
-                            pass
-
-                    # Track count (number of simultaneous tracks)
-                    track_count = el.get("maxTargets") or el.get("trackCount") or el.get("trackingCapacity")
-                    if track_count and track_count != "0":
-                        try:
-                            count_val = int(float(track_count))
-                            if count_val > 0:
-                                lines.append(f"Max Targets: {count_val}")
-                        except (ValueError, TypeError):
-                            pass
-
-                # Power and signature characteristics
-                if el.tag == "EMSignature" or el.tag == "IRSignature":
-                    nom_sig = el.get("nominalSignature")
-                    if nom_sig and nom_sig != "0":
-                        try:
-                            sig_val = float(nom_sig)
-                            sig_type = "EM" if el.tag == "EMSignature" else "IR"
-                            if not any(f"{sig_type} Sig:" in line for line in lines):
-                                lines.append(f"{sig_type} Signature: {sig_val}")
-                        except (ValueError, TypeError):
-                            pass
+                sensitivity = el.get("sensitivity")
+                if sensitivity:
+                    try:
+                        sens_val = float(sensitivity)
+                        sensitivity_values.append(sens_val)
+                    except (ValueError, TypeError):
+                        pass
             except Exception:
                 pass
+
+        if sensitivity_values:
+            avg_sensitivity = sum(sensitivity_values) / len(sensitivity_values)
+            lines.append(f"Avg Sensitivity: {avg_sensitivity:.2f}")
+
+        # Piercing capability (ability to detect through interference/jamming)
+        piercing_values = []
+        for el in root.iter("SCItemRadarSignatureDetection"):
+            try:
+                piercing = el.get("piercing")
+                if piercing:
+                    try:
+                        pierce_val = float(piercing)
+                        piercing_values.append(pierce_val)
+                    except (ValueError, TypeError):
+                        pass
+            except Exception:
+                pass
+
+        if piercing_values:
+            max_piercing = max(piercing_values)
+            lines.append(f"Max Piercing: {max_piercing:.2f}")
+
+        # Passive/Active detection capability
+        passive_capable = False
+        active_capable = False
+        for el in root.iter("SCItemRadarSignatureDetection"):
+            if el.get("permitPassiveDetection") == "1":
+                passive_capable = True
+            if el.get("permitActiveDetection") == "1":
+                active_capable = True
+
+        modes = []
+        if passive_capable:
+            modes.append("Passive")
+        if active_capable:
+            modes.append("Active")
+        if modes:
+            lines.append(f"Detection Mode: {' / '.join(modes)}")
 
         # Power consumption for radar/sensors
         pwr = _find_resource(root, "Power")
@@ -665,59 +682,65 @@ def stats_quantum_drive(root: ET.Element) -> str:
     return "\\n".join(lines)
 
 
-def stats_mission(root: ET.Element) -> str:
-    """Extract mission/contract reward stats (XP, aUEC, reputation)."""
+def _extract_mission_xp(root: ET.Element, reputation_lookup: dict[str, int] | None = None) -> int:
+    """Extract mission success XP from primary reputation scope only.
+
+    Gets the first (success outcome) reputation rewards, but only sums from the PRIMARY faction.
+    Ignores bonus reputation for secondary factions/scopes. This matches SCMDB mission XP values
+    which show only the primary faction reward, not bonuses.
+    """
+    reputation_lookup = reputation_lookup or {}
+    total_rep_xp = 0
+
+    # Only process the first SReputationAmountListParams (the success outcome)
+    rep_lists = root.findall(".//missionResultReputationRewards/SReputationAmountListParams")
+    if rep_lists:
+        first_outcome = rep_lists[0]
+        rep_amounts = first_outcome.findall(".//SReputationAmountParams")
+
+        # Only count the FIRST reputation scope (primary faction)
+        # Skip bonus reputation for secondary factions/scopes
+        if rep_amounts:
+            primary_scope = rep_amounts[0].get("reputationScope")
+            for rep_amount in rep_amounts:
+                # Only count rewards from the primary reputation scope
+                if rep_amount.get("reputationScope") == primary_scope:
+                    reward_uuid = rep_amount.get("reward")
+                    if reward_uuid and reward_uuid in reputation_lookup:
+                        xp_val = reputation_lookup[reward_uuid]
+                        total_rep_xp += xp_val
+
+    return total_rep_xp
+
+
+def stats_mission(root: ET.Element, reputation_lookup: dict[str, int] | None = None) -> str:
+    """Extract mission/contract reward stats (aUEC + Reputation XP).
+
+    Extracts:
+    - aUEC mission reward amount
+    - Reputation XP from reward UUID references using the reputation_lookup table
+    """
     lines = []
+    reputation_lookup = reputation_lookup or {}
 
     try:
-        # Look for reward containers or direct fields
-        for el in root.iter():
-            try:
-                # Check for xpReward field
-                xp = el.get("xpReward")
-                if xp and xp != "0":
-                    try:
-                        xp_val = int(float(xp))
-                        if xp_val > 0:
-                            lines.append(f"XP Reward: {xp_val:,}")
-                    except (ValueError, TypeError):
-                        pass
+        # Extract aUEC reward
+        mission_reward = root.find(".//missionReward")
+        if mission_reward is not None:
+            reward_attr = mission_reward.get("reward")
+            if reward_attr and reward_attr != "0":
+                try:
+                    reward_val = int(float(reward_attr))
+                    if reward_val > 0:
+                        lines.append(f"aUEC Reward: {reward_val:,}")
+                except (ValueError, TypeError):
+                    pass
 
-                # Check for aUEC (Alpha UEC / in-game currency)
-                auec = el.get("aUEC") or el.get("auec")
-                if auec and auec != "0":
-                    try:
-                        auec_val = int(float(auec))
-                        if auec_val > 0:
-                            lines.append(f"aUEC: {auec_val:,}")
-                    except (ValueError, TypeError):
-                        pass
+        # Extract mission success XP (from first/success outcome only, not all outcomes)
+        total_rep_xp = _extract_mission_xp(root, reputation_lookup)
+        if total_rep_xp > 0:
+            lines.append(f"Reputation XP: +{total_rep_xp:,}")
 
-                # Check for reputation rewards
-                rep = el.get("reputationReward") or el.get("reputation")
-                if rep and rep != "0":
-                    try:
-                        rep_val = float(rep)
-                        if rep_val > 0:
-                            lines.append(f"Reputation: +{rep_val:,.2f}")
-                    except (ValueError, TypeError):
-                        pass
-
-                # Check for other reward types in reward containers
-                if "Reward" in el.tag:
-                    # Look for amount fields within reward containers
-                    amount = el.get("amount")
-                    reward_type = el.get("type") or el.get("rewardType") or el.tag.replace("Reward", "").replace("Params", "")
-                    if amount and amount != "0":
-                        try:
-                            amount_val = int(float(amount))
-                            if amount_val > 0:
-                                lines.append(f"{reward_type}: {amount_val:,}")
-                        except (ValueError, TypeError):
-                            pass
-            except Exception:
-                # Skip individual elements that cause errors
-                pass
     except Exception:
         pass
 
@@ -1179,6 +1202,7 @@ def scan_entity_dir(
     stat_fn,
     ammo_lookup: dict | None = None,
     loc: dict | None = None,
+    loc_key_fn = None,
 ) -> dict[str, str]:
     """
     Scan all XML files in entity_dir, extract localization key + stats,
@@ -1186,7 +1210,11 @@ def scan_entity_dir(
 
     ammo_lookup is passed to stat_fn only when it accepts it (weapons).
     loc is the base.ini localization dict for value lookup.
+    loc_key_fn is an optional custom function to extract the localization key (defaults to _loc_key).
     """
+    if loc_key_fn is None:
+        loc_key_fn = _loc_key
+
     out: dict[str, str] = {}
     matched = missed = skipped = 0
 
@@ -1196,7 +1224,7 @@ def scan_entity_dir(
         except ET.ParseError:
             continue
 
-        key = _loc_key(root)
+        key = loc_key_fn(root)
         if not key:
             skipped += 1
             continue
@@ -1286,9 +1314,19 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
     scitem_dir = records / "entities" / "scitem"
     ships_scitem = scitem_dir / "ships"
     radar_dir = ships_scitem / "radar"
+
+    # Fall back to raw extraction if filtered extraction doesn't have radar (for compatibility with older extractions)
+    if not radar_dir.exists():
+        raw_radar_dir = forge_dir / "raw" / "libs" / "foundry" / "records" / "entities" / "scitem" / "ships" / "radar"
+        if raw_radar_dir.exists():
+            logger.info(f"Radar not in filtered cache, using raw extraction: {raw_radar_dir}…")
+            radar_dir = raw_radar_dir
+
     if radar_dir.exists():
         logger.info(f"Processing radars from {radar_dir}…")
         out_components.update(scan_entity_dir(radar_dir, stats_radar, loc=loc))
+    else:
+        logger.info("No radar directory found in cache")
 
     # ── Process missiles/rockets/bombs ────────────────────────────────────────
     logger.info("Processing missile/rocket/bomb stats…")
@@ -1345,20 +1383,110 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
     logger.info(f"CHECKPOINT: Finished ships ({len(out_ships)} entries)")
     sys_mod.stdout.flush()
 
+    # ── Build reputation XP lookup ───────────────────────────────────────────
+    logger.info("CHECKPOINT: Building reputation XP lookup…")
+    sys_mod.stdout.flush()
+    reputation_lookup: dict[str, int] = {}
+    rep_rewards_dir = forge_dir / "libs" / "foundry" / "records" / "reputation" / "rewards" / "missionrewards_reputation"
+    if not rep_rewards_dir.exists():
+        rep_rewards_dir = forge_dir / "raw" / "libs" / "foundry" / "records" / "reputation" / "rewards" / "missionrewards_reputation"
+
+    if rep_rewards_dir.exists():
+        for xml_file in rep_rewards_dir.glob("*.xml"):
+            try:
+                root = ET.parse(xml_file).getroot()
+                uuid = root.get("__ref")
+                rep_amount = root.get("reputationAmount")
+                if uuid and rep_amount:
+                    try:
+                        reputation_lookup[uuid] = int(float(rep_amount))
+                    except (ValueError, TypeError):
+                        pass
+            except ET.ParseError:
+                continue
+    logger.info(f"CHECKPOINT: Loaded {len(reputation_lookup)} reputation reward definitions")
+    sys_mod.stdout.flush()
+
     # ── Process missions/contracts ────────────────────────────────────────────
     logger.info("CHECKPOINT: Processing mission/contract rewards…")
     sys_mod.stdout.flush()
     out_missions: dict[str, str] = {}
+
+    # Primary mission directories: missionbroker/pu_missions is the main source (uses _mission_loc_key)
+    pu_missions_dir = forge_dir / "raw" / "libs" / "foundry" / "records" / "missionbroker" / "pu_missions"
+    if pu_missions_dir.exists():
+        logger.info(f"CHECKPOINT: Processing {pu_missions_dir.name}…")
+        sys_mod.stdout.flush()
+        out_missions.update(scan_entity_dir(
+            pu_missions_dir,
+            lambda root: stats_mission(root, reputation_lookup),
+            loc=loc,
+            loc_key_fn=_mission_loc_key
+        ))
+
+    # Also check entity-based missions (use standard _loc_key)
     for mission_dir in [
         records / "entities" / "missions",
         records / "entities" / "contracts",
         records / "entities" / "jobterminal",
     ]:
+        # Fall back to raw extraction if filtered cache doesn't have the directory
+        if not mission_dir.exists():
+            raw_mission_dir = forge_dir / "raw" / mission_dir.relative_to(records)
+            if raw_mission_dir.exists():
+                logger.info(f"Mission dir not in filtered cache, using raw extraction: {raw_mission_dir.name}…")
+                mission_dir = raw_mission_dir
+
         if mission_dir.exists():
             logger.info(f"CHECKPOINT: Processing {mission_dir.name}…")
             sys_mod.stdout.flush()
-            out_missions.update(scan_entity_dir(mission_dir, stats_mission, loc=loc))
+            out_missions.update(scan_entity_dir(
+                mission_dir,
+                lambda root: stats_mission(root, reputation_lookup),
+                loc=loc
+            ))
+
     logger.info(f"CHECKPOINT: Finished missions ({len(out_missions)} entries)")
+    sys_mod.stdout.flush()
+
+    # ── Augment mission titles with XP ──────────────────────────────────────
+    logger.info("CHECKPOINT: Augmenting mission titles with XP…")
+    sys_mod.stdout.flush()
+    mission_titles_augmented = 0
+
+    # Process mission titles from the primary mission directory
+    pu_missions_dir = forge_dir / "raw" / "libs" / "foundry" / "records" / "missionbroker" / "pu_missions"
+    if pu_missions_dir.exists():
+        for xml_file in pu_missions_dir.rglob("*.xml"):
+            try:
+                root = ET.parse(xml_file).getroot()
+
+                # Get both title and description keys
+                title_attr = root.get("title", "")
+                desc_attr = root.get("description", "")
+
+                if not title_attr.startswith("@") or not desc_attr.startswith("@"):
+                    continue
+
+                title_key = title_attr.lstrip("@")
+                desc_key = desc_attr.lstrip("@")
+
+                # Only add title if the corresponding description was processed (exists in out_missions)
+                if desc_key not in out_missions:
+                    continue
+
+                # Extract XP and augment title
+                total_rep_xp = _extract_mission_xp(root, reputation_lookup)
+                if total_rep_xp > 0:
+                    base_title = (loc or {}).get(title_key)
+                    if base_title:
+                        augmented_title = f"{base_title} [{total_rep_xp:,} XP]"
+                        out_missions[title_key] = augmented_title
+                        mission_titles_augmented += 1
+            except (ET.ParseError, Exception):
+                continue
+
+    logger.info(f"CHECKPOINT: Augmented {mission_titles_augmented} mission titles with XP")
     sys_mod.stdout.flush()
 
     # ── Process crafting recipes and augment commodities ─────────────────────

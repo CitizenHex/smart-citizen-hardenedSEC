@@ -31,6 +31,23 @@ For creating the installer, download from: https://jrsoftware.org/isdl.php
 
 ---
 
+## Step 0 (Optional): Clean Cache for Distribution
+
+If distributing to users, optionally clean the DataForge cache to reduce user data size:
+
+```bash
+cd scripts/build
+.venv\Scripts\python.exe clean_cache_for_distribution.py
+```
+
+This removes the `raw/` DataForge extraction (keeping the filtered `libs/` which has all necessary stats data). 
+Users can regenerate raw/ if needed by re-extracting their P4K.
+
+**Note:** The executable doesn't bundle user cache data - it's created at runtime. This script is only 
+useful if you've manually included cache in any distribution package.
+
+---
+
 ## Step 1: Build the Executable
 
 Run the build script from the project root:

@@ -96,6 +96,7 @@ def extract_global_ini(
 
 # Subdirectories (relative to the Data/ dir created by unp4k) that we keep
 # from the full DataForge extraction.  Everything else is discarded.
+# These are used for stats generation (ships, components, weapons, missions).
 _DATAFORGE_KEEP = [
     "libs/foundry/records/entities/scitem/ships/shieldgenerator",
     "libs/foundry/records/entities/scitem/ships/cooler",
@@ -108,6 +109,8 @@ _DATAFORGE_KEEP = [
     "libs/foundry/records/ammoparams/fps",
     "libs/foundry/records/entities/spaceships",
     "libs/foundry/records/entities/scitem/ships/controller",
+    "libs/foundry/records/missionbroker/pu_missions",
+    "libs/foundry/records/reputation/rewards/missionrewards_reputation",
 ]
 
 
