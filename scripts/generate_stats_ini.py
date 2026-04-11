@@ -312,13 +312,23 @@ def stats_missile(root: ET.Element) -> str:
                     if guidance_type and "none" not in guidance_type.lower():
                         lines.append(f"Guidance: {guidance_type}")
 
-                    # Lock-on and tracking range
-                    lock_range = el.get("lockOnRange") or el.get("launchRange") or el.get("maxLockRange")
-                    if lock_range and lock_range != "0":
+                    # Minimum lock range
+                    min_lock = el.get("minLockRange") or el.get("minimumLockRange")
+                    if min_lock and min_lock != "0":
                         try:
-                            lock_val = float(lock_range) / 1000  # Convert to km
-                            if lock_val > 0:
-                                lines.append(f"Lock Range: {lock_val:,.1f} km")
+                            min_val = float(min_lock) / 1000  # Convert to km
+                            if min_val > 0:
+                                lines.append(f"Min Lock Range: {min_val:,.1f} km")
+                        except (ValueError, TypeError):
+                            pass
+
+                    # Maximum lock range
+                    max_lock = el.get("maxLockRange") or el.get("lockOnRange") or el.get("launchRange")
+                    if max_lock and max_lock != "0":
+                        try:
+                            max_val = float(max_lock) / 1000  # Convert to km
+                            if max_val > 0:
+                                lines.append(f"Max Lock Range: {max_val:,.1f} km")
                         except (ValueError, TypeError):
                             pass
 
