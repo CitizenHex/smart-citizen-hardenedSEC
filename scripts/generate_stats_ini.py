@@ -279,7 +279,9 @@ def stats_shield(root: ET.Element) -> str:
 
 
 def stats_missile(root: ET.Element) -> str:
-    """Extract missile/rocket/bomb stats (velocity, guidance, tracking range, fuel/lifetime)."""
+    """Extract missile/rocket/bomb stats: velocity, guidance, seeker type, lock ranges, tracking range,
+    turn rate, detonation mode, proximity fuse range, G-force, acceleration, damage, blast radius,
+    effective range, EM/IR signature, and component HP."""
     lines = []
 
     try:
@@ -312,6 +314,21 @@ def stats_missile(root: ET.Element) -> str:
                     if guidance_type and "none" not in guidance_type.lower():
                         lines.append(f"Guidance: {guidance_type}")
 
+                    # Seeker type (passive vs active)
+                    seeker_type = el.get("seekerType") or el.get("seekerMode")
+                    if seeker_type and "none" not in seeker_type.lower():
+                        lines.append(f"Seeker: {seeker_type}")
+
+                    # Lock-on time (how long to acquire lock)
+                    lock_time = el.get("lockTime") or el.get("lockOnTime") or el.get("lockAcquisitionTime")
+                    if lock_time and lock_time != "0":
+                        try:
+                            time_val = float(lock_time)
+                            if time_val > 0:
+                                lines.append(f"Lock Time: {time_val:.2f}s")
+                        except (ValueError, TypeError):
+                            pass
+
                     # Minimum lock range
                     min_lock = el.get("minLockRange") or el.get("minimumLockRange")
                     if min_lock and min_lock != "0":
@@ -342,13 +359,48 @@ def stats_missile(root: ET.Element) -> str:
                         except (ValueError, TypeError):
                             pass
 
-                    # Turn rate for guided missiles
+                    # Proximity fuse range (detonation distance from target)
+                    prox_range = el.get("proximityFuseRange") or el.get("detonationRange") or el.get("fuseRange")
+                    if prox_range and prox_range != "0":
+                        try:
+                            prox_val = float(prox_range)
+                            if prox_val > 0:
+                                lines.append(f"Proximity Range: {prox_val:,.0f} m")
+                        except (ValueError, TypeError):
+                            pass
+
+                    # Turn rate / Max G-force for guided missiles
+                    max_g = el.get("maxGForce") or el.get("maxAcceleration") or el.get("maxG")
+                    if max_g and max_g != "0":
+                        try:
+                            g_val = float(max_g)
+                            if g_val > 0:
+                                lines.append(f"Max G-Force: {g_val:.1f}G")
+                        except (ValueError, TypeError):
+                            pass
+
                     turn_rate = el.get("turnRate") or el.get("maxTurnRate") or el.get("angularVelocity")
                     if turn_rate and turn_rate != "0":
                         try:
                             turn_val = float(turn_rate)
                             if turn_val > 0:
                                 lines.append(f"Turn Rate: {turn_val:.1f}°/s")
+                        except (ValueError, TypeError):
+                            pass
+
+                    # Detonation mode
+                    detonation = el.get("detonationMode") or el.get("fuseMode") or el.get("detonationType")
+                    if detonation and "none" not in detonation.lower():
+                        lines.append(f"Detonation: {detonation}")
+
+                # Acceleration / Thrust
+                if "propulsion" in el.tag.lower() or "thruster" in el.tag.lower() or "engine" in el.tag.lower():
+                    accel = el.get("acceleration") or el.get("maxAcceleration") or el.get("thrust")
+                    if accel and accel != "0":
+                        try:
+                            accel_val = float(accel)
+                            if accel_val > 0:
+                                lines.append(f"Acceleration: {accel_val:,.1f} m/s²")
                         except (ValueError, TypeError):
                             pass
 
@@ -376,6 +428,45 @@ def stats_missile(root: ET.Element) -> str:
                 elif breakdown and len(breakdown) > 1:
                     type_str = " (" + " / ".join(f"{lbl}: {v:.1f}" for lbl, v in breakdown.items()) + ")"
                 lines.append(f"Damage: {_fmt(total_dmg, '', 1)}{type_str}")
+
+        # Blast radius (warhead explosion radius)
+        blast = _attr(root, "DamageInfo", "DamageDropOffEnd") or _attr(root, "Warhead", "blastRadius") or _attr(root, "ExplosionParams", "radius")
+        if blast:
+            try:
+                blast_val = float(blast)
+                if blast_val > 0:
+                    lines.append(f"Blast Radius: {blast_val:,.0f} m")
+            except (ValueError, TypeError):
+                pass
+
+        # Effective range (calculated or stored)
+        eff_range = _attr(root, "ProjectileParams", "effectiveRange")
+        if eff_range and eff_range != "0":
+            try:
+                eff_val = float(eff_range) / 1000  # Convert to km
+                if eff_val > 0:
+                    lines.append(f"Effective Range: {eff_val:,.1f} km")
+            except (ValueError, TypeError):
+                pass
+
+        # EM and IR signatures (how detectable the missile is)
+        em_sig = _attr(root, "EMSignature", "nominalSignature")
+        if em_sig and em_sig != "0":
+            try:
+                em_val = float(em_sig)
+                if em_val > 0:
+                    lines.append(f"EM Signature: {em_val:,.0f}")
+            except (ValueError, TypeError):
+                pass
+
+        ir_sig = _attr(root, "IRSignature", "nominalSignature")
+        if ir_sig and ir_sig != "0":
+            try:
+                ir_val = float(ir_sig)
+                if ir_val > 0:
+                    lines.append(f"IR Signature: {ir_val:,.0f}")
+            except (ValueError, TypeError):
+                pass
 
         # Component HP
         comp_hp = _attr(root, "SHealthComponentParams", "Health")
