@@ -1220,9 +1220,36 @@ class MainWindow(QMainWindow):
             try:
                 progress.setLabelText("Deleting DataForge directory...")
                 QApplication.processEvents()
-                shutil.rmtree(dataforge_dir)
-                deleted.append("dataforge/")
-                logger.info("Deleted DataForge cache directory")
+
+                # Use a more robust deletion that handles locked files
+                import stat
+                import time
+
+                def handle_remove_readonly(func, path, exc):
+                    """Error handler for rmtree to handle read-only files."""
+                    if not os.access(path, os.W_OK):
+                        os.chmod(path, stat.S_IWUSR | stat.S_IRUSR)
+                        func(path)
+                    else:
+                        raise
+
+                # Try to remove with readonly handler, retry a few times if locked
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        shutil.rmtree(dataforge_dir, onerror=handle_remove_readonly)
+                        deleted.append("dataforge/")
+                        logger.info("Deleted DataForge cache directory")
+                        break
+                    except Exception as retry_err:
+                        if attempt < max_retries - 1:
+                            # Wait a bit before retrying (might be OneDrive sync or antivirus scan)
+                            logger.warning(f"DataForge deletion attempt {attempt + 1} failed, retrying: {retry_err}")
+                            time.sleep(1)
+                        else:
+                            # Final attempt failed
+                            failed.append(f"dataforge/: {retry_err}")
+                            logger.error(f"Failed to delete DataForge cache after {max_retries} attempts: {retry_err}")
             except Exception as e:
                 failed.append(f"dataforge/: {e}")
                 logger.error(f"Failed to delete DataForge cache: {e}")
