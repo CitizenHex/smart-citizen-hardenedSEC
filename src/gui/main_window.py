@@ -187,6 +187,7 @@ class StatsGeneratorWorker(QThread):
 
     def run(self):
         import importlib.util
+        import sys as sys_module
         try:
             if getattr(sys, 'frozen', False):
                 script_path = Path(sys._MEIPASS) / 'scripts' / 'generate_stats_ini.py'
@@ -198,14 +199,29 @@ class StatsGeneratorWorker(QThread):
                 raise FileNotFoundError(f"Stats generator script not found: {script_path}")
 
             self.progress.emit("Loading stats generator...")
-            spec = importlib.util.spec_from_file_location("generate_stats_ini", script_path)
+
+            # Force module cache refresh to avoid stale imports during startup
+            module_name = "generate_stats_ini_worker"
+            if module_name in sys_module.modules:
+                del sys_module.modules[module_name]
+
+            spec = importlib.util.spec_from_file_location(module_name, script_path)
             mod = importlib.util.module_from_spec(spec)
+
+            # Ensure the module is in sys.modules before executing (required by some imports)
+            sys_module.modules[module_name] = mod
             spec.loader.exec_module(mod)
 
             self.progress.emit("Generating stats (may take a few minutes on first run)...")
+            logger.info("Stats generation worker: calling mod.main()")
+
             base_ini  = AppSettings.get_cache_dir() / 'base.ini'
             forge_dir = AppSettings.get_dataforge_cache_dir()
+
+            logger.info(f"Stats generation: base_ini={base_ini}, forge_dir={forge_dir}")
             mod.main(base_ini, forge_dir)
+            logger.info("Stats generation worker: mod.main() completed successfully")
+
             self.finished.emit(True)
         except Exception as e:
             logger.exception(f"Stats generation failed: {e}")
@@ -315,6 +331,10 @@ class MainWindow(QMainWindow):
 
         # Track whether we've prompted for stats on startup (prevents duplicate dialogs)
         self._stats_prompted_on_startup = False
+        # Flag to defer stats checking until after file loading completes (avoid I/O contention)
+        self._check_stats_after_loading = False
+        # Track if current stats generation is from startup automatic check (vs manual user trigger)
+        self._stats_from_startup = False
 
         # Status bar state (composed message) - tracks sync status per source
         self._source_status: dict[str, str] = {}  # source_name -> status_string
@@ -1503,8 +1523,9 @@ Shows the sync status for each configured source. "✓" means up to date.
         if p4k_extraction_started:
             return
 
-        # Prompt to generate stats if any stats files are missing
-        self._check_stats_freshness()
+        # Don't check stats during startup - defer until after file loading completes
+        # to avoid concurrent I/O contention between file loader and stats generator
+        self._check_stats_after_loading = True
 
         # Show progress dialog during file loading
         self._show_loading_progress()
@@ -1575,6 +1596,7 @@ Shows the sync status for each configured source. "✓" means up to date.
         # If we already prompted at startup and user said Yes, just run stats generation
         # (they're here because P4K extraction completed)
         if self._stats_prompted_on_startup:
+            self._stats_from_startup = True  # Mark as startup automatic check
             self._run_stats_pipeline()
             return
 
@@ -1589,6 +1611,7 @@ Shows the sync status for each configured source. "✓" means up to date.
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
+            self._stats_from_startup = True  # Mark as startup automatic check
             self._run_stats_pipeline()
 
     def _show_loading_progress(self, message: str = "Loading localization strings...") -> None:
@@ -1631,6 +1654,12 @@ Shows the sync status for each configured source. "✓" means up to date.
             self._loader_worker.quit()
             self._loader_worker.wait()
             self._loader_worker = None
+
+            # If stats check was deferred during startup, do it now (after file loading completes)
+            # This avoids concurrent I/O contention between file loader and stats generator
+            if self._check_stats_after_loading:
+                self._check_stats_after_loading = False
+                self._check_stats_freshness()
 
     @pyqtSlot(str)
     def _on_loading_error(self, error_msg: str):
@@ -1700,11 +1729,53 @@ Shows the sync status for each configured source. "✓" means up to date.
         self.enhancements_tab.refresh_stats_status()
 
         if success:
-            self.statusBar().showMessage("Stats generated — reloading…")
-            self.load_default_values()
-            self.auto_load_default_files()
+            # Stats generated successfully
+            # Defer reload to avoid race conditions during startup when the table was just
+            # populated 1-2 seconds ago. Schedule it to happen after current event processing.
+            self.statusBar().showMessage("Stats generated — reloading entries…")
+            # For manual user-triggered generation, we'll reload. For startup automatic,
+            # _reload_entries_after_stats() will skip and reset the flag.
+            QTimer.singleShot(500, self._reload_entries_after_stats)
         else:
+            # Reset startup flag on error so subsequent manual generation works
+            self._stats_from_startup = False
             self.statusBar().showMessage("Stats generation failed — check the Log tab for details")
+
+    def _reload_entries_after_stats(self):
+        """Reload entries with new stats data. Deferred to after current event processing.
+
+        During startup automatic stats generation, we skip the reload to avoid crashes
+        from table manipulation while the UI is still settling. Stats will be loaded
+        on the next app restart. For manual user-triggered stats generation, we do reload.
+        """
+        if self._stats_from_startup:
+            # Skip reload during startup to avoid race conditions and crashes
+            # Stats files are cached and will be loaded on next app start
+            self._stats_from_startup = False  # Reset flag
+            self.statusBar().showMessage("Stats generated — restart the app to apply them")
+            logger.info("Stats generated during startup; skipping reload to avoid UI crashes. They will be loaded on next app restart.")
+            return
+
+        # Manual user-triggered stats generation: reload to show stats immediately
+        try:
+            # Load sources from settings (which now include the new stats files)
+            from src.parser.ini_parser import load_sources_from_settings, load_source_files
+            sources_dict, hierarchy = load_sources_from_settings()
+
+            # Recreate entries with updated stats
+            entries = load_source_files(sources_dict, hierarchy)
+            self.load_default_values()
+            self.entries = entries
+            self.update_category_combo()
+            self.populate_table()
+            self.apply_filters()
+            self._update_status_bar()
+
+            self.statusBar().showMessage("Stats loaded successfully")
+            logger.info("Stats reloaded successfully")
+        except Exception as e:
+            logger.exception(f"Failed to reload entries after stats generation: {e}")
+            self.statusBar().showMessage("Stats generated but reload failed — try restarting the app")
 
     def _run_dataforge_extraction(self):
         """Launch DataForgeExtractWorker in the background (non-blocking)."""
@@ -1777,8 +1848,8 @@ Shows the sync status for each configured source. "✓" means up to date.
             self.config_tab.source_widgets[AppSettings.SOURCE_GLOBAL].load_settings()
             self.config_tab._refresh_p4k_status()
 
-            # Check if stats need to be generated (if user prompted at startup, continues without re-prompting)
-            self._check_stats_freshness()
+            # Defer stats check until after file loading completes (avoid I/O contention)
+            self._check_stats_after_loading = True
 
             # Show progress dialog while reloading with extracted data
             self._show_loading_progress("Reloading with extracted base.ini...")

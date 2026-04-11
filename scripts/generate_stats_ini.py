@@ -1127,7 +1127,10 @@ def scan_entity_dir(
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
+    import sys as sys_mod
     logger.info("=== SC Stats INI Generator (DataForge edition) ===")
+    sys_mod.stdout.flush()
+    sys_mod.stderr.flush()
 
     if forge_dir is None:
         forge_dir = DEFAULT_FORGE_DIR
@@ -1135,13 +1138,17 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # ── Parse base.ini ─────────────────────────────────────────────────────────
-    logger.info(f"Parsing base.ini: {base_ini_path}")
+    logger.info(f"CHECKPOINT: Parsing base.ini: {base_ini_path}")
+    sys_mod.stdout.flush()
     if not base_ini_path.exists():
         raise FileNotFoundError(f"base.ini not found at {base_ini_path}")
     loc = parse_ini(base_ini_path)
-    logger.info(f"Loaded {len(loc):,} localization keys")
+    logger.info(f"CHECKPOINT: Loaded {len(loc):,} localization keys")
+    sys_mod.stdout.flush()
 
     # ── Check DataForge cache ─────────────────────────────────────────────────
+    logger.info("CHECKPOINT: Checking DataForge cache...")
+    sys_mod.stdout.flush()
     records = forge_dir / "libs" / "foundry" / "records"
     if not forge_dir.exists() or not records.exists():
         raise FileNotFoundError(
@@ -1150,15 +1157,18 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
         )
 
     # ── Build ammo lookups ────────────────────────────────────────────────────
-    logger.info("Building ammo damage lookups…")
+    logger.info("CHECKPOINT: Building ammo damage lookups…")
+    sys_mod.stdout.flush()
     vehicle_ammo = build_ammo_lookup(records / "ammoparams" / "vehicle")
     fps_ammo     = build_ammo_lookup(records / "ammoparams" / "fps")
-    logger.info(f"Vehicle ammo: {len(vehicle_ammo)} records, FPS ammo: {len(fps_ammo)} records")
+    logger.info(f"CHECKPOINT: Vehicle ammo: {len(vehicle_ammo)} records, FPS ammo: {len(fps_ammo)} records")
+    sys_mod.stdout.flush()
 
     # ── Process components ────────────────────────────────────────────────────
     ships_scitem = records / "entities" / "scitem" / "ships"
 
-    logger.info("Processing ship components…")
+    logger.info("CHECKPOINT: Processing ship components…")
+    sys_mod.stdout.flush()
     out_components: dict[str, str] = {}
     for subdir, fn in [
         ("shieldgenerator", stats_shield),
@@ -1166,6 +1176,8 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
         ("powerplant",      stats_powerplant),
         ("quantumdrive",    stats_quantum_drive),
     ]:
+        logger.info(f"CHECKPOINT: Processing {subdir}...")
+        sys_mod.stdout.flush()
         out_components.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc))
 
     # ── Process radar/sensors ─────────────────────────────────────────────────
@@ -1192,7 +1204,8 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
             out_missiles.update(scan_entity_dir(missile_dir, stats_missile, loc=loc))
 
     # ── Process ship weapons ──────────────────────────────────────────────────
-    logger.info("Processing ship weapons…")
+    logger.info("CHECKPOINT: Processing ship weapons…")
+    sys_mod.stdout.flush()
     out_ship_weapons: dict[str, str] = {}
     weapons_dir = ships_scitem / "weapons"
     if weapons_dir.exists():
@@ -1201,9 +1214,12 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
             lambda root: stats_weapon(root, vehicle_ammo, loc),
             loc=loc,
         )
+    logger.info(f"CHECKPOINT: Finished ship weapons ({len(out_ship_weapons)} entries)")
+    sys_mod.stdout.flush()
 
     # ── Process FPS weapons ───────────────────────────────────────────────────
-    logger.info("Processing FPS weapons…")
+    logger.info("CHECKPOINT: Processing FPS weapons…")
+    sys_mod.stdout.flush()
     out_fps_weapons: dict[str, str] = {}
     fps_dir = records / "entities" / "scitem" / "weapons" / "fps_weapons"
     if fps_dir.exists():
@@ -1212,19 +1228,27 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
             lambda root: stats_weapon(root, fps_ammo, loc),
             loc=loc,
         )
+    logger.info(f"CHECKPOINT: Finished FPS weapons ({len(out_fps_weapons)} entries)")
+    sys_mod.stdout.flush()
 
     # ── Process ships (DataForge spaceship entities + flight controllers) ──────
-    logger.info("Building flight controller lookup…")
+    logger.info("CHECKPOINT: Building flight controller lookup…")
+    sys_mod.stdout.flush()
     controller_dir = records / "entities" / "scitem" / "ships" / "controller"
     controller_lookup = build_controller_lookup(controller_dir)
-    logger.info(f"Controllers: {len(controller_lookup)} loaded")
+    logger.info(f"CHECKPOINT: Controllers: {len(controller_lookup)} loaded")
+    sys_mod.stdout.flush()
 
-    logger.info("Processing ship descriptions…")
+    logger.info("CHECKPOINT: Processing ship descriptions…")
+    sys_mod.stdout.flush()
     spaceships_dir = records / "entities" / "spaceships"
     out_ships = scan_spaceships(spaceships_dir, controller_lookup, loc)
+    logger.info(f"CHECKPOINT: Finished ships ({len(out_ships)} entries)")
+    sys_mod.stdout.flush()
 
     # ── Process missions/contracts ────────────────────────────────────────────
-    logger.info("Processing mission/contract rewards…")
+    logger.info("CHECKPOINT: Processing mission/contract rewards…")
+    sys_mod.stdout.flush()
     out_missions: dict[str, str] = {}
     for mission_dir in [
         records / "entities" / "missions",
@@ -1232,10 +1256,15 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
         records / "entities" / "jobterminal",
     ]:
         if mission_dir.exists():
+            logger.info(f"CHECKPOINT: Processing {mission_dir.name}…")
+            sys_mod.stdout.flush()
             out_missions.update(scan_entity_dir(mission_dir, stats_mission, loc=loc))
+    logger.info(f"CHECKPOINT: Finished missions ({len(out_missions)} entries)")
+    sys_mod.stdout.flush()
 
     # ── Process crafting recipes and augment commodities ─────────────────────
-    logger.info("Processing crafting recipes…")
+    logger.info("CHECKPOINT: Processing crafting recipes…")
+    sys_mod.stdout.flush()
     out_commodities: dict[str, str] = {}
 
     # Scan all crafting-related directories for recipes
@@ -1246,11 +1275,14 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
         records / "entities" / "manufacturing",
     ]:
         if recipes_dir.exists():
+            logger.info(f"CHECKPOINT: Scanning {recipes_dir.name}…")
+            sys_mod.stdout.flush()
             commodity_recipes.update(scan_crafting_recipes(recipes_dir))
 
     # Augment commodity descriptions with crafting usage information
     if commodity_recipes:
-        logger.info(f"Found {len(commodity_recipes)} commodities used in crafting")
+        logger.info(f"CHECKPOINT: Found {len(commodity_recipes)} commodities used in crafting")
+        sys_mod.stdout.flush()
         for commodity_key, crafted_items in commodity_recipes.items():
             if commodity_key in loc:
                 base_value = loc[commodity_key]
@@ -1262,7 +1294,8 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
                 out_commodities[commodity_key] = append_stats(base_value, stats_block)
 
     # ── Write output ──────────────────────────────────────────────────────────
-    logger.info("Writing output files…")
+    logger.info("CHECKPOINT: Writing output files…")
+    sys_mod.stdout.flush()
     write_ini(OUTPUT_DIR / "ships_desc_stats.ini",       out_ships)
     write_ini(OUTPUT_DIR / "components_desc_stats.ini",  out_components)
     write_ini(OUTPUT_DIR / "ship_weapons_desc_stats.ini",out_ship_weapons)
