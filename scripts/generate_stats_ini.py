@@ -1300,12 +1300,10 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
     write_ini(OUTPUT_DIR / "components_desc_stats.ini",  out_components)
     write_ini(OUTPUT_DIR / "ship_weapons_desc_stats.ini",out_ship_weapons)
     write_ini(OUTPUT_DIR / "fps_weapons_desc_stats.ini", out_fps_weapons)
-    if out_missions:
-        write_ini(OUTPUT_DIR / "mission_rewards_stats.ini", out_missions)
-    if out_commodities:
-        write_ini(OUTPUT_DIR / "commodity_crafting_stats.ini", out_commodities)
-    if out_missiles:
-        write_ini(OUTPUT_DIR / "missile_stats.ini", out_missiles)
+    # Always write all files, even if empty, so the startup check doesn't prompt repeatedly
+    write_ini(OUTPUT_DIR / "mission_rewards_stats.ini", out_missions)
+    write_ini(OUTPUT_DIR / "commodity_crafting_stats.ini", out_commodities)
+    write_ini(OUTPUT_DIR / "missile_stats.ini", out_missiles)
 
     total = (len(out_ships) + len(out_components) + len(out_ship_weapons) +
              len(out_fps_weapons) + len(out_missions) + len(out_commodities) + len(out_missiles))

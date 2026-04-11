@@ -59,8 +59,7 @@ class EnhancementsTab(QWidget):
 
         stats_desc = QLabel(
             "When enabled, numerical stats (speed, DPS, shield HP, etc.) are appended to "
-            "description entries. Stats are generated from your installed Data.p4k — "
-            "no external downloads required."
+            "description entries. Stats are generated from your installed Data.p4k."
         )
         stats_desc.setStyleSheet("font-size: 11px; color: #666;")
         stats_desc.setWordWrap(True)
