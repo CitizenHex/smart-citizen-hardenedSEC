@@ -483,7 +483,7 @@ def stats_radar(root: ET.Element) -> str:
     lines = []
 
     try:
-        # Look for radar/sensor parameter structures
+        # Look for radar/sensor parameter structures (detection range, tracking, signature threshold, etc.)
         for el in root.iter():
             try:
                 # Scan for detection range fields
@@ -1284,13 +1284,17 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
     # ── Process radar/sensors ─────────────────────────────────────────────────
     logger.info("Processing radar/sensor components…")
     scitem_dir = records / "entities" / "scitem"
-    for radar_dir in [
+    radar_dirs = [
         scitem_dir / "radar",
         scitem_dir / "sensors",
         scitem_dir / "avionics" / "radar",
-    ]:
+    ]
+    for radar_dir in radar_dirs:
         if radar_dir.exists():
+            logger.info(f"  Found radar directory: {radar_dir}")
             out_components.update(scan_entity_dir(radar_dir, stats_radar, loc=loc))
+        else:
+            logger.debug(f"  Radar directory not found: {radar_dir}")
 
     # ── Process missiles/rockets/bombs ────────────────────────────────────────
     logger.info("Processing missile/rocket/bomb stats…")
