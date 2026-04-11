@@ -333,8 +333,6 @@ class MainWindow(QMainWindow):
         self._stats_prompted_on_startup = False
         # Flag to defer stats checking until after file loading completes (avoid I/O contention)
         self._check_stats_after_loading = False
-        # Track if current stats generation is from startup automatic check (vs manual user trigger)
-        self._stats_from_startup = False
 
         # Status bar state (composed message) - tracks sync status per source
         self._source_status: dict[str, str] = {}  # source_name -> status_string
@@ -1631,7 +1629,6 @@ Shows the sync status for each configured source. "✓" means up to date.
         # If we already prompted at startup and user said Yes, just run stats generation
         # (they're here because P4K extraction completed)
         if self._stats_prompted_on_startup:
-            self._stats_from_startup = True  # Mark as startup automatic check
             self._run_stats_pipeline()
             return
 
@@ -1647,7 +1644,6 @@ Shows the sync status for each configured source. "✓" means up to date.
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
-            self._stats_from_startup = True  # Mark as startup automatic check
             self._run_stats_pipeline()
 
     def _show_loading_progress(self, message: str = "Loading localization strings...") -> None:
@@ -1767,32 +1763,20 @@ Shows the sync status for each configured source. "✓" means up to date.
         if success:
             # Stats generated successfully
             # Defer reload to avoid race conditions during startup when the table was just
-            # populated 1-2 seconds ago. Schedule it to happen after current event processing.
+            # populated 1-2 seconds ago. Use a longer delay (1-2 seconds) to ensure UI is fully settled.
             self.statusBar().showMessage("Stats generated — reloading entries…")
-            # For manual user-triggered generation, we'll reload. For startup automatic,
-            # _reload_entries_after_stats() will skip and reset the flag.
-            QTimer.singleShot(500, self._reload_entries_after_stats)
+            # Always reload stats so user sees them immediately (or after a brief delay during startup)
+            QTimer.singleShot(1500, self._reload_entries_after_stats)
         else:
-            # Reset startup flag on error so subsequent manual generation works
-            self._stats_from_startup = False
             self.statusBar().showMessage("Stats generation failed — check the Log tab for details")
 
     def _reload_entries_after_stats(self):
-        """Reload entries with new stats data. Deferred to after current event processing.
+        """Reload entries with new stats data. Deferred to allow UI to fully settle.
 
-        During startup automatic stats generation, we skip the reload to avoid crashes
-        from table manipulation while the UI is still settling. Stats will be loaded
-        on the next app restart. For manual user-triggered stats generation, we do reload.
+        The reload is delayed by 1.5 seconds to ensure the UI is responsive and the
+        table is fully rendered before attempting to rebuild it with new stats data.
+        This works for both startup automatic and manual user-triggered stats generation.
         """
-        if self._stats_from_startup:
-            # Skip reload during startup to avoid race conditions and crashes
-            # Stats files are cached and will be loaded on next app start
-            self._stats_from_startup = False  # Reset flag
-            self.statusBar().showMessage("Stats generated — restart the app to apply them")
-            logger.info("Stats generated during startup; skipping reload to avoid UI crashes. They will be loaded on next app restart.")
-            return
-
-        # Manual user-triggered stats generation: reload to show stats immediately
         try:
             # Load sources from settings (which now include the new stats files)
             from src.parser.ini_parser import load_sources_from_settings, load_source_files
