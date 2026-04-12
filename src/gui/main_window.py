@@ -498,6 +498,12 @@ class MainWindow(QMainWindow):
         self.clear_filters_btn.clicked.connect(self.clear_filters)
         filter_layout.addWidget(self.clear_filters_btn)
 
+        self.copy_filtered_btn = QPushButton("Copy Filtered")
+        self.copy_filtered_btn.setMaximumWidth(100)
+        self.copy_filtered_btn.setToolTip("Copy all visible filtered rows to clipboard (tab-separated)")
+        self.copy_filtered_btn.clicked.connect(self.copy_filtered_to_clipboard)
+        filter_layout.addWidget(self.copy_filtered_btn)
+
         filter_layout.addStretch()
         layout.addLayout(filter_layout)
 
@@ -1470,6 +1476,14 @@ Shows the sync status for each configured source. "✓" means up to date.
 
         dialog.exec()
 
+    def keyPressEvent(self, event):
+        """Handle keyboard shortcuts."""
+        if event.key() == Qt.Key.Key_C and event.modifiers() == Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier:
+            # Ctrl+Shift+C: Copy filtered rows
+            self.copy_filtered_to_clipboard()
+        else:
+            super().keyPressEvent(event)
+
     def _update_status_bar(self):
         """Compose sync status from all configured sources plus entry counts and game version.
 
@@ -2094,6 +2108,39 @@ Shows the sync status for each configured source. "✓" means up to date.
 
         self.apply_filters()
 
+    @pyqtSlot()
+    def copy_filtered_to_clipboard(self):
+        """Copy all visible filtered rows to clipboard (tab-separated)."""
+        lines = []
+        # Add header
+        lines.append("Key\tOriginal Value\tCurrent Value\tCustom Value\tStatus")
+
+        # Add visible rows
+        for table_row in range(self.table.rowCount()):
+            if self.table.isRowHidden(table_row):
+                continue
+
+            entry_idx = self._entry_index_for_row(table_row)
+            if entry_idx >= len(self.entries):
+                continue
+
+            entry = self.entries[entry_idx]
+            # Tab-separated: Key, Original Value, Current Value, Custom Value, Status
+            line = f"{entry.key}\t{entry.original_value}\t{entry.original_value}\t{entry.custom_value}\t{entry.status}"
+            lines.append(line)
+
+        if len(lines) <= 1:
+            QMessageBox.information(self, "Copy Filtered", "No rows to copy.")
+            return
+
+        text_to_copy = "\n".join(lines)
+        try:
+            import pyperclip
+            pyperclip.copy(text_to_copy)
+            QMessageBox.information(self, "Copy Filtered", f"Copied {len(lines) - 1} rows to clipboard.")
+        except Exception as e:
+            QMessageBox.warning(self, "Copy Error", f"Failed to copy to clipboard: {e}")
+
     @pyqtSlot(QTableWidgetItem)
     def on_item_changed(self, item: QTableWidgetItem):
         """Handle table item edit."""
@@ -2132,6 +2179,8 @@ Shows the sync status for each configured source. "✓" means up to date.
         menu.addAction("Edit", lambda: self.edit_cell(table_row))
         menu.addAction("Reset to Original", lambda: self.reset_to_original(table_row))
         menu.addAction("Copy Key", lambda: self.copy_key(table_row))
+        menu.addSeparator()
+        menu.addAction("Copy All Filtered", lambda: self.copy_filtered_to_clipboard())
 
         if entry.category == "Ships":
             menu.addSeparator()
