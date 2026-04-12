@@ -747,6 +747,90 @@ def stats_mission(root: ET.Element, reputation_lookup: dict[str, int] | None = N
     return "\\n".join(lines) if lines else ""
 
 
+def scan_contract_generators(contractgen_dir: Path, reputation_lookup: dict[str, int] | None = None) -> dict[str, list[tuple[str, int, str]]]:
+    """Scan contract generator XMLs for mission variants with different systems.
+
+    Returns dict mapping title_key → [(system_name, xp, desc_key), ...]
+    Sorted by system name for consistent output.
+    """
+    if not contractgen_dir.exists():
+        return {}
+
+    reputation_lookup = reputation_lookup or {}
+    missions: dict[str, list[tuple[str, int, str]]] = {}
+
+    try:
+        for xml_file in contractgen_dir.rglob("*.xml"):
+            try:
+                root = ET.parse(xml_file).getroot()
+            except ET.ParseError:
+                continue
+
+            # Extract system name from ContractGeneratorHandler_Career debugName
+            # e.g., "FoxwellEnforcement_EscortShips_Stanton" → "Stanton"
+            for handler in root.findall(".//ContractGeneratorHandler_Career"):
+                debug_name = handler.get("debugName", "")
+                system_name = None
+
+                # Parse system name from debugName (last part after last underscore)
+                if debug_name:
+                    parts = debug_name.split("_")
+                    if len(parts) >= 2:
+                        potential_system = parts[-1]
+                        # Check if it looks like a system name
+                        if potential_system in ["Stanton", "Pyro", "Desert", "ArcCorp", "Crusader"]:
+                            system_name = potential_system
+
+                if not system_name:
+                    continue
+
+                # Find all CareerContract elements
+                contracts = handler.findall(".//CareerContract")
+
+                for contract in contracts:
+                    try:
+                        # Extract title and description keys
+                        title_param = contract.find(".//ContractStringParam[@param='Title']")
+                        desc_param = contract.find(".//ContractStringParam[@param='Description']")
+
+                        if title_param is None:
+                            continue
+
+                        title_key = title_param.get("value", "").lstrip("@")
+                        desc_key = desc_param.get("value", "").lstrip("@") if desc_param is not None else ""
+
+                        if not title_key:
+                            continue
+
+                        # Extract XP from ContractResult_LegacyReputation
+                        legacy_rep = contract.find(".//ContractResult_LegacyReputation")
+                        xp_val = 0
+
+                        if legacy_rep is not None:
+                            # The reward UUID is in contractResultReputationAmounts/@reward attribute
+                            rep_amount = legacy_rep.find("contractResultReputationAmounts")
+                            if rep_amount is not None:
+                                reward_uuid = rep_amount.get("reward")
+                                if reward_uuid and reward_uuid in reputation_lookup:
+                                    xp_val = reputation_lookup[reward_uuid]
+
+                        if xp_val > 0:
+                            if title_key not in missions:
+                                missions[title_key] = []
+                            missions[title_key].append((system_name, xp_val, desc_key))
+                    except Exception as e:
+                        pass
+
+        # Sort variants by system name for consistent output (Stanton first, then others alphabetically)
+        for title_key in missions:
+            missions[title_key].sort(key=lambda x: (x[0] != "Stanton", x[0]))
+
+    except Exception as e:
+        logger.warning(f"Error scanning contract generators: {e}")
+
+    return missions
+
+
 def scan_crafting_recipes(recipes_dir: Path) -> dict[str, list[str]]:
     """Scan crafting recipe entities to build a map of commodity → crafted items.
 
@@ -1392,7 +1476,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
         rep_rewards_dir = forge_dir / "raw" / "libs" / "foundry" / "records" / "reputation" / "rewards" / "missionrewards_reputation"
 
     if rep_rewards_dir.exists():
-        for xml_file in rep_rewards_dir.glob("*.xml"):
+        for xml_file in rep_rewards_dir.rglob("*.xml"):
             try:
                 root = ET.parse(xml_file).getroot()
                 uuid = root.get("__ref")
@@ -1454,7 +1538,36 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
     sys_mod.stdout.flush()
     mission_titles_augmented = 0
 
-    # Process mission titles from the primary mission directory
+    # Process contract generator missions (can have multiple variants per title key)
+    logger.info("CHECKPOINT: Processing contract generator mission variants…")
+    sys_mod.stdout.flush()
+    contractgen_dir = forge_dir / "raw" / "libs" / "foundry" / "records" / "contracts" / "contractgenerator"
+    contractgen_missions = scan_contract_generators(contractgen_dir, reputation_lookup)
+    logger.info(f"CHECKPOINT: Processed {len(contractgen_missions)} contract generator mission variants")
+    sys_mod.stdout.flush()
+
+    for title_key, variants in contractgen_missions.items():
+        base_title = (loc or {}).get(title_key)
+        if not base_title:
+            continue
+
+        # Format title with all XP values: [xp1/xp2/xp3]
+        xp_values = [str(xp) for _, xp, _ in variants]
+        xp_str = "/".join(xp_values)
+        augmented_title = f"{base_title} [{xp_str} XP]"
+        out_missions[title_key] = augmented_title
+        mission_titles_augmented += 1
+
+        # Augment description with system-labeled XP values
+        desc_key = variants[0][2]  # Use first variant's description key
+        if desc_key and desc_key in loc:
+            base_desc = loc[desc_key]
+            stats_lines = [f"{system_name} version - Reputation XP: +{xp:,}" for system_name, xp, _ in variants]
+            stats_block = "\\n".join(stats_lines)
+            augmented_desc = append_stats(base_desc, stats_block)
+            out_missions[desc_key] = augmented_desc
+
+    # Process mission titles from the primary mission directory (pu_missions)
     pu_missions_dir = forge_dir / "raw" / "libs" / "foundry" / "records" / "missionbroker" / "pu_missions"
     if pu_missions_dir.exists():
         for xml_file in pu_missions_dir.rglob("*.xml"):
@@ -1470,6 +1583,10 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
 
                 title_key = title_attr.lstrip("@")
                 desc_key = desc_attr.lstrip("@")
+
+                # Skip if already processed by contract generator (check if in contractgen_missions)
+                if title_key in contractgen_missions:
+                    continue
 
                 # Only add title if the corresponding description was processed (exists in out_missions)
                 if desc_key not in out_missions:
