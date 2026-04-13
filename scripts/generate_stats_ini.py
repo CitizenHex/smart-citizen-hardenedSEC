@@ -1472,7 +1472,9 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
     sys_mod.stdout.flush()
     reputation_lookup: dict[str, int] = {}
     rep_rewards_dir = forge_dir / "libs" / "foundry" / "records" / "reputation" / "rewards" / "missionrewards_reputation"
-    if not rep_rewards_dir.exists():
+
+    # Fall back to raw if filtered is empty
+    if not rep_rewards_dir.exists() or not list(rep_rewards_dir.glob("*.xml")):
         rep_rewards_dir = forge_dir / "raw" / "libs" / "foundry" / "records" / "reputation" / "rewards" / "missionrewards_reputation"
 
     if rep_rewards_dir.exists():
