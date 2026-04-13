@@ -11,8 +11,11 @@ SC Localization Editor is a Windows-only PyQt6 GUI application for customizing S
 ## Quick Commands
 
 ```bash
-# Setup
+# Setup (production deps only)
 pip install -r requirements.txt
+
+# Setup (with dev/test tools: pytest, flake8, black, mypy, etc.)
+pip install -r requirements-dev.txt
 
 # Run
 python src/main.py
@@ -47,6 +50,7 @@ Entry point: `src/main.py`. The app has two main layers:
 - `main_window.py` — Main window with table, toolbar, filters, backup/restore, threading workers, DataForge extraction. This is the largest file (~2000+ lines).
 - `config_tab.py` — Config tab with source configuration widgets, drag-drop hierarchy.
 - `enhancements_tab.py` — Optional features tab: stats overlays toggle, ship favorites prefix config, DataForge extraction trigger. Emits `merge_requested` and `stats_pipeline_requested` signals.
+- `filter_header.py` — `FilterHeaderView` QHeaderView subclass adding per-column QLineEdit filter row below header labels, with debounced filtering.
 - `log_tab.py` — In-app log viewer. Bridges Python `logging` to a Qt text widget via `_LogEmitter` signal (thread-safe). Supports level filtering, auto-scroll, and log export.
 
 **Data layer** (`src/models/`, `src/parser/`, `src/merger/`, `src/utils/`):
@@ -58,10 +62,12 @@ Entry point: `src/main.py`. The app has two main layers:
 - `pak_extractor.py` — P4K extraction pipeline: `unp4k.exe` (extracts Game2.dcb) → `unforge.exe` (converts to entity XMLs).
 - `overrides_manager.py` — Saves/loads user edits to `overrides.ini` (plain `key=value` format).
 - `user_cfg.py` — Manages Star Citizen's `user.cfg` file; ensures `g_language = english` is set in the LIVE directory.
+- `version.py` — Reads version string from `VERSION.TXT`, handling both normal and PyInstaller-frozen execution.
 
 **Scripts** (`scripts/`):
 - `generate_stats_ini.py` — Reads DataForge entity XMLs only (no external JSON) → outputs seven stats INI files to cache (ships, components, ship weapons, FPS weapons, mission rewards, commodity/crafting, missiles).
 - `extract_components.py` — Diffs base.ini against stock vanilla to produce components.ini.
+- `gen_commodity_crafting.py` — Generates `commodity_crafting_stats.ini` with crafting blueprint usage data from DataForge XMLs.
 
 ## Critical Design Decisions
 
@@ -95,7 +101,7 @@ Favorites prepend a configurable prefix (default `*`) to `custom_value`. The pre
 | Stats INIs | `Documents\SC Localization Editor\cache\` (`ships_desc_stats.ini`, `components_desc_stats.ini`, `ship_weapons_desc_stats.ini`, `fps_weapons_desc_stats.ini`, `mission_rewards_stats.ini`, `commodity_crafting_stats.ini`, `missile_stats.ini`) |
 | Backups | `Documents\SC Localization Editor\backups\` (max 5, oldest auto-deleted) |
 | Game file | `{game_install_path}\LIVE\data\Localization\english\global.ini` |
-| P4K tools | `src/assets/unp4k/` (`unp4k.exe`, `unforge.exe`) |
+| P4K tools | `assets/unp4k/` (`unp4k.exe`, `unforge.exe`) |
 
 ## Common Modification Points
 
@@ -103,6 +109,7 @@ Favorites prepend a configurable prefix (default `*`) to `custom_value`. The pre
 |------|------|-------------|
 | Add/change table columns | `main_window.py` | `setup_string_table()` |
 | Add/change filters | `main_window.py` | `apply_filters()`, `on_filter_changed()` |
+| Change per-column filters | `filter_header.py` | `FilterHeaderView` |
 | Change category extraction | `string_model.py` | `StringEntry.extract_category()` |
 | Modify INI parsing | `ini_parser.py` | `parse_ini_file()` |
 | Change merge logic | `ini_merger.py` | `merge_sources_by_hierarchy()` |
