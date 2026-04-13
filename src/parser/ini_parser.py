@@ -62,6 +62,7 @@ def load_source_files(
     hierarchy: List[str],
     user_overrides: Optional[Dict[str, str]] = None,
     custom_path: Optional[str | Path] = None,
+    stats_key_categories: Optional[Dict[str, str]] = None,
 ) -> List[StringEntry]:
     """Load source files and build StringEntry list using hierarchy merge.
 
@@ -112,7 +113,7 @@ def load_source_files(
         source_category_filters = {
             AppSettings.SOURCE_GLOBAL: None,           # No filtering - load all
             AppSettings.SOURCE_CONTRACTS: "Missions",
-            AppSettings.SOURCE_COMPONENTS: "Ship Components",
+            AppSettings.SOURCE_COMPONENTS: "Ship Items",
             AppSettings.SOURCE_SHIPS: "Ships",         # vehicle_Name* and vehicle_Desc* both map to Ships
             AppSettings.SOURCE_COMMODITIES: "Commodities",
             AppSettings.SOURCE_GEAR: "Gear",           # FPS weapons, armor, personal equipment
@@ -197,9 +198,11 @@ def load_source_files(
 
         source = source_origin.get(key, 'user' if key not in base_merged else base_source)
 
-        # Determine category based on source
+        # Determine category: source-based override first, then key-prefix fallback
         if source == 'contracts':
             category = 'Missions'
+        elif stats_key_categories and key in stats_key_categories:
+            category = stats_key_categories[key]
         else:
             category = StringEntry.extract_category(key)
 
@@ -217,7 +220,7 @@ def load_source_files(
     return entries
 
 
-def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str]]:
+def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str], Dict[str, str]]:
     """Load all sources from application settings.
 
     For remote URLs, loads from cached local files if available.
@@ -311,12 +314,27 @@ def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str]]:
             logger.exception(f"Failed to load source {source_name} from {source_path}: {e}")
 
     # ── Stats enhancements ───────────────────────────────────────────────────
+    # Map stats file labels to the category their keys should be assigned to
+    _STATS_LABEL_CATEGORY = {
+        "ship_descs":        "Ships",
+        "component_descs":   "Ship Items",
+        "ship_weapon_descs": "Ship Items",
+        "fps_weapon_descs":  "Gear",
+        "mission_rewards":   "Missions",
+        "commodity_crafting": "Commodities",
+        "missile_stats":     "Ship Items",
+    }
+    stats_key_categories: Dict[str, str] = {}
     if AppSettings.get_stats_enabled():
         stats_combined: Dict[str, str] = {}
         for label, filename in AppSettings.STATS_FILES.items():
             stats_file = cache_dir / filename
             if stats_file.exists():
                 data = parse_ini_file(stats_file)
+                category = _STATS_LABEL_CATEGORY.get(label)
+                if category:
+                    for key in data:
+                        stats_key_categories[key] = category
                 stats_combined.update(data)
                 logger.info(f"Loaded {len(data)} stats entries from {filename}")
             else:
@@ -333,7 +351,7 @@ def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str]]:
                 hierarchy = hierarchy + ["stats"]
 
     logger.info(f"load_sources_from_settings complete. Loaded sources: {list(sources_dict.keys())}")
-    return sources_dict, hierarchy
+    return sources_dict, hierarchy, stats_key_categories
 
 
 def load_overrides(target_path: str | Path) -> Dict[str, str]:

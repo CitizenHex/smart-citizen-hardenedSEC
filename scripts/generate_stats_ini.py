@@ -213,17 +213,28 @@ def _fire_rate(root: ET.Element) -> str | None:
     return str(fire_rates[0][0])
 
 
+_FIRE_MODE_LABELS = {
+    "rapid": "Auto", "single": "Semi-Auto", "burst": "Burst",
+    "charge": "Charge", "shotgun": "Shotgun",
+}
+
+
 def _fire_modes(root: ET.Element, loc: dict | None = None) -> list[str]:
     names = []
     for el in root.iter():
         if "WeaponActionFire" in el.tag:
-            loc_key = el.get("localisedName", "")
-            if loc_key.startswith("@") and loc is not None:
-                n = loc.get(loc_key[1:]) or el.get("name", "")
-            else:
-                n = el.get("name") or loc_key
-            if n and n not in names:
-                names.append(n)
+            # Prefer a clean label from the raw name attribute
+            raw_name = (el.get("name") or "").strip()
+            label = _FIRE_MODE_LABELS.get(raw_name.lower())
+            if not label:
+                # Try localized name, stripping brackets
+                loc_key = el.get("localisedName", "")
+                if loc_key.startswith("@") and loc is not None:
+                    label = (loc.get(loc_key[1:]) or raw_name or "").strip("[] ")
+                else:
+                    label = raw_name or loc_key.strip("[] ")
+            if label and label not in names:
+                names.append(label)
     return names
 
 
@@ -247,17 +258,41 @@ def _ammo_damage(ammo_root: ET.Element) -> float:
 
 
 def _ammo_damage_breakdown(ammo_root: ET.Element) -> tuple[float, dict]:
-    """Return (total_damage, {label: amount}) for non-zero damage types."""
+    """Return (total_damage, {label: amount}) for non-zero damage types.
+
+    Only reads the primary <damage> element, not damage drop-off values.
+    """
     totals: dict[str, float] = {}
-    for info in ammo_root.iter("DamageInfo"):
-        for attr in _DAMAGE_TYPES:
-            try:
-                v = float(info.get(attr, 0))
-                if v:
-                    lbl = _DAMAGE_LABELS[attr]
-                    totals[lbl] = totals.get(lbl, 0.0) + v
-            except ValueError:
-                pass
+    # Find the primary damage element (direct child of projectile params, not drop-off)
+    damage_elem = ammo_root.find(".//damage")
+    if damage_elem is not None:
+        for info in damage_elem.iter("DamageInfo"):
+            for attr in _DAMAGE_TYPES:
+                try:
+                    v = float(info.get(attr, 0))
+                    if v:
+                        lbl = _DAMAGE_LABELS[attr]
+                        totals[lbl] = totals.get(lbl, 0.0) + v
+                except ValueError:
+                    pass
+    else:
+        # Fallback: look for DamageInfo that's NOT inside damageDropParams
+        for info in ammo_root.iter("DamageInfo"):
+            # Skip DamageInfo elements inside damageDropParams
+            parent_tags = set()
+            node = info
+            while node is not None:
+                parent_tags.add(node.tag)
+                node = None  # ElementTree doesn't support parent traversal easily
+            for attr in _DAMAGE_TYPES:
+                try:
+                    v = float(info.get(attr, 0))
+                    if v:
+                        lbl = _DAMAGE_LABELS[attr]
+                        totals[lbl] = totals.get(lbl, 0.0) + v
+                except ValueError:
+                    pass
+            break  # Only use the first DamageInfo found
     return sum(totals.values()), totals
 
 
@@ -747,10 +782,10 @@ def stats_mission(root: ET.Element, reputation_lookup: dict[str, int] | None = N
     return "\\n".join(lines) if lines else ""
 
 
-def scan_contract_generators(contractgen_dir: Path, reputation_lookup: dict[str, int] | None = None) -> dict[str, list[tuple[str, int, str]]]:
+def scan_contract_generators(contractgen_dir: Path, reputation_lookup: dict[str, int] | None = None) -> dict[str, list[tuple[str, int, int, str]]]:
     """Scan contract generator XMLs for mission variants with different systems.
 
-    Returns dict mapping title_key → [(system_name, xp, desc_key), ...]
+    Returns dict mapping title_key → [(system_name, success_xp, failure_xp, desc_key), ...]
     Sorted by system name for consistent output.
     """
     if not contractgen_dir.exists():
@@ -766,23 +801,19 @@ def scan_contract_generators(contractgen_dir: Path, reputation_lookup: dict[str,
             except ET.ParseError:
                 continue
 
-            # Extract system name from ContractGeneratorHandler_Career debugName
-            # e.g., "FoxwellEnforcement_EscortShips_Stanton" → "Stanton"
+            # Process all ContractGeneratorHandler_Career elements
             for handler in root.findall(".//ContractGeneratorHandler_Career"):
                 debug_name = handler.get("debugName", "")
-                system_name = None
 
-                # Parse system name from debugName (last part after last underscore)
+                # Try to extract a system name from debugName for labelling variants
+                system_name = debug_name or "Unknown"
+                known_systems = {"Stanton", "Pyro", "Nyx", "Desert", "ArcCorp", "Crusader"}
                 if debug_name:
                     parts = debug_name.split("_")
-                    if len(parts) >= 2:
-                        potential_system = parts[-1]
-                        # Check if it looks like a system name
-                        if potential_system in ["Stanton", "Pyro", "Desert", "ArcCorp", "Crusader"]:
-                            system_name = potential_system
-
-                if not system_name:
-                    continue
+                    for part in reversed(parts):
+                        if part in known_systems:
+                            system_name = part
+                            break
 
                 # Find all CareerContract elements
                 contracts = handler.findall(".//CareerContract")
@@ -802,28 +833,33 @@ def scan_contract_generators(contractgen_dir: Path, reputation_lookup: dict[str,
                         if not title_key:
                             continue
 
-                        # Extract XP from ContractResult_LegacyReputation
-                        legacy_rep = contract.find(".//ContractResult_LegacyReputation")
-                        xp_val = 0
+                        # Extract XP from ContractResult_LegacyReputation blocks
+                        # First block with positive XP = success, first with negative = failure
+                        legacy_reps = contract.findall(".//ContractResult_LegacyReputation")
+                        success_xp = 0
+                        failure_xp = 0
 
-                        if legacy_rep is not None:
-                            # The reward UUID is in contractResultReputationAmounts/@reward attribute
+                        for legacy_rep in legacy_reps:
                             rep_amount = legacy_rep.find("contractResultReputationAmounts")
                             if rep_amount is not None:
                                 reward_uuid = rep_amount.get("reward")
                                 if reward_uuid and reward_uuid in reputation_lookup:
-                                    xp_val = reputation_lookup[reward_uuid]
+                                    val = reputation_lookup[reward_uuid]
+                                    if val > 0 and success_xp == 0:
+                                        success_xp = val
+                                    elif val < 0 and failure_xp == 0:
+                                        failure_xp = val
 
-                        if xp_val > 0:
+                        if success_xp > 0:
                             if title_key not in missions:
                                 missions[title_key] = []
-                            missions[title_key].append((system_name, xp_val, desc_key))
+                            missions[title_key].append((system_name, success_xp, failure_xp, desc_key))
                     except Exception as e:
                         pass
 
         # Sort variants by system name for consistent output (Stanton first, then others alphabetically)
         for title_key in missions:
-            missions[title_key].sort(key=lambda x: (x[0] != "Stanton", x[0]))
+            missions[title_key].sort(key=lambda v: (v[0] != "Stanton", v[0]))
 
     except Exception as e:
         logger.warning(f"Error scanning contract generators: {e}")
@@ -883,7 +919,8 @@ def scan_crafting_recipes(recipes_dir: Path) -> dict[str, list[str]]:
 
 
 def stats_weapon(root: ET.Element, ammo_lookup: dict[str, ET.Element],
-                 loc: dict | None = None) -> str:
+                 loc: dict | None = None,
+                 magazine_lookup: dict[str, tuple[str, str]] | None = None) -> str:
     """Ship or FPS weapon stats."""
     fr    = _fire_rate(root)
     modes = _fire_modes(root, loc)
@@ -895,15 +932,62 @@ def stats_weapon(root: ET.Element, ammo_lookup: dict[str, ET.Element],
     ir_sig   = _attr(root, "IRSignature", "nominalSignature")
     overheat = _attr(root, "itemResourceParams", "overheatTemperature")
 
+    # Weight (mass from physics controller)
+    weight = None
+    for elem in root.iter():
+        pt = elem.get("__polymorphicType", "")
+        if "RigidPhysics" in pt or "StaticPhysics" in pt:
+            mass_val = elem.get("Mass")
+            if mass_val:
+                try:
+                    weight = float(mass_val)
+                except ValueError:
+                    pass
+            break
+
+    # Pellet count (shotguns fire multiple pellets per shot)
+    pellet_count = 1
+    for elem in root.iter():
+        if "SProjectileLauncher" in (elem.get("__polymorphicType", "") + elem.tag):
+            try:
+                pc = int(elem.get("pelletCount", "1"))
+                if pc > 1:
+                    pellet_count = pc
+            except ValueError:
+                pass
+            break
+
     # Ammo damage — look up the ammo record by GUID
     ammo_container = _find(root, "SAmmoContainerComponentParams")
     ammo_record_id = ammo_container.get("ammoParamsRecord") if ammo_container is not None else None
+    capacity = None
+
+    # Fallback: for FPS weapons without inline ammo container, follow the magazine port chain
+    if not ammo_record_id or ammo_record_id == "00000000-0000-0000-0000-000000000000":
+        if magazine_lookup:
+            for elem in root.iter():
+                port_name = elem.get("itemPortName", "")
+                entity_class = elem.get("entityClassName", "")
+                if "magazine" in port_name.lower() and entity_class:
+                    mag_info = magazine_lookup.get(entity_class)
+                    if mag_info:
+                        ammo_record_id, mag_capacity = mag_info
+                        if mag_capacity:
+                            capacity = mag_capacity
+                    break
+
     total_dmg = breakdown = proj_speed = proj_lifetime = None
     dps = None
+    ammo_root = None
+    dmg_drop_min_dist = dmg_drop_per_m = dmg_drop_min = None
     if ammo_record_id and ammo_record_id != "00000000-0000-0000-0000-000000000000":
         ammo_root = ammo_lookup.get(ammo_record_id)
         if ammo_root is not None:
             total_dmg, breakdown = _ammo_damage_breakdown(ammo_root)
+            # Multiply by pellet count for shotguns
+            if pellet_count > 1 and total_dmg:
+                total_dmg *= pellet_count
+                breakdown = {k: v * pellet_count for k, v in breakdown.items()}
             # Try multiple field names for projectile speed (varies by ammo type)
             proj_speed = (ammo_root.get("speed") or
                          ammo_root.get("velocity") or
@@ -919,19 +1003,46 @@ def stats_weapon(root: ET.Element, ammo_lookup: dict[str, ET.Element],
                 except ValueError:
                     pass
 
+            # Damage drop-off parameters
+            for elem in ammo_root.iter():
+                tag = elem.tag
+                if tag == "damageDropMinDistance":
+                    for d in elem:
+                        if d.get("__polymorphicType") == "DamageInfo" or "DamageInfo" in d.tag:
+                            try:
+                                dmg_drop_min_dist = float(d.get("DamagePhysical", 0)) + float(d.get("DamageEnergy", 0))
+                            except ValueError:
+                                pass
+                elif tag == "damageDropPerMeter":
+                    for d in elem:
+                        if d.get("__polymorphicType") == "DamageInfo" or "DamageInfo" in d.tag:
+                            try:
+                                dmg_drop_per_m = float(d.get("DamagePhysical", 0)) + float(d.get("DamageEnergy", 0))
+                            except ValueError:
+                                pass
+                elif tag == "damageDropMinDamage":
+                    for d in elem:
+                        if d.get("__polymorphicType") == "DamageInfo" or "DamageInfo" in d.tag:
+                            try:
+                                dmg_drop_min = float(d.get("DamagePhysical", 0)) + float(d.get("DamageEnergy", 0))
+                            except ValueError:
+                                pass
+
     # Capacity: energy weapons use regen pool; ballistic use fixed container
     regen    = _find(root, "SWeaponRegenConsumerParams")
-    capacity = None
     regen_rate = regen_cooldown = regen_cost = None
     if regen is not None:
-        capacity      = regen.get("maxAmmoLoad")
+        if not capacity:
+            capacity = regen.get("maxAmmoLoad")
         regen_rate    = regen.get("requestedRegenPerSec")
         regen_cooldown = regen.get("regenerationCooldown")
         regen_cost    = regen.get("regenerationCostPerBullet")
-    elif ammo_container is not None:
+    elif ammo_container is not None and not capacity:
         capacity = ammo_container.get("maxAmmoCount")
 
     lines = []
+    if weight is not None and weight > 0:
+        lines.append(f"Weight: {weight:.1f} kg")
     if fr:
         lines.append(f"Fire Rate: {_fmt(fr, ' RPM')}")
     if modes:
@@ -944,7 +1055,8 @@ def stats_weapon(root: ET.Element, ammo_lookup: dict[str, ET.Element],
             type_str = f" ({list(breakdown.keys())[0]})"
         elif breakdown and len(breakdown) > 1:
             type_str = " (" + " / ".join(f"{lbl}: {v:.1f}" for lbl, v in breakdown.items()) + ")"
-        dmg_part = f"Dmg/Shot: {_fmt(total_dmg, '', 1)}{type_str}"
+        pellet_str = f" x{pellet_count}" if pellet_count > 1 else ""
+        dmg_part = f"Dmg/Shot: {_fmt(total_dmg, '', 1)}{pellet_str}{type_str}"
         dps_part = f"DPS: {_fmt(dps, '', 1)}" if dps else ""
         lines.append("  |  ".join(p for p in [dmg_part, dps_part] if p))
 
@@ -958,10 +1070,25 @@ def stats_weapon(root: ET.Element, ammo_lookup: dict[str, ET.Element],
         lines.append("  |  ".join(parts))
     if proj_speed is not None:
         try:
-            rng_m = float(proj_speed) * float(proj_lifetime)
-            lines.append(f"Velocity: {_fmt(proj_speed, ' m/s')}  |  Range: {rng_m / 1000:,.1f} km")
+            speed_f = float(proj_speed)
+            lifetime_f = float(proj_lifetime)
+            rng_m = speed_f * lifetime_f
+            if rng_m >= 1000:
+                lines.append(f"Velocity: {_fmt(proj_speed, ' m/s')}  |  Range: {rng_m / 1000:,.1f} km")
+            else:
+                lines.append(f"Velocity: {_fmt(proj_speed, ' m/s')}  |  Range: {rng_m:,.0f} m")
         except (TypeError, ValueError):
             pass
+
+    # Damage drop-off
+    if dmg_drop_min_dist is not None and dmg_drop_min_dist > 0:
+        drop_parts = [f"Full Dmg to: {dmg_drop_min_dist:.0f} m"]
+        if dmg_drop_per_m is not None and dmg_drop_per_m > 0:
+            drop_parts.append(f"Drop: -{dmg_drop_per_m:.2f}/m")
+        if dmg_drop_min is not None and dmg_drop_min > 0:
+            drop_parts.append(f"Min Dmg: {dmg_drop_min:.1f}")
+        lines.append("  |  ".join(drop_parts))
+
     if pwr:
         lines.append(f"Power Draw: {_fmt(pwr, ' PU/s')}")
     if comp_hp is not None:
@@ -1279,6 +1406,32 @@ def build_ammo_lookup(ammo_dir: Path) -> dict[str, ET.Element]:
     return lookup
 
 
+def build_magazine_lookup(scitem_dir: Path) -> dict[str, tuple[str, str]]:
+    """Build a lookup from magazine entity class name → (ammoParamsRecord, maxAmmoCount).
+
+    Scans all scitem entities for SAmmoContainerComponentParams to find magazine
+    entities that link weapons to their ammo params.
+    """
+    lookup: dict[str, tuple[str, str]] = {}
+    if not scitem_dir.exists():
+        return lookup
+    for xml_file in scitem_dir.rglob("*.xml"):
+        try:
+            root = ET.parse(xml_file).getroot()
+            for elem in root.iter():
+                if elem.get("__polymorphicType") == "SAmmoContainerComponentParams":
+                    ammo_ref = elem.get("ammoParamsRecord", "")
+                    max_ammo = elem.get("maxAmmoCount", "")
+                    # Entity class name is the part after the dot in the root tag
+                    entity_name = root.tag.split(".")[-1] if "." in root.tag else xml_file.stem
+                    if ammo_ref and ammo_ref != "00000000-0000-0000-0000-000000000000":
+                        lookup[entity_name] = (ammo_ref, max_ammo)
+                    break
+        except ET.ParseError:
+            pass
+    return lookup
+
+
 # ── DataForge directory scanner ───────────────────────────────────────────────
 
 def scan_entity_dir(
@@ -1377,6 +1530,13 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
     logger.info(f"CHECKPOINT: Vehicle ammo: {len(vehicle_ammo)} records, FPS ammo: {len(fps_ammo)} records")
     sys_mod.stdout.flush()
 
+    # Build magazine lookup (maps magazine entity names to their ammo params records)
+    logger.info("CHECKPOINT: Building magazine lookup…")
+    scitem_dir = forge_dir / "raw" / "libs" / "foundry" / "records" / "entities" / "scitem"
+    mag_lookup = build_magazine_lookup(scitem_dir)
+    logger.info(f"CHECKPOINT: Magazine lookup: {len(mag_lookup)} entries")
+    sys_mod.stdout.flush()
+
     # ── Process components ────────────────────────────────────────────────────
     ships_scitem = records / "entities" / "scitem" / "ships"
 
@@ -1446,7 +1606,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
     if fps_dir.exists():
         out_fps_weapons = scan_entity_dir(
             fps_dir,
-            lambda root: stats_weapon(root, fps_ammo, loc),
+            lambda root: stats_weapon(root, fps_ammo, loc, mag_lookup),
             loc=loc,
         )
     logger.info(f"CHECKPOINT: Finished FPS weapons ({len(out_fps_weapons)} entries)")
@@ -1548,24 +1708,58 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
     logger.info(f"CHECKPOINT: Processed {len(contractgen_missions)} contract generator mission variants")
     sys_mod.stdout.flush()
 
+    known_system_names = {"Stanton", "Pyro", "Nyx", "Desert", "ArcCorp", "Crusader"}
+
     for title_key, variants in contractgen_missions.items():
         base_title = (loc or {}).get(title_key)
         if not base_title:
             continue
 
-        # Format title with all XP values: [xp1/xp2/xp3]
-        xp_values = [str(xp) for _, xp, _ in variants]
-        xp_str = "/".join(xp_values)
+        # Deduplicate: collect unique success XP values (preserving order)
+        seen_xp = []
+        for _, sxp, _, _ in variants:
+            if sxp not in seen_xp:
+                seen_xp.append(sxp)
+
+        # Collect unique failure XP values
+        seen_fail = []
+        for _, _, fxp, _ in variants:
+            if fxp != 0 and fxp not in seen_fail:
+                seen_fail.append(fxp)
+
+        # Format title with unique XP values: [xp1/xp2/xp3]
+        xp_str = "/".join(str(x) for x in seen_xp)
         augmented_title = f"{base_title} [{xp_str} XP]"
         out_missions[title_key] = augmented_title
         mission_titles_augmented += 1
 
-        # Augment description with system-labeled XP values
-        desc_key = variants[0][2]  # Use first variant's description key
+        # Augment description — only add per-system breakdown if there are
+        # real system names and different XP values across systems
+        desc_key = variants[0][3]  # Use first variant's description key
         if desc_key and desc_key in loc:
             base_desc = loc[desc_key]
-            stats_lines = [f"{system_name} version - Reputation XP: +{xp:,}" for system_name, xp, _ in variants]
-            stats_block = "\\n".join(stats_lines)
+            # Build system-labeled lines only for variants with recognized system names
+            system_variants = [(s, sxp) for s, sxp, _, _ in variants if s in known_system_names]
+            # Deduplicate by (system, xp)
+            seen_sys = set()
+            unique_sys_variants = []
+            for s, xp in system_variants:
+                if (s, xp) not in seen_sys:
+                    seen_sys.add((s, xp))
+                    unique_sys_variants.append((s, xp))
+
+            if unique_sys_variants and len(unique_sys_variants) > 1:
+                stats_lines = [f"{s} - Reputation XP: +{xp:,}" for s, xp in unique_sys_variants]
+                stats_block = "\\n".join(stats_lines)
+            else:
+                # Single variant or no system labels — just show the XP
+                stats_block = f"Reputation XP: +{seen_xp[0]:,}"
+
+            # Add failure penalty if present
+            if seen_fail:
+                fail_str = "/".join(str(abs(f)) for f in seen_fail)
+                stats_block += f"\\nFailure Penalty: -{fail_str} XP"
+
             augmented_desc = append_stats(base_desc, stats_block)
             out_missions[desc_key] = augmented_desc
 
@@ -1590,10 +1784,6 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
                 if title_key in contractgen_missions:
                     continue
 
-                # Only add title if the corresponding description was processed (exists in out_missions)
-                if desc_key not in out_missions:
-                    continue
-
                 # Extract XP and augment title
                 total_rep_xp = _extract_mission_xp(root, reputation_lookup)
                 if total_rep_xp > 0:
@@ -1606,6 +1796,49 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
                 continue
 
     logger.info(f"CHECKPOINT: Augmented {mission_titles_augmented} mission titles with XP")
+    sys_mod.stdout.flush()
+
+    # ── Mission XP coverage report ────────────────────────────────────────────
+    # Count title keys that were augmented with XP vs those with descriptions
+    # but no XP annotation (i.e. the stats generator found the mission but
+    # couldn't extract reputation data)
+    titles_with_xp = {k for k in out_missions if re.search(r'\[\d', out_missions[k])}
+    desc_keys = {k for k in out_missions if k not in titles_with_xp}
+    # Titles we know about (from pu_missions XMLs) but didn't augment
+    titles_skipped_no_xp = 0
+    titles_skipped_reasons: dict[str, list[str]] = {
+        "no_rep_data": [],
+        "no_base_title": [],
+    }
+    if pu_missions_dir.exists():
+        for xml_file in pu_missions_dir.rglob("*.xml"):
+            try:
+                root = ET.parse(xml_file).getroot()
+                title_attr = root.get("title", "")
+                desc_attr = root.get("description", "")
+                if not title_attr.startswith("@") or not desc_attr.startswith("@"):
+                    continue
+                title_key = title_attr.lstrip("@")
+                if title_key in out_missions:
+                    continue  # Already augmented
+                if title_key in contractgen_missions:
+                    continue  # Handled by contract generator
+                titles_skipped_no_xp += 1
+                if _extract_mission_xp(root, reputation_lookup) <= 0:
+                    titles_skipped_reasons["no_rep_data"].append(title_key)
+                elif not (loc or {}).get(title_key):
+                    titles_skipped_reasons["no_base_title"].append(title_key)
+            except Exception:
+                continue
+
+    logger.info(
+        f"Mission XP coverage: {len(titles_with_xp)} titles augmented, "
+        f"{len(desc_keys)} descriptions augmented, "
+        f"{titles_skipped_no_xp} titles skipped"
+    )
+    for reason, keys in titles_skipped_reasons.items():
+        if keys:
+            logger.info(f"  Skipped ({reason}): {len(keys)} — e.g. {', '.join(keys[:5])}")
     sys_mod.stdout.flush()
 
     # ── Process crafting recipes and augment commodities ─────────────────────

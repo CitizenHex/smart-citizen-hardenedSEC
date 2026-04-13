@@ -8,7 +8,7 @@ from typing import Optional
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QLineEdit, QComboBox, QCheckBox, QTableWidget,
+    QPushButton, QComboBox, QCheckBox, QTableWidget,
     QTableWidgetItem, QFileDialog, QMessageBox, QTabWidget,
     QHeaderView, QStatusBar, QFrame, QStyledItemDelegate,
     QAbstractItemView, QMenu, QProgressDialog, QTextBrowser
@@ -16,6 +16,69 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QColor, QFont, QCursor, QPixmap, QIcon
 from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices
+
+from src.gui.filter_header import FilterHeaderView
+
+import re as _re
+
+# Shared flag for grouped sort mode — checked by GroupSortItem.__lt__
+_grouped_sort_enabled = True
+
+# Pattern 1: item_Name{CONTENT} / item_Desc{CONTENT} (ship items, gear, etc.)
+_ITEM_PREFIX_RE = _re.compile(r'^(item_)(Name|Desc|name|desc)(.*)', _re.IGNORECASE)
+
+# Pattern 2: vehicle_Name{CONTENT} / vehicle_Desc{CONTENT} (ships)
+_VEHICLE_PREFIX_RE = _re.compile(r'^(vehicle_)(Name|Desc)(.*)', _re.IGNORECASE)
+
+# Pattern 3: {CONTENT}_Title or {CONTENT}_Desc with optional suffix (missions)
+# Only match _Title/_Desc near the end — must NOT have another _Title/_Desc after
+_MISSION_SUFFIX_RE = _re.compile(
+    r'^(.*?)_(title|desc)'          # group + marker
+    r'(_[a-zA-Z0-9]*)?$',          # optional single suffix like _001, _intro, _Hard
+    _re.IGNORECASE,
+)
+
+
+def _group_sort_key(key: str) -> tuple[str, int]:
+    """Return (group_key, sub_order) for grouped sorting.
+
+    Groups related Name/Desc and Title/Desc keys together.
+    Names/Titles sort before Descs within the same group.
+    """
+    # item_Name / item_Desc prefix pattern
+    m = _ITEM_PREFIX_RE.match(key)
+    if m:
+        marker = m.group(2).lower()
+        content = m.group(3)
+        sub = 0 if marker == "name" else 1
+        return (f"item_{content}".lower(), sub)
+
+    # vehicle_Name / vehicle_Desc prefix pattern
+    m = _VEHICLE_PREFIX_RE.match(key)
+    if m:
+        marker = m.group(2).lower()
+        content = m.group(3)
+        sub = 0 if marker == "name" else 1
+        return (f"vehicle_{content}".lower(), sub)
+
+    # Mission _Title / _Desc suffix pattern
+    m = _MISSION_SUFFIX_RE.match(key)
+    if m:
+        group = m.group(1)
+        marker = m.group(2).lower()
+        sub = 0 if marker == "title" else 1
+        return (group.lower(), sub)
+
+    return (key.lower(), 0)
+
+
+class GroupSortItem(QTableWidgetItem):
+    """QTableWidgetItem that supports grouped sorting on the Key column."""
+
+    def __lt__(self, other):
+        if _grouped_sort_enabled:
+            return _group_sort_key(self.text()) < _group_sort_key(other.text())
+        return super().__lt__(other)
 
 
 class AnimatedProgressDialog(QProgressDialog):
@@ -97,13 +160,15 @@ class FileLoaderWorker(QThread):
             # New system: load sources from settings if not provided
             if self.sources_dict is None and self.hierarchy is None:
                 logger.info("No sources_dict provided, loading from settings...")
-                self.sources_dict, self.hierarchy = load_sources_from_settings()
+                self.sources_dict, self.hierarchy, self._stats_key_categories = load_sources_from_settings()
                 logger.info(f"Loaded from settings: sources={list(self.sources_dict.keys())}, hierarchy={self.hierarchy}")
+            else:
+                self._stats_key_categories = None
 
             # If still no sources (empty settings), try legacy base_path
             if self.sources_dict and self.hierarchy:
                 logger.info(f"Calling load_source_files with {len(self.sources_dict)} sources")
-                entries = load_source_files(self.sources_dict, self.hierarchy)
+                entries = load_source_files(self.sources_dict, self.hierarchy, stats_key_categories=self._stats_key_categories)
                 logger.info(f"load_source_files returned {len(entries)} entries")
             elif self.base_path:
                 # Legacy: single base file loading
@@ -337,12 +402,6 @@ class MainWindow(QMainWindow):
         # Status bar state (composed message) - tracks sync status per source
         self._source_status: dict[str, str] = {}  # source_name -> status_string
 
-        # Debounce timer for filtering
-        self.filter_timer = QTimer()
-        self.filter_timer.setSingleShot(True)
-        self.filter_timer.timeout.connect(self.apply_filters)
-        self.filter_timer.setInterval(300)  # 300ms delay
-
         # Progress dialog for file loading and other operations
         self._loading_progress: Optional[QProgressDialog] = None
 
@@ -465,13 +524,6 @@ class MainWindow(QMainWindow):
         # Filter row
         filter_layout = QHBoxLayout()
 
-        filter_layout.addWidget(QLabel("Search:"))
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search key or value...")
-        self.search_input.setMaximumWidth(200)
-        self.search_input.textChanged.connect(self.on_search_changed)
-        filter_layout.addWidget(self.search_input)
-
         filter_layout.addWidget(QLabel("Category:"))
         self.category_combo = QComboBox()
         self.category_combo.setMinimumWidth(200)
@@ -492,6 +544,12 @@ class MainWindow(QMainWindow):
         self.favorites_only_check = QCheckBox("★ Favorites Only")
         self.favorites_only_check.stateChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.favorites_only_check)
+
+        self.grouped_sort_check = QCheckBox("Grouped Sort")
+        self.grouped_sort_check.setToolTip("Sort titles and descriptions together for the same entity")
+        self.grouped_sort_check.setChecked(True)
+        self.grouped_sort_check.stateChanged.connect(self._on_grouped_sort_changed)
+        filter_layout.addWidget(self.grouped_sort_check)
 
         self.clear_filters_btn = QPushButton("Clear Filters")
         self.clear_filters_btn.setMaximumWidth(100)
@@ -650,6 +708,12 @@ class MainWindow(QMainWindow):
             "Category", "Key", "Default Value", "Current Value", "★", "Custom Value", "Status"
         ])
 
+        # Per-column filter header
+        column_names = ["Category", "Key", "Default Value", "Current Value", "★", "Custom Value", "Status"]
+        self.filter_header = FilterHeaderView(column_names, self.table, skip_columns={0, 4, 6})
+        self.table.setHorizontalHeader(self.filter_header)
+        self.filter_header.filter_changed.connect(self.apply_filters)
+
         # Table settings
         self.table.setAlternatingRowColors(True)
         self.table.setSortingEnabled(True)
@@ -661,7 +725,7 @@ class MainWindow(QMainWindow):
         self.table.verticalHeader().setVisible(False)
 
         # Set column widths
-        header = self.table.horizontalHeader()
+        header = self.filter_header
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # Category
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)           # Key
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)           # Default Value
@@ -809,7 +873,7 @@ class MainWindow(QMainWindow):
         """Automatically load and merge configured sources, or fall back to legacy behavior."""
         try:
             # Try new system first: load configured sources from settings
-            sources_dict, hierarchy = load_sources_from_settings()
+            sources_dict, hierarchy, stats_key_categories = load_sources_from_settings()
 
             if sources_dict and hierarchy:
                 logger.info(f"Loading configured sources: {list(sources_dict.keys())} with hierarchy {hierarchy}")
@@ -818,7 +882,7 @@ class MainWindow(QMainWindow):
                 try:
                     # Load synchronously in main thread to avoid threading issues
                     logger.info("Synchronously loading sources...")
-                    entries = load_source_files(sources_dict, hierarchy)
+                    entries = load_source_files(sources_dict, hierarchy, stats_key_categories=stats_key_categories)
                     logger.info(f"Loaded {len(entries)} entries")
                     self.entries = entries
                     self.update_category_combo()
@@ -939,7 +1003,7 @@ class MainWindow(QMainWindow):
 
             # Build final merged dict by re-merging all sources with user edits
             # This ensures Apply uses latest source versions and user edits
-            sources_dict, hierarchy = load_sources_from_settings()
+            sources_dict, hierarchy, _mrk = load_sources_from_settings()
 
             # Warn if any enabled non-user sources are missing from the loaded dict
             missing_sources = [
@@ -1307,7 +1371,7 @@ class MainWindow(QMainWindow):
         """
         try:
             # Load all configured sources
-            sources_dict, hierarchy = load_sources_from_settings()
+            sources_dict, hierarchy, stats_key_categories = load_sources_from_settings()
 
             if not sources_dict or not hierarchy:
                 QMessageBox.warning(self, "Warning", "No sources configured. Please configure data sources in Config tab.")
@@ -1318,7 +1382,7 @@ class MainWindow(QMainWindow):
             try:
                 # Load synchronously in main thread
                 logger.info("Merging configured sources...")
-                entries = load_source_files(sources_dict, hierarchy)
+                entries = load_source_files(sources_dict, hierarchy, stats_key_categories=stats_key_categories)
                 logger.info(f"Merge complete: {len(entries)} entries")
                 self.entries = entries
                 self.update_category_combo()
@@ -1407,7 +1471,7 @@ Click **Load Base File** to load strings from your configured sources. The insta
 ## 3. Categories
 Filter strings by category:
 - **Ships** - Spaceship names (vehicle_Name*)
-- **Ship Components** - Component names (shields, power, cooling, etc.)
+- **Ship Items** - Component names (shields, power, cooling, etc.)
 - **Missions** - Mission briefings and contract text
 - **Other** - Everything else, including stats descriptions
 
@@ -1775,41 +1839,10 @@ Shows the sync status for each configured source. "✓" means up to date.
         self.enhancements_tab.refresh_stats_status()
 
         if success:
-            # Stats generated successfully
-            # Defer reload to avoid race conditions during startup when the table was just
-            # populated 1-2 seconds ago. Use a longer delay (1-2 seconds) to ensure UI is fully settled.
             self.statusBar().showMessage("Stats generated — reloading entries…")
-            # Always reload stats so user sees them immediately (or after a brief delay during startup)
-            QTimer.singleShot(1500, self._reload_entries_after_stats)
+            self._show_loading_progress("Reloading strings with updated stats…")
         else:
             self.statusBar().showMessage("Stats generation failed — check the Log tab for details")
-
-    def _reload_entries_after_stats(self):
-        """Reload entries with new stats data. Deferred to allow UI to fully settle.
-
-        The reload is delayed by 1.5 seconds to ensure the UI is responsive and the
-        table is fully rendered before attempting to rebuild it with new stats data.
-        This works for both startup automatic and manual user-triggered stats generation.
-        """
-        try:
-            # Load sources from settings (which now include the new stats files)
-            from src.parser.ini_parser import load_sources_from_settings, load_source_files
-            sources_dict, hierarchy = load_sources_from_settings()
-
-            # Recreate entries with updated stats
-            entries = load_source_files(sources_dict, hierarchy)
-            self.load_default_values()
-            self.entries = entries
-            self.update_category_combo()
-            self.populate_table()
-            self.apply_filters()
-            self._update_status_bar()
-
-            self.statusBar().showMessage("Stats loaded successfully")
-            logger.info("Stats reloaded successfully")
-        except Exception as e:
-            logger.exception(f"Failed to reload entries after stats generation: {e}")
-            self.statusBar().showMessage("Stats generated but reload failed — try restarting the app")
 
     def _run_dataforge_extraction(self):
         """Launch DataForgeExtractWorker in the background (non-blocking)."""
@@ -1925,8 +1958,11 @@ Shows the sync status for each configured source. "✓" means up to date.
             cat_item.setData(Qt.ItemDataRole.UserRole, row)
             self.table.setItem(row, 0, cat_item)
 
-            # Col 1: Key
-            self.table.setItem(row, 1, self._create_item(entry.key))
+            # Col 1: Key — uses GroupSortItem for grouped sort support
+            key_item = GroupSortItem(entry.key)
+            key_item.setFlags(key_item.flags() | Qt.ItemFlag.ItemIsEditable)
+            key_item.setToolTip(entry.key)
+            self.table.setItem(row, 1, key_item)
 
             # Col 2: Default value from reference base file (for comparison)
             default_value = self.default_values.get(entry.key, "")
@@ -1950,6 +1986,10 @@ Shows the sync status for each configured source. "✓" means up to date.
 
         self.table.blockSignals(False)
         self.table.setSortingEnabled(True)
+
+        # Apply grouped sort if enabled
+        if self.grouped_sort_check.isChecked():
+            self.table.sortItems(1, Qt.SortOrder.AscendingOrder)
 
     def _create_item(self, text: str):
         """Create table item with text and tooltip showing full value."""
@@ -2004,14 +2044,14 @@ Shows the sync status for each configured source. "✓" means up to date.
     def update_category_combo(self):
         """Update category combo with unique categories from entries.
 
-        Always includes standard categories (Ships, Ship Components, Missions, Other)
+        Always includes standard categories (Ships, Ship Items, Missions, Other)
         plus any custom categories found in the entries.
         """
         # Get unique categories from entries
         entry_categories = set(e.category for e in self.entries)
 
         # Always include standard categories, even if no entries exist for them yet
-        standard_categories = {"Ships", "Ship Components", "Missions", "Commodities", "Other"}
+        standard_categories = {"Ships", "Ship Items", "Missions", "Commodities", "Other"}
         categories = sorted(standard_categories | entry_categories)
 
         self.category_combo.blockSignals(True)
@@ -2019,12 +2059,6 @@ Shows the sync status for each configured source. "✓" means up to date.
         self.category_combo.addItem("All")
         self.category_combo.addItems(categories)
         self.category_combo.blockSignals(False)
-
-    @pyqtSlot()
-    def on_search_changed(self):
-        """Handle search input change with debounce."""
-        self.filter_timer.stop()
-        self.filter_timer.start()
 
     def _entry_index_for_row(self, table_row: int) -> int:
         """Return the self.entries index for a given table row.
@@ -2045,12 +2079,15 @@ Shows the sync status for each configured source. "✓" means up to date.
         if not self.entries:
             return
 
-        search_text = self.search_input.text().lower()
+        column_filters = self.filter_header.get_filter_texts()
         category_filter = self.category_combo.currentText()
         status_filter = self.status_combo.currentText()
         hide_unmodified = self.hide_unmodified_check.isChecked()
         favorites_only = self.favorites_only_check.isChecked()
         prefix = AppSettings.get_favorite_prefix()
+
+        # Check which column filters are active (avoid work for empty filters)
+        active_col_filters = [(i, t) for i, t in enumerate(column_filters) if t]
 
         self.table.blockSignals(True)
         visible_count = 0
@@ -2058,12 +2095,21 @@ Shows the sync status for each configured source. "✓" means up to date.
             entry = self.entries[self._entry_index_for_row(table_row)]
             show = True
 
-            if search_text and not (
-                search_text in entry.key.lower() or
-                search_text in entry.original_value.lower() or
-                search_text in entry.custom_value.lower()
-            ):
-                show = False
+            # Per-column substring filters
+            if active_col_filters:
+                row_values = [
+                    entry.category.lower(),
+                    entry.key.lower(),
+                    self.default_values.get(entry.key, "").lower(),
+                    entry.original_value.lower(),
+                    "★" if entry.custom_value.startswith(prefix) else "",
+                    entry.custom_value.lower(),
+                    entry.status.lower(),
+                ]
+                for col, filter_text in active_col_filters:
+                    if filter_text not in row_values[col]:
+                        show = False
+                        break
 
             if category_filter != "All" and entry.category != category_filter:
                 show = False
@@ -2086,21 +2132,32 @@ Shows the sync status for each configured source. "✓" means up to date.
         self.table_status_label.setText(f"Showing {visible_count} of {len(self.entries)} strings")
 
     @pyqtSlot()
+    def _on_grouped_sort_changed(self):
+        """Toggle grouped sort mode and sort by Key column."""
+        global _grouped_sort_enabled
+        _grouped_sort_enabled = self.grouped_sort_check.isChecked()
+        from PyQt6.QtWidgets import QApplication
+        progress = AnimatedProgressDialog("Sorting...", parent=self, title="Grouped Sort")
+        QApplication.processEvents()
+        try:
+            self.table.sortItems(1, Qt.SortOrder.AscendingOrder)
+        finally:
+            progress.close()
+
+    @pyqtSlot()
     def clear_filters(self):
         """Clear all filters."""
-        self.search_input.blockSignals(True)
         self.category_combo.blockSignals(True)
         self.status_combo.blockSignals(True)
         self.hide_unmodified_check.blockSignals(True)
         self.favorites_only_check.blockSignals(True)
 
-        self.search_input.clear()
+        self.filter_header.clear_all()
         self.category_combo.setCurrentIndex(0)
         self.status_combo.setCurrentIndex(0)
         self.hide_unmodified_check.setChecked(False)
         self.favorites_only_check.setChecked(False)
 
-        self.search_input.blockSignals(False)
         self.category_combo.blockSignals(False)
         self.status_combo.blockSignals(False)
         self.hide_unmodified_check.blockSignals(False)

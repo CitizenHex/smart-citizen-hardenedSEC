@@ -23,7 +23,7 @@ class StringEntry:
 
         Rules:
         - Keys starting with `vehicle_Name` → category "Ships"
-        - Keys starting with `item_Name(SHLD|POWR|COOL|QDRV|JUMP)` → category "Ship Components"
+        - Keys starting with `item_Name(SHLD|POWR|COOL|QDRV|JUMP)` → category "Ship Items"
         - Mission-related keys (contracts, shubin, blackbox, hockrow, etc.) → "Missions"
         - Everything else → "Other"
         """
@@ -38,9 +38,9 @@ class StringEntry:
         # item_Name* / item_Desc* keys — resolve in priority order
         fps_weapon_words = ["_rifle_", "_pistol_", "_smg_", "_shotgun_", "_sniper_", "_launcher_", "_lmg_", "_hmg_", "_knife_", "_multi_"]
         if key_lower.startswith("item_name") or key_lower.startswith("item_desc"):
-            # Turrets are ship components despite having the item_Name_/item_Desc_ prefix
+            # Turrets are ship items despite having the item_Name_/item_Desc_ prefix
             if key_lower.startswith("item_name_turret") or key_lower.startswith("item_desc_turret"):
-                return "Ship Components"
+                return "Ship Items"
 
             # Ship component type codes: SHLD, POWR, COOL, QDRV, JUMP, MISL, BOMB (check BEFORE FPS gear)
             # Handles both: item_NameQDRV_... and item_Name_QDRV_... (with or without underscore)
@@ -53,40 +53,95 @@ class StringEntry:
                 key_lower.startswith(f"item_desc_{comp.lower()}_")
                 for comp in components
             ):
-                return "Ship Components"
+                return "Ship Items"
 
-            # Ship weapons: contain a ship-size designator (_S1, _S02, _XL-1, etc.)
-            # Matches: _S\d+ (S1, S02), _XL, _XXL, _L, _M, _S (size codes with optional hyphen+number)
-            if re.search(r'_S\d+|_X{1,2}L(-\d+)?|_[LMS](-\d+)?', key, re.IGNORECASE):
-                return "Ship Components"
-
-            # FPS weapons: check for FPS weapon words or patterns (BEFORE generic item_Name_ check)
+            # FPS weapons: check for FPS weapon words (catches GMNI/KSAR uppercase counterexamples)
             if any(w in key_lower for w in fps_weapon_words):
                 return "Gear"
 
-            # FPS armor/equipment (armor, helmet, suit, vest)
-            if any(armor in key_lower for armor in ["armor", "helmet", "suit", "vest", "glasses"]):
+            # FPS armor/equipment/accessories
+            if any(word in key_lower for word in ["armor", "helmet", "suit", "vest", "glasses", "_optics_", "_barrel_"]):
                 return "Gear"
 
-            # FPS gear uses item_Name_ / item_Desc_ (underscore directly after Name/Desc)
-            # Only if it doesn't match any ship component pattern above
+            # Case-based classification: the segment after item_Name/item_Desc reveals domain.
+            # Uppercase = ship items (item_NameBEHR_*, item_DescAEGS_*),
+            # lowercase = FPS gear (item_Namebehr_*, item_Descgmni_*).
+            after = key[9:]  # both "item_Name" and "item_Desc" are 9 chars
+            if after and not after.startswith('_'):
+                if after[0].isupper():
+                    return "Ship Items"
+                else:
+                    return "Gear"
+
+            # item_Name_ keys: use size designator for ship weapons (_S1, _S02, _XL, etc.)
+            if re.search(r'_S\d+|_X{1,2}L(-\d+)?|_[LMS]-\d+', key, re.IGNORECASE):
+                return "Ship Items"
+
+            # Remaining item_Name_ / item_Desc_ keys are FPS gear
             if key_lower.startswith("item_name_") or key_lower.startswith("item_desc_"):
                 return "Gear"
+
+        # Mining gadgets are FPS/hand-held gear
+        if key_lower.startswith("item_mining_gadget_"):
+            return "Gear"
+
+        # Mining modules/lasers (item_Mining_* — not item_Name/item_Desc prefix)
+        if key_lower.startswith("item_mining_"):
+            return "Ship Items"
 
         # Commodity items
         if key_lower.startswith("items_commodities_"):
             return "Commodities"
 
-        # Mission-related keys (from contracts.ini or similar mission sources)
-        mission_patterns = [
-            "shubin_", "Shubin_",           # Shubin mining missions
-            "blackbox_", "BlackBox_",       # Black box recovery
-            "hockrow_", "Hockrow_",         # Hockrow facility
-            "contract", "Contract",         # General contracts
-            "mission_", "Mission_",         # General missions
-            "jt_", "JT_",                   # Job terminals
-        ]
-        if any(key_lower.startswith(pattern.lower()) for pattern in mission_patterns):
+        # Mission-related keys — prefixes derived from mission_rewards_stats.ini,
+        # contracts.ini, and DataForge pu_missions entities.
+        # Compared case-insensitively.  Prefer bare prefixes (no trailing _)
+        # where safe, to catch variant spellings (e.g. bitzeros vs bitzeroes).
+        mission_prefixes = {
+            "adagio_", "assassin", "basesweep_",
+            "bbt_", "bhg_", "bitzero", "blackbox", "blacjac", "blockaderunner",
+            "bounty_",
+            "cdf_", "cfp", "civilian_", "claimsweep_", "cleanair_",
+            "clovis_", "combatassist_", "commarray", "confirmkill_",
+            "constantine_", "contract", "covalex", "criminal_",
+            "crusader_", "crus_",
+            "dataheis", "deadsaints_", "deploypiggyback_", "deployprobe_",
+            "destroyblade_", "destroydebris_", "destroyitem_",
+            "destroyprobe", "destroystash_", "distraction",
+            "dusters_",
+            "eckhart", "ecn_", "escort_",
+            "fffinale_", "firesale_", "forcedepletion",
+            "foxwell_", "fps_bounty", "ftl_",
+            "genlocal_", "gobling_", "groupbounty_",
+            "hack_", "haulcargo_", "hdactivist_", "headhunters_",
+            "hexpenetrator_", "hh_", "highpoint_", "hockcrow_", "hockrow_",
+            "hurston_",
+            "intersec_",
+            "jt_",
+            "kaboos_", "kareahsweep_", "killship_",
+            "lingfamily_", "localdelivery_", "locationrush_",
+            "me_blackbox", "me_bounty", "me_planetcollect",
+            "meet_", "mg_", "mgclovus_", "miningclaim",
+            "mission", "mtps_", "murderspree_",
+            "ninetails_", "northrock_", "ntlockdown_",
+            "outpost_repair", "outlawsweep_",
+            "p_showdown", "p_protect", "planetcollect_",
+            "preventdata_", "prisonerbreak_", "protlife_",
+            "rain_", "recovery_", "recoverstash_", "recoverstolen_",
+            "redwind_", "repairoxygenkiosk_", "retakelocation_",
+            "retrieveconsignment_", "retrievedatapad_",
+            "roughready_", "ruto_",
+            "scramblerace_", "searchbody", "searchcrew_",
+            "sectorsweep_", "securitypatrol_", "servicebeacon_",
+            "shubin_", "singleidrisfight_", "spacecargo_",
+            "spacecollect", "spacesteal_", "stealevidence_", "stealitem_",
+            "tarpits_", "test_title_", "thecollector_",
+            "timesensitive_", "tutorial",
+            "udm_", "uwc_",
+            "vaughn_", "vendingmachine_",
+            "wantedlevel", "wstr_", "xenothreat_",
+        }
+        if any(key_lower.startswith(p) for p in mission_prefixes):
             return "Missions"
 
         return "Other"
@@ -95,21 +150,21 @@ class StringEntry:
 def test_category_extraction():
     """Test category extraction for edge cases."""
     # Ship components with underscore between Name and component code
-    assert StringEntry.extract_category("item_Name_QDRV_RSI_S02_Hemera") == "Ship Components"
-    assert StringEntry.extract_category("item_Desc_QDRV_RSI_S02_Hemera") == "Ship Components"
+    assert StringEntry.extract_category("item_Name_QDRV_RSI_S02_Hemera") == "Ship Items"
+    assert StringEntry.extract_category("item_Desc_QDRV_RSI_S02_Hemera") == "Ship Items"
 
     # Ship components with lowercase item_name (from Data.p4k extraction)
-    assert StringEntry.extract_category("item_nameQDRV_RSI_S02_Hemera_SCItem") == "Ship Components"
-    assert StringEntry.extract_category("item_descqdrv_rsi_s02_hemera_scitem") == "Ship Components"
+    assert StringEntry.extract_category("item_nameQDRV_RSI_S02_Hemera_SCItem") == "Ship Items"
+    assert StringEntry.extract_category("item_descqdrv_rsi_s02_hemera_scitem") == "Ship Items"
 
     # Ship weapons with XL size designator
-    assert StringEntry.extract_category("item_Name_XL-1_something") == "Ship Components"
-    assert StringEntry.extract_category("item_Name_XXL_something") == "Ship Components"
+    assert StringEntry.extract_category("item_Name_XL-1_something") == "Ship Items"
+    assert StringEntry.extract_category("item_Name_XXL_something") == "Ship Items"
 
     # Regular ship components (original patterns)
-    assert StringEntry.extract_category("item_NameSHLD_Aspirum") == "Ship Components"
-    assert StringEntry.extract_category("item_NamePOWR_TR1") == "Ship Components"
-    assert StringEntry.extract_category("item_Name_Turret_S1") == "Ship Components"
+    assert StringEntry.extract_category("item_NameSHLD_Aspirum") == "Ship Items"
+    assert StringEntry.extract_category("item_NamePOWR_TR1") == "Ship Items"
+    assert StringEntry.extract_category("item_Name_Turret_S1") == "Ship Items"
 
     # FPS weapons (should still work)
     assert StringEntry.extract_category("item_Name_rifle") == "Gear"

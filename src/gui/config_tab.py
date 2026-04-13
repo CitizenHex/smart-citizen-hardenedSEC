@@ -348,7 +348,7 @@ class ConfigTab(QWidget):
         try:
             from src.parser.ini_parser import load_sources_from_settings, load_source_files
 
-            sources_dict, hierarchy = load_sources_from_settings()
+            sources_dict, hierarchy, _mrk = load_sources_from_settings()
 
             missing_sources = [
                 (name, AppSettings.get_source_path(name))
