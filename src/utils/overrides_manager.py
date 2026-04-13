@@ -22,11 +22,11 @@ def save_overrides(entries: List[StringEntry], overrides_path: Path) -> int:
     Raises:
         IOError: If write fails
     """
-    # Filter to modified and new entries
+    # Filter to entries the user actually modified (custom differs from original)
     overrides = {
         entry.key: entry.custom_value
         for entry in entries
-        if entry.custom_value  # Non-empty custom value
+        if entry.is_modified
     }
 
     # Create parent directory

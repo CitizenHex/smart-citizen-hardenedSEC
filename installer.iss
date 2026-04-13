@@ -27,6 +27,10 @@ SCDirectoryPromptDesc=Please specify your Star Citizen LIVE directory for automa
 SCDirectoryDefaultDesc=This is typically located at:
 SCDirectoryDefaultPath=C:\Program Files\Roberts Space Industries\StarCitizen\LIVE
 
+[InstallDelete]
+; Clear previous install directory completely before installing new files
+Type: filesandordirs; Name: "{app}\*"
+
 [Files]
 Source: "dist\SCLocalizationEditor-v0.7.0\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
@@ -84,6 +88,53 @@ begin
     Result := 1;
 end;
 
+function GetDocumentsDir(): String;
+var
+  DocsPath: String;
+begin
+  if not RegQueryStringValue(HKCU,
+    'SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders',
+    'Personal', DocsPath) then
+  begin
+    DocsPath := ExpandConstant('{userdocs}');
+  end;
+  Result := DocsPath + '\SC Localization Editor';
+end;
+
+procedure CleanCachedData();
+var
+  UserDataDir: String;
+begin
+  UserDataDir := GetDocumentsDir();
+  if DirExists(UserDataDir) then
+  begin
+    Log('Cleaning cached data from: ' + UserDataDir);
+    DelTree(UserDataDir + '\cache', True, True, True);
+    DelTree(UserDataDir + '\backups', True, True, True);
+  end;
+end;
+
+procedure CleanRegistrySettings();
+var
+  RegPath: String;
+  SavedSCDir: String;
+  HadSCDir: Boolean;
+begin
+  RegPath := 'Software\Osiris DevWorks\SC Localization Editor';
+
+  { Preserve sc_directory so the installer page can pre-fill it }
+  HadSCDir := RegQueryStringValue(HKCU, RegPath, 'sc_directory', SavedSCDir);
+
+  { Delete the entire app registry key }
+  RegDeleteKeyIncludingSubkeys(HKCU, RegPath);
+
+  { Restore sc_directory if it existed }
+  if HadSCDir and (SavedSCDir <> '') then
+  begin
+    RegWriteStringValue(HKCU, RegPath, 'sc_directory', SavedSCDir);
+  end;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if (CurStep=ssInstall) then
@@ -92,6 +143,10 @@ begin
     begin
       UnInstallOldVersion();
     end;
+
+    { Clear all cached data and registry settings for a clean install }
+    CleanCachedData();
+    CleanRegistrySettings();
   end;
 end;
 

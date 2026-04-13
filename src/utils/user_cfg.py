@@ -23,7 +23,11 @@ def ensure_user_cfg_language() -> bool:
         logger.warning("Game install path not configured — skipping user.cfg setup")
         return False
 
-    live_dir = Path(game_path) / "LIVE"
+    game_path_obj = Path(game_path)
+    if game_path_obj.name == "LIVE":
+        live_dir = game_path_obj
+    else:
+        live_dir = game_path_obj / "LIVE"
     if not live_dir.exists():
         logger.warning(f"LIVE directory not found at {live_dir} — skipping user.cfg setup")
         return False

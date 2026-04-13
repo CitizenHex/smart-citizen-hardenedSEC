@@ -538,6 +538,7 @@ class MainWindow(QMainWindow):
         filter_layout.addWidget(self.status_combo)
 
         self.hide_unmodified_check = QCheckBox("Hide Unmodified")
+        self.hide_unmodified_check.setChecked(True)
         self.hide_unmodified_check.stateChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.hide_unmodified_check)
 
@@ -969,7 +970,11 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Warning", "Please configure game install path in Config tab")
             return
 
-        target_path = Path(game_path) / "LIVE/data/Localization/english/global.ini"
+        game_path_obj = Path(game_path)
+        if game_path_obj.name == "LIVE":
+            target_path = game_path_obj / "data/Localization/english/global.ini"
+        else:
+            target_path = game_path_obj / "LIVE/data/Localization/english/global.ini"
 
         try:
             import shutil
@@ -1185,7 +1190,11 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Warning", "Please configure game install path in Config tab")
             return
 
-        loc_dir = Path(game_path) / "LIVE/data/Localization/english"
+        game_path_obj = Path(game_path)
+        if game_path_obj.name == "LIVE":
+            loc_dir = game_path_obj / "data/Localization/english"
+        else:
+            loc_dir = game_path_obj / "LIVE/data/Localization/english"
         global_ini = loc_dir / "global.ini"
 
         if not global_ini.exists():
@@ -1424,7 +1433,11 @@ class MainWindow(QMainWindow):
         try:
             import shutil
 
-            target_path = Path(game_path) / "LIVE/data/Localization/english/global.ini"
+            game_path_obj = Path(game_path)
+            if game_path_obj.name == "LIVE":
+                target_path = game_path_obj / "data/Localization/english/global.ini"
+            else:
+                target_path = game_path_obj / "LIVE/data/Localization/english/global.ini"
             backup_file_path = Path(backup_file)
 
             # Restore the backup
@@ -1733,6 +1746,22 @@ Shows the sync status for each configured source. "✓" means up to date.
         Args:
             message: Status message to display in the progress dialog
         """
+        # Guard against overlapping loads — clean up any prior worker first
+        if self._loader_worker is not None:
+            logger.warning("Previous FileLoaderWorker still exists — cleaning up before starting new load")
+            try:
+                self._loader_worker.finished.disconnect(self._on_loading_finished)
+                self._loader_worker.error.disconnect(self._on_loading_error)
+            except (TypeError, RuntimeError):
+                pass  # signals already disconnected
+            if self._loader_worker.isRunning():
+                self._loader_worker.quit()
+                self._loader_worker.wait(5000)  # 5s timeout to avoid deadlock
+            self._loader_worker = None
+        if self._loading_progress is not None:
+            self._loading_progress.close()
+            self._loading_progress = None
+
         # Load sources in background worker thread
         self._loader_worker = FileLoaderWorker()
 
@@ -1746,30 +1775,44 @@ Shows the sync status for each configured source. "✓" means up to date.
 
     @pyqtSlot(list)
     def _on_loading_finished(self, entries: list):
-        """Handle file loading completion. Keep dialog open until all work is done."""
-        # Keep dialog open while doing synchronous UI work
-        try:
-            self.load_default_values()
-            self.entries = entries
-            self.update_category_combo()
-            self.populate_table()
-            self.apply_filters()
+        """Handle file loading completion."""
+        import time as _time
 
-            # Update status bar with entry counts and per-source status
-            self._update_status_bar()
-        finally:
-            # Now close the dialog - everything is truly complete
+        # Close progress dialog and clean up worker FIRST so the modal event loop
+        # exits before we do heavy synchronous UI work (populate_table with 87K+ rows).
+        if self._loading_progress is not None:
             self._loading_progress.close()
             self._loading_progress = None
+        if self._loader_worker is not None:
             self._loader_worker.quit()
             self._loader_worker.wait()
             self._loader_worker = None
 
-            # If stats check was deferred during startup, do it now (after file loading completes)
-            # This avoids concurrent I/O contention between file loader and stats generator
-            if self._check_stats_after_loading:
-                self._check_stats_after_loading = False
-                self._check_stats_freshness()
+        self.statusBar().showMessage("Populating table…")
+
+        t0 = _time.perf_counter()
+        self.load_default_values()
+        logger.info(f"load_default_values: {_time.perf_counter() - t0:.3f}s")
+
+        self.entries = entries
+
+        t1 = _time.perf_counter()
+        self.update_category_combo()
+        logger.info(f"update_category_combo: {_time.perf_counter() - t1:.3f}s")
+
+        t2 = _time.perf_counter()
+        self.populate_table()
+        logger.info(f"populate_table: {_time.perf_counter() - t2:.3f}s")
+
+        # Update status bar with entry counts and per-source status
+        self._update_status_bar()
+        logger.info(f"_on_loading_finished total: {_time.perf_counter() - t0:.3f}s")
+
+        # If stats check was deferred during startup, do it now (after file loading completes)
+        # This avoids concurrent I/O contention between file loader and stats generator
+        if self._check_stats_after_loading:
+            self._check_stats_after_loading = False
+            self._check_stats_freshness()
 
     @pyqtSlot(str)
     def _on_loading_error(self, error_msg: str):
@@ -1945,23 +1988,74 @@ Shows the sync status for each configured source. "✓" means up to date.
 
         event.accept()
 
+    def _filtered_entry_indices(self) -> list[tuple[int, "StringEntry"]]:
+        """Return (index, entry) pairs for entries passing the current filters."""
+        column_filters = self.filter_header.get_filter_texts()
+        category_filter = self.category_combo.currentText()
+        status_filter = self.status_combo.currentText()
+        hide_unmodified = self.hide_unmodified_check.isChecked()
+        favorites_only = self.favorites_only_check.isChecked()
+        prefix = AppSettings.get_favorite_prefix()
+        active_col_filters = [(i, t) for i, t in enumerate(column_filters) if t]
+
+        result = []
+        for idx, entry in enumerate(self.entries):
+            show = True
+
+            if hide_unmodified and entry.status == "Unmodified":
+                show = False
+            elif category_filter != "All" and entry.category != category_filter:
+                show = False
+            elif status_filter != "All" and entry.status != status_filter:
+                show = False
+            elif favorites_only and not entry.custom_value.startswith(prefix):
+                show = False
+            elif active_col_filters:
+                row_values = [
+                    entry.category.lower(),
+                    entry.key.lower(),
+                    self.default_values.get(entry.key, "").lower(),
+                    entry.original_value.lower(),
+                    "★" if entry.custom_value.startswith(prefix) else "",
+                    entry.custom_value.lower(),
+                    entry.status.lower(),
+                ]
+                for col, filter_text in active_col_filters:
+                    if filter_text not in row_values[col]:
+                        show = False
+                        break
+
+            if show:
+                result.append((idx, entry))
+        return result
+
     def populate_table(self):
-        """Populate table with entries."""
+        """Populate table with only the entries that pass current filters."""
+        import time as _time
+        t0 = _time.perf_counter()
+
+        filtered = self._filtered_entry_indices()
+
+        self.table.setUpdatesEnabled(False)
         self.table.setSortingEnabled(False)
-        self.table.setRowCount(len(self.entries))
+        self.table.setRowCount(len(filtered))
         self.table.blockSignals(True)
 
-        for row, entry in enumerate(self.entries):
-            # Col 0: Category — also stores entry index as UserRole so row→entry
+        # Cache values that would otherwise hit the Windows Registry per-row
+        prefix = AppSettings.get_favorite_prefix()
+        fav_bg = QColor("#3a3000")
+        num_cols = self.table.columnCount()
+
+        for row, (entry_idx, entry) in enumerate(filtered):
+            # Col 0: Category — stores entry index as UserRole so row→entry
             # lookups stay correct after the user sorts a column.
             cat_item = self._create_item(entry.category)
-            cat_item.setData(Qt.ItemDataRole.UserRole, row)
+            cat_item.setData(Qt.ItemDataRole.UserRole, entry_idx)
             self.table.setItem(row, 0, cat_item)
 
             # Col 1: Key — uses GroupSortItem for grouped sort support
             key_item = GroupSortItem(entry.key)
             key_item.setFlags(key_item.flags() | Qt.ItemFlag.ItemIsEditable)
-            key_item.setToolTip(entry.key)
             self.table.setItem(row, 1, key_item)
 
             # Col 2: Default value from reference base file (for comparison)
@@ -1971,8 +2065,22 @@ Shows the sync status for each configured source. "✓" means up to date.
             # Col 3: Current value (original_value from loaded file)
             self.table.setItem(row, 3, self._create_item(entry.original_value))
 
-            # Col 4: Favorite star (Ships only)
-            self.table.setItem(row, 4, self._create_star_item(entry))
+            # Col 4: Favorite star (Ships only — uses cached prefix)
+            if entry.category != "Ships":
+                star_item = QTableWidgetItem("")
+                star_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            else:
+                is_fav = entry.custom_value.startswith(prefix)
+                star_item = QTableWidgetItem("★" if is_fav else "☆")
+                star_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                star_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                if is_fav:
+                    star_item.setForeground(QColor("#FFD700"))
+                    star_item.setToolTip("Favorite — click to remove")
+                else:
+                    star_item.setForeground(QColor("#666666"))
+                    star_item.setToolTip("Click to mark as favorite")
+            self.table.setItem(row, 4, star_item)
 
             # Col 5: Custom value (editable)
             self.table.setItem(row, 5, self._create_item(entry.custom_value))
@@ -1982,7 +2090,12 @@ Shows the sync status for each configured source. "✓" means up to date.
             status_item.setForeground(self._status_color(entry.status))
             self.table.setItem(row, 6, status_item)
 
-            self._apply_row_style(row, entry)
+            # Apply favorite row background (uses cached prefix, no registry read)
+            if entry.category == "Ships" and entry.custom_value.startswith(prefix):
+                for col in range(num_cols):
+                    item = self.table.item(row, col)
+                    if item:
+                        item.setBackground(fav_bg)
 
         self.table.blockSignals(False)
         self.table.setSortingEnabled(True)
@@ -1991,12 +2104,14 @@ Shows the sync status for each configured source. "✓" means up to date.
         if self.grouped_sort_check.isChecked():
             self.table.sortItems(1, Qt.SortOrder.AscendingOrder)
 
+        self.table.setUpdatesEnabled(True)
+        self.table_status_label.setText(f"Showing {len(filtered)} of {len(self.entries)} strings")
+        logger.info(f"populate_table: {len(filtered)} rows ({_time.perf_counter() - t0:.3f}s)")
+
     def _create_item(self, text: str):
-        """Create table item with text and tooltip showing full value."""
+        """Create table item with text."""
         item = QTableWidgetItem(text)
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
-        # Show full text as tooltip (useful for long values)
-        item.setToolTip(text)
         return item
 
     def _create_star_item(self, entry: "StringEntry") -> QTableWidgetItem:
@@ -2075,61 +2190,10 @@ Shows the sync status for each configured source. "✓" means up to date.
 
     @pyqtSlot()
     def apply_filters(self):
-        """Apply filters to table rows."""
+        """Apply filters by rebuilding the table with only matching entries."""
         if not self.entries:
             return
-
-        column_filters = self.filter_header.get_filter_texts()
-        category_filter = self.category_combo.currentText()
-        status_filter = self.status_combo.currentText()
-        hide_unmodified = self.hide_unmodified_check.isChecked()
-        favorites_only = self.favorites_only_check.isChecked()
-        prefix = AppSettings.get_favorite_prefix()
-
-        # Check which column filters are active (avoid work for empty filters)
-        active_col_filters = [(i, t) for i, t in enumerate(column_filters) if t]
-
-        self.table.blockSignals(True)
-        visible_count = 0
-        for table_row in range(self.table.rowCount()):
-            entry = self.entries[self._entry_index_for_row(table_row)]
-            show = True
-
-            # Per-column substring filters
-            if active_col_filters:
-                row_values = [
-                    entry.category.lower(),
-                    entry.key.lower(),
-                    self.default_values.get(entry.key, "").lower(),
-                    entry.original_value.lower(),
-                    "★" if entry.custom_value.startswith(prefix) else "",
-                    entry.custom_value.lower(),
-                    entry.status.lower(),
-                ]
-                for col, filter_text in active_col_filters:
-                    if filter_text not in row_values[col]:
-                        show = False
-                        break
-
-            if category_filter != "All" and entry.category != category_filter:
-                show = False
-
-            if status_filter != "All" and entry.status != status_filter:
-                show = False
-
-            if hide_unmodified and entry.status == "Unmodified":
-                show = False
-
-            if favorites_only and not entry.custom_value.startswith(prefix):
-                show = False
-
-            self.table.setRowHidden(table_row, not show)
-            if show:
-                visible_count += 1
-
-        self.table.blockSignals(False)
-
-        self.table_status_label.setText(f"Showing {visible_count} of {len(self.entries)} strings")
+        self.populate_table()
 
     @pyqtSlot()
     def _on_grouped_sort_changed(self):
