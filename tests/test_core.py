@@ -208,44 +208,44 @@ class TestStringEntry:
         assert entry.category == 'Ships'
 
     def test_category_ship_components_shields(self):
-        """Test Ship Components category for shields"""
+        """Test Ship Items category for shields"""
         entry = StringEntry(
             key='item_NameSHLD_Aspirum',
             source_file='global',
             original_value='Aspirum Shield',
             custom_value='',
         )
-        assert entry.category == 'Ship Components'
+        assert entry.category == 'Ship Items'
 
     def test_category_ship_components_power_plants(self):
-        """Test Ship Components category for power plants"""
+        """Test Ship Items category for power plants"""
         entry = StringEntry(
             key='item_NamePOWR_TR1',
             source_file='global',
             original_value='PowerPlant TR1',
             custom_value='',
         )
-        assert entry.category == 'Ship Components'
+        assert entry.category == 'Ship Items'
 
     def test_category_ship_components_coolers(self):
-        """Test Ship Components category for coolers"""
+        """Test Ship Items category for coolers"""
         entry = StringEntry(
             key='item_NameCOOL_Delphi',
             source_file='global',
             original_value='Delphi Cooler',
             custom_value='',
         )
-        assert entry.category == 'Ship Components'
+        assert entry.category == 'Ship Items'
 
     def test_category_ship_components_turrets(self):
-        """Test Ship Components category for turrets"""
+        """Test Ship Items category for turrets"""
         entry = StringEntry(
             key='item_Name_Turret_S1',
             source_file='global',
             original_value='S1 Turret',
             custom_value='',
         )
-        assert entry.category == 'Ship Components'
+        assert entry.category == 'Ship Items'
 
     def test_category_gear_fps_weapons(self):
         """Test Gear category for FPS weapons"""

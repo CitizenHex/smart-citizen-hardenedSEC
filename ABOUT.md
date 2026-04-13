@@ -15,7 +15,7 @@ All Osiris DevWorks tools will be either **completely free** or have a **free ti
 ### 🎯 Core Features
 - **Load & Edit**: Load global.ini from your Star Citizen installation and customize strings in an intuitive table view
 - **Mission Contracts**: Edit mission contract and briefing text from the dedicated Missions category
-- **Smart Filtering**: Search strings, filter by category (Ships, Ship Components, Missions, Other), or modification status
+- **Smart Filtering**: Search strings, filter by category (Ships, Ship Items, Missions, Other), or modification status
 - **Safe Application**: Automatic timestamped backups before applying changes to prevent data loss
 - **Restore Backups**: Keep up to 5 backup versions — revert changes anytime with one click
 

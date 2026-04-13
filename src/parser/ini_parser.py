@@ -201,6 +201,8 @@ def load_source_files(
         # Determine category: source-based override first, then key-prefix fallback
         if source == 'contracts':
             category = 'Missions'
+        elif 'journal' in key.lower():
+            category = 'Journal'
         elif stats_key_categories and key in stats_key_categories:
             category = stats_key_categories[key]
         else:

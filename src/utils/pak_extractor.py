@@ -94,26 +94,6 @@ def extract_global_ini(
     return True
 
 
-# Subdirectories (relative to the Data/ dir created by unp4k) that we keep
-# from the full DataForge extraction.  Everything else is discarded.
-# These are used for stats generation (ships, components, weapons, missions).
-_DATAFORGE_KEEP = [
-    "libs/foundry/records/entities/scitem/ships/shieldgenerator",
-    "libs/foundry/records/entities/scitem/ships/cooler",
-    "libs/foundry/records/entities/scitem/ships/powerplant",
-    "libs/foundry/records/entities/scitem/ships/quantumdrive",
-    "libs/foundry/records/entities/scitem/ships/weapons",
-    "libs/foundry/records/entities/scitem/ships/radar",
-    "libs/foundry/records/entities/scitem/weapons/fps_weapons",
-    "libs/foundry/records/ammoparams/vehicle",
-    "libs/foundry/records/ammoparams/fps",
-    "libs/foundry/records/entities/spaceships",
-    "libs/foundry/records/entities/scitem/ships/controller",
-    "libs/foundry/records/missionbroker/pu_missions",
-    "libs/foundry/records/reputation/rewards/missionrewards_reputation",
-]
-
-
 def extract_dataforge(
     p4k_path: Path,
     unp4k_exe: Path,
@@ -121,13 +101,12 @@ def extract_dataforge(
     dataforge_cache_dir: Path,
     progress_callback=None,
 ) -> bool:
-    """Extract DataForge entity XMLs from Data.p4k and cache relevant subdirectories.
+    """Extract DataForge entity XMLs from Data.p4k and cache them.
 
     Pipeline:
       1. unp4k.exe extracts Game2.dcb from the p4k into a temp directory.
       2. unforge.exe converts Game2.dcb → individual XML entity files.
-      3. Only the subdirectories needed for stats generation are copied to
-         dataforge_cache_dir; everything else is discarded.
+      3. The full extraction is cached to dataforge_cache_dir for stats generation.
 
     This is slow the first time (~several minutes) but results are cached and
     only need to be re-run when the p4k file changes.
@@ -198,13 +177,11 @@ def extract_dataforge(
         time.sleep(0.1)  # Brief pause for file system to release locks
 
         # unforge writes entity XMLs into a libs/ subdirectory next to the dcb file.
-        # _DATAFORGE_KEEP paths already start with "libs/...", so use dcb_path.parent
-        # as the base to avoid a doubled "libs/libs/..." path.
         libs_dir = dcb_path.parent
         if not (libs_dir / "libs").exists():
             raise FileNotFoundError("unforge ran but libs/ directory was not created — unexpected output structure.")
 
-        # ── Step 3: Save raw extraction and filtered cache ──────────────────────
+        # ── Step 3: Cache the full extraction ─────────────────────────────────
         if progress_callback:
             progress_callback("Caching entity files…")
 
@@ -216,23 +193,12 @@ def extract_dataforge(
             shutil.rmtree(dataforge_cache_dir)
         dataforge_cache_dir.mkdir(parents=True, exist_ok=True)
 
-        # Save the complete unfiltered extraction for inspection
+        # Cache the complete extraction under raw/ — all entity types are
+        # available for current and future stats generation.
         raw_dir = dataforge_cache_dir / "raw"
-        if raw_dir.exists():
-            shutil.rmtree(raw_dir)
-        logger.info(f"Saving complete DataForge extraction to {raw_dir}…")
+        logger.info(f"Saving DataForge extraction to {raw_dir}…")
         shutil.copytree(libs_dir / "libs", raw_dir / "libs")
-        logger.info(f"Raw DataForge saved to {raw_dir}")
-
-        for rel in _DATAFORGE_KEEP:
-            src = libs_dir / rel
-            if not src.exists():
-                logger.warning(f"Expected DataForge subdir not found (skipping): {src}")
-                continue
-            dst = dataforge_cache_dir / rel
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(src, dst)
-            logger.info(f"Cached {rel} ({sum(f.stat().st_size for f in dst.rglob('*') if f.is_file()) // 1024} KB)")
+        logger.info("DataForge extraction cached")
 
         # Write a stamp so we know when this was extracted (p4k mtime)
         stamp = dataforge_cache_dir / ".p4k_mtime"
@@ -251,7 +217,7 @@ def dataforge_cache_is_fresh(p4k_path: Path, dataforge_cache_dir: Path) -> bool:
     so a stamp-only remnant from a failed/partial extraction returns False.
     """
     stamp = dataforge_cache_dir / ".p4k_mtime"
-    libs_dir = dataforge_cache_dir / "libs"
+    libs_dir = dataforge_cache_dir / "raw" / "libs"
     if not stamp.exists() or not libs_dir.exists():
         return False
     # Verify there is at least one XML file — guards against empty extractions

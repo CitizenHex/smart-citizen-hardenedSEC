@@ -2233,9 +2233,11 @@ Shows the sync status for each configured source. "✓" means up to date.
         is_favorite = entry.custom_value.startswith(prefix)
 
         menu = QMenu(self)
+        menu.addAction("Copy Cell", lambda: self.copy_cell(item))
+        menu.addAction("Copy Key", lambda: self.copy_key(table_row))
+        menu.addSeparator()
         menu.addAction("Edit", lambda: self.edit_cell(table_row))
         menu.addAction("Reset to Original", lambda: self.reset_to_original(table_row))
-        menu.addAction("Copy Key", lambda: self.copy_key(table_row))
         menu.addSeparator()
         menu.addAction("Copy All Filtered", lambda: self.copy_filtered_to_clipboard())
 
@@ -2259,6 +2261,14 @@ Shows the sync status for each configured source. "✓" means up to date.
             self.entries[entry_idx].custom_value = ""
             self.entries[entry_idx].status = "Unmodified"
             self.populate_table()
+
+    def copy_cell(self, item: QTableWidgetItem):
+        """Copy the clicked cell's text to clipboard."""
+        import pyperclip
+        try:
+            pyperclip.copy(item.text())
+        except Exception:
+            pass
 
     def copy_key(self, table_row: int):
         """Copy key to clipboard."""

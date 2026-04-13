@@ -52,7 +52,7 @@ python src/main.py
 
 - [ ] **Category extraction is accurate**
   - Check for Ships category entries (e.g., `vehicle_Name*`)
-  - Check for Ship Components (e.g., `item_NameSHLD_*` for shields)
+  - Check for Ship Items (e.g., `item_NameSHLD_*` for shields)
   - Check for Gear category (e.g., `item_Name_*` for FPS weapons)
   - Check for Commodities category (e.g., `items_commodities_*`)
   - Check for Missions category (e.g., `contract_*`, `shubin_*`)
@@ -133,7 +133,7 @@ python src/main.py
 - [ ] **Category filter works**
   - Select "Ships" from category dropdown
   - Only vehicle_Name/Desc entries visible
-  - Select "Ship Components" → only shields, coolers, power plants visible
+  - Select "Ship Items" → only shields, coolers, power plants visible
   - Select "Gear" → only item_Name_* FPS weapons visible
 
 - [ ] **Status filter works**

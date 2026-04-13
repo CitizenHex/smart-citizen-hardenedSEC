@@ -867,55 +867,228 @@ def scan_contract_generators(contractgen_dir: Path, reputation_lookup: dict[str,
     return missions
 
 
-def scan_crafting_recipes(recipes_dir: Path) -> dict[str, list[str]]:
-    """Scan crafting recipe entities to build a map of commodity → crafted items.
+def _resolve_resource_uuids(bp_dir: Path) -> set[str]:
+    """Collect all CraftingCost_Resource UUIDs referenced in blueprint XMLs."""
+    uuids: set[str] = set()
+    if not bp_dir.exists():
+        return uuids
+    for xml_file in bp_dir.rglob("*.xml"):
+        try:
+            root = ET.parse(xml_file).getroot()
+            for elem in root.iter():
+                if elem.get("__polymorphicType") == "CraftingCost_Resource":
+                    r = elem.get("resource", "")
+                    if r and r != "00000000-0000-0000-0000-000000000000":
+                        uuids.add(r)
+        except ET.ParseError:
+            pass
+    return uuids
 
-    Returns a dict mapping commodity localization keys (e.g., "items_commodities_agricium")
-    to lists of crafted item names that use that commodity as an ingredient.
-    """
-    commodity_recipes: dict[str, list[str]] = {}  # commodity_key → [item1, item2, ...]
 
-    if not recipes_dir.exists():
-        return commodity_recipes
-
-    try:
-        for xml_file in recipes_dir.rglob("*.xml"):
-            try:
-                root = ET.parse(xml_file).getroot()
-            except ET.ParseError:
+def _build_uuid_to_commodity(uuids: set[str], carryables_dir: Path) -> dict[str, str]:
+    """Map resource UUIDs to commodity internal names by scanning carryable entity files."""
+    uuid_names: dict[str, str] = {}
+    if not carryables_dir.exists() or not uuids:
+        return uuid_names
+    for xml_file in carryables_dir.rglob("*.xml"):
+        try:
+            content = xml_file.read_text(encoding="utf-8", errors="ignore")
+            matched_uuids = [u for u in uuids if u in content]
+            if not matched_uuids:
                 continue
+            fname = xml_file.stem
+            m = re.search(r"commodity_(?:metal|mineral|minerals|nonmetal|gas)_(\w+?)(?:_[a-d])?$", fname)
+            if m:
+                commodity = m.group(1).lower()
+                for uid in matched_uuids:
+                    uuid_names[uid] = commodity
+        except Exception:
+            pass
+    return uuid_names
 
-            try:
-                # Extract the output item's localization key (the result of the recipe)
-                output_key = _loc_key(root)
-                if not output_key:
-                    continue
 
-                # Scan for ingredient references (commodity keys)
-                for el in root.iter():
-                    try:
-                        # Look for commodity ingredient references
-                        if "ingredient" in el.tag.lower() or "input" in el.tag.lower():
-                            # Try to find commodity references
-                            item_guid = el.get("itemGUID") or el.get("itemGuid") or el.get("itemClass")
-                            item_ref = el.get("item") or el.get("ref")
+def _condense_crafted_items(items_list: list[tuple[str, str]]) -> list[str]:
+    """Condense crafted items into readable summary lines, grouped by blueprint category."""
+    from collections import defaultdict
+    by_cat: dict[str, list[str]] = defaultdict(list)
+    for cat, name in items_list:
+        by_cat[cat].append(name)
+    lines = []
+    for cat in sorted(by_cat.keys()):
+        names = sorted(set(by_cat[cat]))
+        parts = cat.split("/")
+        if "ammo" in cat:
+            ammo_type = parts[-1].title() if len(parts) > 2 else "Ammo"
+            lines.append(f"{ammo_type} Ammo")
+            continue
+        if "weapons" in cat:
+            base_names = set()
+            for n in names:
+                clean = re.sub(r'\s*"[^"]*"\s*', ' ', n).strip()
+                clean = re.sub(r'\s+', ' ', clean)
+                base_names.add(clean)
+            if len(base_names) <= 3:
+                lines.append(", ".join(sorted(base_names)))
+            else:
+                weapon_type = parts[-1].title()
+                lines.append(f"{weapon_type}s ({len(base_names)} types)")
+            continue
+        if "armour" in cat:
+            weight = parts[-1].title() if len(parts) > 2 else ""
+            armour_type = parts[-2].title() if len(parts) > 2 else "Armour"
+            set_names = set()
+            for n in names:
+                m2 = re.match(r'^([\w-]+(?:\s[\w-]+)?)\s+(?:Arms|Core|Legs|Helmet|Backpack|Suit|Armor)', n)
+                if m2:
+                    set_names.add(m2.group(1))
+                else:
+                    set_names.add(n.split()[0] if n else n)
+            if len(set_names) <= 3:
+                label = ", ".join(sorted(set_names))
+            else:
+                label = f"{len(set_names)} sets"
+            if weight and armour_type != weight:
+                lines.append(f"{label} ({weight} {armour_type})")
+            else:
+                lines.append(f"{label} ({armour_type})")
+            continue
+        lines.append(f"{cat}: {len(names)} items")
+    return lines
 
-                            # If we find a commodity reference, map it to this output
-                            if item_ref and "commodities" in item_ref.lower():
-                                # Extract commodity key from reference
-                                commodity_key = item_ref.lower().replace("@", "")
-                                if commodity_key not in commodity_recipes:
-                                    commodity_recipes[commodity_key] = []
-                                if output_key not in commodity_recipes[commodity_key]:
-                                    commodity_recipes[commodity_key].append(output_key)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-    except Exception:
-        pass
 
-    return commodity_recipes
+def scan_crafting_blueprints(
+    bp_dir: Path,
+    carryables_dir: Path,
+    entity_names: dict[str, str],
+    loc: dict[str, str],
+) -> dict[str, str]:
+    """Scan crafting blueprints and produce commodity_crafting_stats entries.
+
+    Returns a dict of localization key → augmented value for commodity names and
+    descriptions that are used as crafting materials.
+    """
+    from collections import defaultdict
+    import os
+
+    if not bp_dir.exists():
+        logger.info("No crafting blueprints directory found")
+        return {}
+
+    # Step 1: Collect resource UUIDs from blueprints
+    resource_uuids = _resolve_resource_uuids(bp_dir)
+    logger.info(f"Found {len(resource_uuids)} unique resource UUIDs in blueprints")
+
+    # Step 2: Resolve UUIDs to commodity names via carryables
+    uuid_names = _build_uuid_to_commodity(resource_uuids, carryables_dir)
+    logger.info(f"Resolved {len(uuid_names)} resource UUIDs to commodity names")
+
+    # Step 3: Parse blueprints to build commodity → crafted items map
+    commodity_items: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    for xml_file in sorted(bp_dir.rglob("*.xml")):
+        try:
+            root = ET.parse(xml_file).getroot()
+            rel = xml_file.relative_to(bp_dir)
+            category = str(rel.parent).replace(os.sep, "/")
+            item_name = xml_file.stem.replace("bp_craft_", "")
+            # Try to resolve display name from entity reference
+            for elem in root.iter():
+                if elem.get("__polymorphicType") == "CraftingProcess_Creation":
+                    entity_ref = elem.get("entityClass", "")
+                    if entity_ref in entity_names:
+                        item_name = entity_names[entity_ref]
+                    break
+            materials: set[str] = set()
+            for elem in root.iter():
+                if elem.get("__polymorphicType") == "CraftingCost_Resource":
+                    r = elem.get("resource", "")
+                    if r in uuid_names:
+                        materials.add(uuid_names[r])
+            for mat in materials:
+                commodity_items[mat].append((category, item_name))
+        except ET.ParseError:
+            pass
+
+    # Commodity internal name → (name_loc_key, desc_loc_key)
+    commodity_loc = {
+        "agricium": ("items_commodities_agricium", "items_commodities_agricium_desc"),
+        "aluminium": ("items_commodities_aluminum_ore", "items_commodities_aluminum_ore_desc"),
+        "aslarite": ("items_commodities_aslarite", "items_commodities_aslarite_desc"),
+        "beryl": ("items_commodities_beryl", "items_commodities_beryl_desc"),
+        "copper": ("items_commodities_copper", "items_commodities_copper_desc"),
+        "corundum": ("items_commodities_corundum", "items_commodities_corundum_desc"),
+        "gold": ("items_commodities_gold", "items_commodities_gold_desc"),
+        "hephaestanite": ("items_commodities_hephaestanite", "items_commodities_hephaestanite_desc"),
+        "iron": ("items_commodities_iron", "items_commodities_iron_desc"),
+        "laranite": ("items_commodities_laranite", "items_commodities_laranite_desc"),
+        "lindinium": ("items_commodities_lindinium", "items_commodities_lindinium_des"),
+        "ouratite": ("items_commodities_ouratite", "items_commodities_ouratite_desc"),
+        "quartz": ("items_commodities_quartz", "items_commodities_quartz_desc"),
+        "riccite": ("items_commodities_riccite", "items_commodities_riccite_des"),
+        "savrilium": ("items_commodities_savrilium", "items_commodities_savrilium_des"),
+        "silicon": ("items_commodities_silicon", "items_commodities_silicon_desc"),
+        "stileron": ("items_commodities_stileron", "items_commodities_stileron_des"),
+        "taranite": ("items_commodities_taranite", "items_commodities_taranite_desc"),
+        "tin": ("items_commodities_tin", "items_commodities_tin_desc"),
+        "titanium": ("items_commodities_titanium", "items_commodities_titanium_desc"),
+        "torite": ("items_commodities_torite", "items_commodities_torite_des"),
+        "tungsten": ("items_commodities_tungsten", "items_commodities_tungsten_desc"),
+    }
+
+    # Build output
+    out: dict[str, str] = {}
+    for commodity in sorted(commodity_items.keys()):
+        if commodity not in commodity_loc:
+            continue
+        name_key, desc_key = commodity_loc[commodity]
+
+        base_name = loc.get(name_key, "")
+        if base_name:
+            out[name_key] = f"{base_name} <EM4>[CF]</EM4>"
+
+        base_desc = loc.get(desc_key, "")
+        if base_desc:
+            condensed = _condense_crafted_items(commodity_items[commodity])
+            bp_block = "\\n".join(f"- {line}" for line in condensed)
+            stats_block = f"== Blueprint Data ==\\n{bp_block}"
+            out[desc_key] = f"{base_desc}\\n\\n{stats_block}"
+
+    # ── Augment Mining Compendium journal entry with crafting usage ──────────
+    journal_title_key = "Journal_General_Mining_Compendium_Title"
+    journal_content_key = "Journal_General_Mining_Compendium_Content"
+    base_title = loc.get(journal_title_key, "")
+    base_content = loc.get(journal_content_key, "")
+
+    if base_title and base_content:
+        # Mark the title as edited by the app
+        out[journal_title_key] = f"{base_title} <EM4>[SCLE]</EM4>"
+
+        # Build mineral name → condensed crafting summary (case-insensitive match)
+        mineral_crafting: dict[str, str] = {}
+        # Map display names to internal names: "Aluminium" in journal vs "aluminium" internal
+        # The journal uses the display mineral name as the first word before " - "
+        for internal_name, items in commodity_items.items():
+            condensed = _condense_crafted_items(items)
+            if condensed:
+                mineral_crafting[internal_name] = ", ".join(condensed)
+
+        # Parse content lines (separated by \\n\\n) and augment mineral entries
+        lines = base_content.split("\\n\\n")
+        augmented_lines = []
+        for line in lines:
+            # Each mineral line: "Agricium - ARC-L3, Cellin, ..."
+            dash_idx = line.find(" - ")
+            if dash_idx > 0:
+                mineral_display = line[:dash_idx].strip()
+                mineral_lower = mineral_display.lower()
+                if mineral_lower in mineral_crafting:
+                    line = f"{line}\\n  >> Crafting: {mineral_crafting[mineral_lower]}"
+            augmented_lines.append(line)
+
+        out[journal_content_key] = "\\n\\n".join(augmented_lines)
+        logger.info(f"Journal: augmented Mining Compendium with crafting data for {len(mineral_crafting)} minerals")
+
+    logger.info(f"Crafting: {len(out)} entries augmented from {len(commodity_items)} commodities")
+    return out
 
 
 def stats_weapon(root: ET.Element, ammo_lookup: dict[str, ET.Element],
@@ -1515,7 +1688,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
     # ── Check DataForge cache ─────────────────────────────────────────────────
     logger.info("CHECKPOINT: Checking DataForge cache...")
     sys_mod.stdout.flush()
-    records = forge_dir / "libs" / "foundry" / "records"
+    records = forge_dir / "raw" / "libs" / "foundry" / "records"
     if not forge_dir.exists() or not records.exists():
         raise FileNotFoundError(
             f"DataForge cache not found at {forge_dir}\n"
@@ -1532,8 +1705,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
 
     # Build magazine lookup (maps magazine entity names to their ammo params records)
     logger.info("CHECKPOINT: Building magazine lookup…")
-    scitem_dir = forge_dir / "raw" / "libs" / "foundry" / "records" / "entities" / "scitem"
-    mag_lookup = build_magazine_lookup(scitem_dir)
+    mag_lookup = build_magazine_lookup(records / "entities" / "scitem")
     logger.info(f"CHECKPOINT: Magazine lookup: {len(mag_lookup)} entries")
     sys_mod.stdout.flush()
 
@@ -1558,13 +1730,6 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
     scitem_dir = records / "entities" / "scitem"
     ships_scitem = scitem_dir / "ships"
     radar_dir = ships_scitem / "radar"
-
-    # Fall back to raw extraction if filtered extraction doesn't have radar (for compatibility with older extractions)
-    if not radar_dir.exists():
-        raw_radar_dir = forge_dir / "raw" / "libs" / "foundry" / "records" / "entities" / "scitem" / "ships" / "radar"
-        if raw_radar_dir.exists():
-            logger.info(f"Radar not in filtered cache, using raw extraction: {raw_radar_dir}…")
-            radar_dir = raw_radar_dir
 
     if radar_dir.exists():
         logger.info(f"Processing radars from {radar_dir}…")
@@ -1631,11 +1796,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
     logger.info("CHECKPOINT: Building reputation XP lookup…")
     sys_mod.stdout.flush()
     reputation_lookup: dict[str, int] = {}
-    rep_rewards_dir = forge_dir / "libs" / "foundry" / "records" / "reputation" / "rewards" / "missionrewards_reputation"
-
-    # Fall back to raw if filtered is empty
-    if not rep_rewards_dir.exists() or not list(rep_rewards_dir.glob("*.xml")):
-        rep_rewards_dir = forge_dir / "raw" / "libs" / "foundry" / "records" / "reputation" / "rewards" / "missionrewards_reputation"
+    rep_rewards_dir = records / "reputation" / "rewards" / "missionrewards_reputation"
 
     if rep_rewards_dir.exists():
         for xml_file in rep_rewards_dir.rglob("*.xml"):
@@ -1659,7 +1820,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
     out_missions: dict[str, str] = {}
 
     # Primary mission directories: missionbroker/pu_missions is the main source (uses _mission_loc_key)
-    pu_missions_dir = forge_dir / "raw" / "libs" / "foundry" / "records" / "missionbroker" / "pu_missions"
+    pu_missions_dir = records / "missionbroker" / "pu_missions"
     if pu_missions_dir.exists():
         logger.info(f"CHECKPOINT: Processing {pu_missions_dir.name}…")
         sys_mod.stdout.flush()
@@ -1676,13 +1837,6 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
         records / "entities" / "contracts",
         records / "entities" / "jobterminal",
     ]:
-        # Fall back to raw extraction if filtered cache doesn't have the directory
-        if not mission_dir.exists():
-            raw_mission_dir = forge_dir / "raw" / mission_dir.relative_to(records)
-            if raw_mission_dir.exists():
-                logger.info(f"Mission dir not in filtered cache, using raw extraction: {raw_mission_dir.name}…")
-                mission_dir = raw_mission_dir
-
         if mission_dir.exists():
             logger.info(f"CHECKPOINT: Processing {mission_dir.name}…")
             sys_mod.stdout.flush()
@@ -1703,7 +1857,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
     # Process contract generator missions (can have multiple variants per title key)
     logger.info("CHECKPOINT: Processing contract generator mission variants…")
     sys_mod.stdout.flush()
-    contractgen_dir = forge_dir / "raw" / "libs" / "foundry" / "records" / "contracts" / "contractgenerator"
+    contractgen_dir = records / "contracts" / "contractgenerator"
     contractgen_missions = scan_contract_generators(contractgen_dir, reputation_lookup)
     logger.info(f"CHECKPOINT: Processed {len(contractgen_missions)} contract generator mission variants")
     sys_mod.stdout.flush()
@@ -1715,56 +1869,49 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
         if not base_title:
             continue
 
-        # Deduplicate: collect unique success XP values (preserving order)
-        seen_xp = []
-        for _, sxp, _, _ in variants:
-            if sxp not in seen_xp:
-                seen_xp.append(sxp)
+        # Collect unique (success_xp, failure_xp) tiers, preserving order
+        seen_tiers: list[tuple[int, int]] = []
+        for _, sxp, fxp, _ in variants:
+            tier = (sxp, fxp)
+            if tier not in seen_tiers:
+                seen_tiers.append(tier)
 
-        # Collect unique failure XP values
-        seen_fail = []
-        for _, _, fxp, _ in variants:
-            if fxp != 0 and fxp not in seen_fail:
-                seen_fail.append(fxp)
+        unique_xp = sorted(set(sxp for sxp, _ in seen_tiers))
 
-        # Format title with unique XP values: [xp1/xp2/xp3]
-        xp_str = "/".join(str(x) for x in seen_xp)
-        augmented_title = f"{base_title} [{xp_str} XP]"
+        # Title: show range if multiple values, single value if one
+        if len(unique_xp) == 1:
+            augmented_title = f"{base_title} [{unique_xp[0]:,} XP]"
+        else:
+            augmented_title = f"{base_title} [{min(unique_xp):,}\u2013{max(unique_xp):,} XP]"
         out_missions[title_key] = augmented_title
         mission_titles_augmented += 1
 
-        # Augment description — only add per-system breakdown if there are
-        # real system names and different XP values across systems
-        desc_key = variants[0][3]  # Use first variant's description key
+        # Description: per-tier breakdown
+        desc_key = variants[0][3]
         if desc_key and desc_key in loc:
             base_desc = loc[desc_key]
-            # Build system-labeled lines only for variants with recognized system names
-            system_variants = [(s, sxp) for s, sxp, _, _ in variants if s in known_system_names]
-            # Deduplicate by (system, xp)
-            seen_sys = set()
-            unique_sys_variants = []
-            for s, xp in system_variants:
-                if (s, xp) not in seen_sys:
-                    seen_sys.add((s, xp))
-                    unique_sys_variants.append((s, xp))
 
-            if unique_sys_variants and len(unique_sys_variants) > 1:
-                stats_lines = [f"{s} - Reputation XP: +{xp:,}" for s, xp in unique_sys_variants]
-                stats_block = "\\n".join(stats_lines)
+            if len(seen_tiers) == 1:
+                # Single tier — simple display
+                sxp, fxp = seen_tiers[0]
+                stats_block = f"Reputation XP: +{sxp:,}"
+                if fxp < 0:
+                    stats_block += f"\\nFailure Penalty: {fxp:,} XP"
             else:
-                # Single variant or no system labels — just show the XP
-                stats_block = f"Reputation XP: +{seen_xp[0]:,}"
-
-            # Add failure penalty if present
-            if seen_fail:
-                fail_str = "/".join(str(abs(f)) for f in seen_fail)
-                stats_block += f"\\nFailure Penalty: -{fail_str} XP"
+                # Multiple tiers — show each with optional failure penalty
+                stats_lines = []
+                for i, (sxp, fxp) in enumerate(sorted(seen_tiers, key=lambda t: t[0]), 1):
+                    line = f"Tier {i}: +{sxp:,} XP"
+                    if fxp < 0:
+                        line += f" (Failure: {fxp:,})"
+                    stats_lines.append(line)
+                stats_block = "\\n".join(stats_lines)
 
             augmented_desc = append_stats(base_desc, stats_block)
             out_missions[desc_key] = augmented_desc
 
     # Process mission titles from the primary mission directory (pu_missions)
-    pu_missions_dir = forge_dir / "raw" / "libs" / "foundry" / "records" / "missionbroker" / "pu_missions"
+    pu_missions_dir = records / "missionbroker" / "pu_missions"
     if pu_missions_dir.exists():
         for xml_file in pu_missions_dir.rglob("*.xml"):
             try:
@@ -1841,36 +1988,33 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
             logger.info(f"  Skipped ({reason}): {len(keys)} — e.g. {', '.join(keys[:5])}")
     sys_mod.stdout.flush()
 
-    # ── Process crafting recipes and augment commodities ─────────────────────
-    logger.info("CHECKPOINT: Processing crafting recipes…")
+    # ── Process crafting blueprints and augment commodities ──────────────────
+    logger.info("CHECKPOINT: Processing crafting blueprints…")
     sys_mod.stdout.flush()
-    out_commodities: dict[str, str] = {}
 
-    # Scan all crafting-related directories for recipes
-    commodity_recipes: dict[str, list[str]] = {}
-    for recipes_dir in [
-        records / "entities" / "crafting",
-        records / "entities" / "recipes",
-        records / "entities" / "manufacturing",
-    ]:
-        if recipes_dir.exists():
-            logger.info(f"CHECKPOINT: Scanning {recipes_dir.name}…")
-            sys_mod.stdout.flush()
-            commodity_recipes.update(scan_crafting_recipes(recipes_dir))
+    # Build entity UUID → display name lookup for resolving blueprint output items
+    scitem_dir = records / "entities" / "scitem"
+    entity_names: dict[str, str] = {}
+    if scitem_dir.exists():
+        for xml_file in scitem_dir.rglob("*.xml"):
+            try:
+                root = ET.parse(xml_file).getroot()
+                ref = root.get("__ref", "")
+                if not ref:
+                    continue
+                for elem in root.iter():
+                    name_attr = elem.get("Name", "")
+                    if name_attr and name_attr.startswith("@"):
+                        loc_key = name_attr.lstrip("@")
+                        display = loc.get(loc_key, loc_key)
+                        entity_names[ref] = display
+                        break
+            except ET.ParseError:
+                pass
 
-    # Augment commodity descriptions with crafting usage information
-    if commodity_recipes:
-        logger.info(f"CHECKPOINT: Found {len(commodity_recipes)} commodities used in crafting")
-        sys_mod.stdout.flush()
-        for commodity_key, crafted_items in commodity_recipes.items():
-            if commodity_key in loc:
-                base_value = loc[commodity_key]
-                # Add crafting marker and list of items
-                crafted_items_str = ", ".join(crafted_items[:5])  # Limit to first 5
-                if len(crafted_items) > 5:
-                    crafted_items_str += f" + {len(crafted_items) - 5} more"
-                stats_block = f"[CRAFTING] Used in: {crafted_items_str}"
-                out_commodities[commodity_key] = append_stats(base_value, stats_block)
+    bp_dir = records / "crafting" / "blueprints" / "crafting"
+    carryables_dir = scitem_dir / "carryables"
+    out_commodities = scan_crafting_blueprints(bp_dir, carryables_dir, entity_names, loc)
 
     # ── Write output ──────────────────────────────────────────────────────────
     logger.info("CHECKPOINT: Writing output files…")

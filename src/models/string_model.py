@@ -93,6 +93,10 @@ class StringEntry:
         if key_lower.startswith("items_commodities_"):
             return "Commodities"
 
+        # Journal entries
+        if "journal" in key_lower:
+            return "Journal"
+
         # Mission-related keys — prefixes derived from mission_rewards_stats.ini,
         # contracts.ini, and DataForge pu_missions entities.
         # Compared case-insensitively.  Prefer bare prefixes (no trailing _)
