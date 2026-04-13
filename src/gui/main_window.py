@@ -277,7 +277,7 @@ class StatsGeneratorWorker(QThread):
             sys_module.modules[module_name] = mod
             spec.loader.exec_module(mod)
 
-            self.progress.emit("Generating stats (may take a few minutes on first run)...")
+            self.progress.emit("Generating enhancements (may take a few minutes on first run)...")
             logger.info("Stats generation worker: calling mod.main()")
 
             base_ini  = AppSettings.get_cache_dir() / 'base.ini'
@@ -1802,14 +1802,14 @@ Shows the sync status for each configured source. "✓" means up to date.
             return  # already running
 
         self._stats_worker = StatsGeneratorWorker()
-        self.enhancements_tab.set_operation_running("Generating stats…")
-        self.statusBar().showMessage("Generating stats in background…")
+        self.enhancements_tab.set_operation_running("Generating enhancements…")
+        self.statusBar().showMessage("Generating enhancements in background…")
 
         # Show animated progress dialog
         self._stats_progress_dialog = AnimatedProgressDialog(
-            "Generating ship, component, and weapon stats from DataForge…\n\nThis may take a few minutes on the first run.",
+            "Generating enhanced localizations from DataForge…\n\nThis may take a few minutes on the first run.",
             parent=self,
-            title="Generating Stats",
+            title="Generating Enhancements",
         )
 
         self._stats_worker.progress.connect(self.enhancements_tab.set_operation_progress)
@@ -1839,10 +1839,10 @@ Shows the sync status for each configured source. "✓" means up to date.
         self.enhancements_tab.refresh_stats_status()
 
         if success:
-            self.statusBar().showMessage("Stats generated — reloading entries…")
-            self._show_loading_progress("Reloading strings with updated stats…")
+            self.statusBar().showMessage("Enhancements generated — reloading entries…")
+            self._show_loading_progress("Reloading strings with updated enhancements…")
         else:
-            self.statusBar().showMessage("Stats generation failed — check the Log tab for details")
+            self.statusBar().showMessage("Enhancement generation failed — check the Log tab for details")
 
     def _run_dataforge_extraction(self):
         """Launch DataForgeExtractWorker in the background (non-blocking)."""
@@ -1874,7 +1874,7 @@ Shows the sync status for each configured source. "✓" means up to date.
         self.enhancements_tab.refresh_forge_status()
 
         if success:
-            self.statusBar().showMessage("DataForge extracted — generating stats…")
+            self.statusBar().showMessage("DataForge extracted — generating enhancements…")
             self._run_stats_generation()
         else:
             self.enhancements_tab.set_operation_idle()

@@ -47,11 +47,11 @@ class EnhancementsTab(QWidget):
     # ── Stats Enhancements ────────────────────────────────────────────────────
 
     def _build_stats_group(self) -> QGroupBox:
-        group = QGroupBox("Stats Enhancements")
+        group = QGroupBox("Localization Enhancements")
         gl = QVBoxLayout(group)
 
         self.stats_enabled_checkbox = QCheckBox(
-            "Append stats to ship, component, and weapon descriptions"
+            "Enhance ship, component, and weapon descriptions with game data"
         )
         self.stats_enabled_checkbox.setChecked(AppSettings.get_stats_enabled())
         self.stats_enabled_checkbox.toggled.connect(self._on_stats_toggled)
@@ -59,7 +59,7 @@ class EnhancementsTab(QWidget):
 
         stats_desc = QLabel(
             "When enabled, numerical stats (speed, DPS, shield HP, etc.) are appended to "
-            "description entries. Stats are generated from your installed Data.p4k."
+            "description entries. Enhancements are generated from your installed Data.p4k."
         )
         stats_desc.setStyleSheet("font-size: 11px; color: #666;")
         stats_desc.setWordWrap(True)
@@ -86,10 +86,10 @@ class EnhancementsTab(QWidget):
 
         status_row.addStretch()
 
-        self._generate_stats_btn = QPushButton("Generate Stats")
-        self._generate_stats_btn.setMaximumWidth(130)
+        self._generate_stats_btn = QPushButton("Generate Enhancements")
+        self._generate_stats_btn.setMaximumWidth(160)
         self._generate_stats_btn.setToolTip(
-            "Generate stats INI files from your game's Data.p4k.\n"
+            "Generate enhanced localization files from your game's Data.p4k.\n"
             "DataForge data will be extracted automatically if not already cached\n"
             "(first run takes ~5–10 minutes; subsequent runs are fast)."
         )
@@ -230,12 +230,12 @@ class EnhancementsTab(QWidget):
         p4k_path = AppSettings.get_p4k_path()
         if not (forge_dir / ".p4k_mtime").exists():
             self._forge_status_label.setText(
-                "DataForge: not yet extracted — click 'Generate Stats' to begin"
+                "DataForge: not yet extracted — click 'Generate Enhancements' to begin"
             )
             self._forge_status_label.setStyleSheet("font-size: 10px; color: #f44336;")
         elif p4k_path.exists() and not dataforge_cache_is_fresh(p4k_path, forge_dir):
             self._forge_status_label.setText(
-                "DataForge: cache outdated — click 'Generate Stats' to re-extract and update"
+                "DataForge: cache outdated — click 'Generate Enhancements' to re-extract and update"
             )
             self._forge_status_label.setStyleSheet("font-size: 10px; color: #ff9800;")
         else:
