@@ -58,17 +58,15 @@ icon_path    = os.path.join(assets_dir, 'logo.ico')
 about_file   = os.path.join(root_dir, 'ABOUT.md')
 stats_script = os.path.join(root_dir, 'scripts', 'generate_stats_ini.py')
 
-pyinstaller_args = [
+common_args = [
     os.path.join(root_dir, 'src', 'main.py'),
     '--name', exe_name,
-    '--onefile',
     '--windowed',
     '--icon', icon_path,
     '--add-data', f'{version_file}{os.pathsep}.',
     '--add-data', f'{about_file}{os.pathsep}.',
     '--add-data', f'{assets_dir}{os.pathsep}assets',
     '--add-data', f'{stats_script}{os.pathsep}scripts',
-    '--distpath', os.path.join(root_dir, 'dist'),
     '--workpath', os.path.join(root_dir, 'build'),
     '--specpath', root_dir,
     '--hidden-import=PyQt6',
@@ -82,17 +80,41 @@ pyinstaller_args = [
     '--hidden-import=xml.etree.ElementTree',
 ]
 
-print("Building executable with PyInstaller...")
-print(f"  Output: {exe_name}.exe")
+# Build --onedir version (for installer — files stay in install folder, not temp)
+print("Building --onedir version (for installer)...")
+print(f"  Output: dist/{exe_name}/")
 print()
 
+onedir_args = common_args + [
+    '--onedir',
+    '--distpath', os.path.join(root_dir, 'dist'),
+]
+
 try:
-    PyInstaller.__main__.run(pyinstaller_args)
+    PyInstaller.__main__.run(onedir_args)
+    print(f"\n  --onedir build successful: dist/{exe_name}/")
+except Exception as e:
+    print(f"\nError building --onedir executable: {e}")
+    sys.exit(1)
+
+# Build --onefile version (standalone portable exe)
+print("\nBuilding --onefile version (portable)...")
+print(f"  Output: dist/{exe_name}.exe")
+print()
+
+onefile_args = common_args + [
+    '--onefile',
+    '--distpath', os.path.join(root_dir, 'dist'),
+]
+
+try:
+    PyInstaller.__main__.run(onefile_args)
     print(f"\n{'='*60}")
     print("Build successful!")
     print(f"{'='*60}")
-    print(f"Executable: dist/{exe_name}.exe")
+    print(f"Portable exe: dist/{exe_name}.exe")
+    print(f"Installer dir: dist/{exe_name}/")
     print()
 except Exception as e:
-    print(f"\nError building executable: {e}")
+    print(f"\nError building --onefile executable: {e}")
     sys.exit(1)

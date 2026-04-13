@@ -1667,9 +1667,13 @@ def scan_entity_dir(
 
 def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
     import sys as sys_mod
+    def _flush():
+        if sys_mod.stdout is not None:
+            _flush()
+        if sys_mod.stderr is not None:
+            _flush()
     logger.info("=== SC Stats INI Generator (DataForge edition) ===")
-    sys_mod.stdout.flush()
-    sys_mod.stderr.flush()
+    _flush()
 
     if forge_dir is None:
         forge_dir = DEFAULT_FORGE_DIR
@@ -1678,16 +1682,16 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
 
     # ── Parse base.ini ─────────────────────────────────────────────────────────
     logger.info(f"CHECKPOINT: Parsing base.ini: {base_ini_path}")
-    sys_mod.stdout.flush()
+    _flush()
     if not base_ini_path.exists():
         raise FileNotFoundError(f"base.ini not found at {base_ini_path}")
     loc = parse_ini(base_ini_path)
     logger.info(f"CHECKPOINT: Loaded {len(loc):,} localization keys")
-    sys_mod.stdout.flush()
+    _flush()
 
     # ── Check DataForge cache ─────────────────────────────────────────────────
     logger.info("CHECKPOINT: Checking DataForge cache...")
-    sys_mod.stdout.flush()
+    _flush()
     records = forge_dir / "raw" / "libs" / "foundry" / "records"
     if not forge_dir.exists() or not records.exists():
         raise FileNotFoundError(
@@ -1697,23 +1701,23 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
 
     # ── Build ammo lookups ────────────────────────────────────────────────────
     logger.info("CHECKPOINT: Building ammo damage lookups…")
-    sys_mod.stdout.flush()
+    _flush()
     vehicle_ammo = build_ammo_lookup(records / "ammoparams" / "vehicle")
     fps_ammo     = build_ammo_lookup(records / "ammoparams" / "fps")
     logger.info(f"CHECKPOINT: Vehicle ammo: {len(vehicle_ammo)} records, FPS ammo: {len(fps_ammo)} records")
-    sys_mod.stdout.flush()
+    _flush()
 
     # Build magazine lookup (maps magazine entity names to their ammo params records)
     logger.info("CHECKPOINT: Building magazine lookup…")
     mag_lookup = build_magazine_lookup(records / "entities" / "scitem")
     logger.info(f"CHECKPOINT: Magazine lookup: {len(mag_lookup)} entries")
-    sys_mod.stdout.flush()
+    _flush()
 
     # ── Process components ────────────────────────────────────────────────────
     ships_scitem = records / "entities" / "scitem" / "ships"
 
     logger.info("CHECKPOINT: Processing ship components…")
-    sys_mod.stdout.flush()
+    _flush()
     out_components: dict[str, str] = {}
     for subdir, fn in [
         ("shieldgenerator", stats_shield),
@@ -1722,7 +1726,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
         ("quantumdrive",    stats_quantum_drive),
     ]:
         logger.info(f"CHECKPOINT: Processing {subdir}...")
-        sys_mod.stdout.flush()
+        _flush()
         out_components.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc))
 
     # ── Process radar/sensors ─────────────────────────────────────────────────
@@ -1751,7 +1755,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
 
     # ── Process ship weapons ──────────────────────────────────────────────────
     logger.info("CHECKPOINT: Processing ship weapons…")
-    sys_mod.stdout.flush()
+    _flush()
     out_ship_weapons: dict[str, str] = {}
     weapons_dir = ships_scitem / "weapons"
     if weapons_dir.exists():
@@ -1761,11 +1765,11 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
             loc=loc,
         )
     logger.info(f"CHECKPOINT: Finished ship weapons ({len(out_ship_weapons)} entries)")
-    sys_mod.stdout.flush()
+    _flush()
 
     # ── Process FPS weapons ───────────────────────────────────────────────────
     logger.info("CHECKPOINT: Processing FPS weapons…")
-    sys_mod.stdout.flush()
+    _flush()
     out_fps_weapons: dict[str, str] = {}
     fps_dir = records / "entities" / "scitem" / "weapons" / "fps_weapons"
     if fps_dir.exists():
@@ -1775,26 +1779,26 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
             loc=loc,
         )
     logger.info(f"CHECKPOINT: Finished FPS weapons ({len(out_fps_weapons)} entries)")
-    sys_mod.stdout.flush()
+    _flush()
 
     # ── Process ships (DataForge spaceship entities + flight controllers) ──────
     logger.info("CHECKPOINT: Building flight controller lookup…")
-    sys_mod.stdout.flush()
+    _flush()
     controller_dir = records / "entities" / "scitem" / "ships" / "controller"
     controller_lookup = build_controller_lookup(controller_dir)
     logger.info(f"CHECKPOINT: Controllers: {len(controller_lookup)} loaded")
-    sys_mod.stdout.flush()
+    _flush()
 
     logger.info("CHECKPOINT: Processing ship descriptions…")
-    sys_mod.stdout.flush()
+    _flush()
     spaceships_dir = records / "entities" / "spaceships"
     out_ships = scan_spaceships(spaceships_dir, controller_lookup, loc)
     logger.info(f"CHECKPOINT: Finished ships ({len(out_ships)} entries)")
-    sys_mod.stdout.flush()
+    _flush()
 
     # ── Build reputation XP lookup ───────────────────────────────────────────
     logger.info("CHECKPOINT: Building reputation XP lookup…")
-    sys_mod.stdout.flush()
+    _flush()
     reputation_lookup: dict[str, int] = {}
     rep_rewards_dir = records / "reputation" / "rewards" / "missionrewards_reputation"
 
@@ -1812,18 +1816,18 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
             except ET.ParseError:
                 continue
     logger.info(f"CHECKPOINT: Loaded {len(reputation_lookup)} reputation reward definitions")
-    sys_mod.stdout.flush()
+    _flush()
 
     # ── Process missions/contracts ────────────────────────────────────────────
     logger.info("CHECKPOINT: Processing mission/contract rewards…")
-    sys_mod.stdout.flush()
+    _flush()
     out_missions: dict[str, str] = {}
 
     # Primary mission directories: missionbroker/pu_missions is the main source (uses _mission_loc_key)
     pu_missions_dir = records / "missionbroker" / "pu_missions"
     if pu_missions_dir.exists():
         logger.info(f"CHECKPOINT: Processing {pu_missions_dir.name}…")
-        sys_mod.stdout.flush()
+        _flush()
         out_missions.update(scan_entity_dir(
             pu_missions_dir,
             lambda root: stats_mission(root, reputation_lookup),
@@ -1839,7 +1843,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
     ]:
         if mission_dir.exists():
             logger.info(f"CHECKPOINT: Processing {mission_dir.name}…")
-            sys_mod.stdout.flush()
+            _flush()
             out_missions.update(scan_entity_dir(
                 mission_dir,
                 lambda root: stats_mission(root, reputation_lookup),
@@ -1847,20 +1851,20 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
             ))
 
     logger.info(f"CHECKPOINT: Finished missions ({len(out_missions)} entries)")
-    sys_mod.stdout.flush()
+    _flush()
 
     # ── Augment mission titles with XP ──────────────────────────────────────
     logger.info("CHECKPOINT: Augmenting mission titles with XP…")
-    sys_mod.stdout.flush()
+    _flush()
     mission_titles_augmented = 0
 
     # Process contract generator missions (can have multiple variants per title key)
     logger.info("CHECKPOINT: Processing contract generator mission variants…")
-    sys_mod.stdout.flush()
+    _flush()
     contractgen_dir = records / "contracts" / "contractgenerator"
     contractgen_missions = scan_contract_generators(contractgen_dir, reputation_lookup)
     logger.info(f"CHECKPOINT: Processed {len(contractgen_missions)} contract generator mission variants")
-    sys_mod.stdout.flush()
+    _flush()
 
     known_system_names = {"Stanton", "Pyro", "Nyx", "Desert", "ArcCorp", "Crusader"}
 
@@ -1943,7 +1947,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
                 continue
 
     logger.info(f"CHECKPOINT: Augmented {mission_titles_augmented} mission titles with XP")
-    sys_mod.stdout.flush()
+    _flush()
 
     # ── Mission XP coverage report ────────────────────────────────────────────
     # Count title keys that were augmented with XP vs those with descriptions
@@ -1986,11 +1990,11 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
     for reason, keys in titles_skipped_reasons.items():
         if keys:
             logger.info(f"  Skipped ({reason}): {len(keys)} — e.g. {', '.join(keys[:5])}")
-    sys_mod.stdout.flush()
+    _flush()
 
     # ── Process crafting blueprints and augment commodities ──────────────────
     logger.info("CHECKPOINT: Processing crafting blueprints…")
-    sys_mod.stdout.flush()
+    _flush()
 
     # Build entity UUID → display name lookup for resolving blueprint output items
     scitem_dir = records / "entities" / "scitem"
@@ -2018,7 +2022,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
 
     # ── Write output ──────────────────────────────────────────────────────────
     logger.info("CHECKPOINT: Writing output files…")
-    sys_mod.stdout.flush()
+    _flush()
     write_ini(OUTPUT_DIR / "ships_desc_stats.ini",       out_ships)
     write_ini(OUTPUT_DIR / "components_desc_stats.ini",  out_components)
     write_ini(OUTPUT_DIR / "ship_weapons_desc_stats.ini",out_ship_weapons)
