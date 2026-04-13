@@ -1669,9 +1669,9 @@ def main(base_ini_path: Path, forge_dir: Path | None = None) -> None:
     import sys as sys_mod
     def _flush():
         if sys_mod.stdout is not None:
-            _flush()
+            sys_mod.stdout.flush()
         if sys_mod.stderr is not None:
-            _flush()
+            sys_mod.stderr.flush()
     logger.info("=== SC Stats INI Generator (DataForge edition) ===")
     _flush()
 
