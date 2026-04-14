@@ -54,8 +54,12 @@ def status_color(status: str) -> QColor:
 _ITEM_PREFIX_RE = _re.compile(r'^(item_)(Name|Desc|name|desc)(.*)', _re.IGNORECASE)
 _VEHICLE_PREFIX_RE = _re.compile(r'^(vehicle_)(Name|Desc)(.*)', _re.IGNORECASE)
 _MISSION_SUFFIX_RE = _re.compile(
-    r'^(.*?)_(title|desc)'
-    r'(_[a-zA-Z0-9]*)?$',
+    r'^(.*?)_(title|desc|content)(_.+)?$',
+    _re.IGNORECASE,
+)
+# Commodity keys: items_commodities_X (name) / items_commodities_X_desc or _des (description)
+_COMMODITY_RE = _re.compile(
+    r'^(items_commodities_\w+?)(?:_(desc?|description))?$',
     _re.IGNORECASE,
 )
 
@@ -76,12 +80,19 @@ def _group_sort_key(key: str) -> tuple[str, int]:
         sub = 0 if marker == "name" else 1
         return (f"vehicle_{content}".lower(), sub)
 
+    m = _COMMODITY_RE.match(key)
+    if m:
+        group = m.group(1).lower()
+        sub = 1 if m.group(2) else 0  # desc/des suffix → 1, name (no suffix) → 0
+        return (group, sub)
+
     m = _MISSION_SUFFIX_RE.match(key)
     if m:
-        group = m.group(1)
+        prefix = m.group(1)
         marker = m.group(2).lower()
+        suffix = m.group(3) or ""
         sub = 0 if marker == "title" else 1
-        return (group.lower(), sub)
+        return (f"{prefix}{suffix}".lower(), sub)
 
     return (key.lower(), 0)
 
@@ -131,7 +142,7 @@ class StringTableModel(QAbstractTableModel):
         self._reverse_index: dict[int, int] = {}  # entry_idx → model row
         self._favorite_prefix: str = "*"
         self._sort_keys: list[tuple[str, int]] = []  # pre-computed per entry
-        self._grouped_sort: bool = True
+        self._grouped_sort: bool = False
         self._sort_column: int = COL_KEY
         self._sort_order: Qt.SortOrder = Qt.SortOrder.AscendingOrder
 
@@ -304,13 +315,19 @@ class StringTableModel(QAbstractTableModel):
     # -- sorting (entirely in Python) ---------------------------------------
 
     def sort(self, column: int, order: Qt.SortOrder = Qt.SortOrder.AscendingOrder) -> None:
-        """Sort by column using Python sorted() — avoids Qt lessThan() overhead."""
+        """Sort by column using Python sorted() — avoids Qt lessThan() overhead.
+
+        Header clicks go through this path and disable grouped sort.
+        The Group Sort button calls set_grouped_sort(True) before calling sort().
+        """
         self._sort_column = column
         self._sort_order = order
         self.layoutAboutToBeChanged.emit()
         self._apply_sort()
         self._rebuild_reverse_index()
         self.layoutChanged.emit()
+        # Reset after applying so subsequent header clicks use normal sort
+        self._grouped_sort = False
 
     def _apply_sort(self) -> None:
         """Sort _filtered_indices in place using current sort column/order."""

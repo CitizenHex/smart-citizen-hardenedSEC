@@ -505,11 +505,11 @@ class MainWindow(QMainWindow):
         self.favorites_only_check.stateChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.favorites_only_check)
 
-        self.grouped_sort_check = QCheckBox("Grouped Sort")
-        self.grouped_sort_check.setToolTip("Sort titles and descriptions together for the same entity")
-        self.grouped_sort_check.setChecked(True)
-        self.grouped_sort_check.stateChanged.connect(self._on_grouped_sort_changed)
-        filter_layout.addWidget(self.grouped_sort_check)
+        self.grouped_sort_btn = QPushButton("Group Sort")
+        self.grouped_sort_btn.setToolTip("Sort titles and descriptions together for the same entity")
+        self.grouped_sort_btn.setMaximumWidth(100)
+        self.grouped_sort_btn.clicked.connect(self._on_grouped_sort)
+        filter_layout.addWidget(self.grouped_sort_btn)
 
         self.clear_filters_btn = QPushButton("Clear Filters")
         self.clear_filters_btn.setMaximumWidth(100)
@@ -2335,9 +2335,9 @@ Shows the sync status for each configured source. "✓" means up to date.
         self.table_status_label.setText(f"Showing {len(indices)} of {len(self.entries)} strings")
 
     @pyqtSlot()
-    def _on_grouped_sort_changed(self):
-        """Toggle grouped sort mode and re-sort by Key column."""
-        self._model.set_grouped_sort(self.grouped_sort_check.isChecked())
+    def _on_grouped_sort(self):
+        """Apply grouped sort by Key column."""
+        self._model.set_grouped_sort(True)
         self._model.sort(1, Qt.SortOrder.AscendingOrder)
 
     @pyqtSlot()

@@ -1883,6 +1883,45 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         else:
             logger.info("No radar directory found in cache")
 
+        # ── Propagate enhancements to sibling keys ───────────────────────────
+        # base.ini has two key patterns for some components:
+        #   item_DescTYPE_..._SCItem  (referenced by DataForge entity XMLs)
+        #   item_Desc_TYPE_...        (legacy key, same component, no _SCItem)
+        # Propagate stats from _SCItem keys to their non-SCItem siblings, and
+        # similarly for name labels (item_nameTYPE → item_Name_TYPE).
+        comp_types = ("COOL", "SHLD", "POWR", "QDRV")
+        sibling_count = 0
+        for key, value in list(out_components.items()):
+            if not key.endswith("_SCItem"):
+                continue
+            base_key = key[:-len("_SCItem")]  # strip _SCItem
+            for ct in comp_types:
+                # Desc key: item_DescTYPE_... → item_Desc_TYPE_...
+                desc_prefix = f"item_Desc{ct}_"
+                if base_key.startswith(desc_prefix):
+                    sibling = f"item_Desc_{ct}_{base_key[len(desc_prefix):]}"
+                    if sibling not in out_components and sibling in loc:
+                        # Use sibling's own base text + the stats block from the augmented value
+                        sibling_base = loc[sibling]
+                        stats_marker = ENHANCEMENT_SEPARATOR
+                        if stats_marker in value:
+                            stats_block = value[value.index(stats_marker):]
+                            out_components[sibling] = sibling_base + stats_block
+                        else:
+                            out_components[sibling] = value
+                        sibling_count += 1
+                    break
+                # Name key: item_nameTYPE_... → item_Name_TYPE_...
+                name_prefix = f"item_name{ct}_"
+                if base_key.startswith(name_prefix):
+                    sibling = f"item_Name_{ct}_{base_key[len(name_prefix):]}"
+                    if sibling not in out_components and sibling in loc:
+                        out_components[sibling] = value
+                        sibling_count += 1
+                    break
+        if sibling_count:
+            logger.info(f"Propagated enhancements to {sibling_count} sibling keys")
+
     # ── Process missiles/rockets/bombs ────────────────────────────────────────
     out_missiles: dict[str, str] = {}
     if _want("missile_enhancements"):
