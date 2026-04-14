@@ -20,49 +20,60 @@ pip install -r requirements-dev.txt
 # Run
 python src/main.py
 
-# Run all tests
-pytest tests/
+# Testing
+pytest tests/                                    # Run all tests
+pytest tests/test_core.py                       # Run single file
+pytest tests/test_core.py::TestIniParsing       # Run single class
+pytest tests/test_core.py::TestIniParsing::test_parse_basic_ini  # Run single test
+pytest tests/ -v                                # Verbose output
+pytest tests/ --cov=src --cov-report=html      # Coverage report (HTML)
+pytest tests/ -n auto                           # Parallel execution (pytest-xdist)
 
-# Run a single test file or test
-pytest tests/test_core.py
-pytest tests/test_core.py::TestIniParsing::test_parse_basic_ini
+# Code Quality
+black src/ tests/ scripts/                      # Format code
+flake8 src/ tests/ scripts/                     # Lint (use flake8 config if present)
+isort src/ tests/ scripts/                      # Sort imports
+mypy src/                                       # Type checking
 
-# Build exe
-cd scripts/build && python build_exe.py
+# Building
+cd scripts/build && python build_exe.py         # Build exe (PyInstaller)
+cd scripts/build && build_all.bat               # Build exe + installer (requires Inno Setup)
 
-# Build exe + installer (requires Inno Setup)
-cd scripts/build && build_all.bat
-
-# Generate stats INI files from DataForge cache
+# Data Generation
 python scripts/generate_stats_ini.py [base_ini_path [dataforge_cache_dir]]
-
-# Extract component delta (base.ini vs stock vanilla)
 python scripts/extract_components.py [--stock path] [--base path] [--output path] [--dry-run]
 ```
 
-Tests cover core parsing, merging, category extraction, and P4K extraction logic. For GUI changes, also manual test: run app, load base file, edit a value, apply to game, restart to verify persistence.
+## Testing Strategy
+
+**Unit Tests** (`tests/`): Cover data layer logic—INI parsing, merging, category extraction, P4K extraction. Run with `pytest tests/`. Aim for high coverage on parser, merger, and utility modules.
+
+**GUI Testing**: Manual. Run app (`python src/main.py`), load base file, edit a value, apply to game, restart to verify persistence. Use the Log Tab to watch for errors during load/merge/apply cycles.
 
 ## Architecture
 
 Entry point: `src/main.py`. The app has two main layers:
 
 **GUI layer** (`src/gui/`):
-- `main_window.py` — Main window with table, toolbar, filters, backup/restore, threading workers, DataForge extraction. This is the largest file (~2000+ lines).
-- `config_tab.py` — Config tab with source configuration widgets, drag-drop hierarchy.
-- `enhancements_tab.py` — Optional features tab: stats overlays toggle, ship favorites prefix config, DataForge extraction trigger. Emits `merge_requested` and `stats_pipeline_requested` signals.
+- `main_window.py` — Main window with table, toolbar, filters, backup/restore, threading workers, DataForge extraction. This is the largest file (~2000+ lines). Manages the primary workflow: load, merge, edit, apply.
+- `config_tab.py` — **Config Tab**: Data source management (add/edit/remove sources), drag-drop merge hierarchy, Star Citizen install path, and DataForge extraction trigger.
+- `enhancements_tab.py` — **Enhancements Tab**: Toggle stats overlays, configure ship favorites prefix, trigger DataForge extraction. Emits `merge_requested` and `stats_pipeline_requested` signals.
+- `log_tab.py` — **Log Tab**: In-app real-time log viewer. Bridges Python `logging` to Qt text widget via `_LogEmitter` signal (thread-safe). Supports level filtering, auto-scroll, and log export.
 - `filter_header.py` — `FilterHeaderView` QHeaderView subclass adding per-column QLineEdit filter row below header labels, with debounced filtering.
-- `log_tab.py` — In-app log viewer. Bridges Python `logging` to a Qt text widget via `_LogEmitter` signal (thread-safe). Supports level filtering, auto-scroll, and log export.
+- `import_dialog.py` — `ImportConflictDialog` for resolving conflicts when importing INI files into user overrides. Allows per-key resolution strategies (keep current, use imported, append, prepend, or custom).
 
 **Data layer** (`src/models/`, `src/parser/`, `src/merger/`, `src/utils/`):
 - `string_model.py` — `StringEntry` dataclass with category extraction from key prefixes.
 - `ini_parser.py` — Line-by-line INI parsing (splits on first `=`), source loading, merging into StringEntry lists.
 - `ini_merger.py` — Merge engine: `merge_sources_by_hierarchy(sources_dict, hierarchy, user_overrides)`. Sources merge sequentially; user overrides always win.
-- `settings.py` — `AppSettings` class wrapping QSettings (Windows Registry). All user data stored in `Documents\SC Localization Editor\`.
+- `settings.py` — `AppSettings` class wrapping QSettings (Windows Registry). All user data stored in `Documents\SC Localization Editor\`. Critical: Registry is the single source of truth for all paths and preferences.
 - `updater.py` — GitHub API version checks + download workers for each source.
 - `pak_extractor.py` — P4K extraction pipeline: `unp4k.exe` (extracts Game2.dcb) → `unforge.exe` (converts to entity XMLs).
 - `overrides_manager.py` — Saves/loads user edits to `overrides.ini` (plain `key=value` format).
+- `user_ini_manager.py` — Manages user customization INI files; coordinates with import dialog for conflict resolution.
 - `user_cfg.py` — Manages Star Citizen's `user.cfg` file; ensures `g_language = english` is set in the LIVE directory.
 - `version.py` — Reads version string from `VERSION.TXT`, handling both normal and PyInstaller-frozen execution.
+- `perf.py` — `@timed` decorator for debug-level performance profiling. No-op when DEBUG logging disabled.
 
 **Scripts** (`scripts/`):
 - `generate_stats_ini.py` — Reads DataForge entity XMLs only (no external JSON) → outputs seven stats INI files to cache (ships, components, ship weapons, FPS weapons, mission rewards, commodity/crafting, missiles).
@@ -78,7 +89,10 @@ Row index != entry index when columns are sorted. **All row→entry lookups must
 The cached global source is saved as `base.ini` (not `global.ini`) to avoid confusion with the game's `global.ini` at `LIVE/data/Localization/english/global.ini`.
 
 ### Threading model
-All I/O-bound operations (file loads, network requests, P4K extraction) run in `QThread` workers. Workers emit `finished()` signals; cleanup requires `quit()` + `wait()`. Never block the main thread with file or network operations. Bulk table updates wrap in `setUpdatesEnabled(False)`.
+All I/O-bound operations (file loads, network requests, P4K extraction) run in `QThread` workers. Workers emit `finished()` signals; cleanup requires `quit()` + `wait()`. Never block the main thread with file or network operations. Bulk table updates wrap in `setUpdatesEnabled(False)`. Registry access (via `AppSettings`) is thread-safe; use it freely from main or worker threads.
+
+### Startup initialization
+On first run, the app initializes user data directories, validates Star Citizen install path, and may show a startup dialog to guide configuration. Subsequent runs check source freshness and auto-apply any pending DataForge cache updates.
 
 ### DataForge extraction is a three-step pipeline
 The "Extract DataForge from P4K" button triggers: (1) unpack Data.p4k → entity XMLs via `pak_extractor.py`, (2) run `generate_stats_ini.py` to produce stats INI files from the XMLs, (3) reload all strings to refresh the table. All three steps run sequentially from a single button click.
@@ -114,13 +128,17 @@ Favorites prepend a configurable prefix (default `*`) to `custom_value`. The pre
 | Modify INI parsing | `ini_parser.py` | `parse_ini_file()` |
 | Change merge logic | `ini_merger.py` | `merge_sources_by_hierarchy()` |
 | Change overrides persistence | `overrides_manager.py` | `save_overrides()`, `load_overrides()` |
+| Change user INI import behavior | `import_dialog.py`, `user_ini_manager.py` | `ImportConflictDialog` |
 | Modify auto-update | `updater.py` | `check_for_updates()`, `download_base_file()` |
 | Change backup behavior | `main_window.py` | `manage_backups()` |
 | Modify P4K extraction | `pak_extractor.py` | `extract_dataforge()` |
 | Change stats generation | `scripts/generate_stats_ini.py` | (standalone script) |
+| Add performance profiling | `perf.py` | `@timed` decorator |
 | Change user data paths | `settings.py` | `AppSettings.get_user_data_dir()` |
 | Change DataForge freshness | `settings.py`, `main_window.py` | `dataforge_cache_is_fresh()` |
 | Change stats/favorites UI | `enhancements_tab.py` | `setup_ui()` |
+| Manage Config tab UI | `config_tab.py` | `setup_ui()`, drag-drop hierarchy setup |
+| Manage Enhancements tab UI | `enhancements_tab.py` | `setup_ui()`, stats toggle, favorites config |
 | Change in-app logging | `log_tab.py` | `LogTab`, `_QtLogHandler` |
 | Change user.cfg behavior | `user_cfg.py` | `ensure_user_cfg_language()` |
 
@@ -139,10 +157,13 @@ Discord notification is automatic via GitHub Actions (`scripts/discord_notify.py
 ## Debugging
 
 - **Registry**: `regedit` → `HKEY_CURRENT_USER\Software\Osiris DevWorks\SC Localization Editor`
-- **Threading hangs**: Check `worker.quit()` + `worker.wait()` are called in finished slots
-- **File encoding**: Parser expects UTF-8; BOM or other encodings fail silently
-- **GitHub API rate limit**: Unauthenticated, 60 requests/hour per IP
-- **Overrides not loading**: Verify `Documents\SC Localization Editor\overrides.ini` exists with `key=value` format
+- **User data path**: If `Documents` is redirected (OneDrive), Registry stores the resolved path; delete the value to reset and auto-detect on next run.
+- **Threading hangs**: Check `worker.quit()` + `worker.wait()` are called in finished slots. Use Log Tab to watch for blockages.
+- **File encoding**: Parser expects UTF-8; BOM or other encodings fail silently. Ensure cache files are UTF-8 no-BOM.
+- **GitHub API rate limit**: Unauthenticated, 60 requests/hour per IP. Check updater logs if auto-update stalls.
+- **Overrides not loading**: Verify `Documents\SC Localization Editor\overrides.ini` exists with `key=value` format (no sections).
+- **Performance**: Use `@timed` decorator on slow functions and check elapsed times in DEBUG logs.
+- **Test isolation**: Each test should not depend on Registry state; mock `AppSettings` or use conftest fixtures.
 
 ## Dependencies
 

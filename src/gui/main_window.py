@@ -5,80 +5,24 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QThread, pyqtSignal, QModelIndex
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QComboBox, QCheckBox, QTableWidget,
-    QTableWidgetItem, QFileDialog, QMessageBox, QTabWidget,
+    QPushButton, QComboBox, QCheckBox,
+    QFileDialog, QMessageBox, QTabWidget,
     QHeaderView, QStatusBar, QFrame, QStyledItemDelegate,
-    QAbstractItemView, QMenu, QProgressDialog, QTextBrowser
+    QAbstractItemView, QMenu, QProgressDialog, QTextBrowser,
+    QTableView,
 )
 from PyQt6.QtGui import QColor, QFont, QCursor, QPixmap, QIcon
 from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices
 
 from src.gui.filter_header import FilterHeaderView
-
-import re as _re
-
-# Shared flag for grouped sort mode — checked by GroupSortItem.__lt__
-_grouped_sort_enabled = True
-
-# Pattern 1: item_Name{CONTENT} / item_Desc{CONTENT} (ship items, gear, etc.)
-_ITEM_PREFIX_RE = _re.compile(r'^(item_)(Name|Desc|name|desc)(.*)', _re.IGNORECASE)
-
-# Pattern 2: vehicle_Name{CONTENT} / vehicle_Desc{CONTENT} (ships)
-_VEHICLE_PREFIX_RE = _re.compile(r'^(vehicle_)(Name|Desc)(.*)', _re.IGNORECASE)
-
-# Pattern 3: {CONTENT}_Title or {CONTENT}_Desc with optional suffix (missions)
-# Only match _Title/_Desc near the end — must NOT have another _Title/_Desc after
-_MISSION_SUFFIX_RE = _re.compile(
-    r'^(.*?)_(title|desc)'          # group + marker
-    r'(_[a-zA-Z0-9]*)?$',          # optional single suffix like _001, _intro, _Hard
-    _re.IGNORECASE,
+from src.gui.string_table_model import (
+    StringTableModel, COL_STAR, COL_CUSTOM, COL_STATUS,
+    status_color,
 )
-
-
-def _group_sort_key(key: str) -> tuple[str, int]:
-    """Return (group_key, sub_order) for grouped sorting.
-
-    Groups related Name/Desc and Title/Desc keys together.
-    Names/Titles sort before Descs within the same group.
-    """
-    # item_Name / item_Desc prefix pattern
-    m = _ITEM_PREFIX_RE.match(key)
-    if m:
-        marker = m.group(2).lower()
-        content = m.group(3)
-        sub = 0 if marker == "name" else 1
-        return (f"item_{content}".lower(), sub)
-
-    # vehicle_Name / vehicle_Desc prefix pattern
-    m = _VEHICLE_PREFIX_RE.match(key)
-    if m:
-        marker = m.group(2).lower()
-        content = m.group(3)
-        sub = 0 if marker == "name" else 1
-        return (f"vehicle_{content}".lower(), sub)
-
-    # Mission _Title / _Desc suffix pattern
-    m = _MISSION_SUFFIX_RE.match(key)
-    if m:
-        group = m.group(1)
-        marker = m.group(2).lower()
-        sub = 0 if marker == "title" else 1
-        return (group.lower(), sub)
-
-    return (key.lower(), 0)
-
-
-class GroupSortItem(QTableWidgetItem):
-    """QTableWidgetItem that supports grouped sorting on the Key column."""
-
-    def __lt__(self, other):
-        if _grouped_sort_enabled:
-            return _group_sort_key(self.text()) < _group_sort_key(other.text())
-        return super().__lt__(other)
 
 
 class AnimatedProgressDialog(QProgressDialog):
@@ -134,9 +78,13 @@ class FileLoaderWorker(QThread):
     Supports both old-style (single base file) and new-style (multiple sources
     from settings) loading. If sources_dict is provided, uses new system.
     Otherwise, loads configured sources from settings.
+
+    The finished signal carries (entries, default_values, sort_keys) so the
+    main thread doesn't need to re-parse base.ini or compute sort keys.
     """
 
-    finished = pyqtSignal(list)
+    # (entries, default_values dict, pre-computed group sort keys)
+    finished = pyqtSignal(list, dict, list)
     error = pyqtSignal(str)
 
     def __init__(
@@ -155,6 +103,7 @@ class FileLoaderWorker(QThread):
         self.hierarchy = hierarchy
 
     def run(self):
+        from src.gui.string_table_model import _group_sort_key
         try:
             logger.info("FileLoaderWorker starting...")
 
@@ -175,14 +124,20 @@ class FileLoaderWorker(QThread):
                 # Legacy: single base file loading
                 logger.info(f"Using legacy base_path: {self.base_path}")
                 base_data = parse_ini_file(self.base_path)
-                sources_dict = {"global": base_data}
+                self.sources_dict = {"global": base_data}
                 hierarchy = ["global"]
-                entries = load_source_files(sources_dict, hierarchy, None, self.overrides_path)
+                entries = load_source_files(self.sources_dict, hierarchy, None, self.overrides_path)
             else:
                 raise ValueError("No sources configured and no base_path provided")
 
+            # Extract default values from the global source (avoids re-parsing base.ini)
+            default_values = dict(self.sources_dict.get("global", {}))
+
+            # Pre-compute grouped sort keys on the worker thread
+            sort_keys = [_group_sort_key(e.key) for e in entries]
+
             logger.info("FileLoaderWorker finished successfully")
-            self.finished.emit(entries)
+            self.finished.emit(entries, default_values, sort_keys)
         except Exception as e:
             logger.exception(f"Error loading files: {e}")
             self.error.emit(str(e))
@@ -706,12 +661,12 @@ class MainWindow(QMainWindow):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        # Table
-        self.table = QTableWidget()
-        self.table.setColumnCount(7)
-        self.table.setHorizontalHeaderLabels([
-            "Category", "Key", "Default Value", "Current Value", "★", "Custom Value", "Status"
-        ])
+        # Model
+        self._model = StringTableModel(self)
+
+        # Table view
+        self.table = QTableView()
+        self.table.setModel(self._model)
 
         # Per-column filter header
         column_names = ["Category", "Key", "Default Value", "Current Value", "★", "Custom Value", "Status"]
@@ -740,9 +695,9 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)  # Status
 
         # Set custom delegate for editing Custom Value column (col 5)
-        self.table.setItemDelegateForColumn(5, SelectAllDelegate())
-        self.table.itemChanged.connect(self.on_item_changed)
-        self.table.cellClicked.connect(self.on_cell_clicked)
+        self.table.setItemDelegateForColumn(COL_CUSTOM, SelectAllDelegate())
+        # Star column click handling
+        self.table.clicked.connect(self._on_cell_clicked)
 
         layout.addWidget(self.table)
 
@@ -818,15 +773,19 @@ class MainWindow(QMainWindow):
         self._loader_worker.error.connect(self._on_load_error)
         self._loader_worker.start()
 
-    @pyqtSlot(list)
-    def _on_files_loaded(self, entries: list):
+    @pyqtSlot(list, dict, list)
+    def _on_files_loaded(self, entries: list, default_values: dict, sort_keys: list):
         """Handle successful file loading."""
         if self._progress_dialog:
             self._progress_dialog.close()
 
+        self.default_values = default_values
         self.entries = entries
         self.update_category_combo()
-        self.populate_table()
+        self._model.set_data_source(
+            self.entries, self.default_values, AppSettings.get_favorite_prefix(),
+            sort_keys=sort_keys,
+        )
         self.apply_filters()
 
         # Show override count in status bar
@@ -891,8 +850,11 @@ class MainWindow(QMainWindow):
                     entries = load_source_files(sources_dict, hierarchy, enhancements_key_categories=enhancements_key_categories)
                     logger.info(f"Loaded {len(entries)} entries")
                     self.entries = entries
+                    self.default_values = dict(sources_dict.get("global", {}))
                     self.update_category_combo()
-                    self.populate_table()
+                    self._model.set_data_source(
+                        self.entries, self.default_values, AppSettings.get_favorite_prefix(),
+                    )
                     self.apply_filters()
 
                     # Update status bar with entry counts and per-source status
@@ -1350,7 +1312,7 @@ class MainWindow(QMainWindow):
 
         self.config_tab._refresh_p4k_status()
         self.entries = []
-        self.populate_table()
+        self._model.set_data_source([], {}, AppSettings.get_favorite_prefix())
 
         msg = f"Deleted {len(deleted)} item(s) from cache."
         if failed:
@@ -1410,8 +1372,13 @@ class MainWindow(QMainWindow):
                 entries = load_source_files(sources_dict, hierarchy, enhancements_key_categories=enhancements_key_categories)
                 logger.info(f"Merge complete: {len(entries)} entries")
                 self.entries = entries
+                self.default_values = dict(sources_dict.get("global", {}))
                 self.update_category_combo()
-                self.populate_table()
+                self._model.set_data_source(
+                    self.entries,
+                    self.default_values,
+                    AppSettings.get_favorite_prefix(),
+                )
                 self.apply_filters()
 
                 # Update status bar with entry counts and per-source status
@@ -1631,8 +1598,11 @@ class MainWindow(QMainWindow):
             overrides_path = AppSettings.get_user_ini_path()
             overrides_arg = str(overrides_path) if overrides_path.exists() else None
             self.entries = load_source_files(str(target_path), overrides_arg)
+            self.load_default_values()
             self.update_category_combo()
-            self.populate_table()
+            self._model.set_data_source(
+                self.entries, self.default_values, AppSettings.get_favorite_prefix(),
+            )
             self.apply_filters()
 
             # Update status bar with entry counts and per-source status
@@ -1667,22 +1637,26 @@ Click **Load Base File** to load strings from your configured sources. The insta
 
 ## 3. Categories
 Filter strings by category:
-- **Ships** - Spaceship names (vehicle_Name*)
-- **Ship Items** - Component names (shields, power, cooling, etc.)
-- **Missions** - Mission briefings and contract text
-- **Other** - Everything else, including stats descriptions
+- **Ships** — Spaceship names and descriptions (vehicle_Name*, vehicle_Desc*)
+- **Ship Items** — Component names (shields, power plants, coolers, quantum drives, weapons, missiles, turrets)
+- **Missions** — Mission briefings, contract text, and reward descriptions
+- **Gear** — FPS weapons and personal equipment
+- **Commodities** — Trade goods and crafting materials
+- **Journal** — In-game journal entries
+- **Other** — Everything else
 
 ## 4. Search & Filter
-- Use the search box to find strings by key or text content
+- Use the **search box** to find strings by key or text content
 - Filter by **Category** to focus on one type
 - Filter by **Status** (Modified, Unmodified, New)
 - Check **Hide Unmodified** to see only your changes
+- Use the **per-column filter boxes** below each column header for fine-grained filtering
 - Click any **column header** to sort by that column
 
 ## 5. Ship Favorites
 - Click the **star (★)** column on any Ship row to mark it as a favorite
 - Favorited ships get a prefix character prepended to their name, sorting them to the top of the in-game ship list
-- Configure the prefix character in the Config tab
+- Configure the prefix character in the **Enhancements** tab
 
 ## 6. Apply Changes to Game
 Click **Apply to Game** to write your edits to the game installation. A timestamped backup is saved automatically to your Documents folder before applying.
@@ -1693,17 +1667,26 @@ Click **Restore Backup** to revert to a previous version. The app keeps up to 5 
 ## 8. Clear Localization
 Click **Clear Localization** to delete the custom global.ini from the game directory, reverting the game to its default (vanilla) text. Your saved overrides are not affected and can be re-applied at any time.
 
-## 9. After Game Updates
+## 9. Import INI
+Use **Import INI** in the Config tab to import an existing INI file into your overrides. A conflict resolution dialog lets you choose how to handle keys that already exist — keep current, use imported, append, prepend, or enter a custom value.
+
+## 10. After Game Updates
 When Star Citizen updates, your edits are preserved in your Documents folder. Simply reload the new base file and your customizations automatically re-apply.
 
-## Enhancements
-When enhancement files are present (generated by generate_enhancements_ini.py), numerical stats such as SCM speed, DPS, shield HP, cargo capacity, and weapon loadouts are automatically appended to ship and component descriptions. Toggle this on/off in the Config tab.
+## Enhancements Tab
+- Enable stat overlays that append numerical stats (SCM speed, DPS, shield HP, cargo capacity, etc.) to ship, component, and weapon descriptions
+- Toggle individual enhancement categories on or off
+- Configure the ship favorites prefix character
+- Click **Generate Enhancements** to extract DataForge data from Data.p4k and build enhancement files
 
 ## Config Tab
-- Configure data source paths (Global, Contracts, Components, Ships)
+- Configure data source paths and URLs
 - Set your Star Citizen installation path
 - Drag sources to reorder the merge hierarchy
-- Enable or disable Enhancements
+- Extract global.ini directly from Data.p4k
+
+## Log Tab
+View real-time application logs. Filter by log level, auto-scroll to latest entries, and export logs for troubleshooting.
 
 ## Status Bar
 Shows the sync status for each configured source. "✓" means up to date.
@@ -2057,12 +2040,16 @@ Shows the sync status for each configured source. "✓" means up to date.
         self._loader_worker.error.connect(self._on_loading_error)
         self._loader_worker.start()
 
-    @pyqtSlot(list)
+    @pyqtSlot(list, dict, list)
     @timed
-    def _on_loading_finished(self, entries: list):
-        """Handle file loading completion."""
-        from PyQt6.QtWidgets import QApplication
+    def _on_loading_finished(self, entries: list, default_values: dict, sort_keys: list):
+        """Handle file loading completion.
 
+        Args:
+            entries: Merged StringEntry list.
+            default_values: Global source key→value dict (for the Default Value column).
+            sort_keys: Pre-computed grouped sort keys (one per entry).
+        """
         # Close modal progress dialog and clean up worker FIRST so the modal
         # event loop exits before heavy synchronous UI work.
         if self._loading_progress is not None:
@@ -2073,25 +2060,21 @@ Shows the sync status for each configured source. "✓" means up to date.
             self._loader_worker.wait()
             self._loader_worker = None
 
-        # Show loading message in the table status area and force a repaint
-        # so the user sees feedback before the main thread blocks
-        self.table_status_label.setText("Populating table — please wait…")
-        self.statusBar().showMessage("Populating table…")
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        # Force repaint so the messages are visible before blocking
-        self.table_status_label.repaint()
-        self.statusBar().repaint()
+        self.default_values = default_values
+        self.entries = entries
+        self.update_category_combo()
 
-        try:
-            self.load_default_values()
-            self.entries = entries
-            self.update_category_combo()
-            self.populate_table()
+        # Push data into the model — the view renders only visible rows, so this is instant
+        self._model.set_data_source(
+            self.entries,
+            self.default_values,
+            AppSettings.get_favorite_prefix(),
+            sort_keys=sort_keys,
+        )
+        self.apply_filters()
 
-            # Update status bar with entry counts and per-source status
-            self._update_status_bar()
-        finally:
-            QApplication.restoreOverrideCursor()
+        # Update status bar with entry counts and per-source status
+        self._update_status_bar()
 
         # If enhancements check was deferred during startup, do it now (after file loading completes)
         # This avoids concurrent I/O contention between file loader and enhancements generator
@@ -2277,8 +2260,8 @@ Shows the sync status for each configured source. "✓" means up to date.
         event.accept()
 
     @timed
-    def _filtered_entry_indices(self) -> list[tuple[int, "StringEntry"]]:
-        """Return (index, entry) pairs for entries passing the current filters."""
+    def _filtered_entry_indices(self) -> list[int]:
+        """Return indices into self.entries for entries passing the current filters."""
         column_filters = self.filter_header.get_filter_texts()
         category_filter = self.category_combo.currentText()
         status_filter = self.status_combo.currentText()
@@ -2315,136 +2298,8 @@ Shows the sync status for each configured source. "✓" means up to date.
                         break
 
             if show:
-                result.append((idx, entry))
+                result.append(idx)
         return result
-
-    @timed
-    def populate_table(self):
-        """Populate table with only the entries that pass current filters."""
-        filtered = self._filtered_entry_indices()
-
-        self.table.setUpdatesEnabled(False)
-        self.table.setSortingEnabled(False)
-        self.table.setRowCount(0)  # Clear existing items first to avoid destroy+create overhead
-        self.table.setRowCount(len(filtered))
-        self.table.blockSignals(True)
-
-        # Cache values that would otherwise hit the Windows Registry per-row
-        prefix = AppSettings.get_favorite_prefix()
-        fav_bg = QColor("#3a3000")
-        num_cols = self.table.columnCount()
-
-        for row, (entry_idx, entry) in enumerate(filtered):
-            # Col 0: Category — stores entry index as UserRole so row→entry
-            # lookups stay correct after the user sorts a column.
-            cat_item = self._create_item(entry.category)
-            cat_item.setData(Qt.ItemDataRole.UserRole, entry_idx)
-            self.table.setItem(row, 0, cat_item)
-
-            # Col 1: Key — uses GroupSortItem for grouped sort support
-            key_item = GroupSortItem(entry.key)
-            key_item.setToolTip(entry.key)
-            key_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-            self.table.setItem(row, 1, key_item)
-
-            # Col 2: Default value from reference base file (for comparison)
-            default_value = self.default_values.get(entry.key, "")
-            self.table.setItem(row, 2, self._create_item(default_value))
-
-            # Col 3: Current value (original_value from loaded file)
-            self.table.setItem(row, 3, self._create_item(entry.original_value))
-
-            # Col 4: Favorite star (Ships only — uses cached prefix)
-            if entry.category != "Ships":
-                star_item = QTableWidgetItem("")
-                star_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
-            else:
-                is_fav = entry.custom_value.startswith(prefix)
-                star_item = QTableWidgetItem("★" if is_fav else "☆")
-                star_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                star_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-                if is_fav:
-                    star_item.setForeground(QColor("#FFD700"))
-                    star_item.setToolTip("Favorite — click to remove")
-                else:
-                    star_item.setForeground(QColor("#666666"))
-                    star_item.setToolTip("Click to mark as favorite")
-            self.table.setItem(row, 4, star_item)
-
-            # Col 5: Custom value (editable)
-            self.table.setItem(row, 5, self._create_item(entry.custom_value, editable=True))
-
-            # Col 6: Status
-            status_item = self._create_item(entry.status)
-            status_item.setForeground(self._status_color(entry.status))
-            self.table.setItem(row, 6, status_item)
-
-            # Apply favorite row background (uses cached prefix, no registry read)
-            if entry.category == "Ships" and entry.custom_value.startswith(prefix):
-                for col in range(num_cols):
-                    item = self.table.item(row, col)
-                    if item:
-                        item.setBackground(fav_bg)
-
-        self.table.blockSignals(False)
-        self.table.setSortingEnabled(True)
-
-        # Apply grouped sort if enabled
-        if self.grouped_sort_check.isChecked():
-            self.table.sortItems(1, Qt.SortOrder.AscendingOrder)
-
-        self.table.setUpdatesEnabled(True)
-        self.table_status_label.setText(f"Showing {len(filtered)} of {len(self.entries)} strings")
-
-    def _create_item(self, text: str, editable: bool = False):
-        """Create a read-only table item (editable only if explicitly requested)."""
-        item = QTableWidgetItem(text)
-        item.setToolTip(text)
-        if not editable:
-            item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-        return item
-
-    def _create_star_item(self, entry: "StringEntry") -> QTableWidgetItem:
-        """Create the favorite star cell for a row. Only Ships get a clickable star."""
-        if entry.category != "Ships":
-            item = QTableWidgetItem("")
-            item.setFlags(Qt.ItemFlag.ItemIsEnabled)
-            return item
-
-        prefix = AppSettings.get_favorite_prefix()
-        is_fav = entry.custom_value.startswith(prefix)
-        item = QTableWidgetItem("★" if is_fav else "☆")
-        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-        if is_fav:
-            item.setForeground(QColor("#FFD700"))  # gold
-            item.setToolTip("Favorite — click to remove")
-        else:
-            item.setForeground(QColor("#666666"))
-            item.setToolTip("Click to mark as favorite")
-        return item
-
-    def _apply_row_style(self, row: int, entry: "StringEntry"):
-        """Apply background color to a row based on favorite state."""
-        prefix = AppSettings.get_favorite_prefix()
-        is_favorite = entry.category == "Ships" and entry.custom_value.startswith(prefix)
-        for col in range(self.table.columnCount()):
-            item = self.table.item(row, col)
-            if item:
-                if is_favorite:
-                    item.setBackground(QColor("#3a3000"))
-                else:
-                    # Clear to system default — avoids black cells in light mode
-                    item.setData(Qt.ItemDataRole.BackgroundRole, None)
-
-    def _status_color(self, status: str) -> QColor:
-        """Get color for status."""
-        colors = {
-            "Modified": QColor("#4CAF50"),
-            "Unmodified": QColor("#999999"),
-            "New": QColor("#FF9800"),
-        }
-        return colors.get(status, QColor("black"))
 
     @timed
     def update_category_combo(self):
@@ -2466,38 +2321,24 @@ Shows the sync status for each configured source. "✓" means up to date.
         self.category_combo.addItems(categories)
         self.category_combo.blockSignals(False)
 
-    def _entry_index_for_row(self, table_row: int) -> int:
-        """Return the self.entries index for a given table row.
-
-        After sorting, visual row order differs from self.entries order.
-        The entry index is stored as UserRole data on col 0 at populate time.
-        """
-        item = self.table.item(table_row, 0)
-        if item is not None:
-            idx = item.data(Qt.ItemDataRole.UserRole)
-            if idx is not None:
-                return idx
-        return table_row  # fallback (pre-sort or empty table)
+    def _entry_index_for_row(self, row: int) -> int:
+        """Map a visual table row to an index into self.entries."""
+        return self._model.entry_index_for_row(row)
 
     @pyqtSlot()
     def apply_filters(self):
-        """Apply filters by rebuilding the table with only matching entries."""
+        """Apply filters by updating the model's filtered index list."""
         if not self.entries:
             return
-        self.populate_table()
+        indices = self._filtered_entry_indices()
+        self._model.set_filtered_indices(indices)
+        self.table_status_label.setText(f"Showing {len(indices)} of {len(self.entries)} strings")
 
     @pyqtSlot()
     def _on_grouped_sort_changed(self):
-        """Toggle grouped sort mode and sort by Key column."""
-        global _grouped_sort_enabled
-        _grouped_sort_enabled = self.grouped_sort_check.isChecked()
-        from PyQt6.QtWidgets import QApplication
-        progress = AnimatedProgressDialog("Sorting...", parent=self, title="Grouped Sort")
-        QApplication.processEvents()
-        try:
-            self.table.sortItems(1, Qt.SortOrder.AscendingOrder)
-        finally:
-            progress.close()
+        """Toggle grouped sort mode and re-sort by Key column."""
+        self._model.set_grouped_sort(self.grouped_sort_check.isChecked())
+        self._model.sort(1, Qt.SortOrder.AscendingOrder)
 
     @pyqtSlot()
     def clear_filters(self):
@@ -2524,20 +2365,14 @@ Shows the sync status for each configured source. "✓" means up to date.
     def copy_filtered_to_clipboard(self):
         """Copy all visible filtered rows to clipboard (tab-separated)."""
         lines = []
-        # Add header
         lines.append("Key\tOriginal Value\tCurrent Value\tCustom Value\tStatus")
 
-        # Add visible rows
-        for table_row in range(self.table.rowCount()):
-            if self.table.isRowHidden(table_row):
-                continue
-
-            entry_idx = self._entry_index_for_row(table_row)
+        for proxy_row in range(self._model.rowCount()):
+            entry_idx = self._entry_index_for_row(proxy_row)
             if entry_idx >= len(self.entries):
                 continue
 
             entry = self.entries[entry_idx]
-            # Tab-separated: Key, Original Value, Current Value, Custom Value, Status
             line = f"{entry.key}\t{entry.original_value}\t{entry.original_value}\t{entry.custom_value}\t{entry.status}"
             lines.append(line)
 
@@ -2553,33 +2388,14 @@ Shows the sync status for each configured source. "✓" means up to date.
         except Exception as e:
             QMessageBox.warning(self, "Copy Error", f"Failed to copy to clipboard: {e}")
 
-    @pyqtSlot(QTableWidgetItem)
-    def on_item_changed(self, item: QTableWidgetItem):
-        """Handle table item edit."""
-        table_row = item.row()
-        col = item.column()
-
-        if col == 5:  # Custom Value column
-            entry_idx = self._entry_index_for_row(table_row)
-            if entry_idx >= len(self.entries):
-                return
-            entry = self.entries[entry_idx]
-            entry.custom_value = item.text()
-            entry.status = "Modified" if item.text() != entry.original_value else "Unmodified"
-            status_item = self._create_item(entry.status)
-            status_item.setForeground(self._status_color(entry.status))
-            self.table.setItem(table_row, 6, status_item)
-            self.table.setItem(table_row, 4, self._create_star_item(entry))
-            self._apply_row_style(table_row, entry)
-
     def show_context_menu(self, position):
         """Show right-click context menu."""
-        item = self.table.itemAt(position)
-        if not item:
+        proxy_index = self.table.indexAt(position)
+        if not proxy_index.isValid():
             return
 
-        table_row = item.row()
-        entry_idx = self._entry_index_for_row(table_row)
+        proxy_row = proxy_index.row()
+        entry_idx = self._entry_index_for_row(proxy_row)
         if entry_idx >= len(self.entries):
             return
 
@@ -2588,46 +2404,49 @@ Shows the sync status for each configured source. "✓" means up to date.
         is_favorite = entry.custom_value.startswith(prefix)
 
         menu = QMenu(self)
-        menu.addAction("Copy Cell", lambda: self.copy_cell(item))
-        menu.addAction("Copy Key", lambda: self.copy_key(table_row))
+        menu.addAction("Copy Cell", lambda: self.copy_cell(proxy_index))
+        menu.addAction("Copy Key", lambda: self.copy_key(proxy_row))
         menu.addSeparator()
-        menu.addAction("Edit", lambda: self.edit_cell(table_row))
-        menu.addAction("Reset to Original", lambda: self.reset_to_original(table_row))
+        menu.addAction("Edit", lambda: self.edit_cell(proxy_row))
+        menu.addAction("Reset to Original", lambda: self.reset_to_original(proxy_row))
         menu.addSeparator()
         menu.addAction("Copy All Filtered", lambda: self.copy_filtered_to_clipboard())
 
         if entry.category == "Ships":
             menu.addSeparator()
             if is_favorite:
-                menu.addAction("★ Remove from Favorites", lambda: self.toggle_favorite(table_row))
+                menu.addAction("★ Remove from Favorites", lambda: self.toggle_favorite(proxy_row))
             else:
-                menu.addAction("★ Add to Favorites", lambda: self.toggle_favorite(table_row))
+                menu.addAction("★ Add to Favorites", lambda: self.toggle_favorite(proxy_row))
 
         menu.exec(self.table.mapToGlobal(position))
 
-    def edit_cell(self, row: int):
+    def edit_cell(self, proxy_row: int):
         """Edit custom value cell."""
-        self.table.editItem(self.table.item(row, 5))
+        self.table.edit(self._model.index(proxy_row, COL_CUSTOM))
 
-    def reset_to_original(self, table_row: int):
+    def reset_to_original(self, proxy_row: int):
         """Reset custom value to original."""
-        entry_idx = self._entry_index_for_row(table_row)
+        entry_idx = self._entry_index_for_row(proxy_row)
         if entry_idx < len(self.entries):
-            self.entries[entry_idx].custom_value = ""
-            self.entries[entry_idx].status = "Unmodified"
-            self.populate_table()
+            entry = self.entries[entry_idx]
+            entry.custom_value = ""
+            entry.status = "Unmodified"
+            self._model.notify_entry_changed(entry_idx)
 
-    def copy_cell(self, item: QTableWidgetItem):
+    def copy_cell(self, proxy_index: QModelIndex):
         """Copy the clicked cell's text to clipboard."""
-        import pyperclip
-        try:
-            pyperclip.copy(item.text())
-        except Exception:
-            pass
+        text = proxy_index.data(Qt.ItemDataRole.DisplayRole)
+        if text:
+            import pyperclip
+            try:
+                pyperclip.copy(text)
+            except Exception:
+                pass
 
-    def copy_key(self, table_row: int):
+    def copy_key(self, proxy_row: int):
         """Copy key to clipboard."""
-        entry_idx = self._entry_index_for_row(table_row)
+        entry_idx = self._entry_index_for_row(proxy_row)
         if entry_idx < len(self.entries):
             import pyperclip
             try:
@@ -2636,17 +2455,17 @@ Shows the sync status for each configured source. "✓" means up to date.
             except ImportError:
                 self.statusBar().showMessage("pyperclip not installed")
 
-    @pyqtSlot(int, int)
-    def on_cell_clicked(self, row: int, col: int):
+    @pyqtSlot(QModelIndex)
+    def _on_cell_clicked(self, proxy_index: QModelIndex):
         """Handle cell clicks — col 4 (★) toggles favorite for Ship rows."""
-        if col == 4:
-            entry_idx = self._entry_index_for_row(row)
+        if proxy_index.column() == COL_STAR:
+            entry_idx = self._entry_index_for_row(proxy_index.row())
             if entry_idx < len(self.entries) and self.entries[entry_idx].category == "Ships":
-                self.toggle_favorite(row)
+                self.toggle_favorite(proxy_index.row())
 
-    def toggle_favorite(self, table_row: int):
+    def toggle_favorite(self, proxy_row: int):
         """Add or remove the sort prefix from a ship's custom value."""
-        entry_idx = self._entry_index_for_row(table_row)
+        entry_idx = self._entry_index_for_row(proxy_row)
         if entry_idx >= len(self.entries):
             return
 
@@ -2654,24 +2473,16 @@ Shows the sync status for each configured source. "✓" means up to date.
         prefix = AppSettings.get_favorite_prefix()
 
         if entry.custom_value.startswith(prefix):
-            # Remove favorite: strip prefix
             new_value = entry.custom_value[len(prefix):]
             entry.custom_value = new_value if new_value != entry.original_value else ""
         else:
-            # Add favorite: prepend prefix to current display value
             base = entry.custom_value if entry.custom_value else entry.original_value
             entry.custom_value = prefix + base
 
         entry.status = "Modified" if entry.custom_value else "Unmodified"
 
-        self.table.blockSignals(True)
-        self.table.setItem(table_row, 4, self._create_star_item(entry))
-        self.table.setItem(table_row, 5, self._create_item(entry.custom_value))
-        status_item = self._create_item(entry.status)
-        status_item.setForeground(self._status_color(entry.status))
-        self.table.setItem(table_row, 6, status_item)
-        self._apply_row_style(table_row, entry)
-        self.table.blockSignals(False)
+        # Notify the model — view updates automatically
+        self._model.notify_entry_changed(entry_idx)
 
     def restore_window_state(self):
         """Restore window geometry and state."""

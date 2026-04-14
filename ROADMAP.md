@@ -19,7 +19,7 @@
 -end-to-end testing & version release
 
 ## 0.9.x
--pre-release final work
+-pre-release final polish
 -stability & bugfixes
 -performance optimization
 -cache streamlining
