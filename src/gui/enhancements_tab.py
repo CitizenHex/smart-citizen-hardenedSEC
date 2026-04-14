@@ -13,10 +13,10 @@ logger = logging.getLogger(__name__)
 
 
 class EnhancementsTab(QWidget):
-    """Tab for optional enhancements: stats overlays and ship favorites."""
+    """Tab for optional enhancements: localization enhancements and ship favorites."""
 
     merge_requested = pyqtSignal()
-    stats_pipeline_requested = pyqtSignal()   # extract DataForge if needed, then generate stats
+    enhancements_pipeline_requested = pyqtSignal()   # extract DataForge if needed, then generate enhancements
 
     def __init__(self):
         super().__init__()
@@ -40,63 +40,84 @@ class EnhancementsTab(QWidget):
         desc.setWordWrap(True)
         layout.addWidget(desc)
 
-        layout.addWidget(self._build_stats_group())
+        layout.addWidget(self._build_enhancements_group())
         layout.addWidget(self._build_favorites_group())
         layout.addStretch()
 
-    # ── Stats Enhancements ────────────────────────────────────────────────────
+    # ── Enhancements ─────────────────────────────────────────────────────────
 
-    def _build_stats_group(self) -> QGroupBox:
+    def _build_enhancements_group(self) -> QGroupBox:
         group = QGroupBox("Localization Enhancements")
         gl = QVBoxLayout(group)
 
-        self.stats_enabled_checkbox = QCheckBox(
-            "Enhance ship, component, and weapon descriptions with game data"
+        enhancements_desc = QLabel(
+            "Select which enhancement categories to include. "
+            "Click Apply to save changes. Enhancements are generated from your installed Data.p4k."
         )
-        self.stats_enabled_checkbox.setChecked(AppSettings.get_stats_enabled())
-        self.stats_enabled_checkbox.toggled.connect(self._on_stats_toggled)
-        gl.addWidget(self.stats_enabled_checkbox)
+        enhancements_desc.setStyleSheet("font-size: 11px; color: #666;")
+        enhancements_desc.setWordWrap(True)
+        gl.addWidget(enhancements_desc)
 
-        stats_desc = QLabel(
-            "When enabled, numerical stats (speed, DPS, shield HP, etc.) are appended to "
-            "description entries. Enhancements are generated from your installed Data.p4k."
-        )
-        stats_desc.setStyleSheet("font-size: 11px; color: #666;")
-        stats_desc.setWordWrap(True)
-        gl.addWidget(stats_desc)
+        # Per-category checkbox + description + status dot
+        _CATEGORY_DESCRIPTIONS = {
+            "ships":       "Ship performance, loadout, and crew data",
+            "ship_items":  "Component class/size/grade annotations and statistics",
+            "gear":        "Combat stats for FPS weapons",
+            "missions":    "XP rewards and blueprint drops for missions",
+            "commodities": "Crafting recipes and material usage",
+            "journal":     "Mining Compendium with crafting data per mineral",
+        }
 
-        # Per-file status dots + single action button
-        self._stats_status_labels: dict = {}
-        status_row = QHBoxLayout()
+        self._enhancements_status_labels: dict = {}
+        self._enhancements_checkboxes: dict = {}
+        categories_layout = QVBoxLayout()
 
-        for key, label in {
-            "ship_descs":        "Ships",
-            "component_descs":   "Components",
-            "ship_weapon_descs": "Ship Weapons",
-            "fps_weapon_descs":  "FPS Weapons",
-        }.items():
+        for key, label in AppSettings.ENHANCEMENT_LABELS.items():
+            row = QHBoxLayout()
+            cb = QCheckBox(label)
+            cb.setChecked(AppSettings.get_enhancement_category_enabled(key))
+            cb.setStyleSheet("font-size: 11px;")
+            cb.toggled.connect(self._on_category_checkbox_changed)
+            row.addWidget(cb)
+            self._enhancements_checkboxes[key] = cb
+
             dot = QLabel("●")
             dot.setStyleSheet("color: #999; font-size: 12px;")
-            status_row.addWidget(dot)
-            lbl = QLabel(label)
-            lbl.setStyleSheet("font-size: 11px;")
-            status_row.addWidget(lbl)
-            status_row.addSpacing(8)
-            self._stats_status_labels[key] = dot
+            row.addWidget(dot)
+            self._enhancements_status_labels[key] = dot
 
-        status_row.addStretch()
+            desc = QLabel(_CATEGORY_DESCRIPTIONS.get(key, ""))
+            desc.setStyleSheet("font-size: 10px; color: #888;")
+            row.addWidget(desc)
 
-        self._generate_stats_btn = QPushButton("Generate Enhancements")
-        self._generate_stats_btn.setMaximumWidth(160)
-        self._generate_stats_btn.setToolTip(
+            row.addStretch()
+            categories_layout.addLayout(row)
+
+        gl.addLayout(categories_layout)
+
+        btn_row = QHBoxLayout()
+
+        self._apply_categories_btn = QPushButton("Apply")
+        self._apply_categories_btn.setMaximumWidth(100)
+        self._apply_categories_btn.setEnabled(False)
+        self._apply_categories_btn.setToolTip(
+            "Save category selection. Unchecked categories will be disabled."
+        )
+        self._apply_categories_btn.clicked.connect(self._apply_category_changes)
+        btn_row.addWidget(self._apply_categories_btn)
+
+        self._generate_enhancements_btn = QPushButton("Generate Enhancements")
+        self._generate_enhancements_btn.setMaximumWidth(160)
+        self._generate_enhancements_btn.setToolTip(
             "Generate enhanced localization files from your game's Data.p4k.\n"
             "DataForge data will be extracted automatically if not already cached\n"
             "(first run takes ~5–10 minutes; subsequent runs are fast)."
         )
-        self._generate_stats_btn.clicked.connect(self.stats_pipeline_requested.emit)
-        status_row.addWidget(self._generate_stats_btn)
+        self._generate_enhancements_btn.clicked.connect(self.enhancements_pipeline_requested.emit)
+        btn_row.addWidget(self._generate_enhancements_btn)
 
-        gl.addLayout(status_row)
+        btn_row.addStretch()
+        gl.addLayout(btn_row)
 
         self._forge_status_label = QLabel()
         self._forge_status_label.setStyleSheet("font-size: 10px; color: #666;")
@@ -107,12 +128,60 @@ class EnhancementsTab(QWidget):
         self._operation_label.setVisible(False)
         gl.addWidget(self._operation_label)
 
-        self.refresh_stats_status()
+        self.refresh_enhancements_status()
         return group
 
-    def _on_stats_toggled(self, checked: bool):
-        AppSettings.set_stats_enabled(checked)
+    def _on_category_checkbox_changed(self):
+        """Enable Apply button if any checkbox differs from saved settings."""
+        has_changes = any(
+            cb.isChecked() != AppSettings.get_enhancement_category_enabled(key)
+            for key, cb in self._enhancements_checkboxes.items()
+        )
+        self._apply_categories_btn.setEnabled(has_changes)
+
+    def _apply_category_changes(self):
+        """Save checkbox states, disable/restore enhancement files, and trigger reload."""
+        for key, cb in self._enhancements_checkboxes.items():
+            now_enabled = cb.isChecked()
+            AppSettings.set_enhancement_category_enabled(key, now_enabled)
+
+            cache_dir = AppSettings.get_cache_dir()
+            # Apply to all files mapped to this checkbox key
+            for filename in self._files_for_category(key):
+                active_file = cache_dir / filename
+                disabled_file = cache_dir / (filename + ".disabled")
+
+                if not now_enabled and active_file.exists():
+                    try:
+                        active_file.rename(disabled_file)
+                        logger.info(f"Disabled enhancement file: {filename}")
+                    except OSError as e:
+                        logger.warning(f"Failed to disable {filename}: {e}")
+
+                elif now_enabled and not active_file.exists() and disabled_file.exists():
+                    try:
+                        disabled_file.rename(active_file)
+                        logger.info(f"Restored enhancement file: {filename}")
+                    except OSError as e:
+                        logger.warning(f"Failed to restore {filename}: {e}")
+
+        self._apply_categories_btn.setEnabled(False)
+        self.refresh_enhancements_status()
         self.merge_requested.emit()
+
+    @staticmethod
+    def _files_for_category(key: str) -> list[str]:
+        """Return the enhancement filenames controlled by a checkbox key."""
+        file_keys = AppSettings.ENHANCEMENT_CATEGORY_FILES.get(key, [key])
+        return [AppSettings.ENHANCEMENTS_FILES[fk] for fk in file_keys]
+
+    def revert_category_checkboxes(self):
+        """Reset checkboxes to match the saved settings (called when leaving tab without applying)."""
+        for key, cb in self._enhancements_checkboxes.items():
+            cb.blockSignals(True)
+            cb.setChecked(AppSettings.get_enhancement_category_enabled(key))
+            cb.blockSignals(False)
+        self._apply_categories_btn.setEnabled(False)
 
     # ── Favorites ─────────────────────────────────────────────────────────────
 
@@ -168,7 +237,7 @@ class EnhancementsTab(QWidget):
         old_prefix = self._loaded_prefix
 
         if new_prefix != old_prefix:
-            overrides_path = AppSettings.get_overrides_path()
+            overrides_path = AppSettings.get_user_ini_path()
             if overrides_path.exists():
                 try:
                     lines = overrides_path.read_text(encoding="utf-8").splitlines()
@@ -197,8 +266,8 @@ class EnhancementsTab(QWidget):
     # ── Operation state ───────────────────────────────────────────────────────
 
     def set_operation_running(self, message: str):
-        """Disable the stats button and show an inline progress message."""
-        self._generate_stats_btn.setEnabled(False)
+        """Disable the enhancements button and show an inline progress message."""
+        self._generate_enhancements_btn.setEnabled(False)
         self._operation_label.setText(message)
         self._operation_label.setVisible(True)
 
@@ -207,20 +276,21 @@ class EnhancementsTab(QWidget):
         self._operation_label.setText(message)
 
     def set_operation_idle(self):
-        """Re-enable the stats button and hide the progress message."""
-        self._generate_stats_btn.setEnabled(True)
+        """Re-enable the enhancements button and hide the progress message."""
+        self._generate_enhancements_btn.setEnabled(True)
         self._operation_label.setVisible(False)
         self._operation_label.setText("")
 
     # ── Status refresh ────────────────────────────────────────────────────────
 
-    def refresh_stats_status(self):
-        """Update stats file status indicators and DataForge cache status."""
+    def refresh_enhancements_status(self):
+        """Update enhancement file status indicators and DataForge cache status."""
         cache_dir = AppSettings.get_cache_dir()
-        for key, dot in self._stats_status_labels.items():
-            filename = AppSettings.STATS_FILES[key]
-            present = (cache_dir / filename).exists()
-            dot.setStyleSheet(f"color: {'#4caf50' if present else '#f44336'}; font-size: 12px;")
+        for key, dot in self._enhancements_status_labels.items():
+            # Check all files controlled by this checkbox
+            filenames = self._files_for_category(key)
+            all_present = all((cache_dir / fn).exists() for fn in filenames)
+            dot.setStyleSheet(f"color: {'#4caf50' if all_present else '#f44336'}; font-size: 12px;")
         self.refresh_forge_status()
 
     def refresh_forge_status(self):

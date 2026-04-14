@@ -10,9 +10,11 @@ from src.gui.main_window import MainWindow
 from src.utils.version import get_version
 from src.utils.settings import AppSettings
 
-# Setup logging
+# Setup logging — use --debug flag or LOG_LEVEL env var for perf timing output
+import os
+_log_level = logging.DEBUG if ('--debug' in sys.argv or os.environ.get('LOG_LEVEL', '').upper() == 'DEBUG') else logging.INFO
 logging.basicConfig(
-    level=logging.INFO,
+    level=_log_level,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout)
@@ -32,29 +34,14 @@ def main():
     # Migrate global source from any remote URL to local P4K cache path (v0.6.0+)
     AppSettings.migrate_global_to_p4k_local()
 
-    # Migrate contracts source from MrKraken to OsirisDevworks-hosted (v0.6.0+)
-    AppSettings.migrate_contracts_to_osiris()
-
-    # Configure Components source to OsirisDevworks default if not already set (v0.5.1+)
-    AppSettings.migrate_components_source_to_default()
-
-    # Configure Commodities source to OsirisDevworks default if not already set (v0.5.1+)
-    AppSettings.migrate_commodities_source_to_default()
-
-    # Configure Ships source to OsirisDevworks default if not already set (v0.5.2+)
-    AppSettings.migrate_ships_source_to_default()
-
-    # Configure Gear source to OsirisDevworks default if not already set (v0.5.2+)
-    AppSettings.migrate_gear_source_to_default()
-
     # Move user data files from old AppData location to Documents (idempotent)
     AppSettings.migrate_data_to_documents()
 
-    # Always keep user source path in sync with canonical overrides location
-    AppSettings.set_source_path(AppSettings.SOURCE_USER, str(AppSettings.get_overrides_path()))
+    # Always keep user source path in sync with canonical user.ini location
+    AppSettings.set_source_path(AppSettings.SOURCE_USER, str(AppSettings.get_user_ini_path()))
 
-    # Ensure overrides.ini exists (create empty if first run)
-    AppSettings.ensure_overrides_file()
+    # Ensure user.ini exists (create empty if first run)
+    AppSettings.ensure_user_ini_file()
 
     # Required on Windows so the taskbar groups the app under its own icon
     # instead of the Python interpreter icon.

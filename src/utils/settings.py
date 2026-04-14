@@ -18,18 +18,39 @@ class AppSettings:
     # Settings keys - Favorites
     FAVORITE_PREFIX = "favorite_prefix"
 
-    # Settings keys - Stats enhancements
-    STATS_ENABLED = "stats_enhancements_enabled"
+    # Settings keys - Enhancements
+    ENHANCEMENTS_ENABLED = "enhancements_enabled"
 
-    # Stats cache filenames (written by generate_stats_ini.py into cache dir)
-    STATS_FILES = {
-        "ship_descs":          "ships_desc_stats.ini",
-        "component_descs":     "components_desc_stats.ini",
-        "ship_weapon_descs":   "ship_weapons_desc_stats.ini",
-        "fps_weapon_descs":    "fps_weapons_desc_stats.ini",
-        "mission_rewards":     "mission_rewards_stats.ini",
-        "commodity_crafting":  "commodity_crafting_stats.ini",
-        "missile_stats":       "missile_stats.ini",
+    # Enhancements cache filenames (written by generate_enhancements_ini.py into cache dir)
+    ENHANCEMENTS_FILES = {
+        "ship_descs":          "ships_desc_enhancements.ini",
+        "component_descs":     "components_desc_enhancements.ini",
+        "ship_weapon_descs":   "ship_weapons_desc_enhancements.ini",
+        "fps_weapon_descs":    "fps_weapons_desc_enhancements.ini",
+        "mission_rewards":     "mission_rewards_enhancements.ini",
+        "commodity_crafting":  "commodity_crafting_enhancements.ini",
+        "journal":            "journal_enhancements.ini",
+        "missile_enhancements": "missile_enhancements.ini",
+    }
+
+    # User-facing category labels — match the filter categories on the main page
+    ENHANCEMENT_LABELS = {
+        "ships":       "Ships",
+        "ship_items":  "Ship Items",
+        "gear":        "Gear",
+        "missions":    "Missions",
+        "commodities": "Commodities",
+        "journal":     "Journal",
+    }
+
+    # Maps each checkbox key to the enhancement file keys it controls
+    ENHANCEMENT_CATEGORY_FILES = {
+        "ships":       ["ship_descs"],
+        "ship_items":  ["component_descs", "ship_weapon_descs", "missile_enhancements"],
+        "gear":        ["fps_weapon_descs"],
+        "missions":    ["mission_rewards"],
+        "commodities": ["commodity_crafting"],
+        "journal":     ["journal"],
     }
 
     # Settings keys - Legacy (kept for migration)
@@ -55,7 +76,7 @@ class AppSettings:
     SOURCE_COMMODITIES = "commodities"
     SOURCE_GEAR = "gear"
     SOURCE_USER = "user"
-    AVAILABLE_SOURCES = [SOURCE_GLOBAL, SOURCE_CONTRACTS, SOURCE_COMPONENTS, SOURCE_SHIPS, SOURCE_COMMODITIES, SOURCE_GEAR, SOURCE_USER]
+    AVAILABLE_SOURCES = [SOURCE_GLOBAL, SOURCE_USER]
 
     @staticmethod
     def settings() -> QSettings:
@@ -63,14 +84,35 @@ class AppSettings:
         return QSettings(AppSettings.ORG_NAME, AppSettings.APP_NAME)
 
     @staticmethod
-    def get_stats_enabled() -> bool:
-        """Check whether stats enhancements are enabled (default: True)."""
-        return AppSettings.settings().value(AppSettings.STATS_ENABLED, True, type=bool)
+    def get_enhancements_enabled() -> bool:
+        """Check whether enhancements are enabled (default: True)."""
+        return AppSettings.settings().value(AppSettings.ENHANCEMENTS_ENABLED, True, type=bool)
 
     @staticmethod
-    def set_stats_enabled(enabled: bool) -> None:
-        """Enable or disable stats enhancements."""
-        AppSettings.settings().setValue(AppSettings.STATS_ENABLED, enabled)
+    def set_enhancements_enabled(enabled: bool) -> None:
+        """Enable or disable enhancements."""
+        AppSettings.settings().setValue(AppSettings.ENHANCEMENTS_ENABLED, enabled)
+
+    @staticmethod
+    def get_enhancement_category_enabled(key: str) -> bool:
+        """Check if a specific enhancement category is enabled (default: True)."""
+        return AppSettings.settings().value(
+            f"enhancements/categories/{key}/enabled", True, type=bool)
+
+    @staticmethod
+    def set_enhancement_category_enabled(key: str, enabled: bool) -> None:
+        """Enable or disable a specific enhancement category."""
+        AppSettings.settings().setValue(
+            f"enhancements/categories/{key}/enabled", enabled)
+
+    @staticmethod
+    def get_enabled_enhancement_categories() -> set[str]:
+        """Return the set of enabled enhancement file keys (expanding grouped categories)."""
+        result = set()
+        for checkbox_key, file_keys in AppSettings.ENHANCEMENT_CATEGORY_FILES.items():
+            if AppSettings.get_enhancement_category_enabled(checkbox_key):
+                result.update(file_keys)
+        return result
 
     @staticmethod
     def get_favorite_prefix() -> str:
@@ -262,10 +304,9 @@ class AppSettings:
         """Get the merge hierarchy (ordered list of source names).
 
         Returns:
-            List of source names in merge order, e.g. ["global", "contracts", "user"]
+            List of source names in merge order, e.g. ["global", "user"]
         """
-        # Default: Global, Contracts, User (User always last but not in list - added implicitly)
-        default = [AppSettings.SOURCE_GLOBAL, AppSettings.SOURCE_CONTRACTS, AppSettings.SOURCE_USER]
+        default = [AppSettings.SOURCE_GLOBAL, AppSettings.SOURCE_USER]
         value = AppSettings.settings().value(AppSettings.MERGE_HIERARCHY, default)
         # Handle QVariant/list conversion
         if isinstance(value, str):
@@ -355,8 +396,8 @@ class AppSettings:
         AppSettings.set_source_enabled(AppSettings.SOURCE_COMMODITIES, True)
         AppSettings.set_source_auto_update(AppSettings.SOURCE_COMMODITIES, True)
 
-        # User source: set to overrides path
-        user_path = str(AppSettings.get_overrides_path())
+        # User source: set to user.ini path
+        user_path = str(AppSettings.get_user_ini_path())
         AppSettings.set_source_path(AppSettings.SOURCE_USER, user_path)
 
         # Default hierarchy: global → components → contracts → commodities → user
@@ -386,162 +427,9 @@ class AppSettings:
             return True
         return False
 
-    @staticmethod
-    def migrate_contracts_to_osiris() -> bool:
-        """Migrate contracts source from MrKraken to OsirisDevworks-hosted URL (v0.6.0+).
 
-        Only applies if Contracts still points to MrKraken's repo.
 
-        Returns:
-            True if migration was performed, False if already on OsirisDevworks or custom URL.
-        """
-        current_path = AppSettings.get_source_path(AppSettings.SOURCE_CONTRACTS)
-        osiris_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/contracts.ini"
-        if "MrKraken" in current_path or "StarStrings" in current_path:
-            AppSettings.set_source_path(AppSettings.SOURCE_CONTRACTS, osiris_url)
-            AppSettings.set_source_enabled(AppSettings.SOURCE_CONTRACTS, True)
-            AppSettings.set_source_auto_update(AppSettings.SOURCE_CONTRACTS, True)
-            logger.info("Migrated contracts source to OsirisDevworks-hosted URL")
-            return True
-        return False
 
-    @staticmethod
-    def migrate_components_source_to_default() -> bool:
-        """Configure Components source to OsirisDevworks repo default (v0.5.1+).
-
-        Only applies if Components is currently disabled with no path set.
-        Users who have already configured a custom Components source are not affected.
-
-        Returns:
-            True if migration was performed, False if already configured.
-        """
-        current_path = AppSettings.get_source_path(AppSettings.SOURCE_COMPONENTS)
-        components_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/components.ini"
-
-        if current_path and "OsirisDevworks" not in current_path:
-            return False  # Already configured with a correct URL — don't overwrite
-        AppSettings.set_source_path(AppSettings.SOURCE_COMPONENTS, components_url)
-        AppSettings.set_source_enabled(AppSettings.SOURCE_COMPONENTS, True)
-        AppSettings.set_source_auto_update(AppSettings.SOURCE_COMPONENTS, True)
-
-        # Insert components into hierarchy after global (before contracts)
-        hierarchy = AppSettings.get_merge_hierarchy()
-        if AppSettings.SOURCE_COMPONENTS not in hierarchy:
-            try:
-                idx = hierarchy.index(AppSettings.SOURCE_GLOBAL) + 1
-            except ValueError:
-                idx = 0
-            hierarchy.insert(idx, AppSettings.SOURCE_COMPONENTS)
-            AppSettings.set_merge_hierarchy(hierarchy)
-
-        logger.info("Configured Components source to OsirisDevworks default URL")
-        return True
-
-    @staticmethod
-    def migrate_commodities_source_to_default() -> bool:
-        """Configure Commodities source to OsirisDevworks repo default (v0.5.1+).
-
-        Only applies if Commodities is not yet configured. Users with a custom
-        Commodities source are not affected.
-
-        Returns:
-            True if migration was performed, False if already configured.
-        """
-        current_path = AppSettings.get_source_path(AppSettings.SOURCE_COMMODITIES)
-        commodities_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/commodities.ini"
-
-        if current_path and "OsirisDevworks" not in current_path:
-            return False  # Already configured with a correct URL — don't overwrite
-        AppSettings.set_source_path(AppSettings.SOURCE_COMMODITIES, commodities_url)
-        AppSettings.set_source_enabled(AppSettings.SOURCE_COMMODITIES, True)
-        AppSettings.set_source_auto_update(AppSettings.SOURCE_COMMODITIES, True)
-
-        # Insert commodities into hierarchy before user (after contracts if present)
-        hierarchy = AppSettings.get_merge_hierarchy()
-        if AppSettings.SOURCE_COMMODITIES not in hierarchy:
-            try:
-                idx = hierarchy.index(AppSettings.SOURCE_CONTRACTS) + 1
-            except ValueError:
-                try:
-                    idx = hierarchy.index(AppSettings.SOURCE_USER)
-                except ValueError:
-                    idx = len(hierarchy)
-            hierarchy.insert(idx, AppSettings.SOURCE_COMMODITIES)
-            AppSettings.set_merge_hierarchy(hierarchy)
-
-        logger.info("Configured Commodities source to OsirisDevworks default URL")
-        return True
-
-    @staticmethod
-    def migrate_ships_source_to_default() -> bool:
-        """Configure Ships source to OsirisDevworks repo default (v0.5.2+).
-
-        Only applies if Ships is not yet configured or uses a legacy wrong URL.
-
-        Returns:
-            True if migration was performed, False if already configured.
-        """
-        current_path = AppSettings.get_source_path(AppSettings.SOURCE_SHIPS)
-        ships_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/ships.ini"
-
-        if current_path and "OsirisDevworks" not in current_path:
-            return False  # Already configured with a correct URL — don't overwrite
-        AppSettings.set_source_path(AppSettings.SOURCE_SHIPS, ships_url)
-        AppSettings.set_source_enabled(AppSettings.SOURCE_SHIPS, True)
-        AppSettings.set_source_auto_update(AppSettings.SOURCE_SHIPS, True)
-
-        # Insert ships into hierarchy after components (before contracts)
-        hierarchy = AppSettings.get_merge_hierarchy()
-        if AppSettings.SOURCE_SHIPS not in hierarchy:
-            try:
-                idx = hierarchy.index(AppSettings.SOURCE_COMPONENTS) + 1
-            except ValueError:
-                try:
-                    idx = hierarchy.index(AppSettings.SOURCE_GLOBAL) + 1
-                except ValueError:
-                    idx = 0
-            hierarchy.insert(idx, AppSettings.SOURCE_SHIPS)
-            AppSettings.set_merge_hierarchy(hierarchy)
-
-        logger.info("Configured Ships source to OsirisDevworks default URL")
-        return True
-
-    @staticmethod
-    def migrate_gear_source_to_default() -> bool:
-        """Configure Gear source to OsirisDevworks repo default (v0.5.2+).
-
-        Only applies if Gear is not yet configured or uses a legacy wrong URL.
-
-        Returns:
-            True if migration was performed, False if already configured.
-        """
-        current_path = AppSettings.get_source_path(AppSettings.SOURCE_GEAR)
-        gear_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/gear.ini"
-
-        if current_path and "OsirisDevworks" not in current_path:
-            return False  # Already configured with a correct URL — don't overwrite
-        AppSettings.set_source_path(AppSettings.SOURCE_GEAR, gear_url)
-        AppSettings.set_source_enabled(AppSettings.SOURCE_GEAR, True)
-        AppSettings.set_source_auto_update(AppSettings.SOURCE_GEAR, True)
-
-        # Insert gear after ships in hierarchy (before contracts)
-        hierarchy = AppSettings.get_merge_hierarchy()
-        if AppSettings.SOURCE_GEAR not in hierarchy:
-            try:
-                idx = hierarchy.index(AppSettings.SOURCE_SHIPS) + 1
-            except ValueError:
-                try:
-                    idx = hierarchy.index(AppSettings.SOURCE_COMPONENTS) + 1
-                except ValueError:
-                    try:
-                        idx = hierarchy.index(AppSettings.SOURCE_GLOBAL) + 1
-                    except ValueError:
-                        idx = 0
-            hierarchy.insert(idx, AppSettings.SOURCE_GEAR)
-            AppSettings.set_merge_hierarchy(hierarchy)
-
-        logger.info("Configured Gear source to OsirisDevworks default URL")
-        return True
 
     @staticmethod
     def get_user_data_dir() -> Path:
@@ -579,13 +467,28 @@ class AppSettings:
         return cache_dir
 
     @staticmethod
-    def get_overrides_path() -> Path:
-        r"""Get canonical path for overrides.ini in Documents\SC Localization Editor\.
+    def get_user_ini_path() -> Path:
+        r"""Get canonical path for user.ini in Documents\SC Localization Editor\.
+
+        Migrates from overrides.ini → user.ini on first call if needed.
 
         Returns:
-            Path to Documents\SC Localization Editor\overrides.ini
+            Path to Documents\SC Localization Editor\user.ini
         """
-        return AppSettings.get_user_data_dir() / "overrides.ini"
+        data_dir = AppSettings.get_user_data_dir()
+        user_ini = data_dir / "user.ini"
+        old_overrides = data_dir / "overrides.ini"
+
+        # Migrate: rename overrides.ini → user.ini if needed
+        if old_overrides.exists() and not user_ini.exists():
+            try:
+                old_overrides.rename(user_ini)
+                logger.info(f"Migrated {old_overrides} → {user_ini}")
+            except OSError as e:
+                logger.warning(f"Failed to migrate overrides.ini → user.ini: {e}")
+                return old_overrides  # fall back to old name
+
+        return user_ini
 
     @staticmethod
     def get_backups_dir() -> Path:
@@ -688,17 +591,15 @@ class AppSettings:
         return game_path / 'LIVE' / 'Data.p4k'
 
     @staticmethod
-    def ensure_overrides_file() -> None:
-        """Ensure overrides.ini exists, creating empty file if needed."""
-        overrides_path = AppSettings.get_overrides_path()
+    def ensure_user_ini_file() -> None:
+        """Ensure user.ini exists, creating empty file if needed."""
+        user_ini_path = AppSettings.get_user_ini_path()
 
-        # Create parent directory if needed
-        overrides_path.parent.mkdir(parents=True, exist_ok=True)
+        user_ini_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Create empty overrides file if it doesn't exist
-        if not overrides_path.exists():
+        if not user_ini_path.exists():
             try:
-                overrides_path.touch()
-                logger.info(f"Created empty overrides.ini: {overrides_path}")
+                user_ini_path.touch()
+                logger.info(f"Created empty user.ini: {user_ini_path}")
             except Exception as e:
-                logger.error(f"Failed to create overrides.ini: {e}")
+                logger.error(f"Failed to create user.ini: {e}")

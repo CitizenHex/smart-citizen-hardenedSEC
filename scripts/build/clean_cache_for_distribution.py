@@ -6,7 +6,7 @@ Usage:
 
 This removes the 'raw/' subdirectory from the DataForge cache to reduce
 distribution size. The filtered 'libs/' directory contains all necessary
-files for stats generation. Users can regenerate the raw cache if needed
+files for enhancements generation. Users can regenerate the raw cache if needed
 by re-extracting from P4K.
 """
 
@@ -53,7 +53,7 @@ def main():
         print(f"✓ Deleted {raw_dir}")
         print()
         print("Cache cleaned for distribution. The filtered 'libs/' directory")
-        print("contains all necessary files for stats generation.")
+        print("contains all necessary files for enhancements generation.")
     except Exception as e:
         print(f"✗ Error deleting directory: {e}")
         return False

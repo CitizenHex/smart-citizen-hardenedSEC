@@ -5,80 +5,24 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QThread, pyqtSignal, QModelIndex
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QComboBox, QCheckBox, QTableWidget,
-    QTableWidgetItem, QFileDialog, QMessageBox, QTabWidget,
+    QPushButton, QComboBox, QCheckBox,
+    QFileDialog, QMessageBox, QTabWidget,
     QHeaderView, QStatusBar, QFrame, QStyledItemDelegate,
-    QAbstractItemView, QMenu, QProgressDialog, QTextBrowser
+    QAbstractItemView, QMenu, QProgressDialog, QTextBrowser,
+    QTableView,
 )
 from PyQt6.QtGui import QColor, QFont, QCursor, QPixmap, QIcon
 from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices
 
 from src.gui.filter_header import FilterHeaderView
-
-import re as _re
-
-# Shared flag for grouped sort mode — checked by GroupSortItem.__lt__
-_grouped_sort_enabled = True
-
-# Pattern 1: item_Name{CONTENT} / item_Desc{CONTENT} (ship items, gear, etc.)
-_ITEM_PREFIX_RE = _re.compile(r'^(item_)(Name|Desc|name|desc)(.*)', _re.IGNORECASE)
-
-# Pattern 2: vehicle_Name{CONTENT} / vehicle_Desc{CONTENT} (ships)
-_VEHICLE_PREFIX_RE = _re.compile(r'^(vehicle_)(Name|Desc)(.*)', _re.IGNORECASE)
-
-# Pattern 3: {CONTENT}_Title or {CONTENT}_Desc with optional suffix (missions)
-# Only match _Title/_Desc near the end — must NOT have another _Title/_Desc after
-_MISSION_SUFFIX_RE = _re.compile(
-    r'^(.*?)_(title|desc)'          # group + marker
-    r'(_[a-zA-Z0-9]*)?$',          # optional single suffix like _001, _intro, _Hard
-    _re.IGNORECASE,
+from src.gui.string_table_model import (
+    StringTableModel, COL_STAR, COL_CUSTOM, COL_STATUS,
+    status_color,
 )
-
-
-def _group_sort_key(key: str) -> tuple[str, int]:
-    """Return (group_key, sub_order) for grouped sorting.
-
-    Groups related Name/Desc and Title/Desc keys together.
-    Names/Titles sort before Descs within the same group.
-    """
-    # item_Name / item_Desc prefix pattern
-    m = _ITEM_PREFIX_RE.match(key)
-    if m:
-        marker = m.group(2).lower()
-        content = m.group(3)
-        sub = 0 if marker == "name" else 1
-        return (f"item_{content}".lower(), sub)
-
-    # vehicle_Name / vehicle_Desc prefix pattern
-    m = _VEHICLE_PREFIX_RE.match(key)
-    if m:
-        marker = m.group(2).lower()
-        content = m.group(3)
-        sub = 0 if marker == "name" else 1
-        return (f"vehicle_{content}".lower(), sub)
-
-    # Mission _Title / _Desc suffix pattern
-    m = _MISSION_SUFFIX_RE.match(key)
-    if m:
-        group = m.group(1)
-        marker = m.group(2).lower()
-        sub = 0 if marker == "title" else 1
-        return (group.lower(), sub)
-
-    return (key.lower(), 0)
-
-
-class GroupSortItem(QTableWidgetItem):
-    """QTableWidgetItem that supports grouped sorting on the Key column."""
-
-    def __lt__(self, other):
-        if _grouped_sort_enabled:
-            return _group_sort_key(self.text()) < _group_sort_key(other.text())
-        return super().__lt__(other)
 
 
 class AnimatedProgressDialog(QProgressDialog):
@@ -108,6 +52,7 @@ from src.parser.ini_parser import load_source_files, load_sources_from_settings,
 from src.utils.settings import AppSettings
 from src.merger.ini_merger import merge_sources_by_hierarchy
 from src.utils.version import get_version
+from src.utils.perf import timed
 from src.gui.config_tab import ConfigTab
 from src.gui.enhancements_tab import EnhancementsTab
 from src.gui.log_tab import LogTab
@@ -133,9 +78,13 @@ class FileLoaderWorker(QThread):
     Supports both old-style (single base file) and new-style (multiple sources
     from settings) loading. If sources_dict is provided, uses new system.
     Otherwise, loads configured sources from settings.
+
+    The finished signal carries (entries, default_values, sort_keys) so the
+    main thread doesn't need to re-parse base.ini or compute sort keys.
     """
 
-    finished = pyqtSignal(list)
+    # (entries, default_values dict, pre-computed group sort keys)
+    finished = pyqtSignal(list, dict, list)
     error = pyqtSignal(str)
 
     def __init__(
@@ -154,34 +103,41 @@ class FileLoaderWorker(QThread):
         self.hierarchy = hierarchy
 
     def run(self):
+        from src.gui.string_table_model import _group_sort_key
         try:
             logger.info("FileLoaderWorker starting...")
 
             # New system: load sources from settings if not provided
             if self.sources_dict is None and self.hierarchy is None:
                 logger.info("No sources_dict provided, loading from settings...")
-                self.sources_dict, self.hierarchy, self._stats_key_categories = load_sources_from_settings()
+                self.sources_dict, self.hierarchy, self._enhancements_key_categories = load_sources_from_settings()
                 logger.info(f"Loaded from settings: sources={list(self.sources_dict.keys())}, hierarchy={self.hierarchy}")
             else:
-                self._stats_key_categories = None
+                self._enhancements_key_categories = None
 
             # If still no sources (empty settings), try legacy base_path
             if self.sources_dict and self.hierarchy:
                 logger.info(f"Calling load_source_files with {len(self.sources_dict)} sources")
-                entries = load_source_files(self.sources_dict, self.hierarchy, stats_key_categories=self._stats_key_categories)
+                entries = load_source_files(self.sources_dict, self.hierarchy, enhancements_key_categories=self._enhancements_key_categories)
                 logger.info(f"load_source_files returned {len(entries)} entries")
             elif self.base_path:
                 # Legacy: single base file loading
                 logger.info(f"Using legacy base_path: {self.base_path}")
                 base_data = parse_ini_file(self.base_path)
-                sources_dict = {"global": base_data}
+                self.sources_dict = {"global": base_data}
                 hierarchy = ["global"]
-                entries = load_source_files(sources_dict, hierarchy, None, self.overrides_path)
+                entries = load_source_files(self.sources_dict, hierarchy, None, self.overrides_path)
             else:
                 raise ValueError("No sources configured and no base_path provided")
 
+            # Extract default values from the global source (avoids re-parsing base.ini)
+            default_values = dict(self.sources_dict.get("global", {}))
+
+            # Pre-compute grouped sort keys on the worker thread
+            sort_keys = [_group_sort_key(e.key) for e in entries]
+
             logger.info("FileLoaderWorker finished successfully")
-            self.finished.emit(entries)
+            self.finished.emit(entries, default_values, sort_keys)
         except Exception as e:
             logger.exception(f"Error loading files: {e}")
             self.error.emit(str(e))
@@ -207,20 +163,10 @@ class StartupSyncWorker(QThread):
         cache_dir = AppSettings.get_cache_dir()
         cache_mapping = {
             AppSettings.SOURCE_GLOBAL:      "base.ini",
-            AppSettings.SOURCE_CONTRACTS:   "contracts.ini",
-            AppSettings.SOURCE_COMPONENTS:  "components.ini",
-            AppSettings.SOURCE_SHIPS:       "ships.ini",
-            AppSettings.SOURCE_COMMODITIES: "commodities.ini",
-            AppSettings.SOURCE_GEAR:        "gear.ini",
         }
 
         for source_name in [
             AppSettings.SOURCE_GLOBAL,
-            AppSettings.SOURCE_CONTRACTS,
-            AppSettings.SOURCE_COMPONENTS,
-            AppSettings.SOURCE_SHIPS,
-            AppSettings.SOURCE_COMMODITIES,
-            AppSettings.SOURCE_GEAR,
         ]:
             if not AppSettings.is_source_enabled(source_name):
                 continue
@@ -243,53 +189,54 @@ class StartupSyncWorker(QThread):
         self.finished.emit()
 
 
-class StatsGeneratorWorker(QThread):
-    """Worker thread for generating stats INI files via generate_stats_ini.py."""
+class EnhancementsGeneratorWorker(QThread):
+    """Worker thread for generating enhancements INI files via generate_enhancements_ini.py."""
 
     progress = pyqtSignal(str)
     finished = pyqtSignal(bool)
     error = pyqtSignal(str)
+
+    def __init__(self, categories: set[str] | None = None):
+        super().__init__()
+        self.categories = categories
 
     def run(self):
         import importlib.util
         import sys as sys_module
         try:
             if getattr(sys, 'frozen', False):
-                script_path = Path(sys._MEIPASS) / 'scripts' / 'generate_stats_ini.py'
+                script_path = Path(sys._MEIPASS) / 'scripts' / 'generate_enhancements_ini.py'
             else:
-                # src/gui/main_window.py → src/gui → src → project root
-                script_path = Path(__file__).parent.parent.parent / 'scripts' / 'generate_stats_ini.py'
+                script_path = Path(__file__).parent.parent.parent / 'scripts' / 'generate_enhancements_ini.py'
 
             if not script_path.exists():
-                raise FileNotFoundError(f"Stats generator script not found: {script_path}")
+                raise FileNotFoundError(f"Enhancements generator script not found: {script_path}")
 
-            self.progress.emit("Loading stats generator...")
+            self.progress.emit("Loading enhancements generator...")
 
-            # Force module cache refresh to avoid stale imports during startup
-            module_name = "generate_stats_ini_worker"
+            module_name = "generate_enhancements_ini_worker"
             if module_name in sys_module.modules:
                 del sys_module.modules[module_name]
 
             spec = importlib.util.spec_from_file_location(module_name, script_path)
             mod = importlib.util.module_from_spec(spec)
-
-            # Ensure the module is in sys.modules before executing (required by some imports)
             sys_module.modules[module_name] = mod
             spec.loader.exec_module(mod)
 
             self.progress.emit("Generating enhancements (may take a few minutes on first run)...")
-            logger.info("Stats generation worker: calling mod.main()")
+            logger.info("Enhancements generation worker: calling mod.main()")
 
             base_ini  = AppSettings.get_cache_dir() / 'base.ini'
             forge_dir = AppSettings.get_dataforge_cache_dir()
 
-            logger.info(f"Stats generation: base_ini={base_ini}, forge_dir={forge_dir}")
-            mod.main(base_ini, forge_dir)
-            logger.info("Stats generation worker: mod.main() completed successfully")
+            cat_desc = ", ".join(sorted(self.categories)) if self.categories else "all"
+            logger.info(f"Enhancements generation: base_ini={base_ini}, forge_dir={forge_dir}, categories={cat_desc}")
+            mod.main(base_ini, forge_dir, categories=self.categories)
+            logger.info("Enhancements generation worker: mod.main() completed successfully")
 
             self.finished.emit(True)
         except Exception as e:
-            logger.exception(f"Stats generation failed: {e}")
+            logger.exception(f"Enhancements generation failed: {e}")
             self.error.emit(str(e))
             self.finished.emit(False)
 
@@ -387,22 +334,23 @@ class MainWindow(QMainWindow):
         self._p4k_worker: Optional[P4kExtractWorker] = None
         self._p4k_progress: Optional[QProgressDialog] = None
 
-        # Stats generation worker
-        self._stats_worker: Optional[StatsGeneratorWorker] = None
-        self._stats_progress_dialog: Optional[AnimatedProgressDialog] = None
+        # Enhancements generation worker
+        self._enhancements_worker: Optional[EnhancementsGeneratorWorker] = None
+        self._enhancements_progress_dialog: Optional[AnimatedProgressDialog] = None
 
         # DataForge extraction worker
         self._forge_worker: Optional[DataForgeExtractWorker] = None
 
-        # Track whether we've prompted for stats on startup (prevents duplicate dialogs)
-        self._stats_prompted_on_startup = False
-        # Flag to defer stats checking until after file loading completes (avoid I/O contention)
-        self._check_stats_after_loading = False
+        # Track whether we've prompted for enhancements on startup (prevents duplicate dialogs)
+        self._enhancements_prompted_on_startup = False
+        # Flag to defer enhancements checking until after file loading completes (avoid I/O contention)
+        self._check_enhancements_after_loading = False
 
         # Status bar state (composed message) - tracks sync status per source
         self._source_status: dict[str, str] = {}  # source_name -> status_string
 
-        # Progress dialog for file loading and other operations
+        # Progress dialogs
+        self._startup_progress: Optional[AnimatedProgressDialog] = None
         self._loading_progress: Optional[QProgressDialog] = None
 
         # Build UI
@@ -412,9 +360,9 @@ class MainWindow(QMainWindow):
         # Ensure cache directory exists
         AppSettings.get_cache_dir()
 
-        # Sync all enabled remote sources on startup (conditional GET — only downloads
-        # if file changed since last sync). Loading starts after sync finishes.
-        self._start_startup_sync()
+        # Defer startup loading until after the window is shown.
+        # QTimer.singleShot(0) fires on the next event loop iteration, after show().
+        QTimer.singleShot(0, self._start_startup_sync)
 
         # Ensure user.cfg has language setting
         from src.utils.user_cfg import ensure_user_cfg_language
@@ -450,23 +398,35 @@ class MainWindow(QMainWindow):
         self.config_tab = ConfigTab()
         self.config_tab.merge_requested.connect(self.perform_merge_and_reload)
         self.config_tab.p4k_extract_requested.connect(self._run_p4k_extraction)
+        self.config_tab.import_ini_requested.connect(self._handle_import_ini)
         tabs.addTab(self.config_tab, "Config")
 
         # Enhancements tab
         self.enhancements_tab = EnhancementsTab()
         self.enhancements_tab.merge_requested.connect(self.perform_merge_and_reload)
-        self.enhancements_tab.stats_pipeline_requested.connect(self._run_stats_pipeline)
-        tabs.addTab(self.enhancements_tab, "Enhancements")
+        self.enhancements_tab.enhancements_pipeline_requested.connect(self._run_enhancements_pipeline)
+        self._enhancements_tab_index = tabs.addTab(self.enhancements_tab, "Enhancements")
 
         self.log_tab = LogTab()
         tabs.addTab(self.log_tab, "Log")
 
         tabs.addTab(self.create_about_tab(), "About")
+
+        # Revert unapplied enhancement checkbox changes when leaving the tab
+        tabs.currentChanged.connect(self._on_tab_changed)
+        self._previous_tab_index = tabs.currentIndex()
+
         main_layout.addWidget(tabs)
 
         # Footer
         footer_layout = self.create_footer()
         main_layout.addLayout(footer_layout)
+
+    def _on_tab_changed(self, new_index: int):
+        """Revert unapplied enhancement checkbox changes when leaving the Enhancements tab."""
+        if self._previous_tab_index == self._enhancements_tab_index and new_index != self._enhancements_tab_index:
+            self.enhancements_tab.revert_category_checkboxes()
+        self._previous_tab_index = new_index
 
         # Status bar
         self.statusBar().showMessage("Ready")
@@ -538,7 +498,6 @@ class MainWindow(QMainWindow):
         filter_layout.addWidget(self.status_combo)
 
         self.hide_unmodified_check = QCheckBox("Hide Unmodified")
-        self.hide_unmodified_check.setChecked(True)
         self.hide_unmodified_check.stateChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.hide_unmodified_check)
 
@@ -546,11 +505,11 @@ class MainWindow(QMainWindow):
         self.favorites_only_check.stateChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.favorites_only_check)
 
-        self.grouped_sort_check = QCheckBox("Grouped Sort")
-        self.grouped_sort_check.setToolTip("Sort titles and descriptions together for the same entity")
-        self.grouped_sort_check.setChecked(True)
-        self.grouped_sort_check.stateChanged.connect(self._on_grouped_sort_changed)
-        filter_layout.addWidget(self.grouped_sort_check)
+        self.grouped_sort_btn = QPushButton("Group Sort")
+        self.grouped_sort_btn.setToolTip("Sort titles and descriptions together for the same entity")
+        self.grouped_sort_btn.setMaximumWidth(100)
+        self.grouped_sort_btn.clicked.connect(self._on_grouped_sort)
+        filter_layout.addWidget(self.grouped_sort_btn)
 
         self.clear_filters_btn = QPushButton("Clear Filters")
         self.clear_filters_btn.setMaximumWidth(100)
@@ -702,12 +661,12 @@ class MainWindow(QMainWindow):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        # Table
-        self.table = QTableWidget()
-        self.table.setColumnCount(7)
-        self.table.setHorizontalHeaderLabels([
-            "Category", "Key", "Default Value", "Current Value", "★", "Custom Value", "Status"
-        ])
+        # Model
+        self._model = StringTableModel(self)
+
+        # Table view
+        self.table = QTableView()
+        self.table.setModel(self._model)
 
         # Per-column filter header
         column_names = ["Category", "Key", "Default Value", "Current Value", "★", "Custom Value", "Status"]
@@ -736,9 +695,9 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)  # Status
 
         # Set custom delegate for editing Custom Value column (col 5)
-        self.table.setItemDelegateForColumn(5, SelectAllDelegate())
-        self.table.itemChanged.connect(self.on_item_changed)
-        self.table.cellClicked.connect(self.on_cell_clicked)
+        self.table.setItemDelegateForColumn(COL_CUSTOM, SelectAllDelegate())
+        # Star column click handling
+        self.table.clicked.connect(self._on_cell_clicked)
 
         layout.addWidget(self.table)
 
@@ -803,7 +762,7 @@ class MainWindow(QMainWindow):
         self._progress_dialog.show()
 
         # Create and start worker
-        overrides_path = AppSettings.get_overrides_path()
+        overrides_path = AppSettings.get_user_ini_path()
         overrides_arg = str(overrides_path) if overrides_path.exists() else None
 
         contracts_ini = Path(__file__).parent.parent.parent / "data" / "contracts.ini"
@@ -814,15 +773,19 @@ class MainWindow(QMainWindow):
         self._loader_worker.error.connect(self._on_load_error)
         self._loader_worker.start()
 
-    @pyqtSlot(list)
-    def _on_files_loaded(self, entries: list):
+    @pyqtSlot(list, dict, list)
+    def _on_files_loaded(self, entries: list, default_values: dict, sort_keys: list):
         """Handle successful file loading."""
         if self._progress_dialog:
             self._progress_dialog.close()
 
+        self.default_values = default_values
         self.entries = entries
         self.update_category_combo()
-        self.populate_table()
+        self._model.set_data_source(
+            self.entries, self.default_values, AppSettings.get_favorite_prefix(),
+            sort_keys=sort_keys,
+        )
         self.apply_filters()
 
         # Show override count in status bar
@@ -853,6 +816,7 @@ class MainWindow(QMainWindow):
         self.restore_backup_btn.setEnabled(enabled)
         self.clear_loc_btn.setEnabled(enabled)
 
+    @timed
     def load_default_values(self):
         """Load default values from cached base source in AppData."""
         from src.parser.ini_parser import parse_ini_file
@@ -874,7 +838,7 @@ class MainWindow(QMainWindow):
         """Automatically load and merge configured sources, or fall back to legacy behavior."""
         try:
             # Try new system first: load configured sources from settings
-            sources_dict, hierarchy, stats_key_categories = load_sources_from_settings()
+            sources_dict, hierarchy, enhancements_key_categories = load_sources_from_settings()
 
             if sources_dict and hierarchy:
                 logger.info(f"Loading configured sources: {list(sources_dict.keys())} with hierarchy {hierarchy}")
@@ -883,11 +847,14 @@ class MainWindow(QMainWindow):
                 try:
                     # Load synchronously in main thread to avoid threading issues
                     logger.info("Synchronously loading sources...")
-                    entries = load_source_files(sources_dict, hierarchy, stats_key_categories=stats_key_categories)
+                    entries = load_source_files(sources_dict, hierarchy, enhancements_key_categories=enhancements_key_categories)
                     logger.info(f"Loaded {len(entries)} entries")
                     self.entries = entries
+                    self.default_values = dict(sources_dict.get("global", {}))
                     self.update_category_combo()
-                    self.populate_table()
+                    self._model.set_data_source(
+                        self.entries, self.default_values, AppSettings.get_favorite_prefix(),
+                    )
                     self.apply_filters()
 
                     # Update status bar with entry counts and per-source status
@@ -939,14 +906,14 @@ class MainWindow(QMainWindow):
 
         # Bootstrap overrides from diff if missing
         if global_path:
-            overrides_path = AppSettings.get_overrides_path()
+            overrides_path = AppSettings.get_user_ini_path()
             if not overrides_path.exists():
                 data_dir = Path(__file__).parent.parent.parent / "data"
                 data_base = data_dir / "base.ini"
                 if data_base.exists():
                     try:
-                        from src.utils.overrides_manager import generate_overrides_from_diff
-                        count = generate_overrides_from_diff(data_base, global_path, overrides_path)
+                        from src.utils.user_ini_manager import generate_user_ini_from_diff
+                        count = generate_user_ini_from_diff(data_base, global_path, overrides_path)
                         if count:
                             logger.info(f"Bootstrapped {count} overrides from diff")
                     except Exception as e:
@@ -959,6 +926,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("No base file found - please configure sources in Config tab or load a file manually")
 
     @pyqtSlot()
+    @timed
     def apply_to_game(self):
         """Apply merged sources + user edits to game installation and backup existing file."""
         if not self.entries:
@@ -1010,10 +978,13 @@ class MainWindow(QMainWindow):
             # This ensures Apply uses latest source versions and user edits
             sources_dict, hierarchy, _mrk = load_sources_from_settings()
 
-            # Warn if any enabled non-user sources are missing from the loaded dict
+            # Warn if any active sources are missing (only check sources actually in AVAILABLE_SOURCES)
+            active_source_names = set(AppSettings.AVAILABLE_SOURCES)
+            active_source_names.add("enhancements")
             missing_sources = [
                 name for name in hierarchy
-                if name != AppSettings.SOURCE_USER and name != "stats"
+                if name in active_source_names
+                and name != AppSettings.SOURCE_USER and name != "enhancements"
                 and name not in sources_dict
                 and AppSettings.is_source_enabled(name)
             ]
@@ -1023,8 +994,6 @@ class MainWindow(QMainWindow):
                     self, "Missing Sources",
                     f"The following enabled sources could not be loaded:\n\n  {names}\n\n"
                     "Their customizations will NOT be included in the applied file.\n\n"
-                    "This usually means the cache files are missing. "
-                    "Try clearing the cache and re-syncing sources first.\n\n"
                     "Apply anyway?",
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.No,
@@ -1052,11 +1021,6 @@ class MainWindow(QMainWindow):
                     # Map source name to cache file
                     cache_mapping = {
                         AppSettings.SOURCE_GLOBAL:      "base.ini",
-                        AppSettings.SOURCE_CONTRACTS:   "contracts.ini",
-                        AppSettings.SOURCE_COMPONENTS:  "components.ini",
-                        AppSettings.SOURCE_SHIPS:       "ships.ini",
-                        AppSettings.SOURCE_COMMODITIES: "commodities.ini",
-                        AppSettings.SOURCE_GEAR:        "gear.ini",
                     }
                     if source_name in cache_mapping:
                         cache_file = AppSettings.get_cache_dir() / cache_mapping[source_name]
@@ -1107,16 +1071,29 @@ class MainWindow(QMainWindow):
                 return
 
             # Save user overrides to AppData
-            from src.utils.overrides_manager import save_overrides
-            count = save_overrides(self.entries, AppSettings.get_overrides_path())
+            from src.utils.user_ini_manager import save_user_ini
+            user_count = save_user_ini(self.entries, AppSettings.get_user_ini_path())
+
+            # Count enhancement entries
+            enhancement_count = sum(
+                1 for entry in self.entries
+                if entry.source_file == "enhancements"
+            )
 
             # Ensure user.cfg has language setting
             from src.utils.user_cfg import ensure_user_cfg_language
             ensure_user_cfg_language()
 
             logger.info(f"Applied to game: {target_path}")
-            self.statusBar().showMessage(f"Applied to game | {count} overrides saved")
-            QMessageBox.information(self, "Success", f"Applied to {target_path}\n\n{count} overrides saved")
+            self.statusBar().showMessage(
+                f"Applied to game | {user_count} user edits | {enhancement_count} enhancements"
+            )
+            QMessageBox.information(
+                self, "Success",
+                f"Applied to {target_path}\n\n"
+                f"  User edits: {user_count}\n"
+                f"  SCLE enhancements: {enhancement_count}"
+            )
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to apply to game: {e}")
             logger.error(f"Error applying to game: {e}")
@@ -1335,7 +1312,7 @@ class MainWindow(QMainWindow):
 
         self.config_tab._refresh_p4k_status()
         self.entries = []
-        self.populate_table()
+        self._model.set_data_source([], {}, AppSettings.get_favorite_prefix())
 
         msg = f"Deleted {len(deleted)} item(s) from cache."
         if failed:
@@ -1372,6 +1349,7 @@ class MainWindow(QMainWindow):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(loc_dir)))
 
     @pyqtSlot()
+    @timed
     def perform_merge_and_reload(self):
         """Perform merge of configured sources and reload table.
 
@@ -1380,7 +1358,7 @@ class MainWindow(QMainWindow):
         """
         try:
             # Load all configured sources
-            sources_dict, hierarchy, stats_key_categories = load_sources_from_settings()
+            sources_dict, hierarchy, enhancements_key_categories = load_sources_from_settings()
 
             if not sources_dict or not hierarchy:
                 QMessageBox.warning(self, "Warning", "No sources configured. Please configure data sources in Config tab.")
@@ -1391,11 +1369,16 @@ class MainWindow(QMainWindow):
             try:
                 # Load synchronously in main thread
                 logger.info("Merging configured sources...")
-                entries = load_source_files(sources_dict, hierarchy, stats_key_categories=stats_key_categories)
+                entries = load_source_files(sources_dict, hierarchy, enhancements_key_categories=enhancements_key_categories)
                 logger.info(f"Merge complete: {len(entries)} entries")
                 self.entries = entries
+                self.default_values = dict(sources_dict.get("global", {}))
                 self.update_category_combo()
-                self.populate_table()
+                self._model.set_data_source(
+                    self.entries,
+                    self.default_values,
+                    AppSettings.get_favorite_prefix(),
+                )
                 self.apply_filters()
 
                 # Update status bar with entry counts and per-source status
@@ -1408,6 +1391,174 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.exception(f"Error in perform_merge_and_reload: {e}")
             QMessageBox.critical(self, "Error", f"Failed to load sources: {e}")
+
+    # ── INI Import ────────────────────────────────────────────────────────────
+
+    @pyqtSlot()
+    def _handle_import_ini(self):
+        """Handle Import INI button: get source, validate, resolve conflicts, merge."""
+        from PyQt6.QtWidgets import (
+            QDialog, QVBoxLayout, QHBoxLayout, QLineEdit,
+            QPushButton, QLabel, QDialogButtonBox, QFileDialog
+        )
+        from src.parser.ini_parser import parse_ini_file
+        from src.utils.user_ini_manager import save_user_ini_dict
+        import tempfile
+        import urllib.request
+
+        # Step 1: Get source path/URL from user
+        source = self._get_import_source()
+        if not source:
+            return
+
+        temp_file = None
+        try:
+            # Step 2: Resolve to local file
+            if source.startswith('http://') or source.startswith('https://'):
+                # Auto-convert GitHub web URLs to raw URLs
+                if source.startswith('https://github.com/'):
+                    source = source.replace('https://github.com/', 'https://raw.githubusercontent.com/')
+                    source = source.replace('/blob/', '/')
+
+                self.statusBar().showMessage("Downloading INI file...")
+                try:
+                    temp_file = tempfile.NamedTemporaryFile(suffix='.ini', delete=False)
+                    temp_file.close()
+                    urllib.request.urlretrieve(source, temp_file.name)
+                    resolved_path = temp_file.name
+                except Exception as e:
+                    QMessageBox.critical(self, "Download Error", f"Failed to download:\n{source}\n\n{e}")
+                    return
+            else:
+                resolved_path = source
+                if not Path(resolved_path).exists():
+                    QMessageBox.warning(self, "File Not Found", f"File does not exist:\n{resolved_path}")
+                    return
+
+            # Step 3: Parse imported file
+            imported = parse_ini_file(resolved_path)
+            if not imported:
+                QMessageBox.warning(self, "Empty File", "The imported file contains no valid key=value entries.")
+                return
+
+            # Step 4: Validate against base.ini keys
+            if not self.default_values:
+                QMessageBox.warning(self, "No Base Data",
+                    "Base INI not loaded yet. Extract from Data.p4k first.")
+                return
+
+            valid_keys = {k: v for k, v in imported.items() if k in self.default_values}
+            excluded_count = len(imported) - len(valid_keys)
+
+            if not valid_keys:
+                QMessageBox.warning(self, "No Valid Keys",
+                    f"None of the {len(imported)} imported keys exist in base.ini.\n"
+                    f"All keys were excluded.")
+                return
+
+            # Step 5: Load current user.ini
+            user_ini_path = AppSettings.get_user_ini_path()
+            current_user = parse_ini_file(user_ini_path) if user_ini_path.exists() else {}
+
+            # Step 6: Categorize keys
+            auto_add = {}
+            conflicts = {}
+            for key, imported_value in valid_keys.items():
+                current_value = current_user.get(key)
+                if current_value is None:
+                    auto_add[key] = imported_value
+                elif current_value != imported_value:
+                    conflicts[key] = (current_value, imported_value)
+                # else: identical, skip
+
+            # Step 7: Handle cases
+            if not auto_add and not conflicts:
+                QMessageBox.information(self, "Nothing to Import",
+                    "All imported keys already exist in user.ini with the same values.")
+                return
+
+            if not conflicts:
+                reply = QMessageBox.question(self, "Import INI",
+                    f"{len(auto_add)} new keys will be added to user.ini.\n"
+                    f"{excluded_count} keys excluded (not in base.ini).\n\n"
+                    "Proceed?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+                resolutions = {}
+            else:
+                from src.gui.import_dialog import ImportConflictDialog
+                dialog = ImportConflictDialog(conflicts, len(auto_add), excluded_count, self)
+                if dialog.exec() != QDialog.DialogCode.Accepted:
+                    return
+                resolutions = dialog.get_resolutions()
+
+            # Step 8: Merge
+            final = dict(current_user)
+            final.update(auto_add)
+            final.update(resolutions)
+
+            # Step 9: Save
+            save_user_ini_dict(final, user_ini_path)
+
+            # Step 10: Reload
+            self._show_loading_progress("Reloading with imported data...")
+
+            # Step 11: Summary
+            QMessageBox.information(self, "Import Complete",
+                f"Import successful.\n\n"
+                f"  Added: {len(auto_add)} keys\n"
+                f"  Conflicts resolved: {len(resolutions)} keys\n"
+                f"  Excluded: {excluded_count} keys")
+
+        except Exception as e:
+            logger.exception(f"Import failed: {e}")
+            QMessageBox.critical(self, "Import Error", f"Failed to import INI file:\n{e}")
+        finally:
+            if temp_file:
+                try:
+                    Path(temp_file.name).unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+    def _get_import_source(self) -> str | None:
+        """Show dialog to get a file path or URL for import."""
+        from PyQt6.QtWidgets import (
+            QDialog, QVBoxLayout, QHBoxLayout, QLineEdit,
+            QPushButton, QLabel, QDialogButtonBox, QFileDialog
+        )
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Import INI File")
+        dialog.setMinimumWidth(500)
+        layout = QVBoxLayout(dialog)
+
+        layout.addWidget(QLabel("Enter a local file path or URL:"))
+
+        input_row = QHBoxLayout()
+        line_edit = QLineEdit()
+        line_edit.setPlaceholderText(r"C:\path\to\file.ini or https://example.com/file.ini")
+        input_row.addWidget(line_edit)
+
+        browse_btn = QPushButton("Browse...")
+        def browse():
+            path, _ = QFileDialog.getOpenFileName(
+                dialog, "Select INI File", "", "INI Files (*.ini);;All Files (*)")
+            if path:
+                line_edit.setText(path)
+        browse_btn.clicked.connect(browse)
+        input_row.addWidget(browse_btn)
+        layout.addLayout(input_row)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted and line_edit.text().strip():
+            return line_edit.text().strip()
+        return None
 
     @pyqtSlot()
     def restore_backup(self):
@@ -1444,11 +1595,14 @@ class MainWindow(QMainWindow):
             shutil.copy2(str(backup_file_path), str(target_path))
 
             # Reload the file with overrides
-            overrides_path = AppSettings.get_overrides_path()
+            overrides_path = AppSettings.get_user_ini_path()
             overrides_arg = str(overrides_path) if overrides_path.exists() else None
             self.entries = load_source_files(str(target_path), overrides_arg)
+            self.load_default_values()
             self.update_category_combo()
-            self.populate_table()
+            self._model.set_data_source(
+                self.entries, self.default_values, AppSettings.get_favorite_prefix(),
+            )
             self.apply_filters()
 
             # Update status bar with entry counts and per-source status
@@ -1483,22 +1637,26 @@ Click **Load Base File** to load strings from your configured sources. The insta
 
 ## 3. Categories
 Filter strings by category:
-- **Ships** - Spaceship names (vehicle_Name*)
-- **Ship Items** - Component names (shields, power, cooling, etc.)
-- **Missions** - Mission briefings and contract text
-- **Other** - Everything else, including stats descriptions
+- **Ships** — Spaceship names and descriptions (vehicle_Name*, vehicle_Desc*)
+- **Ship Items** — Component names (shields, power plants, coolers, quantum drives, weapons, missiles, turrets)
+- **Missions** — Mission briefings, contract text, and reward descriptions
+- **Gear** — FPS weapons and personal equipment
+- **Commodities** — Trade goods and crafting materials
+- **Journal** — In-game journal entries
+- **Other** — Everything else
 
 ## 4. Search & Filter
-- Use the search box to find strings by key or text content
+- Use the **search box** to find strings by key or text content
 - Filter by **Category** to focus on one type
 - Filter by **Status** (Modified, Unmodified, New)
 - Check **Hide Unmodified** to see only your changes
+- Use the **per-column filter boxes** below each column header for fine-grained filtering
 - Click any **column header** to sort by that column
 
 ## 5. Ship Favorites
 - Click the **star (★)** column on any Ship row to mark it as a favorite
 - Favorited ships get a prefix character prepended to their name, sorting them to the top of the in-game ship list
-- Configure the prefix character in the Config tab
+- Configure the prefix character in the **Enhancements** tab
 
 ## 6. Apply Changes to Game
 Click **Apply to Game** to write your edits to the game installation. A timestamped backup is saved automatically to your Documents folder before applying.
@@ -1509,17 +1667,26 @@ Click **Restore Backup** to revert to a previous version. The app keeps up to 5 
 ## 8. Clear Localization
 Click **Clear Localization** to delete the custom global.ini from the game directory, reverting the game to its default (vanilla) text. Your saved overrides are not affected and can be re-applied at any time.
 
-## 9. After Game Updates
+## 9. Import INI
+Use **Import INI** in the Config tab to import an existing INI file into your overrides. A conflict resolution dialog lets you choose how to handle keys that already exist — keep current, use imported, append, prepend, or enter a custom value.
+
+## 10. After Game Updates
 When Star Citizen updates, your edits are preserved in your Documents folder. Simply reload the new base file and your customizations automatically re-apply.
 
-## Stats Enhancements
-When stats files are present (generated by generate_stats_ini.py), numerical stats such as SCM speed, DPS, shield HP, cargo capacity, and weapon loadouts are automatically appended to ship and component descriptions. Toggle this on/off in the Config tab.
+## Enhancements Tab
+- Enable stat overlays that append numerical stats (SCM speed, DPS, shield HP, cargo capacity, etc.) to ship, component, and weapon descriptions
+- Toggle individual enhancement categories on or off
+- Configure the ship favorites prefix character
+- Click **Generate Enhancements** to extract DataForge data from Data.p4k and build enhancement files
 
 ## Config Tab
-- Configure data source paths (Global, Contracts, Components, Ships)
+- Configure data source paths and URLs
 - Set your Star Citizen installation path
 - Drag sources to reorder the merge hierarchy
-- Enable or disable Stats Enhancements
+- Extract global.ini directly from Data.p4k
+
+## Log Tab
+View real-time application logs. Filter by log level, auto-scroll to latest entries, and export logs for troubleshooting.
 
 ## Status Bar
 Shows the sync status for each configured source. "✓" means up to date.
@@ -1604,8 +1771,27 @@ Shows the sync status for each configured source. "✓" means up to date.
         self._update_status_bar()
 
     def _start_startup_sync(self):
-        """Start async sync of all enabled remote sources, then load files when done."""
+        """Start async sync of all enabled remote sources, then load files when done.
+
+        If no remote sources need syncing, skip directly to loading.
+        """
+        # Check if any sources actually need syncing (remote URL + auto-update enabled)
+        has_remote_sync = any(
+            AppSettings.is_source_enabled(name)
+            and AppSettings.get_source_auto_update(name)
+            and AppSettings.get_source_path(name).startswith("http")
+            for name in AppSettings.AVAILABLE_SOURCES
+        )
+
+        if not has_remote_sync:
+            # Nothing to sync — go straight to loading
+            self._on_startup_sync_finished()
+            return
+
         self.statusBar().showMessage("Starting up — syncing sources...")
+        self._startup_progress = AnimatedProgressDialog(
+            "Syncing sources...", parent=self, title="Starting Up"
+        )
         self._startup_sync_worker = StartupSyncWorker()
         self._startup_sync_worker.source_starting.connect(self._on_startup_source_starting)
         self._startup_sync_worker.source_synced.connect(self._on_startup_source_synced)
@@ -1616,6 +1802,8 @@ Shows the sync status for each configured source. "✓" means up to date.
     @pyqtSlot(str)
     def _on_startup_source_starting(self, source_name: str):
         self.statusBar().showMessage(f"Syncing {source_name}...")
+        if self._startup_progress is not None:
+            self._startup_progress.setLabelText(f"Syncing {source_name}...")
 
     @pyqtSlot(str, bool)
     def _on_startup_source_synced(self, source_name: str, updated: bool):
@@ -1632,12 +1820,15 @@ Shows the sync status for each configured source. "✓" means up to date.
     @pyqtSlot()
     def _on_startup_sync_finished(self):
         """Sync complete — clean up worker, check p4k freshness, then load sources."""
-        from PyQt6.QtWidgets import QApplication
-
         if self._startup_sync_worker:
             self._startup_sync_worker.quit()
             self._startup_sync_worker.wait()
             self._startup_sync_worker = None
+
+        # Close the startup progress dialog before any modal prompts (P4K, enhancements)
+        if self._startup_progress is not None:
+            self._startup_progress.close()
+            self._startup_progress = None
 
         # Prompt user to extract from p4k if base.ini is missing or outdated
         p4k_extraction_started = self._check_p4k_freshness()
@@ -1647,9 +1838,9 @@ Shows the sync status for each configured source. "✓" means up to date.
         if p4k_extraction_started:
             return
 
-        # Don't check stats during startup - defer until after file loading completes
-        # to avoid concurrent I/O contention between file loader and stats generator
-        self._check_stats_after_loading = True
+        # Don't check enhancements during startup - defer until after file loading completes
+        # to avoid concurrent I/O contention between file loader and enhancements generator
+        self._check_enhancements_after_loading = True
 
         # Show progress dialog during file loading
         self._show_loading_progress()
@@ -1696,46 +1887,122 @@ Shows the sync status for each configured source. "✓" means up to date.
             return True
         return False
 
-    def _check_stats_freshness(self):
-        """If stats INI files are missing, prompt to generate them.
+    def _check_enhancements_freshness(self):
+        """If enabled enhancement files are missing, prompt to generate them.
 
-        On startup, shows a dialog if stats are missing. If called again after P4K
-        extraction and we already prompted, skips the dialog and runs stats directly.
+        Shows a category selection dialog on startup. If called again after P4K
+        extraction and we already prompted, runs generation with saved selections.
         """
         cache_dir = AppSettings.get_cache_dir()
         if not (cache_dir / 'base.ini').exists():
             return
-        if self._stats_worker is not None or self._forge_worker is not None:
+        if self._enhancements_worker is not None or self._forge_worker is not None:
             return
 
-        missing = [f for f in AppSettings.STATS_FILES.values()
-                   if not (cache_dir / f).exists()]
+        # Only check enabled categories
+        enabled = AppSettings.get_enabled_enhancement_categories()
+        missing = [key for key in enabled
+                   if not (cache_dir / AppSettings.ENHANCEMENTS_FILES[key]).exists()]
         if not missing:
             return
 
         p4k_path = AppSettings.get_p4k_path()
         if not p4k_path.exists():
-            return  # can't generate without the game files; user can trigger manually
-
-        # If we already prompted at startup and user said Yes, just run stats generation
-        # (they're here because P4K extraction completed)
-        if self._stats_prompted_on_startup:
-            self._run_stats_pipeline()
             return
 
-        # First prompt - show dialog to user
-        self._stats_prompted_on_startup = True
-        total_stats = len(AppSettings.STATS_FILES)
-        reply = QMessageBox.question(
-            self, "Generate Stats",
-            f"{len(missing)} of {total_stats} stats files are missing.\n\n"
-            "Generate ship, component, weapon, mission, and missile stats from your installed Data.p4k?\n"
-            "DataForge data will be extracted automatically if not already cached\n"
-            "(first run takes ~5–10 minutes).",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        # If we already prompted and user chose to generate, just run with saved selections
+        if self._enhancements_prompted_on_startup:
+            self._run_enhancements_pipeline()
+            return
+
+        # Show category selection dialog
+        self._enhancements_prompted_on_startup = True
+        selected = self._show_enhancement_category_dialog(missing)
+        if selected:
+            self._run_enhancements_pipeline()
+
+    def _show_enhancement_category_dialog(self, missing_keys: list[str]) -> set[str] | None:
+        """Show a dialog letting the user select which enhancement categories to generate.
+
+        Args:
+            missing_keys: List of category keys that are currently missing.
+
+        Returns:
+            Set of selected category keys, or None if user clicked Skip.
+        """
+        from PyQt6.QtWidgets import (
+            QDialog, QVBoxLayout, QLabel, QCheckBox,
+            QPushButton, QHBoxLayout
         )
-        if reply == QMessageBox.StandardButton.Yes:
-            self._run_stats_pipeline()
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Generate Enhancements")
+        dialog.setMinimumWidth(400)
+        layout = QVBoxLayout(dialog)
+
+        layout.addWidget(QLabel(
+            f"{len(missing_keys)} enhancement files are missing.\n"
+            "Select which categories to generate.\n"
+            "You can change this later in the Enhancements tab."
+        ))
+
+        layout.addSpacing(8)
+
+        # Determine which checkbox categories have missing files
+        missing_file_keys = set(missing_keys)
+        missing_checkbox_keys = set()
+        for checkbox_key, file_keys in AppSettings.ENHANCEMENT_CATEGORY_FILES.items():
+            if any(fk in missing_file_keys for fk in file_keys):
+                missing_checkbox_keys.add(checkbox_key)
+
+        checkboxes: dict[str, QCheckBox] = {}
+        for key, label in AppSettings.ENHANCEMENT_LABELS.items():
+            cb = QCheckBox(label)
+            if key in missing_checkbox_keys:
+                cb.setChecked(True)
+                cb.setText(f"{label}  (missing)")
+            else:
+                cb.setChecked(False)
+            checkboxes[key] = cb
+            layout.addWidget(cb)
+
+        layout.addSpacing(8)
+
+        info = QLabel(
+            "DataForge data will be extracted automatically if not already cached.\n"
+            "First run takes ~5-10 minutes."
+        )
+        info.setStyleSheet("font-size: 11px; color: #666;")
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        layout.addSpacing(8)
+
+        button_row = QHBoxLayout()
+        generate_btn = QPushButton("Generate")
+        generate_btn.setDefault(True)
+        skip_btn = QPushButton("Skip")
+
+        generate_btn.clicked.connect(dialog.accept)
+        skip_btn.clicked.connect(dialog.reject)
+
+        button_row.addStretch()
+        button_row.addWidget(skip_btn)
+        button_row.addWidget(generate_btn)
+        layout.addLayout(button_row)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            # Only save state for categories that were missing — don't touch
+            # the persisted state of categories that already have their files
+            for key, cb in checkboxes.items():
+                if key in missing_checkbox_keys:
+                    AppSettings.set_enhancement_category_enabled(key, cb.isChecked())
+            # Refresh enhancements tab checkboxes to match
+            self.enhancements_tab.revert_category_checkboxes()
+            self.enhancements_tab.refresh_enhancements_status()
+            return AppSettings.get_enabled_enhancement_categories()
+
+        return None
 
     def _show_loading_progress(self, message: str = "Loading localization strings...") -> None:
         """Show an animated progress dialog while loading files in a worker thread.
@@ -1773,13 +2040,18 @@ Shows the sync status for each configured source. "✓" means up to date.
         self._loader_worker.error.connect(self._on_loading_error)
         self._loader_worker.start()
 
-    @pyqtSlot(list)
-    def _on_loading_finished(self, entries: list):
-        """Handle file loading completion."""
-        import time as _time
+    @pyqtSlot(list, dict, list)
+    @timed
+    def _on_loading_finished(self, entries: list, default_values: dict, sort_keys: list):
+        """Handle file loading completion.
 
-        # Close progress dialog and clean up worker FIRST so the modal event loop
-        # exits before we do heavy synchronous UI work (populate_table with 87K+ rows).
+        Args:
+            entries: Merged StringEntry list.
+            default_values: Global source key→value dict (for the Default Value column).
+            sort_keys: Pre-computed grouped sort keys (one per entry).
+        """
+        # Close modal progress dialog and clean up worker FIRST so the modal
+        # event loop exits before heavy synchronous UI work.
         if self._loading_progress is not None:
             self._loading_progress.close()
             self._loading_progress = None
@@ -1788,31 +2060,27 @@ Shows the sync status for each configured source. "✓" means up to date.
             self._loader_worker.wait()
             self._loader_worker = None
 
-        self.statusBar().showMessage("Populating table…")
-
-        t0 = _time.perf_counter()
-        self.load_default_values()
-        logger.info(f"load_default_values: {_time.perf_counter() - t0:.3f}s")
-
+        self.default_values = default_values
         self.entries = entries
-
-        t1 = _time.perf_counter()
         self.update_category_combo()
-        logger.info(f"update_category_combo: {_time.perf_counter() - t1:.3f}s")
 
-        t2 = _time.perf_counter()
-        self.populate_table()
-        logger.info(f"populate_table: {_time.perf_counter() - t2:.3f}s")
+        # Push data into the model — the view renders only visible rows, so this is instant
+        self._model.set_data_source(
+            self.entries,
+            self.default_values,
+            AppSettings.get_favorite_prefix(),
+            sort_keys=sort_keys,
+        )
+        self.apply_filters()
 
         # Update status bar with entry counts and per-source status
         self._update_status_bar()
-        logger.info(f"_on_loading_finished total: {_time.perf_counter() - t0:.3f}s")
 
-        # If stats check was deferred during startup, do it now (after file loading completes)
-        # This avoids concurrent I/O contention between file loader and stats generator
-        if self._check_stats_after_loading:
-            self._check_stats_after_loading = False
-            self._check_stats_freshness()
+        # If enhancements check was deferred during startup, do it now (after file loading completes)
+        # This avoids concurrent I/O contention between file loader and enhancements generator
+        if self._check_enhancements_after_loading:
+            self._check_enhancements_after_loading = False
+            self._check_enhancements_freshness()
 
     @pyqtSlot(str)
     def _on_loading_error(self, error_msg: str):
@@ -1825,9 +2093,9 @@ Shows the sync status for each configured source. "✓" means up to date.
             self._loader_worker.wait()
             self._loader_worker = None
 
-    def _run_stats_pipeline(self):
-        """Entry point for the stats button: extract DataForge if needed, then generate stats."""
-        if self._stats_worker is not None or self._forge_worker is not None:
+    def _run_enhancements_pipeline(self):
+        """Entry point for the enhancements button: extract DataForge if needed, then generate enhancements."""
+        if self._enhancements_worker is not None or self._forge_worker is not None:
             return  # already running
 
         from src.utils.pak_extractor import dataforge_cache_is_fresh
@@ -1835,51 +2103,55 @@ Shows the sync status for each configured source. "✓" means up to date.
         p4k_path  = AppSettings.get_p4k_path()
 
         if dataforge_cache_is_fresh(p4k_path, forge_dir):
-            self._run_stats_generation()
+            self._run_enhancements_generation()
         else:
             self._run_dataforge_extraction()
 
-    def _run_stats_generation(self):
-        """Launch StatsGeneratorWorker in the background with animated progress dialog."""
-        if self._stats_worker is not None:
+    def _run_enhancements_generation(self, categories: set[str] | None = None):
+        """Launch EnhancementsGeneratorWorker in the background with animated progress dialog."""
+        if self._enhancements_worker is not None:
             return  # already running
 
-        self._stats_worker = StatsGeneratorWorker()
+        # Use enabled categories from settings if none specified
+        if categories is None:
+            categories = AppSettings.get_enabled_enhancement_categories()
+
+        self._enhancements_worker = EnhancementsGeneratorWorker(categories=categories)
         self.enhancements_tab.set_operation_running("Generating enhancements…")
         self.statusBar().showMessage("Generating enhancements in background…")
 
         # Show animated progress dialog
-        self._stats_progress_dialog = AnimatedProgressDialog(
+        self._enhancements_progress_dialog = AnimatedProgressDialog(
             "Generating enhanced localizations from DataForge…\n\nThis may take a few minutes on the first run.",
             parent=self,
             title="Generating Enhancements",
         )
 
-        self._stats_worker.progress.connect(self.enhancements_tab.set_operation_progress)
-        self._stats_worker.progress.connect(self.statusBar().showMessage)
-        self._stats_worker.progress.connect(self._stats_progress_dialog.setLabelText)
-        self._stats_worker.error.connect(self._on_stats_generation_error)
-        self._stats_worker.finished.connect(self._on_stats_generation_finished)
-        self._stats_worker.start()
+        self._enhancements_worker.progress.connect(self.enhancements_tab.set_operation_progress)
+        self._enhancements_worker.progress.connect(self.statusBar().showMessage)
+        self._enhancements_worker.progress.connect(self._enhancements_progress_dialog.setLabelText)
+        self._enhancements_worker.error.connect(self._on_enhancements_generation_error)
+        self._enhancements_worker.finished.connect(self._on_enhancements_generation_finished)
+        self._enhancements_worker.start()
 
-    def _on_stats_generation_error(self, message: str):
-        logger.error(f"Stats generation error: {message}")
+    def _on_enhancements_generation_error(self, message: str):
+        logger.error(f"Enhancements generation error: {message}")
         # Close progress dialog on error
-        if self._stats_progress_dialog is not None:
-            self._stats_progress_dialog.close()
-            self._stats_progress_dialog = None
+        if self._enhancements_progress_dialog is not None:
+            self._enhancements_progress_dialog.close()
+            self._enhancements_progress_dialog = None
 
-    def _on_stats_generation_finished(self, success: bool):
+    def _on_enhancements_generation_finished(self, success: bool):
         # Close progress dialog
-        if self._stats_progress_dialog is not None:
-            self._stats_progress_dialog.close()
-            self._stats_progress_dialog = None
+        if self._enhancements_progress_dialog is not None:
+            self._enhancements_progress_dialog.close()
+            self._enhancements_progress_dialog = None
 
-        self._stats_worker.quit()
-        self._stats_worker.wait()
-        self._stats_worker = None
+        self._enhancements_worker.quit()
+        self._enhancements_worker.wait()
+        self._enhancements_worker = None
         self.enhancements_tab.set_operation_idle()
-        self.enhancements_tab.refresh_stats_status()
+        self.enhancements_tab.refresh_enhancements_status()
 
         if success:
             self.statusBar().showMessage("Enhancements generated — reloading entries…")
@@ -1918,7 +2190,7 @@ Shows the sync status for each configured source. "✓" means up to date.
 
         if success:
             self.statusBar().showMessage("DataForge extracted — generating enhancements…")
-            self._run_stats_generation()
+            self._run_enhancements_generation()
         else:
             self.enhancements_tab.set_operation_idle()
             self.statusBar().showMessage("DataForge extraction failed — check the Log tab for details")
@@ -1954,12 +2226,11 @@ Shows the sync status for each configured source. "✓" means up to date.
             local_path = str(AppSettings.get_cache_dir() / 'base.ini')
             AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, local_path)
             AppSettings.set_source_auto_update(AppSettings.SOURCE_GLOBAL, False)
-            # Refresh the config tab widget so the path/checkbox reflect the new state
-            self.config_tab.source_widgets[AppSettings.SOURCE_GLOBAL].load_settings()
+            # Refresh the config tab P4K status
             self.config_tab._refresh_p4k_status()
 
-            # Defer stats check until after file loading completes (avoid I/O contention)
-            self._check_stats_after_loading = True
+            # Defer enhancements check until after file loading completes (avoid I/O contention)
+            self._check_enhancements_after_loading = True
 
             # Show progress dialog while reloading with extracted data
             self._show_loading_progress("Reloading with extracted base.ini...")
@@ -1969,8 +2240,8 @@ Shows the sync status for each configured source. "✓" means up to date.
         # Auto-save overrides if there are unsaved edits
         if self.entries and not (self._loader_worker and self._loader_worker.isRunning()):
             try:
-                from src.utils.overrides_manager import save_overrides
-                save_overrides(self.entries, AppSettings.get_overrides_path())
+                from src.utils.user_ini_manager import save_user_ini
+                save_user_ini(self.entries, AppSettings.get_user_ini_path())
             except Exception as e:
                 logger.error(f"Failed to auto-save overrides on exit: {e}")
 
@@ -1988,8 +2259,9 @@ Shows the sync status for each configured source. "✓" means up to date.
 
         event.accept()
 
-    def _filtered_entry_indices(self) -> list[tuple[int, "StringEntry"]]:
-        """Return (index, entry) pairs for entries passing the current filters."""
+    @timed
+    def _filtered_entry_indices(self) -> list[int]:
+        """Return indices into self.entries for entries passing the current filters."""
         column_filters = self.filter_header.get_filter_texts()
         category_filter = self.category_combo.currentText()
         status_filter = self.status_combo.currentText()
@@ -2026,136 +2298,10 @@ Shows the sync status for each configured source. "✓" means up to date.
                         break
 
             if show:
-                result.append((idx, entry))
+                result.append(idx)
         return result
 
-    def populate_table(self):
-        """Populate table with only the entries that pass current filters."""
-        import time as _time
-        t0 = _time.perf_counter()
-
-        filtered = self._filtered_entry_indices()
-
-        self.table.setUpdatesEnabled(False)
-        self.table.setSortingEnabled(False)
-        self.table.setRowCount(len(filtered))
-        self.table.blockSignals(True)
-
-        # Cache values that would otherwise hit the Windows Registry per-row
-        prefix = AppSettings.get_favorite_prefix()
-        fav_bg = QColor("#3a3000")
-        num_cols = self.table.columnCount()
-
-        for row, (entry_idx, entry) in enumerate(filtered):
-            # Col 0: Category — stores entry index as UserRole so row→entry
-            # lookups stay correct after the user sorts a column.
-            cat_item = self._create_item(entry.category)
-            cat_item.setData(Qt.ItemDataRole.UserRole, entry_idx)
-            self.table.setItem(row, 0, cat_item)
-
-            # Col 1: Key — uses GroupSortItem for grouped sort support
-            key_item = GroupSortItem(entry.key)
-            key_item.setFlags(key_item.flags() | Qt.ItemFlag.ItemIsEditable)
-            self.table.setItem(row, 1, key_item)
-
-            # Col 2: Default value from reference base file (for comparison)
-            default_value = self.default_values.get(entry.key, "")
-            self.table.setItem(row, 2, self._create_item(default_value))
-
-            # Col 3: Current value (original_value from loaded file)
-            self.table.setItem(row, 3, self._create_item(entry.original_value))
-
-            # Col 4: Favorite star (Ships only — uses cached prefix)
-            if entry.category != "Ships":
-                star_item = QTableWidgetItem("")
-                star_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
-            else:
-                is_fav = entry.custom_value.startswith(prefix)
-                star_item = QTableWidgetItem("★" if is_fav else "☆")
-                star_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                star_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-                if is_fav:
-                    star_item.setForeground(QColor("#FFD700"))
-                    star_item.setToolTip("Favorite — click to remove")
-                else:
-                    star_item.setForeground(QColor("#666666"))
-                    star_item.setToolTip("Click to mark as favorite")
-            self.table.setItem(row, 4, star_item)
-
-            # Col 5: Custom value (editable)
-            self.table.setItem(row, 5, self._create_item(entry.custom_value))
-
-            # Col 6: Status
-            status_item = self._create_item(entry.status)
-            status_item.setForeground(self._status_color(entry.status))
-            self.table.setItem(row, 6, status_item)
-
-            # Apply favorite row background (uses cached prefix, no registry read)
-            if entry.category == "Ships" and entry.custom_value.startswith(prefix):
-                for col in range(num_cols):
-                    item = self.table.item(row, col)
-                    if item:
-                        item.setBackground(fav_bg)
-
-        self.table.blockSignals(False)
-        self.table.setSortingEnabled(True)
-
-        # Apply grouped sort if enabled
-        if self.grouped_sort_check.isChecked():
-            self.table.sortItems(1, Qt.SortOrder.AscendingOrder)
-
-        self.table.setUpdatesEnabled(True)
-        self.table_status_label.setText(f"Showing {len(filtered)} of {len(self.entries)} strings")
-        logger.info(f"populate_table: {len(filtered)} rows ({_time.perf_counter() - t0:.3f}s)")
-
-    def _create_item(self, text: str):
-        """Create table item with text."""
-        item = QTableWidgetItem(text)
-        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
-        return item
-
-    def _create_star_item(self, entry: "StringEntry") -> QTableWidgetItem:
-        """Create the favorite star cell for a row. Only Ships get a clickable star."""
-        if entry.category != "Ships":
-            item = QTableWidgetItem("")
-            item.setFlags(Qt.ItemFlag.ItemIsEnabled)
-            return item
-
-        prefix = AppSettings.get_favorite_prefix()
-        is_fav = entry.custom_value.startswith(prefix)
-        item = QTableWidgetItem("★" if is_fav else "☆")
-        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-        if is_fav:
-            item.setForeground(QColor("#FFD700"))  # gold
-            item.setToolTip("Favorite — click to remove")
-        else:
-            item.setForeground(QColor("#666666"))
-            item.setToolTip("Click to mark as favorite")
-        return item
-
-    def _apply_row_style(self, row: int, entry: "StringEntry"):
-        """Apply background color to a row based on favorite state."""
-        prefix = AppSettings.get_favorite_prefix()
-        is_favorite = entry.category == "Ships" and entry.custom_value.startswith(prefix)
-        for col in range(self.table.columnCount()):
-            item = self.table.item(row, col)
-            if item:
-                if is_favorite:
-                    item.setBackground(QColor("#3a3000"))
-                else:
-                    # Clear to system default — avoids black cells in light mode
-                    item.setData(Qt.ItemDataRole.BackgroundRole, None)
-
-    def _status_color(self, status: str) -> QColor:
-        """Get color for status."""
-        colors = {
-            "Modified": QColor("#4CAF50"),
-            "Unmodified": QColor("#999999"),
-            "New": QColor("#FF9800"),
-        }
-        return colors.get(status, QColor("black"))
-
+    @timed
     def update_category_combo(self):
         """Update category combo with unique categories from entries.
 
@@ -2175,38 +2321,24 @@ Shows the sync status for each configured source. "✓" means up to date.
         self.category_combo.addItems(categories)
         self.category_combo.blockSignals(False)
 
-    def _entry_index_for_row(self, table_row: int) -> int:
-        """Return the self.entries index for a given table row.
-
-        After sorting, visual row order differs from self.entries order.
-        The entry index is stored as UserRole data on col 0 at populate time.
-        """
-        item = self.table.item(table_row, 0)
-        if item is not None:
-            idx = item.data(Qt.ItemDataRole.UserRole)
-            if idx is not None:
-                return idx
-        return table_row  # fallback (pre-sort or empty table)
+    def _entry_index_for_row(self, row: int) -> int:
+        """Map a visual table row to an index into self.entries."""
+        return self._model.entry_index_for_row(row)
 
     @pyqtSlot()
     def apply_filters(self):
-        """Apply filters by rebuilding the table with only matching entries."""
+        """Apply filters by updating the model's filtered index list."""
         if not self.entries:
             return
-        self.populate_table()
+        indices = self._filtered_entry_indices()
+        self._model.set_filtered_indices(indices)
+        self.table_status_label.setText(f"Showing {len(indices)} of {len(self.entries)} strings")
 
     @pyqtSlot()
-    def _on_grouped_sort_changed(self):
-        """Toggle grouped sort mode and sort by Key column."""
-        global _grouped_sort_enabled
-        _grouped_sort_enabled = self.grouped_sort_check.isChecked()
-        from PyQt6.QtWidgets import QApplication
-        progress = AnimatedProgressDialog("Sorting...", parent=self, title="Grouped Sort")
-        QApplication.processEvents()
-        try:
-            self.table.sortItems(1, Qt.SortOrder.AscendingOrder)
-        finally:
-            progress.close()
+    def _on_grouped_sort(self):
+        """Apply grouped sort by Key column."""
+        self._model.set_grouped_sort(True)
+        self._model.sort(1, Qt.SortOrder.AscendingOrder)
 
     @pyqtSlot()
     def clear_filters(self):
@@ -2233,20 +2365,14 @@ Shows the sync status for each configured source. "✓" means up to date.
     def copy_filtered_to_clipboard(self):
         """Copy all visible filtered rows to clipboard (tab-separated)."""
         lines = []
-        # Add header
         lines.append("Key\tOriginal Value\tCurrent Value\tCustom Value\tStatus")
 
-        # Add visible rows
-        for table_row in range(self.table.rowCount()):
-            if self.table.isRowHidden(table_row):
-                continue
-
-            entry_idx = self._entry_index_for_row(table_row)
+        for proxy_row in range(self._model.rowCount()):
+            entry_idx = self._entry_index_for_row(proxy_row)
             if entry_idx >= len(self.entries):
                 continue
 
             entry = self.entries[entry_idx]
-            # Tab-separated: Key, Original Value, Current Value, Custom Value, Status
             line = f"{entry.key}\t{entry.original_value}\t{entry.original_value}\t{entry.custom_value}\t{entry.status}"
             lines.append(line)
 
@@ -2262,33 +2388,14 @@ Shows the sync status for each configured source. "✓" means up to date.
         except Exception as e:
             QMessageBox.warning(self, "Copy Error", f"Failed to copy to clipboard: {e}")
 
-    @pyqtSlot(QTableWidgetItem)
-    def on_item_changed(self, item: QTableWidgetItem):
-        """Handle table item edit."""
-        table_row = item.row()
-        col = item.column()
-
-        if col == 5:  # Custom Value column
-            entry_idx = self._entry_index_for_row(table_row)
-            if entry_idx >= len(self.entries):
-                return
-            entry = self.entries[entry_idx]
-            entry.custom_value = item.text()
-            entry.status = "Modified" if item.text() != entry.original_value else "Unmodified"
-            status_item = self._create_item(entry.status)
-            status_item.setForeground(self._status_color(entry.status))
-            self.table.setItem(table_row, 6, status_item)
-            self.table.setItem(table_row, 4, self._create_star_item(entry))
-            self._apply_row_style(table_row, entry)
-
     def show_context_menu(self, position):
         """Show right-click context menu."""
-        item = self.table.itemAt(position)
-        if not item:
+        proxy_index = self.table.indexAt(position)
+        if not proxy_index.isValid():
             return
 
-        table_row = item.row()
-        entry_idx = self._entry_index_for_row(table_row)
+        proxy_row = proxy_index.row()
+        entry_idx = self._entry_index_for_row(proxy_row)
         if entry_idx >= len(self.entries):
             return
 
@@ -2297,46 +2404,49 @@ Shows the sync status for each configured source. "✓" means up to date.
         is_favorite = entry.custom_value.startswith(prefix)
 
         menu = QMenu(self)
-        menu.addAction("Copy Cell", lambda: self.copy_cell(item))
-        menu.addAction("Copy Key", lambda: self.copy_key(table_row))
+        menu.addAction("Copy Cell", lambda: self.copy_cell(proxy_index))
+        menu.addAction("Copy Key", lambda: self.copy_key(proxy_row))
         menu.addSeparator()
-        menu.addAction("Edit", lambda: self.edit_cell(table_row))
-        menu.addAction("Reset to Original", lambda: self.reset_to_original(table_row))
+        menu.addAction("Edit", lambda: self.edit_cell(proxy_row))
+        menu.addAction("Reset to Original", lambda: self.reset_to_original(proxy_row))
         menu.addSeparator()
         menu.addAction("Copy All Filtered", lambda: self.copy_filtered_to_clipboard())
 
         if entry.category == "Ships":
             menu.addSeparator()
             if is_favorite:
-                menu.addAction("★ Remove from Favorites", lambda: self.toggle_favorite(table_row))
+                menu.addAction("★ Remove from Favorites", lambda: self.toggle_favorite(proxy_row))
             else:
-                menu.addAction("★ Add to Favorites", lambda: self.toggle_favorite(table_row))
+                menu.addAction("★ Add to Favorites", lambda: self.toggle_favorite(proxy_row))
 
         menu.exec(self.table.mapToGlobal(position))
 
-    def edit_cell(self, row: int):
+    def edit_cell(self, proxy_row: int):
         """Edit custom value cell."""
-        self.table.editItem(self.table.item(row, 5))
+        self.table.edit(self._model.index(proxy_row, COL_CUSTOM))
 
-    def reset_to_original(self, table_row: int):
+    def reset_to_original(self, proxy_row: int):
         """Reset custom value to original."""
-        entry_idx = self._entry_index_for_row(table_row)
+        entry_idx = self._entry_index_for_row(proxy_row)
         if entry_idx < len(self.entries):
-            self.entries[entry_idx].custom_value = ""
-            self.entries[entry_idx].status = "Unmodified"
-            self.populate_table()
+            entry = self.entries[entry_idx]
+            entry.custom_value = ""
+            entry.status = "Unmodified"
+            self._model.notify_entry_changed(entry_idx)
 
-    def copy_cell(self, item: QTableWidgetItem):
+    def copy_cell(self, proxy_index: QModelIndex):
         """Copy the clicked cell's text to clipboard."""
-        import pyperclip
-        try:
-            pyperclip.copy(item.text())
-        except Exception:
-            pass
+        text = proxy_index.data(Qt.ItemDataRole.DisplayRole)
+        if text:
+            import pyperclip
+            try:
+                pyperclip.copy(text)
+            except Exception:
+                pass
 
-    def copy_key(self, table_row: int):
+    def copy_key(self, proxy_row: int):
         """Copy key to clipboard."""
-        entry_idx = self._entry_index_for_row(table_row)
+        entry_idx = self._entry_index_for_row(proxy_row)
         if entry_idx < len(self.entries):
             import pyperclip
             try:
@@ -2345,17 +2455,17 @@ Shows the sync status for each configured source. "✓" means up to date.
             except ImportError:
                 self.statusBar().showMessage("pyperclip not installed")
 
-    @pyqtSlot(int, int)
-    def on_cell_clicked(self, row: int, col: int):
+    @pyqtSlot(QModelIndex)
+    def _on_cell_clicked(self, proxy_index: QModelIndex):
         """Handle cell clicks — col 4 (★) toggles favorite for Ship rows."""
-        if col == 4:
-            entry_idx = self._entry_index_for_row(row)
+        if proxy_index.column() == COL_STAR:
+            entry_idx = self._entry_index_for_row(proxy_index.row())
             if entry_idx < len(self.entries) and self.entries[entry_idx].category == "Ships":
-                self.toggle_favorite(row)
+                self.toggle_favorite(proxy_index.row())
 
-    def toggle_favorite(self, table_row: int):
+    def toggle_favorite(self, proxy_row: int):
         """Add or remove the sort prefix from a ship's custom value."""
-        entry_idx = self._entry_index_for_row(table_row)
+        entry_idx = self._entry_index_for_row(proxy_row)
         if entry_idx >= len(self.entries):
             return
 
@@ -2363,24 +2473,16 @@ Shows the sync status for each configured source. "✓" means up to date.
         prefix = AppSettings.get_favorite_prefix()
 
         if entry.custom_value.startswith(prefix):
-            # Remove favorite: strip prefix
             new_value = entry.custom_value[len(prefix):]
             entry.custom_value = new_value if new_value != entry.original_value else ""
         else:
-            # Add favorite: prepend prefix to current display value
             base = entry.custom_value if entry.custom_value else entry.original_value
             entry.custom_value = prefix + base
 
         entry.status = "Modified" if entry.custom_value else "Unmodified"
 
-        self.table.blockSignals(True)
-        self.table.setItem(table_row, 4, self._create_star_item(entry))
-        self.table.setItem(table_row, 5, self._create_item(entry.custom_value))
-        status_item = self._create_item(entry.status)
-        status_item.setForeground(self._status_color(entry.status))
-        self.table.setItem(table_row, 6, status_item)
-        self._apply_row_style(table_row, entry)
-        self.table.blockSignals(False)
+        # Notify the model — view updates automatically
+        self._model.notify_entry_changed(entry_idx)
 
     def restore_window_state(self):
         """Restore window geometry and state."""

@@ -15,28 +15,38 @@ All Osiris DevWorks tools will be either **completely free** or have a **free ti
 ### 🎯 Core Features
 - **Load & Edit**: Load global.ini from your Star Citizen installation and customize strings in an intuitive table view
 - **Mission Contracts**: Edit mission contract and briefing text from the dedicated Missions category
-- **Smart Filtering**: Search strings, filter by category (Ships, Ship Items, Missions, Other), or modification status
+- **Smart Filtering**: Search strings, filter by category (Ships, Ship Items, Missions, Gear, Commodities, Journal, Other), or modification status
+- **Per-Column Filters**: Type directly into filter boxes below each column header for fine-grained searching
 - **Safe Application**: Automatic timestamped backups before applying changes to prevent data loss
 - **Restore Backups**: Keep up to 5 backup versions — revert changes anytime with one click
+- **Import INI**: Import an existing INI file and resolve conflicts key-by-key with the built-in conflict dialog
 
 ### 🔄 Auto-Update & Persistence
 - **P4K Extraction**: Extracts stock localization strings directly from your installed Data.p4k — always in sync with your game version
 - **Persistent Edits**: Your customizations are automatically saved and reloaded in every session
 - **Seamless Migration**: When Star Citizen updates, your saved edits automatically re-apply to the new base strings
-- **Clean UI**: Table view with filters, in-line editing, keyboard shortcuts, and a modern interface
+- **Clean UI**: High-performance table view with filters, in-line editing, keyboard shortcuts, and a modern interface
+
+### 📊 Enhancements
+- **Ship Stats**: SCM speed, hydrogen fuel, quantum fuel, cargo capacity, and weapon loadouts appended to ship descriptions
+- **Component Stats**: Shield HP, power draw, cooling rate, and other stats for ship components
+- **Weapon Stats**: DPS, fire rate, range, and damage stats for ship weapons and FPS weapons
+- **Mission Rewards**: Payment amounts appended to mission descriptions
+- **Selective Categories**: Enable or disable each enhancement category independently from the Enhancements tab
 
 ### 🛡️ Data Management
 - **Automatic Backups**: Timestamped backups created before applying changes to your game
 - **Registry Persistence**: All paths and preferences saved securely in Windows Registry
-- **AppData Storage**: Your custom edits stored in `%APPDATA%` for safe persistence across sessions
+- **Documents Storage**: Your custom edits stored in `Documents\SC Localization Editor\` for safe persistence across sessions
 
 ## Quick Start
 
-1. **First Launch**: App auto-detects your Star Citizen installation and prompts to extract strings from Data.p4k
-2. **Extract**: Click "Extract from Data.p4k" in the Config tab to load stock game strings
-3. **Edit Strings**: Use the search and filter tools, then double-click to customize any text
+1. **First Launch**: App auto-detects your Star Citizen installation and downloads the latest base localization file
+2. **Extract (Optional)**: Click "Extract from Data.p4k" in the Config tab to load stock game strings directly from your install
+3. **Edit Strings**: Use the search and filter tools, then double-click any Custom Value cell to customize text
 4. **Apply**: Click "Apply to Game" — your changes are saved and applied with an automatic backup
-5. **Migrate**: After game updates, re-extract from Data.p4k — your edits reapply automatically
+5. **Enhancements (Optional)**: Open the Enhancements tab to enable stat overlays for ships, components, and weapons
+6. **Migrate**: After game updates, re-extract from Data.p4k — your edits reapply automatically
 
 ## Community & Support
 
@@ -57,4 +67,4 @@ SC Localization Editor is completely free. If you find it valuable:
 
 Built with **PyQt6** and powered by the Star Citizen community's localization work.
 
-**Version**: 0.5.3 | **GitHub**: https://github.com/Osiris-DevWorks/sc-localization-editor
+**GitHub**: https://github.com/Osiris-DevWorks/sc-localization-editor

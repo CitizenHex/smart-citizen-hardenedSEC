@@ -1,4 +1,4 @@
-"""Generate commodity_crafting_stats.ini with blueprint usage data."""
+"""Generate commodity_crafting_enhancements.ini with blueprint usage data."""
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from collections import defaultdict
@@ -6,7 +6,7 @@ import subprocess, re, os, sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scripts.generate_stats_ini import DEFAULT_BASE_INI, parse_ini, write_ini, APP_CACHE_DIR
+from scripts.generate_enhancements_ini import DEFAULT_BASE_INI, parse_ini, write_ini, APP_CACHE_DIR
 
 forge_dir = Path("C:/Users/aabou/OneDrive/Documents/SC Localization Editor/cache/dataforge/raw/libs/foundry/records")
 scitem_dir = forge_dir / "entities" / "scitem"
@@ -175,7 +175,7 @@ for commodity in sorted(commodity_items.keys()):
         stats_block = f"== Blueprint Data ==\\n{bp_block}"
         out[desc_key] = f"{base_desc}\\n\\n{stats_block}"
 
-output_path = APP_CACHE_DIR / "commodity_crafting_stats.ini"
+output_path = APP_CACHE_DIR / "commodity_crafting_enhancements.ini"
 write_ini(output_path, out)
 print(f"Written {len(out)} entries to {output_path}")
 
