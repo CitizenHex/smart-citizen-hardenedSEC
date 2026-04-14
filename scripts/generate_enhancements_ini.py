@@ -904,69 +904,77 @@ def scan_contract_generators(contractgen_dir: Path, reputation_lookup: dict[str,
             except ET.ParseError:
                 continue
 
-            # Process all ContractGeneratorHandler_Career elements
-            for handler in root.findall(".//ContractGeneratorHandler_Career"):
-                debug_name = handler.get("debugName", "")
+            # Process both Career and List handler types
+            # Career handlers contain CareerContract children; List handlers contain Contract children
+            handler_configs = [
+                (".//ContractGeneratorHandler_Career", ".//CareerContract"),
+                (".//ContractGeneratorHandler_List", ".//Contract"),
+            ]
 
-                # Try to extract a system name from debugName for labelling variants
-                system_name = debug_name or "Unknown"
-                known_systems = {"Stanton", "Pyro", "Nyx", "Desert", "ArcCorp", "Crusader"}
-                if debug_name:
-                    parts = debug_name.split("_")
-                    for part in reversed(parts):
-                        if part in known_systems:
-                            system_name = part
-                            break
+            for handler_xpath, contract_xpath in handler_configs:
+                for handler in root.findall(handler_xpath):
+                    debug_name = handler.get("debugName", "")
 
-                # Find all CareerContract elements
-                contracts = handler.findall(".//CareerContract")
+                    # Try to extract a system name from debugName for labelling variants
+                    system_name = debug_name or "Unknown"
+                    known_systems = {"Stanton", "Pyro", "Nyx", "Desert", "ArcCorp", "Crusader"}
+                    if debug_name:
+                        parts = debug_name.split("_")
+                        for part in reversed(parts):
+                            if part in known_systems:
+                                system_name = part
+                                break
 
-                for contract in contracts:
-                    try:
-                        # Extract title and description keys
-                        title_param = contract.find(".//ContractStringParam[@param='Title']")
-                        desc_param = contract.find(".//ContractStringParam[@param='Description']")
+                    contracts = handler.findall(contract_xpath)
 
-                        if title_param is None:
-                            continue
+                    for contract in contracts:
+                        try:
+                            # Extract title and description keys
+                            title_param = contract.find(".//ContractStringParam[@param='Title']")
+                            desc_param = contract.find(".//ContractStringParam[@param='Description']")
 
-                        title_key = title_param.get("value", "").lstrip("@")
-                        desc_key = desc_param.get("value", "").lstrip("@") if desc_param is not None else ""
+                            if title_param is None:
+                                continue
 
-                        if not title_key:
-                            continue
+                            title_key = title_param.get("value", "").lstrip("@")
+                            desc_key = desc_param.get("value", "").lstrip("@") if desc_param is not None else ""
 
-                        # Extract blueprint pool UUID if present
-                        for bp_elem in contract.iter("BlueprintRewards"):
-                            pool_uuid = bp_elem.get("blueprintPool", "")
-                            null_uuid = "00000000-0000-0000-0000-000000000000"
-                            if pool_uuid and pool_uuid != null_uuid and pool_uuid in blueprint_pools:
-                                if title_key not in mission_blueprints:
-                                    mission_blueprints[title_key] = blueprint_pools[pool_uuid]
+                            if not title_key:
+                                continue
 
-                        # Extract XP from ContractResult_LegacyReputation blocks
-                        # First block with positive XP = success, first with negative = failure
-                        legacy_reps = contract.findall(".//ContractResult_LegacyReputation")
-                        success_xp = 0
-                        failure_xp = 0
+                            # Extract blueprint pool UUID if present
+                            for bp_elem in contract.iter("BlueprintRewards"):
+                                pool_uuid = bp_elem.get("blueprintPool", "")
+                                null_uuid = "00000000-0000-0000-0000-000000000000"
+                                if pool_uuid and pool_uuid != null_uuid and pool_uuid in blueprint_pools:
+                                    if title_key not in mission_blueprints:
+                                        mission_blueprints[title_key] = blueprint_pools[pool_uuid]
 
-                        for legacy_rep in legacy_reps:
-                            rep_amount = legacy_rep.find("contractResultReputationAmounts")
-                            if rep_amount is not None:
-                                reward_uuid = rep_amount.get("reward")
-                                if reward_uuid and reward_uuid in reputation_lookup:
-                                    val = reputation_lookup[reward_uuid]
-                                    if val > 0 and success_xp == 0:
-                                        success_xp = val
-                                    elif val < 0 and failure_xp == 0:
-                                        failure_xp = val
+                            # Extract XP from ContractResult_LegacyReputation blocks
+                            # First block with positive XP = success, first with negative = failure
+                            legacy_reps = contract.findall(".//ContractResult_LegacyReputation")
+                            success_xp = 0
+                            failure_xp = 0
 
-                        if success_xp > 0:
-                            if title_key not in missions:
-                                missions[title_key] = []
-                            missions[title_key].append((system_name, success_xp, failure_xp, desc_key))
-                    except Exception as e:
-                        pass
+                            for legacy_rep in legacy_reps:
+                                rep_amount = legacy_rep.find("contractResultReputationAmounts")
+                                if rep_amount is not None:
+                                    reward_uuid = rep_amount.get("reward")
+                                    if reward_uuid and reward_uuid in reputation_lookup:
+                                        val = reputation_lookup[reward_uuid]
+                                        if val > 0 and success_xp == 0:
+                                            success_xp = val
+                                        elif val < 0 and failure_xp == 0:
+                                            failure_xp = val
+
+                            # Add mission if it has XP data or blueprint rewards
+                            has_bp = title_key in mission_blueprints
+                            if success_xp > 0 or has_bp:
+                                if title_key not in missions:
+                                    missions[title_key] = []
+                                missions[title_key].append((system_name, success_xp, failure_xp, desc_key))
+                        except Exception as e:
+                            pass
 
         # Sort variants by system name for consistent output (Stanton first, then others alphabetically)
         for title_key in missions:
@@ -2058,15 +2066,16 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
 
             unique_xp = sorted(set(sxp for sxp, _ in seen_tiers))
 
-            # Title: append [BP] tag if blueprints exist, then [XP] tag
+            # Title: append [BP] tag if blueprints exist, then [XP] tag (skip if no XP data)
             has_blueprints = title_key in mission_blueprints
             augmented_title = base_title
             if has_blueprints:
                 augmented_title += " <EM4>[BP]</EM4>"
-            if len(unique_xp) == 1:
-                augmented_title += f" [{unique_xp[0]:,} XP]"
-            else:
-                augmented_title += f" [{min(unique_xp):,}\u2013{max(unique_xp):,} XP]"
+            nonzero_xp = [x for x in unique_xp if x > 0]
+            if len(nonzero_xp) == 1:
+                augmented_title += f" [{nonzero_xp[0]:,} XP]"
+            elif len(nonzero_xp) > 1:
+                augmented_title += f" [{min(nonzero_xp):,}\u2013{max(nonzero_xp):,} XP]"
             out_missions[title_key] = augmented_title
             mission_titles_augmented += 1
 
@@ -2075,15 +2084,17 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             if desc_key and desc_key in loc:
                 base_desc = loc[desc_key]
 
-                # Build XP block
-                if len(seen_tiers) == 1:
-                    sxp, fxp = seen_tiers[0]
+                # Build XP block (only if we have actual XP data)
+                nonzero_tiers = [(s, f) for s, f in seen_tiers if s > 0]
+                xp_block = ""
+                if len(nonzero_tiers) == 1:
+                    sxp, fxp = nonzero_tiers[0]
                     xp_block = f"Reputation XP: +{sxp:,}"
                     if fxp < 0:
                         xp_block += f"\\nFailure Penalty: {fxp:,} XP"
-                else:
+                elif len(nonzero_tiers) > 1:
                     xp_lines = []
-                    for i, (sxp, fxp) in enumerate(sorted(seen_tiers, key=lambda t: t[0]), 1):
+                    for i, (sxp, fxp) in enumerate(sorted(nonzero_tiers, key=lambda t: t[0]), 1):
                         line = f"Tier {i}: +{sxp:,} XP"
                         if fxp < 0:
                             line += f" (Failure: {fxp:,})"
@@ -2095,7 +2106,10 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                     bp_list = "\\n".join(f"- {name}" for name in mission_blueprints[title_key])
                     base_desc += f"\\n\\n<EM4>Potential Blueprints</EM4>\\n{bp_list}"
 
-                augmented_desc = append_enhancements(base_desc, xp_block)
+                if xp_block:
+                    augmented_desc = append_enhancements(base_desc, xp_block)
+                else:
+                    augmented_desc = base_desc
                 out_missions[desc_key] = augmented_desc
 
         # Process mission titles from the primary mission directory (pu_missions)

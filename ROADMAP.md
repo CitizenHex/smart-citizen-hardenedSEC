@@ -9,7 +9,16 @@
 - complete enhancements for ships, gear, components and journal items
 - configurable enhancements
 - useful info added to journal such as crafting/mining information
--end-to-end testing & version release
+- end-to-end testing & version release
+
+### 0.7.0 Hotfixes
+- fix crash when install dir not found
+
+### 0.7.1 Fixes
+- remember install locations from previous installs when installing/upgrading a new version
+- grouped sort not working with commodities 
+- Hemera is not getting its labels 
+- fix missing blueprints
 
 ## 0.8.x Final Mission, Crafting, & Commodity Detail Enhancements
 -complete enhancements for missions
