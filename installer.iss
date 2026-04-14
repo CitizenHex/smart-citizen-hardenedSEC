@@ -45,7 +45,6 @@ Filename: "{app}\SCLocalizationEditor-v0.7.0.exe"; Description: "{cm:LaunchProgr
 [Code]
 var
   SCDirectoryPage: TInputDirWizardPage;
-  SCDirectoryPath: String;
 
 function GetUninstallString(): String;
 var
@@ -110,7 +109,7 @@ begin
   begin
     Log('Cleaning cached data from: ' + UserDataDir);
     DelTree(UserDataDir + '\cache', True, True, True);
-    DelTree(UserDataDir + '\backups', True, True, True);
+    { Preserve backups and user.ini across upgrades }
   end;
 end;
 
@@ -144,9 +143,8 @@ begin
       UnInstallOldVersion();
     end;
 
-    { Clear all cached data and registry settings for a clean install }
+    { Clear cached data but preserve registry settings (source paths, preferences, etc.) }
     CleanCachedData();
-    CleanRegistrySettings();
   end;
 end;
 
@@ -223,26 +221,21 @@ begin
   SCDirectoryPage.Values[0] := DefaultPath;
 end;
 
-procedure CurPageChanged(CurPageID: Integer);
-begin
-  { Store the selected directory path }
-  if CurPageID = SCDirectoryPage.ID then
-  begin
-    SCDirectoryPath := SCDirectoryPage.Values[0];
-  end;
-end;
-
 procedure CurFinished(LastStep: TSetupStep);
 var
   RegPath: String;
+  FinalPath: String;
 begin
   if LastStep = ssPostInstall then
   begin
-    { Save the SC directory to registry for the application to use }
-    if SCDirectoryPath <> '' then
+    { Read the SC directory value at finish time (not page-change time)
+      to ensure we capture any edits the user made on the page }
+    FinalPath := SCDirectoryPage.Values[0];
+    if FinalPath <> '' then
     begin
       RegPath := 'Software\Osiris DevWorks\SC Localization Editor';
-      RegWriteStringValue(HKCU, RegPath, 'sc_directory', SCDirectoryPath);
+      RegWriteStringValue(HKCU, RegPath, 'sc_directory', FinalPath);
+      Log('Saved sc_directory to registry: ' + FinalPath);
     end;
   end;
 end;
