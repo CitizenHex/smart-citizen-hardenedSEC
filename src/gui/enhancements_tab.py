@@ -58,7 +58,16 @@ class EnhancementsTab(QWidget):
         enhancements_desc.setWordWrap(True)
         gl.addWidget(enhancements_desc)
 
-        # Per-category checkbox + status dot pairs
+        # Per-category checkbox + description + status dot
+        _CATEGORY_DESCRIPTIONS = {
+            "ships":       "Ship performance, loadout, and crew data",
+            "ship_items":  "Component class/size/grade annotations and statistics",
+            "gear":        "Combat stats for FPS weapons",
+            "missions":    "XP rewards and blueprint drops for missions",
+            "commodities": "Crafting recipes and material usage",
+            "journal":     "Mining Compendium with crafting data per mineral",
+        }
+
         self._enhancements_status_labels: dict = {}
         self._enhancements_checkboxes: dict = {}
         categories_layout = QVBoxLayout()
@@ -68,6 +77,7 @@ class EnhancementsTab(QWidget):
             cb = QCheckBox(label)
             cb.setChecked(AppSettings.get_enhancement_category_enabled(key))
             cb.setStyleSheet("font-size: 11px;")
+            cb.toggled.connect(self._on_category_checkbox_changed)
             row.addWidget(cb)
             self._enhancements_checkboxes[key] = cb
 
@@ -75,6 +85,10 @@ class EnhancementsTab(QWidget):
             dot.setStyleSheet("color: #999; font-size: 12px;")
             row.addWidget(dot)
             self._enhancements_status_labels[key] = dot
+
+            desc = QLabel(_CATEGORY_DESCRIPTIONS.get(key, ""))
+            desc.setStyleSheet("font-size: 10px; color: #888;")
+            row.addWidget(desc)
 
             row.addStretch()
             categories_layout.addLayout(row)
@@ -85,8 +99,9 @@ class EnhancementsTab(QWidget):
 
         self._apply_categories_btn = QPushButton("Apply")
         self._apply_categories_btn.setMaximumWidth(100)
+        self._apply_categories_btn.setEnabled(False)
         self._apply_categories_btn.setToolTip(
-            "Save category selection. Unchecked categories will be removed."
+            "Save category selection. Unchecked categories will be disabled."
         )
         self._apply_categories_btn.clicked.connect(self._apply_category_changes)
         btn_row.addWidget(self._apply_categories_btn)
@@ -116,6 +131,14 @@ class EnhancementsTab(QWidget):
         self.refresh_enhancements_status()
         return group
 
+    def _on_category_checkbox_changed(self):
+        """Enable Apply button if any checkbox differs from saved settings."""
+        has_changes = any(
+            cb.isChecked() != AppSettings.get_enhancement_category_enabled(key)
+            for key, cb in self._enhancements_checkboxes.items()
+        )
+        self._apply_categories_btn.setEnabled(has_changes)
+
     def _apply_category_changes(self):
         """Save checkbox states, disable/restore enhancement files, and trigger reload."""
         for key, cb in self._enhancements_checkboxes.items():
@@ -123,28 +146,34 @@ class EnhancementsTab(QWidget):
             AppSettings.set_enhancement_category_enabled(key, now_enabled)
 
             cache_dir = AppSettings.get_cache_dir()
-            filename = AppSettings.ENHANCEMENTS_FILES[key]
-            active_file = cache_dir / filename
-            disabled_file = cache_dir / (filename + ".disabled")
+            # Apply to all files mapped to this checkbox key
+            for filename in self._files_for_category(key):
+                active_file = cache_dir / filename
+                disabled_file = cache_dir / (filename + ".disabled")
 
-            if not now_enabled and active_file.exists():
-                # Disable: rename to .disabled so it's not loaded but can be restored
-                try:
-                    active_file.rename(disabled_file)
-                    logger.info(f"Disabled enhancement file: {filename}")
-                except OSError as e:
-                    logger.warning(f"Failed to disable {filename}: {e}")
+                if not now_enabled and active_file.exists():
+                    try:
+                        active_file.rename(disabled_file)
+                        logger.info(f"Disabled enhancement file: {filename}")
+                    except OSError as e:
+                        logger.warning(f"Failed to disable {filename}: {e}")
 
-            elif now_enabled and not active_file.exists() and disabled_file.exists():
-                # Re-enable: restore from .disabled
-                try:
-                    disabled_file.rename(active_file)
-                    logger.info(f"Restored enhancement file: {filename}")
-                except OSError as e:
-                    logger.warning(f"Failed to restore {filename}: {e}")
+                elif now_enabled and not active_file.exists() and disabled_file.exists():
+                    try:
+                        disabled_file.rename(active_file)
+                        logger.info(f"Restored enhancement file: {filename}")
+                    except OSError as e:
+                        logger.warning(f"Failed to restore {filename}: {e}")
 
+        self._apply_categories_btn.setEnabled(False)
         self.refresh_enhancements_status()
         self.merge_requested.emit()
+
+    @staticmethod
+    def _files_for_category(key: str) -> list[str]:
+        """Return the enhancement filenames controlled by a checkbox key."""
+        file_keys = AppSettings.ENHANCEMENT_CATEGORY_FILES.get(key, [key])
+        return [AppSettings.ENHANCEMENTS_FILES[fk] for fk in file_keys]
 
     def revert_category_checkboxes(self):
         """Reset checkboxes to match the saved settings (called when leaving tab without applying)."""
@@ -152,6 +181,7 @@ class EnhancementsTab(QWidget):
             cb.blockSignals(True)
             cb.setChecked(AppSettings.get_enhancement_category_enabled(key))
             cb.blockSignals(False)
+        self._apply_categories_btn.setEnabled(False)
 
     # ── Favorites ─────────────────────────────────────────────────────────────
 
@@ -257,9 +287,10 @@ class EnhancementsTab(QWidget):
         """Update enhancement file status indicators and DataForge cache status."""
         cache_dir = AppSettings.get_cache_dir()
         for key, dot in self._enhancements_status_labels.items():
-            filename = AppSettings.ENHANCEMENTS_FILES[key]
-            present = (cache_dir / filename).exists()
-            dot.setStyleSheet(f"color: {'#4caf50' if present else '#f44336'}; font-size: 12px;")
+            # Check all files controlled by this checkbox
+            filenames = self._files_for_category(key)
+            all_present = all((cache_dir / fn).exists() for fn in filenames)
+            dot.setStyleSheet(f"color: {'#4caf50' if all_present else '#f44336'}; font-size: 12px;")
         self.refresh_forge_status()
 
     def refresh_forge_status(self):

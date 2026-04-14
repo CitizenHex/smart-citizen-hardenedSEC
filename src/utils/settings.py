@@ -29,17 +29,28 @@ class AppSettings:
         "fps_weapon_descs":    "fps_weapons_desc_enhancements.ini",
         "mission_rewards":     "mission_rewards_enhancements.ini",
         "commodity_crafting":  "commodity_crafting_enhancements.ini",
+        "journal":            "journal_enhancements.ini",
         "missile_enhancements": "missile_enhancements.ini",
     }
 
+    # User-facing category labels — match the filter categories on the main page
     ENHANCEMENT_LABELS = {
-        "ship_descs":        "Ships",
-        "component_descs":   "Components",
-        "ship_weapon_descs": "Ship Weapons",
-        "fps_weapon_descs":  "FPS Weapons",
-        "mission_rewards":   "Missions",
-        "commodity_crafting": "Commodities",
-        "missile_enhancements": "Missiles",
+        "ships":       "Ships",
+        "ship_items":  "Ship Items",
+        "gear":        "Gear",
+        "missions":    "Missions",
+        "commodities": "Commodities",
+        "journal":     "Journal",
+    }
+
+    # Maps each checkbox key to the enhancement file keys it controls
+    ENHANCEMENT_CATEGORY_FILES = {
+        "ships":       ["ship_descs"],
+        "ship_items":  ["component_descs", "ship_weapon_descs", "missile_enhancements"],
+        "gear":        ["fps_weapon_descs"],
+        "missions":    ["mission_rewards"],
+        "commodities": ["commodity_crafting"],
+        "journal":     ["journal"],
     }
 
     # Settings keys - Legacy (kept for migration)
@@ -96,11 +107,12 @@ class AppSettings:
 
     @staticmethod
     def get_enabled_enhancement_categories() -> set[str]:
-        """Return the set of enabled enhancement category keys."""
-        return {
-            key for key in AppSettings.ENHANCEMENTS_FILES
-            if AppSettings.get_enhancement_category_enabled(key)
-        }
+        """Return the set of enabled enhancement file keys (expanding grouped categories)."""
+        result = set()
+        for checkbox_key, file_keys in AppSettings.ENHANCEMENT_CATEGORY_FILES.items():
+            if AppSettings.get_enhancement_category_enabled(checkbox_key):
+                result.update(file_keys)
+        return result
 
     @staticmethod
     def get_favorite_prefix() -> str:

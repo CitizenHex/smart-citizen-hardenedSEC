@@ -318,6 +318,7 @@ def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str], 
         "fps_weapon_descs":  "Gear",
         "mission_rewards":   "Missions",
         "commodity_crafting": "Commodities",
+        "journal":           "Journal",
         "missile_enhancements": "Ship Items",
     }
     enhancements_key_categories: Dict[str, str] = {}

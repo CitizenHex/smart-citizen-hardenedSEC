@@ -1965,12 +1965,21 @@ Shows the sync status for each configured source. "✓" means up to date.
 
         layout.addSpacing(8)
 
+        # Determine which checkbox categories have missing files
+        missing_file_keys = set(missing_keys)
+        missing_checkbox_keys = set()
+        for checkbox_key, file_keys in AppSettings.ENHANCEMENT_CATEGORY_FILES.items():
+            if any(fk in missing_file_keys for fk in file_keys):
+                missing_checkbox_keys.add(checkbox_key)
+
         checkboxes: dict[str, QCheckBox] = {}
         for key, label in AppSettings.ENHANCEMENT_LABELS.items():
             cb = QCheckBox(label)
-            cb.setChecked(AppSettings.get_enhancement_category_enabled(key))
-            if key in missing_keys:
+            if key in missing_checkbox_keys:
+                cb.setChecked(True)
                 cb.setText(f"{label}  (missing)")
+            else:
+                cb.setChecked(False)
             checkboxes[key] = cb
             layout.addWidget(cb)
 
@@ -2000,10 +2009,13 @@ Shows the sync status for each configured source. "✓" means up to date.
         layout.addLayout(button_row)
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            # Save selections
+            # Only save state for categories that were missing — don't touch
+            # the persisted state of categories that already have their files
             for key, cb in checkboxes.items():
-                AppSettings.set_enhancement_category_enabled(key, cb.isChecked())
+                if key in missing_checkbox_keys:
+                    AppSettings.set_enhancement_category_enabled(key, cb.isChecked())
             # Refresh enhancements tab checkboxes to match
+            self.enhancements_tab.revert_category_checkboxes()
             self.enhancements_tab.refresh_enhancements_status()
             return AppSettings.get_enabled_enhancement_categories()
 

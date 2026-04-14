@@ -1146,7 +1146,7 @@ def scan_crafting_blueprints(
         "tungsten": ("items_commodities_tungsten", "items_commodities_tungsten_desc"),
     }
 
-    # Build output
+    # Build commodity output
     out: dict[str, str] = {}
     for commodity in sorted(commodity_items.keys()):
         if commodity not in commodity_loc:
@@ -1164,30 +1164,27 @@ def scan_crafting_blueprints(
             enhancements_block = f"== Blueprint Data ==\\n{bp_block}"
             out[desc_key] = f"{base_desc}\\n\\n{enhancements_block}"
 
-    # ── Augment Mining Compendium journal entry with crafting usage ──────────
+    logger.info(f"Crafting: {len(out)} commodity entries augmented from {len(commodity_items)} commodities")
+
+    # Build journal output (separate dict for independent toggling)
+    out_journal: dict[str, str] = {}
     journal_title_key = "Journal_General_Mining_Compendium_Title"
     journal_content_key = "Journal_General_Mining_Compendium_Content"
     base_title = loc.get(journal_title_key, "")
     base_content = loc.get(journal_content_key, "")
 
     if base_title and base_content:
-        # Mark the title as edited by the app
-        out[journal_title_key] = f"{base_title} <EM4>[SCLE]</EM4>"
+        out_journal[journal_title_key] = f"{base_title} <EM4>[SCLE]</EM4>"
 
-        # Build mineral name → condensed crafting summary (case-insensitive match)
         mineral_crafting: dict[str, str] = {}
-        # Map display names to internal names: "Aluminium" in journal vs "aluminium" internal
-        # The journal uses the display mineral name as the first word before " - "
         for internal_name, items in commodity_items.items():
             condensed = _condense_crafted_items(items)
             if condensed:
                 mineral_crafting[internal_name] = ", ".join(condensed)
 
-        # Parse content lines (separated by \\n\\n) and augment mineral entries
         lines = base_content.split("\\n\\n")
         augmented_lines = []
         for line in lines:
-            # Each mineral line: "Agricium - ARC-L3, Cellin, ..."
             dash_idx = line.find(" - ")
             if dash_idx > 0:
                 mineral_display = line[:dash_idx].strip()
@@ -1196,11 +1193,10 @@ def scan_crafting_blueprints(
                     line = f"{line}\\n  >> Crafting: {mineral_crafting[mineral_lower]}"
             augmented_lines.append(line)
 
-        out[journal_content_key] = "\\n\\n".join(augmented_lines)
+        out_journal[journal_content_key] = "\\n\\n".join(augmented_lines)
         logger.info(f"Journal: augmented Mining Compendium with crafting data for {len(mineral_crafting)} minerals")
 
-    logger.info(f"Crafting: {len(out)} entries augmented from {len(commodity_items)} commodities")
-    return out
+    return out, out_journal
 
 
 def enhancements_weapon(root: ET.Element, ammo_lookup: dict[str, ET.Element],
@@ -2180,15 +2176,16 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                 logger.info(f"  Skipped ({reason}): {len(keys)} — e.g. {', '.join(keys[:5])}")
         _flush()
 
-    # ── Process crafting blueprints and augment commodities ──────────────────
+    # ── Process crafting blueprints and augment commodities + journal ────────
     out_commodities: dict[str, str] = {}
-    if _want("commodity_crafting"):
+    out_journal: dict[str, str] = {}
+    if _want("commodity_crafting") or _want("journal"):
         logger.info("CHECKPOINT: Processing crafting blueprints…")
         _flush()
 
         bp_dir = records / "crafting" / "blueprints" / "crafting"
         carryables_dir = scitem_dir / "carryables"
-        out_commodities = scan_crafting_blueprints(bp_dir, carryables_dir, entity_names, loc)
+        out_commodities, out_journal = scan_crafting_blueprints(bp_dir, carryables_dir, entity_names, loc)
 
     # ── Write output ──────────────────────────────────────────────────────────
     logger.info("CHECKPOINT: Writing output files…")
@@ -2205,11 +2202,14 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         write_ini(OUTPUT_DIR / "mission_rewards_enhancements.ini", out_missions)
     if _want("commodity_crafting"):
         write_ini(OUTPUT_DIR / "commodity_crafting_enhancements.ini", out_commodities)
+    if _want("journal"):
+        write_ini(OUTPUT_DIR / "journal_enhancements.ini", out_journal)
     if _want("missile_enhancements"):
         write_ini(OUTPUT_DIR / "missile_enhancements.ini", out_missiles)
 
     total = (len(out_ships) + len(out_components) + len(out_ship_weapons) +
-             len(out_fps_weapons) + len(out_missions) + len(out_commodities) + len(out_missiles))
+             len(out_fps_weapons) + len(out_missions) + len(out_commodities) +
+             len(out_journal) + len(out_missiles))
     logger.info(f"Done — {total:,} total stat entries written to {OUTPUT_DIR}")
 
 
