@@ -97,7 +97,7 @@ class StringEntry:
         if "journal" in key_lower:
             return "Journal"
 
-        # Mission-related keys — prefixes derived from mission_rewards_stats.ini,
+        # Mission-related keys — prefixes derived from mission_rewards_enhancements.ini,
         # contracts.ini, and DataForge pu_missions entities.
         # Compared case-insensitively.  Prefer bare prefixes (no trailing _)
         # where safe, to catch variant spellings (e.g. bitzeros vs bitzeroes).

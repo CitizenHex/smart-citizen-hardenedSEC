@@ -2,7 +2,10 @@
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from src.utils.perf import timed
 
+
+@timed
 def merge_sources_by_hierarchy(
     sources_dict: Dict[str, Dict[str, str]],
     hierarchy: List[str],
@@ -106,6 +109,7 @@ def _get_canonical_key(key: str) -> str:
     return key_no_underscore
 
 
+@timed
 def sync_key_variants(merged_dict: Dict[str, str]) -> None:
     """Sync values across key variants in a merged dictionary.
 
@@ -151,6 +155,7 @@ def sync_key_variants(merged_dict: Dict[str, str]) -> None:
                 merged_dict[var] = synced_value
 
 
+@timed
 def merge_ini_files(
     source_path: str | Path,
     overrides_dict: Dict[str, str],

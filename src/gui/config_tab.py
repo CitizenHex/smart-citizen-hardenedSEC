@@ -43,9 +43,9 @@ class SourceConfigWidget(QWidget):
         self.status_label.setStyleSheet("color: #999; font-size: 14px;")
         header_layout.addWidget(self.status_label)
 
-        self.stats_label = QLabel("")
-        self.stats_label.setStyleSheet("font-size: 10px; color: #666;")
-        header_layout.addWidget(self.stats_label)
+        self.enhancements_label = QLabel("")
+        self.enhancements_label.setStyleSheet("font-size: 10px; color: #666;")
+        header_layout.addWidget(self.enhancements_label)
 
         header_layout.addStretch()
         layout.addLayout(header_layout)
@@ -144,24 +144,24 @@ class SourceConfigWidget(QWidget):
         """Update the status dot based on source availability."""
         if not self.enable_checkbox.isChecked():
             self.status_label.setStyleSheet("color: #999; font-size: 14px;")
-            self.stats_label.setText("(disabled)")
+            self.enhancements_label.setText("(disabled)")
             return
 
         source_path = self.path_input.text()
         if not source_path:
             self.status_label.setStyleSheet("color: #ff9800; font-size: 14px;")
-            self.stats_label.setText("(no path configured)")
+            self.enhancements_label.setText("(no path configured)")
             return
 
         if source_path.startswith('http://') or source_path.startswith('https://'):
             self.status_label.setStyleSheet("color: #4caf50; font-size: 14px;")
-            self.stats_label.setText("(remote URL)")
+            self.enhancements_label.setText("(remote URL)")
         elif Path(source_path).exists():
             self.status_label.setStyleSheet("color: #4caf50; font-size: 14px;")
-            self.stats_label.setText("(available)")
+            self.enhancements_label.setText("(available)")
         else:
             self.status_label.setStyleSheet("color: #f44336; font-size: 14px;")
-            self.stats_label.setText("(file not found)")
+            self.enhancements_label.setText("(file not found)")
 
 
 class ConfigTab(QWidget):

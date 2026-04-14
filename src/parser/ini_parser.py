@@ -5,10 +5,12 @@ from typing import Dict, List, Optional
 
 from src.models.string_model import StringEntry
 from src.merger.ini_merger import merge_sources_by_hierarchy
+from src.utils.perf import timed
 
 logger = logging.getLogger(__name__)
 
 
+@timed
 def parse_ini_file(path: str | Path) -> Dict[str, str]:
     """Parse INI file line-by-line, preserving efficiency.
 
@@ -57,12 +59,13 @@ def parse_ini_file(path: str | Path) -> Dict[str, str]:
     return result
 
 
+@timed
 def load_source_files(
     sources_dict: Dict[str, Dict[str, str]],
     hierarchy: List[str],
     user_overrides: Optional[Dict[str, str]] = None,
     custom_path: Optional[str | Path] = None,
-    stats_key_categories: Optional[Dict[str, str]] = None,
+    enhancements_key_categories: Optional[Dict[str, str]] = None,
 ) -> List[StringEntry]:
     """Load source files and build StringEntry list using hierarchy merge.
 
@@ -112,12 +115,7 @@ def load_source_files(
         # Map source types to their relevant categories
         source_category_filters = {
             AppSettings.SOURCE_GLOBAL: None,           # No filtering - load all
-            AppSettings.SOURCE_CONTRACTS: "Missions",
-            AppSettings.SOURCE_COMPONENTS: "Ship Items",
-            AppSettings.SOURCE_SHIPS: "Ships",         # vehicle_Name* and vehicle_Desc* both map to Ships
-            AppSettings.SOURCE_COMMODITIES: "Commodities",
-            AppSettings.SOURCE_GEAR: "Gear",           # FPS weapons, armor, personal equipment
-            "stats": None,                             # No filtering - description keys are "Other"
+            "enhancements": None,                       # No filtering
         }
 
         category_filter = source_category_filters.get(source_name)
@@ -203,8 +201,8 @@ def load_source_files(
             category = 'Missions'
         elif 'journal' in key.lower():
             category = 'Journal'
-        elif stats_key_categories and key in stats_key_categories:
-            category = stats_key_categories[key]
+        elif enhancements_key_categories and key in enhancements_key_categories:
+            category = enhancements_key_categories[key]
         else:
             category = StringEntry.extract_category(key)
 
@@ -222,6 +220,7 @@ def load_source_files(
     return entries
 
 
+@timed
 def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str], Dict[str, str]]:
     """Load all sources from application settings.
 
@@ -242,11 +241,6 @@ def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str], 
     # Map source names to their cached file names in Documents cache
     cache_mapping = {
         AppSettings.SOURCE_GLOBAL:      "base.ini",
-        AppSettings.SOURCE_CONTRACTS:   "contracts.ini",
-        AppSettings.SOURCE_COMPONENTS:  "components.ini",
-        AppSettings.SOURCE_SHIPS:       "ships.ini",
-        AppSettings.SOURCE_COMMODITIES: "commodities.ini",
-        AppSettings.SOURCE_GEAR:        "gear.ini",
     }
 
     cache_dir = AppSettings.get_cache_dir()
@@ -315,47 +309,48 @@ def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str], 
         except Exception as e:
             logger.exception(f"Failed to load source {source_name} from {source_path}: {e}")
 
-    # ── Stats enhancements ───────────────────────────────────────────────────
-    # Map stats file labels to the category their keys should be assigned to
-    _STATS_LABEL_CATEGORY = {
+    # ── Enhancements ────────────────────────────────────────────────────────
+    # Map enhancements file labels to the category their keys should be assigned to
+    _ENHANCEMENTS_LABEL_CATEGORY = {
         "ship_descs":        "Ships",
         "component_descs":   "Ship Items",
         "ship_weapon_descs": "Ship Items",
         "fps_weapon_descs":  "Gear",
         "mission_rewards":   "Missions",
         "commodity_crafting": "Commodities",
-        "missile_stats":     "Ship Items",
+        "missile_enhancements": "Ship Items",
     }
-    stats_key_categories: Dict[str, str] = {}
-    if AppSettings.get_stats_enabled():
-        stats_combined: Dict[str, str] = {}
-        for label, filename in AppSettings.STATS_FILES.items():
-            stats_file = cache_dir / filename
-            if stats_file.exists():
-                data = parse_ini_file(stats_file)
-                category = _STATS_LABEL_CATEGORY.get(label)
+    enhancements_key_categories: Dict[str, str] = {}
+    if AppSettings.get_enhancements_enabled():
+        enhancements_combined: Dict[str, str] = {}
+        for label, filename in AppSettings.ENHANCEMENTS_FILES.items():
+            enhancements_file = cache_dir / filename
+            if enhancements_file.exists():
+                data = parse_ini_file(enhancements_file)
+                category = _ENHANCEMENTS_LABEL_CATEGORY.get(label)
                 if category:
                     for key in data:
-                        stats_key_categories[key] = category
-                stats_combined.update(data)
-                logger.info(f"Loaded {len(data)} stats entries from {filename}")
+                        enhancements_key_categories[key] = category
+                enhancements_combined.update(data)
+                logger.info(f"Loaded {len(data)} enhancement entries from {filename}")
             else:
-                logger.debug(f"Stats file not found (skipping): {stats_file}")
+                logger.debug(f"Enhancements file not found (skipping): {enhancements_file}")
 
-        if stats_combined:
-            sources_dict["stats"] = stats_combined
-            logger.info(f"Stats enhancements: {len(stats_combined)} total entries loaded")
-            # Insert "stats" just before "user" in the hierarchy (or at end if no user)
+        if enhancements_combined:
+            sources_dict["enhancements"] = enhancements_combined
+            logger.info(f"Enhancements: {len(enhancements_combined)} total entries loaded")
+            # Insert "enhancements" just before "user" in the hierarchy (or at end if no user)
             if AppSettings.SOURCE_USER in hierarchy:
                 idx = hierarchy.index(AppSettings.SOURCE_USER)
-                hierarchy = hierarchy[:idx] + ["stats"] + hierarchy[idx:]
+                hierarchy = hierarchy[:idx] + ["enhancements"] + hierarchy[idx:]
             else:
-                hierarchy = hierarchy + ["stats"]
+                hierarchy = hierarchy + ["enhancements"]
 
     logger.info(f"load_sources_from_settings complete. Loaded sources: {list(sources_dict.keys())}")
-    return sources_dict, hierarchy, stats_key_categories
+    return sources_dict, hierarchy, enhancements_key_categories
 
 
+@timed
 def load_overrides(target_path: str | Path) -> Dict[str, str]:
     """Load override strings from target_strings.ini.
 

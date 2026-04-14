@@ -9,6 +9,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from src.utils.perf import timed
+
 logger = logging.getLogger(__name__)
 
 # Path of global.ini inside the p4k archive (unp4k preserves directory structure)
@@ -28,6 +30,7 @@ def _get_subprocess_kwargs() -> dict:
     return kwargs
 
 
+@timed
 def extract_global_ini(
     p4k_path: Path,
     output_path: Path,
@@ -94,6 +97,7 @@ def extract_global_ini(
     return True
 
 
+@timed
 def extract_dataforge(
     p4k_path: Path,
     unp4k_exe: Path,
@@ -210,6 +214,7 @@ def extract_dataforge(
     return True
 
 
+@timed
 def dataforge_cache_is_fresh(p4k_path: Path, dataforge_cache_dir: Path) -> bool:
     """Return True if the cached DataForge XMLs are up-to-date with the p4k.
 

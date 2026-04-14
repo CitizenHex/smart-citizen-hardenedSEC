@@ -10,9 +10,11 @@ from src.gui.main_window import MainWindow
 from src.utils.version import get_version
 from src.utils.settings import AppSettings
 
-# Setup logging
+# Setup logging — use --debug flag or LOG_LEVEL env var for perf timing output
+import os
+_log_level = logging.DEBUG if ('--debug' in sys.argv or os.environ.get('LOG_LEVEL', '').upper() == 'DEBUG') else logging.INFO
 logging.basicConfig(
-    level=logging.INFO,
+    level=_log_level,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout)
@@ -31,21 +33,6 @@ def main():
 
     # Migrate global source from any remote URL to local P4K cache path (v0.6.0+)
     AppSettings.migrate_global_to_p4k_local()
-
-    # Migrate contracts source from MrKraken to OsirisDevworks-hosted (v0.6.0+)
-    AppSettings.migrate_contracts_to_osiris()
-
-    # Configure Components source to OsirisDevworks default if not already set (v0.5.1+)
-    AppSettings.migrate_components_source_to_default()
-
-    # Configure Commodities source to OsirisDevworks default if not already set (v0.5.1+)
-    AppSettings.migrate_commodities_source_to_default()
-
-    # Configure Ships source to OsirisDevworks default if not already set (v0.5.2+)
-    AppSettings.migrate_ships_source_to_default()
-
-    # Configure Gear source to OsirisDevworks default if not already set (v0.5.2+)
-    AppSettings.migrate_gear_source_to_default()
 
     # Move user data files from old AppData location to Documents (idempotent)
     AppSettings.migrate_data_to_documents()

@@ -1,0 +1,1519 @@
+Key	Original Value	Current Value	Custom Value	Status
+Adagio_BasicSalvage_Title_01	Claim #~mission(ClaimNumber): ~mission(Ship) Salvage Rights	Claim #~mission(ClaimNumber): ~mission(Ship) Salvage Rights		Unmodified
+Adagio_Industrial_Component_Salvage_Levski_E_Title_001	Salvager Needed (Small Special Order of RMC / Components)	Salvager Needed (Small Special Order of RMC / Components)		Unmodified
+Adagio_Industrial_Component_Salvage_Levski_H_Title_001	Salvager Needed (Lrg. Special Order of RMC / UCM / Components)	Salvager Needed (Lrg. Special Order of RMC / UCM / Components)		Unmodified
+Adagio_Industrial_Component_Salvage_Levski_M_Title_001	Salvager Needed (Med. Special Order of RMC / UCM / Components)	Salvager Needed (Med. Special Order of RMC / UCM / Components)		Unmodified
+Adagio_Industrial_Component_Salvage_Pyro_E_Title_001	Salvager Needed (Small Special Order of RMC / Components)	Salvager Needed (Small Special Order of RMC / Components)		Unmodified
+Adagio_Industrial_Component_Salvage_Pyro_H_Title_001	Salvager Needed (Lrg. Special Order of RMC / UCM / Components)	Salvager Needed (Lrg. Special Order of RMC / UCM / Components)		Unmodified
+Adagio_Industrial_Component_Salvage_Pyro_M_Title_001	Salvager Needed (Med. Special Order of RMC / UCM / Components)	Salvager Needed (Med. Special Order of RMC / UCM / Components)		Unmodified
+Adagio_Industrial_Component_Salvage_Stanton_E_Title_001	Salvager Needed (Small Special Order of RMC / Components)	Salvager Needed (Small Special Order of RMC / Components)		Unmodified
+Adagio_Industrial_Component_Salvage_Stanton_H_Title_001	Salvager Needed (Lrg. Special Order of RMC / UCM / Components)	Salvager Needed (Lrg. Special Order of RMC / UCM / Components)		Unmodified
+Adagio_Industrial_Component_Salvage_Stanton_M_Title_001	Salvager Needed (Med. Special Order of RMC / UCM / Components)	Salvager Needed (Med. Special Order of RMC / UCM / Components)		Unmodified
+Adagio_Industrial_Component_Salvage_Universal_E_Title_001	Salvager Needed (Small Supply of RMC / Components)	Salvager Needed (Small Supply of RMC / Components)		Unmodified
+Adagio_Industrial_Component_Salvage_Universal_H_Title_001	Salvager Needed (Lrg. Supply of RMC / UCM / Components)	Salvager Needed (Lrg. Supply of RMC / UCM / Components)		Unmodified
+Adagio_Industrial_Component_Salvage_Universal_M_Title_001	Salvager Needed (Med. Supply of RMC / UCM / Components)	Salvager Needed (Med. Supply of RMC / UCM / Components)		Unmodified
+Adagio_Industrial_Salvage_Universal_E_Title_001	Salvager Needed (Small Supply of RMC)	Salvager Needed (Small Supply of RMC)		Unmodified
+Adagio_Industrial_Salvage_Universal_E_Title_002	Salvager Needed (Small Supply of RMC / UCM)	Salvager Needed (Small Supply of RMC / UCM)		Unmodified
+Adagio_Industrial_Salvage_Universal_Intro_Title_001	Adagio Holdings in Need of Salvagers	Adagio Holdings in Need of Salvagers		Unmodified
+Adagio_Industrial_Salvage_Universal_M_Title_001	Salvager Needed (Med. Supply of RMC)	Salvager Needed (Med. Supply of RMC)		Unmodified
+Adagio_Industrial_Salvage_Universal_M_Title_002	Salvager Needed (Med. Supply of RMC / UCM)	Salvager Needed (Med. Supply of RMC / UCM)		Unmodified
+Adagio_LocateSalvage_Title_01	Claim #~mission(ClaimNumber): ~mission(Ship) Salvage Rights	Claim #~mission(ClaimNumber): ~mission(Ship) Salvage Rights		Unmodified
+assassin_title_0001	Neutralize Threat	Neutralize Threat		Unmodified
+assassin_title_0002	Cleaning House	Cleaning House		Unmodified
+assassin_title_0003	Hunting Party	Hunting Party		Unmodified
+assassin_title_0004	Wet Work	Wet Work		Unmodified
+assassin_title_0005	Eliminate a Problem	Eliminate a Problem		Unmodified
+assassin_title_0006	Funeral Arrangements	Funeral Arrangements		Unmodified
+assassin_title_0007	Special Delivery for ~mission(TargetName)	Special Delivery for ~mission(TargetName)		Unmodified
+assassin_title_0008	Eliminate ~mission(TargetName)	Eliminate ~mission(TargetName)		Unmodified
+assassin_title_easy	~mission(Contractor|AssassinationEasyTitle)	~mission(Contractor|AssassinationEasyTitle)		Unmodified
+assassin_title_first	Helpful Stranger	Helpful Stranger		Unmodified
+assassin_title_hard	~mission(Contractor|AssassinationHardTitle)	~mission(Contractor|AssassinationHardTitle)		Unmodified
+assassin_title_medium	~mission(Contractor|AssassinationMediumTitle)	~mission(Contractor|AssassinationMediumTitle)		Unmodified
+BBT_TitleAndDescription_Title_Empty	BBTC_TitleAndDescription	BBTC_TitleAndDescription		Unmodified
+bhg_bounty_title_FPS_intro	Preliminary Bounty: ~mission(TargetName)	Preliminary Bounty: ~mission(TargetName)		Unmodified
+bhg_bounty_title_gen_001	Verified Bounty: ~mission(TargetName) | ~mission(Danger)	Verified Bounty: ~mission(TargetName) | ~mission(Danger)		Unmodified
+bhg_bounty_title_HeadHunters_001	Verified Bounty: ~mission(TargetName) | HeadHunters | ~mission(Danger)	Verified Bounty: ~mission(TargetName) | HeadHunters | ~mission(Danger)		Unmodified
+bhg_bounty_title_ShatteredBlade_001	Verified Bounty: ~mission(TargetName)	Verified Bounty: ~mission(TargetName)		Unmodified
+bhg_bounty_title_XT_001	Verified Bounty: ~mission(TargetName) | XenoThreat | ~mission(Danger)	Verified Bounty: ~mission(TargetName) | XenoThreat | ~mission(Danger)		Unmodified
+BHG_ShipWaveAttack_DrawOutBoss_H_Title_001	Reclusive Bounty: ~mission(TargetName) | High Risk	Reclusive Bounty: ~mission(TargetName) | High Risk		Unmodified
+BHG_ShipWaveAttack_DrawOutBoss_S_Title_001	Reclusive Bounty: ~mission(TargetName) | Extreme Risk	Reclusive Bounty: ~mission(TargetName) | Extreme Risk		Unmodified
+BHG_ShipWaveAttack_DrawOutBoss_VH_Title_001	Reclusive Bounty: ~mission(TargetName) | Very-High Risk	Reclusive Bounty: ~mission(TargetName) | Very-High Risk		Unmodified
+Bitzeroes_heist_buyin_dc_title_001	Spend Cred to Make Cred	Spend Cred to Make Cred		Unmodified
+Bitzeroes_theft_mines_dc_title_001	Delicate Dealings	Delicate Dealings		Unmodified
+BitZeros_blackbox_E_Title_001	Getting To the Bottom of It	Getting To the Bottom of It		Unmodified
+BitZeros_blackbox_H_Title_001	Legendary Info?	Legendary Info?		Unmodified
+BitZeros_blackbox_Intro_Title_001	Data Transfer	Data Transfer		Unmodified
+BitZeros_blackbox_M_Title_001	Too Smart For Our Own Good	Too Smart For Our Own Good		Unmodified
+BitZeros_blackbox_S_Title_001	Bad at Goodbyes	Bad at Goodbyes		Unmodified
+BitZeros_blackbox_VE_Title_001	Pick Up, Put Down	Pick Up, Put Down		Unmodified
+BitZeros_blackbox_VH_Title_001	Our Version of The Truth	Our Version of The Truth		Unmodified
+bitzeros_dataheist_title_01	Easy Data Grab at ~mission(location)	Easy Data Grab at ~mission(location)		Unmodified
+bitzeros_dataheist_title_02	Quick Data Grab at ~mission(Location)	Quick Data Grab at ~mission(Location)		Unmodified
+bitzeros_dataheist_title_03	Data Grab at ~mission(Location)	Data Grab at ~mission(Location)		Unmodified
+bitzeros_dataheist_title_04	Heavy Data Grab at ~mission(Location)	Heavy Data Grab at ~mission(Location)		Unmodified
+bitzeros_dataheist_title_05	Massive Data Grab at ~mission(Location)	Massive Data Grab at ~mission(Location)		Unmodified
+bitzeros_dataheist_tutorial_title_01	Easy Data Grab at ~mission(location)	Easy Data Grab at ~mission(location)		Unmodified
+BitZeros_DestroyItems_E_Title_001	Wiping the Slate Clean	Wiping the Slate Clean		Unmodified
+BitZeros_DestroyItems_H_Title_001	System Reset	System Reset		Unmodified
+BitZeros_DestroyItems_M_Title_001	Covering Our Backs	Covering Our Backs		Unmodified
+BitZeros_DestroyItems_VE_Title_001	Data Delete	Data Delete		Unmodified
+BitZeros_DestroyItems_VH_Title_001	Major Malfunction	Major Malfunction		Unmodified
+BitZeros_RecoverItem_Generic_Title_001	Bleeding Edge Tech	Bleeding Edge Tech		Unmodified
+BitZeros_RecoverItem_Generic_Title_002	Turning the Tables	Turning the Tables		Unmodified
+BitZeros_RecoverItem_Generic_Title_003	Upgrade Grab	Upgrade Grab		Unmodified
+bitzeros_resgath_storm_title_001	Need some Prism shotguns	Need some Prism shotguns		Unmodified
+bitzeros_RetrieveConsignment_title_001	Secret Locker Loot	Secret Locker Loot		Unmodified
+bitzeros_sabotage_gen_H_title_001	A little of the bash and crash	A little of the bash and crash		Unmodified
+bitzeros_sabotage_gen_H_title_002	Anyone like hitting things?	Anyone like hitting things?		Unmodified
+bitzeros_sabotage_storm_H_title_001	Hammer some ~mission(ItemsToDestroy)	Hammer some ~mission(ItemsToDestroy)		Unmodified
+bitzeros_sabotage_storm_H_title_002	Operation Clean Slate	Operation Clean Slate		Unmodified
+bitzeros_sabotage_storm_H_title_003	Disruptor needed	Disruptor needed		Unmodified
+bitzeros_shipheist_counter_E_title_001	Plenty of Cargo to Share	Plenty of Cargo to Share		Unmodified
+bitzeros_shipheist_counter_H_title_001	XenoThreat Grab Bag	XenoThreat Grab Bag		Unmodified
+bitzeros_shipheist_counter_M_title_001	Enough For Everyone	Enough For Everyone		Unmodified
+bitzeros_shipheist_E_title_001	Easy Pickings	Easy Pickings		Unmodified
+bitzeros_shipheist_H_XT_title_001	XenoThreat = GoodLoot	XenoThreat = GoodLoot		Unmodified
+bitzeros_shipheist_M_title_001	Goods for the Getting	Goods for the Getting		Unmodified
+bitzeros_theft_gen_title_001	Involuntary Change of Ownership	Involuntary Change of Ownership		Unmodified
+bitzeros_theft_storm_title_001	Calling all thieves	Calling all thieves		Unmodified
+bitzeros_theft_storm_title_002	ASD Heist	ASD Heist		Unmodified
+blacjac_basesweep_title_01	Clear Out Trespassers	Clear Out Trespassers		Unmodified
+blacJac_bounty_title_001	Wanted by ArcCorp: ~mission(TargetName)	Wanted by ArcCorp: ~mission(TargetName)		Unmodified
+blacJac_bounty_title_E	Wanted by ArcCorp: ~mission(TargetName) (CS2)	Wanted by ArcCorp: ~mission(TargetName) (CS2)		Unmodified
+blacJac_bounty_title_H	Wanted by ArcCorp: ~mission(TargetName) (CS4)	Wanted by ArcCorp: ~mission(TargetName) (CS4)		Unmodified
+blacJac_bounty_title_M	Wanted by ArcCorp: ~mission(TargetName) (CS3)	Wanted by ArcCorp: ~mission(TargetName) (CS3)		Unmodified
+blacJac_bounty_title_VE	Wanted by ArcCorp: ~mission(TargetName) (CS1)	Wanted by ArcCorp: ~mission(TargetName) (CS1)		Unmodified
+blacJac_bounty_title_VH	Wanted by ArcCorp: ~mission(TargetName) (CS5)	Wanted by ArcCorp: ~mission(TargetName) (CS5)		Unmodified
+blacJac_bounty_title_intro_001	Bounty Hunter Trial Contract	Bounty Hunter Trial Contract		Unmodified
+blacjac_destroyprobe_title_0001	Data Theft	Data Theft		Unmodified
+blacjac_destroystash_title_001	Seize and Destroy Narcotics	Seize and Destroy Narcotics		Unmodified
+blacjac_hackprevent_title_001	Data Breach In Progress	Data Breach In Progress		Unmodified
+blacjac_recoverspace_title_0001	Recover Stolen Items	Recover Stolen Items		Unmodified
+blacjac_UGF_defend_S_title_001	Defend Site From Extreme Threat	Defend Site From Extreme Threat		Unmodified
+blacjac_UGF_defend_VE_title_001	Guard Duty	Guard Duty		Unmodified
+blackboxillegal_title_0001	Black Box Recovery	Black Box Recovery		Unmodified
+blackboxillegal_title_0002	~mission(Item) snag	~mission(Item) snag		Unmodified
+blackboxillegal_title_0003	Erase a Problem	Erase a Problem		Unmodified
+blackboxillegal_title_0004	Bye Bye Black Box	Bye Bye Black Box		Unmodified
+blackboxlegal_title_0001	Black Box Recovery	Black Box Recovery		Unmodified
+blackboxlegal_title_0002	Recover ~mission(Item)	Recover ~mission(Item)		Unmodified
+blackboxlegal_title_0003	Retrieval Request (~mission(Item))	Retrieval Request (~mission(Item))		Unmodified
+blackboxlegal_title_0004	Retrieve Black Box	Retrieve Black Box		Unmodified
+BlockadeRunner_Title_HUD	~mission(Location) Blockade Run	~mission(Location) Blockade Run		Unmodified
+BlockadeRunner_Counter_Title_HUD	Lookin' for Zeta-Prolanide	Lookin' for Zeta-Prolanide		Unmodified
+bounty_title_0001	Bounty Target	Bounty Target		Unmodified
+bounty_title_0002	Wanted: ~mission(TargetName)	Wanted: ~mission(TargetName)		Unmodified
+bounty_title_0003	Bounty: ~mission(TargetName)	Bounty: ~mission(TargetName)		Unmodified
+bounty_title_E	CS2 Bounty: ~mission(TargetName)	CS2 Bounty: ~mission(TargetName)		Unmodified
+bounty_title_Easy	~mission(Contractor|BountyEasyTitle)	~mission(Contractor|BountyEasyTitle)		Unmodified
+bounty_title_first	Bounty Collection Authorization Assessment	Bounty Collection Authorization Assessment		Unmodified
+bounty_title_H	CS4 Bounty: ~mission(TargetName)	CS4 Bounty: ~mission(TargetName)		Unmodified
+bounty_title_Hard	~mission(Contractor|BountyHardTitle)	~mission(Contractor|BountyHardTitle)		Unmodified
+bounty_title_M	CS3 Bounty: ~mission(TargetName)	CS3 Bounty: ~mission(TargetName)		Unmodified
+bounty_title_Medium	~mission(Contractor|BountyMediumTitle)	~mission(Contractor|BountyMediumTitle)		Unmodified
+bounty_title_VE	CS1 Bounty: ~mission(TargetName)	CS1 Bounty: ~mission(TargetName)		Unmodified
+bounty_title_VH	CS5 Bounty: ~mission(TargetName)	CS5 Bounty: ~mission(TargetName)		Unmodified
+CDF_CH2_JournalTitle_Phase3	CDF Op. Strike Pyro - Phase 3 Summary	CDF Op. Strike Pyro - Phase 3 Summary		Unmodified
+cdf_huntthepolaris_title_01	Hunt the Polaris	Hunt the Polaris		Unmodified
+cdf_openbounty_title_001	A Call to Arms	A Call to Arms		Unmodified
+cfp_bounty_title_HeadHunters_001	Danger: Contraband Weapons Inbound	Danger: Contraband Weapons Inbound		Unmodified
+CFP_CH2_JournalTitle_Phase1	CFP Op. Reclaim Pyro -  Launch Summary	CFP Op. Reclaim Pyro -  Launch Summary		Unmodified
+CFP_CH2_JournalTitle_Phase2	CFP Op. Reclaim Pyro -  Phase 2 Summary	CFP Op. Reclaim Pyro -  Phase 2 Summary		Unmodified
+CFP_CH2_JournalTitle_Phase3	CFP Op. Save Pyro - Phase 3 Summary	CFP Op. Save Pyro - Phase 3 Summary		Unmodified
+cfp_defection_title_HeadHunters_001	It’s not too late.	It’s not too late.		Unmodified
+cfp_defend-criminals_title_002	Defend ~mission(Location) from Dangerous Criminals	Defend ~mission(Location) from Dangerous Criminals		Unmodified
+cfp_defend-criminals_title_003	Defend ~mission(Location) from Gang Assault	Defend ~mission(Location) from Gang Assault		Unmodified
+cfp_defend_headhunters_title_001	Need Assistance at ~mission(Location|Address)	Need Assistance at ~mission(Location|Address)		Unmodified
+cfp_defend_headhunters_defect_title_001	The System Needs Your Help	The System Needs Your Help		Unmodified
+cfp_defend_headhunters_H_Bueno_title_001	Attack at the Bueno Ravine	Attack at the Bueno Ravine		Unmodified
+cfp_defend_headhunters_H_Narenas_title_001	Mercs needed at Narena's Rest	Mercs needed at Narena's Rest		Unmodified
+cfp_defend_headhunters_H_ShepRest_title_001	Shepherd's Rest under attack	Shepherd's Rest under attack		Unmodified
+CFP_DefendResupply_HH_title_001	Stop Headhunters Attack	Stop Headhunters Attack		Unmodified
+CFP_DefendResupply_XT_title_001	Repel XenoThreat Take Over	Repel XenoThreat Take Over		Unmodified
+cfp_defendship_Intro_title_001	Seeking Experienced Combat Pilots	Seeking Experienced Combat Pilots		Unmodified
+cfp_defendship_LRT_SB_title_001	Provide Combat Support	Provide Combat Support		Unmodified
+cfp_defendship_MRT_bombingrun_title_001	Assist Retreating Ship	Assist Retreating Ship		Unmodified
+cfp_defendship_MRT_SB_title_001	Stop Attack on Ship	Stop Attack on Ship		Unmodified
+cfp_defendship_multi_HRT_SB_title_001	Help Ambushed Convoy	Help Ambushed Convoy		Unmodified
+cfp_defendship_multi_MRT_title_001	Convoy Needs Emergency Assistance	Convoy Needs Emergency Assistance		Unmodified
+cfp_defendship_multi_SRT_SB_title_001	Stop Savage Shattered Blade Attack	Stop Savage Shattered Blade Attack		Unmodified
+cfp_defendship_multi_VHRT_SB_title_001	Convoy Under Attack	Convoy Under Attack		Unmodified
+cfp_defendship_multi_VHRT_XT_title_001	Convoy Under XenoThreat Attack	Convoy Under XenoThreat Attack		Unmodified
+cfp_defendship_VLRT_SB_title_001	Support Ship Under Attack	Support Ship Under Attack		Unmodified
+cfp_delivery_eliminateall_sabotage_server_H_HH_title_001	Assistance Needed Against Headhunter Raid	Assistance Needed Against Headhunter Raid		Unmodified
+CFP_Delivery_Outpost_title_001	Inter-Outpost Delivery at ~mission(Destination)	Inter-Outpost Delivery at ~mission(Destination)		Unmodified
+CFP_Delivery_Outpost_Multi_title_001	Inter-Outpost Delivery at ~mission(Destination) - Multiple Boxes	Inter-Outpost Delivery at ~mission(Destination) - Multiple Boxes		Unmodified
+CFP_Delivery_Outpost_MultiToSingle_title_001	Gather Supplies Across Outpost	Gather Supplies Across Outpost		Unmodified
+CFP_Delivery_Outpost_SingleToMulti_title_001	Distribute Supplies Across ~mission(Destination)	Distribute Supplies Across ~mission(Destination)		Unmodified
+CFP_Delivery_OutpostToStation_title_001	Rectify Delivery Error	Rectify Delivery Error		Unmodified
+CFP_Delivery_OutpostToTradepost_title_001	Delivery for ~mission(Destination) Ready	Delivery for ~mission(Destination) Ready		Unmodified
+CFP_Delivery_OutpostToTradepost_MultiToSingle_title_001	Multiple Pick-Up Delivery	Multiple Pick-Up Delivery		Unmodified
+CFP_Delivery_OutpostToXSOutpost_title_001	Remote Outpost Run	Remote Outpost Run		Unmodified
+CFP_Delivery_StationToOutpost_title_001	Deliver Good Cheer	Deliver Good Cheer		Unmodified
+CFP_Delivery_TradepostToOutpost_title_001	Outpost Supply Run	Outpost Supply Run		Unmodified
+CFP_Delivery_TradepostToOutpost_SingleToMulti_title_001	Multiple Drop-Off Delivery	Multiple Drop-Off Delivery		Unmodified
+CFP_Delivery_TradepostToTradepost_title_001	Cross System Haul	Cross System Haul		Unmodified
+cfp_destroy_hammerhead_title_001	Stop Major XenoThreat Attack	Stop Major XenoThreat Attack		Unmodified
+cfp_destroy_idris_title_001	Eliminate XenoThreat Idris	Eliminate XenoThreat Idris		Unmodified
+CFP_DestroyItems_E_Title_001	Destroy Security Intel	Destroy Security Intel		Unmodified
+CFP_DestroyItems_H_Title_001	Delete Deadly Dossier	Delete Deadly Dossier		Unmodified
+CFP_DestroyItems_M_Title_001	Destroy Stolen Records	Destroy Stolen Records		Unmodified
+CFP_DestroyItems_VE_Title_001	Data Center Retaliation	Data Center Retaliation		Unmodified
+CFP_DestroyItems_VH_Title_001	Destroy Sensitive Information	Destroy Sensitive Information		Unmodified
+cfp_eliminateall_Gen_E_title_001	Reclaim Outpost	Reclaim Outpost		Unmodified
+cfp_eliminateall_intro_title_001	Establishing Security	Establishing Security		Unmodified
+cfp_EliminateSpecific_Generic_E_title_001	Protection against ~mission(TargetName|Last)	Protection against ~mission(TargetName|Last)		Unmodified
+cfp_HaulCargo_RegionLink_title_001	Need a Hauler	Need a Hauler		Unmodified
+cfp_hauling_intro_title_001	First Haul in System	First Haul in System		Unmodified
+cfp_maintenance_E_title_001	Minor Repairs Needed: ~mission(Location)	Minor Repairs Needed: ~mission(Location)		Unmodified
+cfp_maintenance_H_title_001	Extensive Repairs Needed: ~mission(Location)	Extensive Repairs Needed: ~mission(Location)		Unmodified
+cfp_maintenance_local_E_title_001	Minor Repairs Needed: ~mission(Location)	Minor Repairs Needed: ~mission(Location)		Unmodified
+cfp_maintenance_local_H_title_001	Extensive Repairs Needed: ~mission(Location)	Extensive Repairs Needed: ~mission(Location)		Unmodified
+cfp_maintenance_local_M_title_001	Moderate Repairs Needed: ~mission(Location)	Moderate Repairs Needed: ~mission(Location)		Unmodified
+cfp_maintenance_M_title_001	Moderate Repairs Needed: ~mission(Location)	Moderate Repairs Needed: ~mission(Location)		Unmodified
+cfp_missingperson_inv_chain_h_xenothreat_title_01	Missing: ~mission(TargetName)	Missing: ~mission(TargetName)		Unmodified
+cfp_missingperson_inv_chain_m_title_01	Missing Volunteers	Missing Volunteers		Unmodified
+cfp_missingperson_inv_e_caves_title_01	Missing: ~mission(TargetName)	Missing: ~mission(TargetName)		Unmodified
+cfp_missingperson_inv_e_criminalbase_title_01	Missing: ~mission(TargetName)	Missing: ~mission(TargetName)		Unmodified
+cfp_missingperson_inv_e_faunacave_title_01	Missing: ~mission(TargetName)	Missing: ~mission(TargetName)		Unmodified
+cfp_missingperson_inv_e_regionlink_title_01	Missing: ~mission(TargetName)	Missing: ~mission(TargetName)		Unmodified
+cfp_missingperson_inv_h_xenothreat_title_01	Missing: ~mission(TargetName)	Missing: ~mission(TargetName)		Unmodified
+cfp_missingperson_inv_m_criminalbase_title_01	Missing: ~mission(TargetName)	Missing: ~mission(TargetName)		Unmodified
+cfp_missingperson_inv_m_headhunters_title_01	Missing: ~mission(TargetName)	Missing: ~mission(TargetName)		Unmodified
+cfp_missingperson_inv_m_headhunters_xs_title_01	Missing: ~mission(TargetName)	Missing: ~mission(TargetName)		Unmodified
+cfp_missingperson_multiple_sabotage_servers_H_XT_title_001	Find XenoThreat Captives and Stolen Data	Find XenoThreat Captives and Stolen Data		Unmodified
+CFP_MissingPerson_RetrieveStolenGoods_XT_H_title_001	Find Missing Cargo Hauler	Find Missing Cargo Hauler		Unmodified
+cfp_missingperson_sabotage_servers_title_001	Critical Intelligence Lost	Critical Intelligence Lost		Unmodified
+cfp_missingperson_sabotage_servers_H_HH_title_001	Find Headhunter Captive and Stolen Data	Find Headhunter Captive and Stolen Data		Unmodified
+cfp_missingperson_sabotage_servers_H_XT_title_001	Find XenoThreat Captive and Stolen Data	Find XenoThreat Captive and Stolen Data		Unmodified
+cfp_missingperson_sabotage_servers_M_HH_title_001	Locate Headhunter Captive and Stolen Data	Locate Headhunter Captive and Stolen Data		Unmodified
+cfp_missingperson_sabotage_servers_retrievecargo_VH_XT_title_001	Investigate Missing Pilot and Cargo	Investigate Missing Pilot and Cargo		Unmodified
+cfp_missingperson_sabotage_servers_VH_XT_title_001	Personnel and Data Captured by XenoThreat	Personnel and Data Captured by XenoThreat		Unmodified
+CFP_MissingPerson_Theft_M_title_001	Locate ~mission(TargetName) and Important Intel	Locate ~mission(TargetName) and Important Intel		Unmodified
+CFP_MissingPerson_Theft_Outpost_HH_H_title_001	Investigate Headhunters Outpost	Investigate Headhunters Outpost		Unmodified
+CFP_MissingPerson_Theft_Outpost_XT_VH_title_001	Find ~mission(TargetName) and Missing Supplies	Find ~mission(TargetName) and Missing Supplies		Unmodified
+CFP_MissingPerson_Theft_XSOutpost_HH_M_title_001	Locate ~mission(TargetName) and Lost Supplies	Locate ~mission(TargetName) and Lost Supplies		Unmodified
+CFP_MissingPerson_Theft_XSOutpost_XT_H_title_001	Search a XenoThreat Remote Outpost	Search a XenoThreat Remote Outpost		Unmodified
+CFP_RetrieveCargo_AsteroidBase_E_title_001	Return Stolen Supplies	Return Stolen Supplies		Unmodified
+CFP_RetrieveCargo_AsteroidBase_M_title_001	Repossess Supplies	Repossess Supplies		Unmodified
+CFP_RetrieveCargo_AsteroidBase_VE_title_001	Recover Cargo	Recover Cargo		Unmodified
+CFP_RetrieveCargo_CrimBase_H_title_001	Raid to Recover Supplies	Raid to Recover Supplies		Unmodified
+CFP_RetrieveCargo_CrimBase_M_title_001	Reclaim Stolen Cargo	Reclaim Stolen Cargo		Unmodified
+CFP_RetrieveCargo_CrimBase_XT_VH_title_001	Regain Supplies from XenoThreat	Regain Supplies from XenoThreat		Unmodified
+CFP_RetrieveCargo_DerelictOutpost_E_title_001	Search Outpost for Our Supplies	Search Outpost for Our Supplies		Unmodified
+CFP_RetrieveCargo_Lagrange_E_title_001	Retrieve Supplies	Retrieve Supplies		Unmodified
+CFP_RetrieveCargo_Lagrange_M_title_001	Find Lost Supply Ship	Find Lost Supply Ship		Unmodified
+CFP_RetrieveCargo_Multi_Cluster_M_title_001	Find Convoy and Reclaim Cargo	Find Convoy and Reclaim Cargo		Unmodified
+CFP_RetrieveCargo_Multi_CrimBase_H_title_001	Attack Outlaw Bases to Reclaim Supplies	Attack Outlaw Bases to Reclaim Supplies		Unmodified
+CFP_RetrieveCargo_Multi_CrimBase_M_title_001	Confront Outlaws and Return Stolen Supplies	Confront Outlaws and Return Stolen Supplies		Unmodified
+CFP_RetrieveCargo_Multi_CrimBase_XT_VH_title_001	Fighting Fire with Fire	Fighting Fire with Fire		Unmodified
+CFP_RetrieveCargo_Multi_Lagrange_E_title_001	Recover Convoy Cargo	Recover Convoy Cargo		Unmodified
+CFP_RetrieveCargo_OccuCave_HH_M_title_001	Raid Headhunters Cave	Raid Headhunters Cave		Unmodified
+CFP_RetrieveCargo_OccuCave_M_title_001	Search Cave for Our Supplies	Search Cave for Our Supplies		Unmodified
+CFP_RetrieveCargo_Outpost_HH_M_title_001	Raid Headhunters Outpost	Raid Headhunters Outpost		Unmodified
+CFP_RetrieveCargo_XSOutpost_HH_E_title_001	Get Supplies from Remote Outpost	Get Supplies from Remote Outpost		Unmodified
+cfp_sabotage_servers_E_title_001	Wipe Criminal Data Severs	Wipe Criminal Data Severs		Unmodified
+cfp_sabotage_servers_E_HH_align_title_001	Cripple Headhunter Operations	Cripple Headhunter Operations		Unmodified
+cfp_sabotage_servers_E_HH_defect_title_001	Headhunters Need to Be Stopped	Headhunters Need to Be Stopped		Unmodified
+cfp_sabotage_servers_multi_VH_HH_title_001	Deactivate Headhunter Server Network	Deactivate Headhunter Server Network		Unmodified
+cfp_sabotage_servers_multi_VH_XT_title_001	Deactivate XenoThreat Server Network	Deactivate XenoThreat Server Network		Unmodified
+CFP_Salvage_CoverUp_HH_M_title_001	High-Risk ~mission(Ship) Salvage	High-Risk ~mission(Ship) Salvage		Unmodified
+CFP_Salvage_CoverUp_XT_VH_title_001	Rush Salvage Job on XenoThreat Ship	Rush Salvage Job on XenoThreat Ship		Unmodified
+CFP_Salvage_E_title_001	~mission(Ship) Available to Salvage	~mission(Ship) Available to Salvage		Unmodified
+CFP_Salvage_FPS_title_001	Clear ~mission(Location) of Salvage	Clear ~mission(Location) of Salvage		Unmodified
+CFP_Salvage_Multi_M_title_001	Ship Salvage Field	Ship Salvage Field		Unmodified
+CFP_Salvage_Multi_XT_VH_title_001	High Risk, High Reward Salvage	High Risk, High Reward Salvage		Unmodified
+CFP_Salvage_RecoverCargo_DefendShip_XT_VH_title_001	Defend Convoy, Claim Cargo & Salvage	Defend Convoy, Claim Cargo & Salvage		Unmodified
+CFP_Salvage_RecoverCargo_H_title_001	High Risk Salvage and Cargo	High Risk Salvage and Cargo		Unmodified
+CFP_Salvage_RecoverCargo_M_title_001	Salvage Ships and Cargo	Salvage Ships and Cargo		Unmodified
+CFP_Salvage_VE_title_001	~mission(Ship) Ready to Dismantle	~mission(Ship) Ready to Dismantle		Unmodified
+cfp_searchbody_danger_station_title_001	Missing: ~mission(TargetName)	Missing: ~mission(TargetName)		Unmodified
+cfp_searchbody_nodanger_station_title_001	Missing: ~mission(TargetName)	Missing: ~mission(TargetName)		Unmodified
+CFP_SecurityPatrol_E_Title_001	Patrol Risky Travel Lanes	Patrol Risky Travel Lanes		Unmodified
+CFP_SecurityPatrol_H_Title_001	Patrol Outlaw Hunting Grounds	Patrol Outlaw Hunting Grounds		Unmodified
+CFP_SecurityPatrol_Intro_Title_001	Patrol & Protect Travel Lanes	Patrol & Protect Travel Lanes		Unmodified
+CFP_SecurityPatrol_M_Title_001	Patrol Dangerous Travel Lanes	Patrol Dangerous Travel Lanes		Unmodified
+CFP_SecurityPatrol_S_Title_001	Patrol Extremely Dangerous Sector	Patrol Extremely Dangerous Sector		Unmodified
+CFP_SecurityPatrol_VE_Title_001	Patrol Travel Lanes	Patrol Travel Lanes		Unmodified
+CFP_SecurityPatrol_VH_Title_001	Patrol Dangerous Outlaw Sector	Patrol Dangerous Outlaw Sector		Unmodified
+CFP_ShipWaveAttack_ClearHostiles_Title_E_001	Clear CFP Route of Hostiles	Clear CFP Route of Hostiles		Unmodified
+CFP_ShipWaveAttack_ClearHostiles_Title_H_001	Neutralize Dangerous Criminal Fleet	Neutralize Dangerous Criminal Fleet		Unmodified
+CFP_ShipWaveAttack_ClearHostiles_Title_M_001	Remove Upstart Gang From Sector	Remove Upstart Gang From Sector		Unmodified
+CFP_ShipWaveAttack_ClearHostiles_Title_VE_001	Help Deal with Outlaw Hunting Party	Help Deal with Outlaw Hunting Party		Unmodified
+CFP_theft_Outpost_HH_M_title_001	Supplies For Supplies	Supplies For Supplies		Unmodified
+CFP_theft_Outpost_M_title_001	Hit Supply Depot	Hit Supply Depot		Unmodified
+CFP_theft_Outpost_XT_VH_title_001	Return the Favor at XenoThreat Outpost	Return the Favor at XenoThreat Outpost		Unmodified
+CFP_theft_XSOutpost_HH_M_title_001	Get Supplies from Headhunters Remote Outpost	Get Supplies from Headhunters Remote Outpost		Unmodified
+CFP_theft_XSOutpost_XT_H_title_001	Get Back at XenoThreat	Get Back at XenoThreat		Unmodified
+CFPvsHH_Title_06	Hunt Frontier Fighters	Hunt Frontier Fighters		Unmodified
+civilian_localdelivery_holiday_title_001	Luminalia Present Delivery	Luminalia Present Delivery		Unmodified
+CleanAir_Hauling_Bulk_MedicalSupplies_title_02	Alliance Aid: Medical Cargo Haul - Large Scale	Alliance Aid: Medical Cargo Haul - Large Scale		Unmodified
+CleanAir_Hauling_Small_MedicalSupplies_title_02	Alliance Aid: Medical Cargo Haul - Small Scale	Alliance Aid: Medical Cargo Haul - Small Scale		Unmodified
+CleanAir_Hauling_Supply_MedicalSupplies_title_02	Alliance Aid: Medical Cargo Haul - Medium Scale	Alliance Aid: Medical Cargo Haul - Medium Scale		Unmodified
+Clovis_Safe_WIP_Journal_Title_Clue_01	Unable to Open Safe	Unable to Open Safe		Unmodified
+Clovis_Safe_WIP_Journal_Title_Clue_02	RE: Unable to Open Safe	RE: Unable to Open Safe		Unmodified
+Clovis_Safe_WIP_Mission_Title_Text	Investigate Safe	Investigate Safe		Unmodified
+CommArray_title_001	Prevent hack at ~mission(Location)	Prevent hack at ~mission(Location)		Unmodified
+commarray_hack_title_0001	Privacy Screen	Privacy Screen		Unmodified
+commarray_hack_title_0002	Array Hack Job	Array Hack Job		Unmodified
+commarray_hack_title_0003	Dis-Array	Dis-Array		Unmodified
+commarray_hack_title_0004	Cover Needed	Cover Needed		Unmodified
+commarray_hack_title_0005	Array Hack	Array Hack		Unmodified
+commarray_hack_title_0006	~mission(MissionLocation) Problem	~mission(MissionLocation) Problem		Unmodified
+commarray_hack_title_0007	Lights Out	Lights Out		Unmodified
+commarray_repair_title_0001	Repair ~mission(Location)	Repair ~mission(Location)		Unmodified
+commarray_repair_title_0002	Repair Technician Opportunity	Repair Technician Opportunity		Unmodified
+commarray_repair_title_0003	Skilled Technician Wanted	Skilled Technician Wanted		Unmodified
+commarray_repair_title_0004	Comm Repair	Comm Repair		Unmodified
+commarray_repair_title_0005	Qualified Comm Tech Needed	Qualified Comm Tech Needed		Unmodified
+commarray_repair_title_0006	Comm Uplink Offline	Comm Uplink Offline		Unmodified
+commarray_repair_title_0007	Disconnected Comm Array	Disconnected Comm Array		Unmodified
+CommArrayKill_Title_001	Kill Players	Kill Players		Unmodified
+confirmkill_title_0001	Ghost Hunter	Ghost Hunter		Unmodified
+confirmkill_title_0002	Obituary	Obituary		Unmodified
+confirmkill_title_0003	True or False	True or False		Unmodified
+confirmkill_title_0004	You See Dead People?	You See Dead People?		Unmodified
+confirmkill_title_0005	Confirmation Needed	Confirmation Needed		Unmodified
+confirmkill_title_0006	Final Goodbye	Final Goodbye		Unmodified
+confirmkill_title_0007	Last Steps	Last Steps		Unmodified
+constantine_recoverysafe_title_001	Recovery Contract	Recovery Contract		Unmodified
+constantine_recoverysafe_title_002	Secure Retrieval	Secure Retrieval		Unmodified
+constantine_recoverysafe_title_003	Vault Extraction	Vault Extraction		Unmodified
+constantine_recoverysafe_title_004	Safe Retrieval	Safe Retrieval		Unmodified
+covalex_chaindelivery_title_001	Multi-Stop Delivery Route	Multi-Stop Delivery Route		Unmodified
+covalex_delivery_title_001	Delivery Pilot for Covalex	Delivery Pilot for Covalex		Unmodified
+covalex_delivery_title_intro	Independent Cargo Pilot Needed	Independent Cargo Pilot Needed		Unmodified
+Covalex_Delivery_Nyx_Medium_Title_001	Med. Distance Covalex Delivery Nyx	Med. Distance Covalex Delivery Nyx		Unmodified
+Covalex_Delivery_Stanton_Hard_Title_001	Long Distance Covalex Delivery Stanton	Long Distance Covalex Delivery Stanton		Unmodified
+Covalex_Delivery_Stanton_Medium_Title_001	Med. Distance Covalex Delivery Stanton	Med. Distance Covalex Delivery Stanton		Unmodified
+Covalex_Delivery_Stanton_Super_Title_001	Special Covalex Delivery Stanton System	Special Covalex Delivery Stanton System		Unmodified
+Covalex_Delivery_Stanton_VeryHard_Title_001	Very Long Distance Covalex Delivery Stanton	Very Long Distance Covalex Delivery Stanton		Unmodified
+covalex_holidaydelivery_title_001	Holiday Delivery	Holiday Delivery		Unmodified
+covalexrand_title_0001	Frustrated with Covalex	Frustrated with Covalex		Unmodified
+covalexrand_title_0002	Complete Delivery Order	Complete Delivery Order		Unmodified
+covalexrand_title_0003	Finish Covalex Delivery	Finish Covalex Delivery		Unmodified
+covalexrand_title_0004	Need My Package Found	Need My Package Found		Unmodified
+covalexrand_title_0005	Waiting On My Package	Waiting On My Package		Unmodified
+covalexspec_title_0001	Personal Effects	Personal Effects		Unmodified
+covalexspec_title_0002	Help Me Get My Stuff Back	Help Me Get My Stuff Back		Unmodified
+covalexspec_title_0003	Unexpected Inheritance	Unexpected Inheritance		Unmodified
+covalexspec_title_0004	A Mother's Plea	A Mother's Plea		Unmodified
+covalexspec_title_0005	Looking for Closure	Looking for Closure		Unmodified
+covalexspec_title_0006	My Dad's Stuff	My Dad's Stuff		Unmodified
+criminal_assassination_title_Hard_001	Criminal Title Intro placeholder	Criminal Title Intro placeholder		Unmodified
+criminal_basesweep_title_01	Extermination Job	Extermination Job		Unmodified
+criminal_blackbox_recover_title_01	No Proof, No Problem	No Proof, No Problem		Unmodified
+criminal_defendship_E_title_001	Need Backup!	Need Backup!		Unmodified
+criminal_defendship_H_title_001	Need Someone to Save My Ass!	Need Someone to Save My Ass!		Unmodified
+criminal_defendship_M_title_001	Need a Rescue Right Now!	Need a Rescue Right Now!		Unmodified
+Criminal_LocalDelivery_title_01	Supply Re-Up	Supply Re-Up		Unmodified
+criminal_recoverstash_title_01	Not So Secret Stash	Not So Secret Stash		Unmodified
+criminal_recoverstash_steal_title_01	Take What's Theirs	Take What's Theirs		Unmodified
+Criminal_Steal_Easy_Title_001	Criminal Easy Title Placeholder text	Criminal Easy Title Placeholder text		Unmodified
+Criminal_Steal_Medium_Title_001	Criminal Medium Title Placeholder text	Criminal Medium Title Placeholder text		Unmodified
+Crus_HistMarker_Title_01	Birthplace of Vortex Thorson	Birthplace of Vortex Thorson		Unmodified
+Crus_HistMarker_Title_02	Creation of Ceprozin	Creation of Ceprozin		Unmodified
+Crus_HistMarker_Title_03	The First Terraberry	The First Terraberry		Unmodified
+Crus_HistMarker_Title_04	The Rescue of Bastien Nemitz	The Rescue of Bastien Nemitz		Unmodified
+Crus_HistMarker_Title_05	Nakamura Valley Shelter	Nakamura Valley Shelter		Unmodified
+Crus_HistMarker_Title_06	Kosso Basin	Kosso Basin		Unmodified
+Crus_HistMarker_Title_07	Aston Ridge	Aston Ridge		Unmodified
+Crus_HistMarker_Title_08	Wolf Point	Wolf Point		Unmodified
+Crus_HistMarker_Title_09	Dunlow Ridge	Dunlow Ridge		Unmodified
+Crus_HistMarker_Title_10	Eager Flats	Eager Flats		Unmodified
+Crus_HistMarker_Title_11	Tamdon Plains	Tamdon Plains		Unmodified
+Crus_HistMarker_Title_12	Mogote Marmalade	Mogote Marmalade		Unmodified
+Crus_HistMarker_Title_13	Ashburn Channel	Ashburn Channel		Unmodified
+Crus_HistMarker_Title_14	Flanagan's Pass	Flanagan's Pass		Unmodified
+Crus_HistMarker_Title_15	Julep Ravine	Julep Ravine		Unmodified
+Crus_HistMarker_Title_16	Lakedra's Lap	Lakedra's Lap		Unmodified
+Crus_HistMarker_Title_17	Darnell Ajay Homestead	Darnell Ajay Homestead		Unmodified
+Crus_HistMarker_Title_18	Phillip Xu Homestead	Phillip Xu Homestead		Unmodified
+Crus_HistMarker_Title_19	Wilma Ivery Homestead	Wilma Ivery Homestead		Unmodified
+Crus_HistMarker_Title_20	Tremaine's Last Stand	Tremaine's Last Stand		Unmodified
+Crus_HistMarker_Title_21	Fawley's Journey	Fawley's Journey		Unmodified
+Crus_HistMarker_Title_22	Rescue of Esther Hurston	Rescue of Esther Hurston		Unmodified
+Crus_HistMarker_Title_23	Goodbye Geyser	Goodbye Geyser		Unmodified
+Crus_HistMarker_Title_24	Daymar in Bloom	Daymar in Bloom		Unmodified
+Crus_HistMarker_Title_25	Erma Triolo Birthplace	Erma Triolo Birthplace		Unmodified
+Crus_HistMarker_Title_26	Alatorres Forward Operating Base	Alatorres Forward Operating Base		Unmodified
+Crus_HistMarker_Title_27	Hurston Hotline	Hurston Hotline		Unmodified
+Crus_HistMarker_Title_28	Cellin's Peak	Cellin's Peak		Unmodified
+Crus_HistMarker_Title_29	Daymar's Run	Daymar's Run		Unmodified
+Crus_HistMarker_Title_30	Yela's Plain	Yela's Plain		Unmodified
+Crus_HistMarker_Title_31	Engler Observation Station	Engler Observation Station		Unmodified
+Crus_HistMarker_Title_32	Imperator Costigan on Cellin	Imperator Costigan on Cellin		Unmodified
+Crus_HistMarker_Title_33	Borisov's Herd	Borisov's Herd		Unmodified
+Crus_HistMarker_Title_34	Sonny's Sham	Sonny's Sham		Unmodified
+Crus_HistMarker_Title_35	Lover's Ledge	Lover's Ledge		Unmodified
+Crus_HistMarker_Title_36	The Franklin Flip	The Franklin Flip		Unmodified
+Crus_HistMarker_Title_37	Meiko Norwood Memorial	Meiko Norwood Memorial		Unmodified
+Crus_HistMarker_Title_38	Looking for Lost Treasure	Looking for Lost Treasure		Unmodified
+Crus_HistMarker_Title_39	The Starman's Farewell	The Starman's Farewell		Unmodified
+Crus_HistMarker_Title_40	Bruce's Bounty	Bruce's Bounty		Unmodified
+Crus_HistMarker_Title_41	Cuadrado Tragedy	Cuadrado Tragedy		Unmodified
+Crus_HistMarker_Title_42	Bountiful Harvest	Bountiful Harvest		Unmodified
+Crus_HistMarker_Title_43	Silverton Campsite	Silverton Campsite		Unmodified
+Crus_HistMarker_Title_44	Ghost Rocks	Ghost Rocks		Unmodified
+Crus_HistMarker_Title_45	Slim Chance Rally	Slim Chance Rally		Unmodified
+Crus_HistMarker_Title_46	Crusader Landing Test Site	Crusader Landing Test Site		Unmodified
+crusader_basesweep_title_001	Clear Criminal Nest	Clear Criminal Nest		Unmodified
+crusader_bounty_title_001	Bounty Issued For ~mission(TargetName)	Bounty Issued For ~mission(TargetName)		Unmodified
+crusader_bounty_fps_title_first	Bounty Extraction Assessment	Bounty Extraction Assessment		Unmodified
+crusader_bounty_fps_title_rehire	Bounty Extraction Reassessment	Bounty Extraction Reassessment		Unmodified
+crusader_destroyprobe_title_0001	Unauthorized Surveillance Detected	Unauthorized Surveillance Detected		Unmodified
+crusader_hackprevent_title_001	Secure Data Network	Secure Data Network		Unmodified
+crusader_recover_title_Easy_001	Crusader Security Danger Recover Easy placeholder	Crusader Security Danger Recover Easy placeholder		Unmodified
+crusader_recover_title_Hard_001	Crusader Security Danger Recover Hard placeholder	Crusader Security Danger Recover Hard placeholder		Unmodified
+crusader_recover_title_intro_001	Crusader Security Danger Recover Intro placeholder	Crusader Security Danger Recover Intro placeholder		Unmodified
+crusader_recover_title_Medium_001	Crusader Security Danger Recover Medium placeholder	Crusader Security Danger Recover Medium placeholder		Unmodified
+crusader_recoverspace_title_0001	Larceny Restitution	Larceny Restitution		Unmodified
+crusader_retakelocation_title_001	Retake ~mission(location)	Retake ~mission(location)		Unmodified
+crusader_retakelocation_kareah_title_001	URGENT: Retake Security Post Kareah	URGENT: Retake Security Post Kareah		Unmodified
+crusader_sectorsweep_title_001	Eliminate ~mission(Client) Nest	Eliminate ~mission(Client) Nest		Unmodified
+crusader_sectorsweep_title_danger_high_001	Mercenary Force To Retake Territory	Mercenary Force To Retake Territory		Unmodified
+crusader_UGF_defend_S_title_001	Guard Site Against Extremely Dangerous Hostiles	Guard Site Against Extremely Dangerous Hostiles		Unmodified
+crusader_UGF_defend_VE_title_001	Guard Site	Guard Site		Unmodified
+deadsaints_recoveritem_E_Title_001	Write Off	Write Off		Unmodified
+DeadSaints_RecoverItem_Generic_Title_001	Getting Our Gear Back	Getting Our Gear Back		Unmodified
+DeadSaints_RecoverItem_Generic_Title_002	Stash Retrieval	Stash Retrieval		Unmodified
+DeadSaints_RecoverItem_Generic_Title_003	Cleaning Up a Mess	Cleaning Up a Mess		Unmodified
+deadsaints_recoveritem_H_Title_001	Making the Most of a Bad Situation	Making the Most of a Bad Situation		Unmodified
+deadsaints_recoveritem_Intro_Title_001	Easy Creds for Easy Work	Easy Creds for Easy Work		Unmodified
+deadsaints_recoveritem_M_Title_001	Get My Gear Back	Get My Gear Back		Unmodified
+deadsaints_recoveritem_VE_Title_001	Pick Up and Drop Off	Pick Up and Drop Off		Unmodified
+deadsaints_recoveritem_VH_Title_001	Getting What They Deserve	Getting What They Deserve		Unmodified
+deploypiggyback_title_0001	Lend Me An Ear	Lend Me An Ear		Unmodified
+deploypiggyback_title_0002	Intel Gathering	Intel Gathering		Unmodified
+deploypiggyback_title_0003	Piggyback Ride	Piggyback Ride		Unmodified
+deploypiggyback_title_0004	Dropping Some Eaves	Dropping Some Eaves		Unmodified
+deploypiggyback_title_0005	Whispers	Whispers		Unmodified
+deploypiggyback_title_0006	Deploy Piggyback	Deploy Piggyback		Unmodified
+deployprobe_title_0001	Research Assistance	Research Assistance		Unmodified
+deployprobe_title_0002	Probe Deployment	Probe Deployment		Unmodified
+deployprobe_title_0003	Research Scan Help	Research Scan Help		Unmodified
+deployprobe_title_0004	Collect and Deploy Probe	Collect and Deploy Probe		Unmodified
+DestroyDebris_Title_001	Destroy Satellite Debris	Destroy Satellite Debris		Unmodified
+destroyitem_locked_dc_datapad_title_001	New Security Protocols	New Security Protocols		Unmodified
+destroyprobeillegal_title_0001	Sound of Silence	Sound of Silence		Unmodified
+destroyprobeillegal_title_0002	Wire Cutter	Wire Cutter		Unmodified
+destroyprobeillegal_title_0003	Peeping Toms	Peeping Toms		Unmodified
+destroyprobeillegal_title_0004	Peace & Quiet	Peace & Quiet		Unmodified
+destroyprobeillegal_title_0005	Blackout	Blackout		Unmodified
+destroyprobelegal_title_0001	Security Threat	Security Threat		Unmodified
+destroyprobelegal_title_0002	Unauthorized Surveillance	Unauthorized Surveillance		Unmodified
+destroyprobelegal_title_0003	Combat Pilots Needed	Combat Pilots Needed		Unmodified
+destroyprobelegal_title_0004	Search and Destroy	Search and Destroy		Unmodified
+destroyprobelegal_title_0005	Local Security Threat	Local Security Threat		Unmodified
+destroystash_title_Pyro	Destroy drugs	Destroy drugs		Unmodified
+distraction_title_0001	moths to a flame	moths to a flame		Unmodified
+distraction_title_0002	running wild	running wild		Unmodified
+distraction_title_0003	organized chaos	organized chaos		Unmodified
+distraction_title_0004	bring the heat	bring the heat		Unmodified
+distractionkill_title_0001	Art of Distraction	Art of Distraction		Unmodified
+distractionkill_title_0002	Make Yourself Useful	Make Yourself Useful		Unmodified
+distractionkill_title_0003	Take It To The Next Level	Take It To The Next Level		Unmodified
+distractionkill_title_004	~mission(DistractionTitleDescription|Title)	~mission(DistractionTitleDescription|Title)		Unmodified
+dusters_basesweep_title_001	Claiming a Stake	Claiming a Stake		Unmodified
+dusters_basesweep_title_002	Clearing the Competition	Clearing the Competition		Unmodified
+dusters_basesweep_title_003	Mine Worth Taking	Mine Worth Taking		Unmodified
+dusters_claimsweep_title_001	Razing the Stake	Razing the Stake		Unmodified
+dusters_claimsweep_title_002	Ore or Nothing	Ore or Nothing		Unmodified
+dusters_claimsweep_title_003	Finders Weepers	Finders Weepers		Unmodified
+eckhart_defendship_Intro_title_001	Support Client in Need	Support Client in Need		Unmodified
+eckhart_defendship_LRT_SB_title_001	Request for Ship Support	Request for Ship Support		Unmodified
+eckhart_defendship_MRT_SB_title_001	Repel Shattered Blade Ships	Repel Shattered Blade Ships		Unmodified
+eckhart_defendship_multi_HRT_SB_title_001	Serious Shattered Blade Attack	Serious Shattered Blade Attack		Unmodified
+eckhart_defendship_multi_SRT_SB_title_001	Shattered Blade Strike	Shattered Blade Strike		Unmodified
+eckhart_defendship_multi_VHRT_SB_title_001	Client Needs Combat Support	Client Needs Combat Support		Unmodified
+eckhart_defendship_VLRT_SB_title_001	Stop Shattered Blade Attack	Stop Shattered Blade Attack		Unmodified
+EckhartSecurity_bounty_storm_shut_H_title_001	Confront Suspect	Confront Suspect		Unmodified
+EckhartSecurity_Defend_E_Title_001	Secure Site	Secure Site		Unmodified
+EckhartSecurity_Defend_H_Title_001	Repel Raiders	Repel Raiders		Unmodified
+EckhartSecurity_Defend_M_Title_001	Protect Location	Protect Location		Unmodified
+EckhartSecurity_DestroyServers_FacilityDelving_Title_001	INFILITRATE ASD SITE AND DESTROY SERVERS	INFILITRATE ASD SITE AND DESTROY SERVERS		Unmodified
+EckhartSecurity_DestroyServers_FacilityDelving_Title_002	PURGE ASD SERVERS	PURGE ASD SERVERS		Unmodified
+EckhartSecurity_DestroyServers_FacilityDelving_Title_003	FIND SERVERS AT ASD SITE AND DESTROY	FIND SERVERS AT ASD SITE AND DESTROY		Unmodified
+EckhartSecurity_DestroyServers_FacilityDelving_Title_004	SEEK AND DESTROY ASD DATA	SEEK AND DESTROY ASD DATA		Unmodified
+EckhartSecurity_EliminateAll_DC_Title_001	Expel Outlaws	Expel Outlaws		Unmodified
+EckhartSecurity_EliminateAll_storm_data_H_title_001	Combat Support: ~mission(Location)	Combat Support: ~mission(Location)		Unmodified
+EckhartSecurity_EliminateAll_storm_shut_H_title_001	Requesting Help	Requesting Help		Unmodified
+EckhartSecurity_EliminateBoss_DC_Title_001	High-Risk Bounty: ~mission(TargetName)	High-Risk Bounty: ~mission(TargetName)		Unmodified
+EckhartSecurity_EliminateSpecific_DC_Title_001	Hunt Bounty: ~mission(TargetName)	Hunt Bounty: ~mission(TargetName)		Unmodified
+EckhartSecurity_Mercenary_Intro_Title_001	Security Contractor Evaluation	Security Contractor Evaluation		Unmodified
+EckhartSecurity_Mercenary_Rehire_Title_001	Security Contractor Reevaluation	Security Contractor Reevaluation		Unmodified
+EckhartSecurity_MultiEliminateAllAndBoss_DC_Title_001	Deal with ~mission(TargetName) and Support Forces	Deal with ~mission(TargetName) and Support Forces		Unmodified
+EckhartSecurity_RetrieveConsignment_E_Title_001	Safeguard Confidential Material	Safeguard Confidential Material		Unmodified
+EckhartSecurity_RetrieveConsignment_H_Title_001	Repel Attack and Retrieve Confidential Cargo	Repel Attack and Retrieve Confidential Cargo		Unmodified
+EckhartSecurity_RetrieveConsignment_M_Title_001	Retake Site and Secure Cargo	Retake Site and Secure Cargo		Unmodified
+ecn_hackprevent_title_001	ECN ALERT: Network Intrusion	ECN ALERT: Network Intrusion		Unmodified
+escort_safety_title_0001	Armed Guard Needed	Armed Guard Needed		Unmodified
+escort_safety_title_0002	Urgently Need Protection	Urgently Need Protection		Unmodified
+escort_safety_title_0003	Extraction Needed	Extraction Needed		Unmodified
+escort_safety_title_0004	Escort to Safety	Escort to Safety		Unmodified
+escort_scan_title_0001	Escort Contract	Escort Contract		Unmodified
+escort_scan_title_0002	Need Extra Security	Need Extra Security		Unmodified
+escort_scan_title_0003	Scanning Run	Scanning Run		Unmodified
+escort_scan_title_0004	Protection Run	Protection Run		Unmodified
+escort_scan_title_0005	Need an Escort	Need an Escort		Unmodified
+FFFinale_P1_CFP_EliminateSpecific_Delivery_DEBUG_Title_001	DEBUG - HDSF Sherman - EliminateSpecific_Delivery	DEBUG - HDSF Sherman - EliminateSpecific_Delivery		Unmodified
+FFFinale_P1_CFP_EliminateSpecific_Delivery_E_Title_001	[Recon] Find Frontier Fighters Operative and Intel	[Recon] Find Frontier Fighters Operative and Intel		Unmodified
+FFFinale_P1_CFP_EliminateSpecific_Delivery_H_Title_001	[Recon] Secure Frontier Fighters Data	[Recon] Secure Frontier Fighters Data		Unmodified
+FFFinale_P1_CFP_EliminateSpecific_Delivery_M_Title_001	[Recon] Get Datapad from Frontier Fighters	[Recon] Get Datapad from Frontier Fighters		Unmodified
+FFFinale_P1_CFP_MissingPerson_Delivery_DEBUG_Title_001	DEBUG - HDSF Sherman - MissingPerson_Delivery	DEBUG - HDSF Sherman - MissingPerson_Delivery		Unmodified
+FFFinale_P1_CFP_MissingPerson_Delivery_E_Title_001	[Recon] Missing CFP Op & Intel	[Recon] Missing CFP Op & Intel		Unmodified
+FFFinale_P1_CFP_MissingPerson_Delivery_H_Title_001	[Recon] Rescue and Recovery Operation	[Recon] Rescue and Recovery Operation		Unmodified
+FFFinale_P1_CFP_MissingPerson_Delivery_M_Title_001	[Recon] Lost CFP Op & Datapad	[Recon] Lost CFP Op & Datapad		Unmodified
+FFFinale_P1_HH_EliminateSpecific_Delivery_E_Title_001	[Recon] Kill & Collect	[Recon] Kill & Collect		Unmodified
+FFFinale_P1_HH_EliminateSpecific_Delivery_H_Title_001	[Recon] Assassinate ~mission(TargetName|Last) & Seize Datapad	[Recon] Assassinate ~mission(TargetName|Last) & Seize Datapad		Unmodified
+FFFinale_P1_HH_EliminateSpecific_Delivery_M_Title_001	[Recon] Hunt Down Op & Intel	[Recon] Hunt Down Op & Intel		Unmodified
+FFFinale_P1_HH_MissingPerson_Delivery_E_Title_001	[Recon] Locate Lost Headhunter and Intel	[Recon] Locate Lost Headhunter and Intel		Unmodified
+FFFinale_P1_HH_MissingPerson_Delivery_H_Title_001	[Recon] Search Party	[Recon] Search Party		Unmodified
+FFFinale_P1_HH_MissingPerson_Delivery_M_Title_001	[Recon] Tracking Down Missing HeadHunter	[Recon] Tracking Down Missing HeadHunter		Unmodified
+FFFinale_P2_CFP_Destroy_MedicalBed_E_Title_001	[Siege] Stop Frontier Fighters from Regenning	[Siege] Stop Frontier Fighters from Regenning		Unmodified
+FFFinale_P2_CFP_Destroy_MedicalBed_H_Title_001	[Siege] Destroy Frontier Fighters Ability to Regen	[Siege] Destroy Frontier Fighters Ability to Regen		Unmodified
+FFFinale_P2_CFP_Destroy_MedicalBed_M_Title_001	[Siege] Eliminate MedGel Recharge Station	[Siege] Eliminate MedGel Recharge Station		Unmodified
+FFFinale_P2_CFP_DestroyMedicalBed_DEBUG_Title_001	DEBUG - HDSF Sherman - DestroyMedicalBed	DEBUG - HDSF Sherman - DestroyMedicalBed		Unmodified
+FFFinale_P2_CFP_ShipAmbush_DEBUG_Title_001	DEBUG - Ship Graveyard Ambush	DEBUG - Ship Graveyard Ambush		Unmodified
+FFFinale_P2_CFP_ShipAmbush_E_Title_001	[Siege] Ambush Frontier Fighters	[Siege] Ambush Frontier Fighters		Unmodified
+FFFinale_P2_CFP_ShipAmbush_H_Title_001	[Siege] Take Out Frontier Fighters Commander	[Siege] Take Out Frontier Fighters Commander		Unmodified
+FFFinale_P2_CFP_ShipAmbush_M_Title_001	[Siege] Surprise Strike on Frontier Fighters	[Siege] Surprise Strike on Frontier Fighters		Unmodified
+FFFinale_P2_HH_Destroy_MedicalBed_E_Title_001	[Siege] Ruin MedGel Recharge Station	[Siege] Ruin MedGel Recharge Station		Unmodified
+FFFinale_P2_HH_Destroy_MedicalBed_H_Title_001	[Siege] Raid and Ravage MedGel Recharge Stations	[Siege] Raid and Ravage MedGel Recharge Stations		Unmodified
+FFFinale_P2_HH_Destroy_MedicalBed_M_Title_001	[Siege] Let’s Close the Loop	[Siege] Let’s Close the Loop		Unmodified
+FFFinale_P2_HH_ShipAmbush_E_Title_001	[Siege] Ambush Frontier Fighters	[Siege] Ambush Frontier Fighters		Unmodified
+FFFinale_P2_HH_ShipAmbush_H_Title_001	[Siege] Surprise Frontier Fighters Squad	[Siege] Surprise Frontier Fighters Squad		Unmodified
+FFFinale_P2_HH_ShipAmbush_M_Title_001	[Siege] Exact Revenge	[Siege] Exact Revenge		Unmodified
+FFFinale_P3_CFP_HuntThePolaris_Title_001	[Take Down] Stop the Frontier Fighters’ Attack	[Take Down] Stop the Frontier Fighters’ Attack		Unmodified
+FFFinale_P3_HH_HuntThePolaris_Title_001	[Take Down] Kill Frontier Fighters’ Leader Amelia Boyd	[Take Down] Kill Frontier Fighters’ Leader Amelia Boyd		Unmodified
+Firesale_CFP_Title_01	Strategic Detatrine Reserve – Small Resupply	Strategic Detatrine Reserve – Small Resupply		Unmodified
+Firesale_CFP_Title_LargeDonation	Strategic Detatrine Reserve – Large Resupply	Strategic Detatrine Reserve – Large Resupply		Unmodified
+Firesale_CFP_Title_MediumDonation	Strategic Detatrine Reserve – Medium Resupply	Strategic Detatrine Reserve – Medium Resupply		Unmodified
+Firesale_HH_Title_01	Out of Detatrine – Small Resupply	Out of Detatrine – Small Resupply		Unmodified
+Firesale_HH_Title_LargeDonation	Out of Detatrine – Large Resupply	Out of Detatrine – Large Resupply		Unmodified
+Firesale_HH_Title_MediumDonation	Out of Detatrine – Medium Resupply	Out of Detatrine – Medium Resupply		Unmodified
+foxwell_DefendShip_E_title_002	Yellow Level Contract: ~mission(Ship) In Need	Yellow Level Contract: ~mission(Ship) In Need		Unmodified
+foxwell_DefendShip_H_title_002	Red Level Contract: Ship Under Attack	Red Level Contract: Ship Under Attack		Unmodified
+foxwell_DefendShip_M_title_002	Orange Level Contract: Ambushed ~mission(Ship)	Orange Level Contract: Ambushed ~mission(Ship)		Unmodified
+Foxwell_destroyprobe_E_title_001	Yellow Level Contract: Eradicate Illegal Monitors	Yellow Level Contract: Eradicate Illegal Monitors		Unmodified
+Foxwell_destroyprobe_VE_title_001	Yellow Level Contract: Unauthorized Surveillance Monitors	Yellow Level Contract: Unauthorized Surveillance Monitors		Unmodified
+Foxwell_Mercenary_Intro_title_001	Exciting New Opportunities with Foxwell Enforcement	Exciting New Opportunities with Foxwell Enforcement		Unmodified
+Foxwell_RetrieveCargo_OLP_title_001	Red Level Contract: Retrieval Operation	Red Level Contract: Retrieval Operation		Unmodified
+Foxwell_RetrieveCargo_PAF_title_001	Red Level Contract: Return Stolen Goods	Red Level Contract: Return Stolen Goods		Unmodified
+FTL_Courier_Nyx_Easy_Title_001	ENTRY LVL. COURIER NEEDED IN NYX	ENTRY LVL. COURIER NEEDED IN NYX		Unmodified
+FTL_Courier_Stanton_Easy_Title_001	ENTRY LVL. COURIER NEEDED IN STANTON	ENTRY LVL. COURIER NEEDED IN STANTON		Unmodified
+FTL_Courier_Stanton_Medium_Title_001	JR. LVL. COURIER NEEDED IN STANTON	JR. LVL. COURIER NEEDED IN STANTON		Unmodified
+FTL_delivery_title_001	FTL Courier Assignment	FTL Courier Assignment		Unmodified
+FTL_delivery_title_intro	FTL Courier Employment Evaluation	FTL Courier Employment Evaluation		Unmodified
+FTL_RecoverItem_E_Title_001	COURIER NEEDED FOR RETRIEVAL. EXP: E	COURIER NEEDED FOR RETRIEVAL. EXP: E		Unmodified
+FTL_RecoverItem_H_Title_001	COURIER NEEDED FOR RETRIEVAL. EXP: S	COURIER NEEDED FOR RETRIEVAL. EXP: S		Unmodified
+FTL_RecoverItem_Intro_Title_001	NEW RETRIEVAL RUN AVAILABLE	NEW RETRIEVAL RUN AVAILABLE		Unmodified
+FTL_RecoverItem_M_Title_001	COURIER NEEDED FOR RETRIEVAL. EXP: JR	COURIER NEEDED FOR RETRIEVAL. EXP: JR		Unmodified
+FTL_RecoverItem_S_Title_001	COURIER NEEDED FOR RETRIEVAL. EXP: EL	COURIER NEEDED FOR RETRIEVAL. EXP: EL		Unmodified
+FTL_RecoverItem_VE_Title_001	COURIER NEEDED FOR RETRIEVAL - EXP: U	COURIER NEEDED FOR RETRIEVAL - EXP: U		Unmodified
+FTL_RecoverItem_VH_Title_001	COURIER NEEDED FOR RETRIEVAL. EXP: EX	COURIER NEEDED FOR RETRIEVAL. EXP: EX		Unmodified
+genlocal_maintenance_E_title_001	Anyone free to make a couple of repairs?	Anyone free to make a couple of repairs?		Unmodified
+genlocal_maintenance_H_title_001	Huge repairs needed at ~mission(Location)	Huge repairs needed at ~mission(Location)		Unmodified
+genlocal_maintenance_M_title_001	Got a fair amount of repairs needed	Got a fair amount of repairs needed		Unmodified
+GoblinG_ArcCorp_ResourceGathering_Title_Intro	RESOURCE DRIVE: DELIVER MATERIAL DONATION	RESOURCE DRIVE: DELIVER MATERIAL DONATION		Unmodified
+GoblinG_Crusader_ResourceGathering_Title_Intro	RESOURCE DRIVE: CARGO HAULER NEEDED	RESOURCE DRIVE: CARGO HAULER NEEDED		Unmodified
+GoblinG_Hurston_ResourceGathering_Title_Intro	RESOURCE DRIVE: HAULER REQUIRED	RESOURCE DRIVE: HAULER REQUIRED		Unmodified
+GoblinG_MicroTech_ResourceGathering_Title_Intro	RESOURCE DRIVE: TRANSPORTER NEEDED	RESOURCE DRIVE: TRANSPORTER NEEDED		Unmodified
+hdactivist_assassination_title_001	Real Criminal Justice	Real Criminal Justice		Unmodified
+hdactivist_assassination_title_002	Level the Playing Field	Level the Playing Field		Unmodified
+hdactivist_assassination_title_003	Retribution	Retribution		Unmodified
+hdactivist_basesweep_title_001	Force For Good	Force For Good		Unmodified
+hdactivist_basesweep_title_002	Righteous Raid	Righteous Raid		Unmodified
+hdactivist_basesweep_title_003	Call To Arms	Call To Arms		Unmodified
+hdactivist_basesweep_title_004	Time For Action	Time For Action		Unmodified
+hdactivist_stealfromship_outlaw_title_001	Restocking Supplies	Restocking Supplies		Unmodified
+hdactivist_stealitem_title_001	Civil Forfeiture	Civil Forfeiture		Unmodified
+hdactivist_stealitem_title_002	Appropriate Crate	Appropriate Crate		Unmodified
+hdactivist_stealitem_title_003	Procure Package	Procure Package		Unmodified
+hdactivist_stealitem_title_004	Retrieve Item	Retrieve Item		Unmodified
+headhunters_bombingrun_E_title_001	No Fly Zone	No Fly Zone		Unmodified
+headhunters_bombingrun_E_CFP_title_001	Take Out Citizens for Prosperity Fuel Supply	Take Out Citizens for Prosperity Fuel Supply		Unmodified
+headhunters_bombingrun_H_title_001	Wasting Their Stockpile	Wasting Their Stockpile		Unmodified
+headhunters_bombingrun_H_XT_title_001	Blow Up XenoThreat Fuel Reserves	Blow Up XenoThreat Fuel Reserves		Unmodified
+headhunters_bombingrun_killship_M_title_001	Convince Upstarts to Abandon Sector	Convince Upstarts to Abandon Sector		Unmodified
+headhunters_bombingrun_M_title_001	Stopping the Competition	Stopping the Competition		Unmodified
+headhunters_bombingrun_M_CFP_title_001	Blow Up Citizens for Prosperity Fuel Reserves	Blow Up Citizens for Prosperity Fuel Reserves		Unmodified
+headhunters_bombingrun_multi_E_CFP_title_001	Teach Citizens for Prosperity A Lesson	Teach Citizens for Prosperity A Lesson		Unmodified
+headhunters_bombingrun_multi_E_XT_title_001	Teach XenoThreat a Lesson	Teach XenoThreat a Lesson		Unmodified
+headhunters_bombingrun_S_title_001	Outsmarting our Enemies	Outsmarting our Enemies		Unmodified
+headhunters_bombingrun_sabotage_killship_H_title_001	Convince Rivals to Abandon Station	Convince Rivals to Abandon Station		Unmodified
+headhunters_bombingrun_sabotage_killship_H_XT_title_001	Convince XenoThreat to Abandon Station	Convince XenoThreat to Abandon Station		Unmodified
+headhunters_bombingrun_sabotage_servers_VH_title_001	Stop Rivals from Launching Heist	Stop Rivals from Launching Heist		Unmodified
+headhunters_bombingrun_VE_title_001	Ground The Upstarts	Ground The Upstarts		Unmodified
+headhunters_bombingrun_VH_title_001	Trapping a Rat	Trapping a Rat		Unmodified
+headhunters_bombingrun_VH_XT_title_001	Destroy XenoThreat Fuel Reserves	Destroy XenoThreat Fuel Reserves		Unmodified
+Headhunters_bounty_xenothreat_title_001	Preemptive Strike	Preemptive Strike		Unmodified
+Headhunters_bounty_xenothreat_title_002	Payback	Payback		Unmodified
+Headhunters_bounty_xenothreat_title_003	Exact Justice	Exact Justice		Unmodified
+headhunters_ChainElimAll_1C_ElimSpec_XTAttack_H_title_001	Take down ~mission(TargetName) and crew	Take down ~mission(TargetName) and crew		Unmodified
+headhunters_ChainElimAll_1C_XTAttack_M_title_001	Battling back XenoThreat	Battling back XenoThreat		Unmodified
+headhunters_ChainElimAll_2C_ElimSpec_XTAttack_H_title_001	Scramble to ~mission(Location)	Scramble to ~mission(Location)		Unmodified
+headhunters_ChainElimAll_3C_ElimSpec_XTAttack_VH_title_001	XenoThreat coming down on ~mission(Location)	XenoThreat coming down on ~mission(Location)		Unmodified
+headhunters_defend_Generic_M_title_001	~mission(Location|Address) under attack	~mission(Location|Address) under attack		Unmodified
+headhunters_defend_Generic_M_Carvers_title_001	Take back Carvers Ridge	Take back Carvers Ridge		Unmodified
+headhunters_defend_Generic_M_GoldenRivera_title_001	Rally at ~mission(Location)	Rally at ~mission(Location)		Unmodified
+headhunters_defend_Generic_M_TheYard_title_001	The Yard's under attack	The Yard's under attack		Unmodified
+headhunters_defend_Generic_M_WindFall_title_001	Don't let Windfall Fall	Don't let Windfall Fall		Unmodified
+Headhunters_defend_XT_H_title_001	Halt XenoThreat Expansion	Halt XenoThreat Expansion		Unmodified
+Headhunters_defend_XT_M_title_001	Stop XenoThreat Expansion	Stop XenoThreat Expansion		Unmodified
+Headhunters_DefendLocation_E_Title_001	Protect Our Site	Protect Our Site		Unmodified
+Headhunters_DefendLocation_H_Title_001	Help Headhunters at ~mission(DefendLocationWrapperLocation)	Help Headhunters at ~mission(DefendLocationWrapperLocation)		Unmodified
+Headhunters_DefendLocation_Intro_Title_001	Guard Our Backs	Guard Our Backs		Unmodified
+Headhunters_DefendLocation_M_Title_001	Secure Our Airspace	Secure Our Airspace		Unmodified
+Headhunters_DefendLocation_S_Title_001	Restore Order at ~mission(DefendLocationWrapperLocation)	Restore Order at ~mission(DefendLocationWrapperLocation)		Unmodified
+Headhunters_DefendLocation_VE_Title_001	Eliminate Annoyance	Eliminate Annoyance		Unmodified
+Headhunters_DefendLocation_VH_Title_001	Stop Attack at ~mission(DefendLocationWrapperLocation)	Stop Attack at ~mission(DefendLocationWrapperLocation)		Unmodified
+headhunters_defendship_Intro_title_001	Prove Yourself	Prove Yourself		Unmodified
+headhunters_defendship_LRT_title_001	Headhunter Pilot in Trouble	Headhunter Pilot in Trouble		Unmodified
+headhunters_defendship_LRT_PA_title_001	Headhunter Needs Help	Headhunter Needs Help		Unmodified
+headhunters_defendship_MRT_title_001	Headhunter Ship Needs Backup	Headhunter Ship Needs Backup		Unmodified
+headhunters_defendship_MRT_PA_title_001	Backup Needed Now	Backup Needed Now		Unmodified
+headhunters_defendship_multi_HRT_title_001	Headhunter Ships in Big Trouble	Headhunter Ships in Big Trouble		Unmodified
+headhunters_defendship_multi_HRT_PA_title_001	Bring Down the Hammer	Bring Down the Hammer		Unmodified
+headhunters_defendship_multi_MRT_title_001	Headhunter Ships Need Backup	Headhunter Ships Need Backup		Unmodified
+headhunters_defendship_multi_SRT_PA_title_001	Looking for a Damn Hero	Looking for a Damn Hero		Unmodified
+headhunters_defendship_multi_VHRT_PA_title_001	Rally to Help Clips Convoy	Rally to Help Clips Convoy		Unmodified
+headhunters_defendship_multi_VHRT_XT_title_001	Headhunter Ships Ambushed by XenoThreat	Headhunter Ships Ambushed by XenoThreat		Unmodified
+headhunters_defendship_VLRT_title_001	Headhunter Pilot Needs a Hand	Headhunter Pilot Needs a Hand		Unmodified
+headhunters_defendship_VLRT_PA_title_001	Help Headhunters Prospect	Help Headhunters Prospect		Unmodified
+Headhunters_Delivery_Outpost_title_001	~mission(Destination) Errand	~mission(Destination) Errand		Unmodified
+Headhunters_Delivery_Outpost_Multi_title_001	Little Heavy Lifting at ~mission(Destination)	Little Heavy Lifting at ~mission(Destination)		Unmodified
+Headhunters_Delivery_Outpost_MultiToSingle_title_001	Consolidate Supplies at ~mission(Destination)	Consolidate Supplies at ~mission(Destination)		Unmodified
+Headhunters_Delivery_Outpost_SingleToMulti_title_001	Spread Some Supplies	Spread Some Supplies		Unmodified
+Headhunters_Delivery_OutpostToStation_title_001	Special Cargo for ~mission(Destination)	Special Cargo for ~mission(Destination)		Unmodified
+Headhunters_Delivery_OutpostToTradepost_title_001	Get the Goods	Get the Goods		Unmodified
+Headhunters_Delivery_OutpostToTradepost_MultiToSingle_title_001	Loaded with Loot	Loaded with Loot		Unmodified
+Headhunters_Delivery_OutpostToXSOutpost_title_001	Wrong Address	Wrong Address		Unmodified
+Headhunters_Delivery_StationToOutpost_title_001	Important Cargo Run to ~mission(Destination)	Important Cargo Run to ~mission(Destination)		Unmodified
+Headhunters_Delivery_TradepostToOutpost_title_001	~mission(Destination) Restock Run	~mission(Destination) Restock Run		Unmodified
+Headhunters_Delivery_TradepostToOutpost_SingleToMulti_title_001	Spread Supplies	Spread Supplies		Unmodified
+Headhunters_Delivery_TradepostToTradepost_title_001	Shuffle Supplies Across System	Shuffle Supplies Across System		Unmodified
+Headhunters_destroy_server_CFP_title_01	Explosive Evidence	Explosive Evidence		Unmodified
+headhunters_eliminateall_boss_Generic_title_001	It's popping off at ~mission(Location|Address)	It's popping off at ~mission(Location|Address)		Unmodified
+headhunters_eliminateall_Generic_M_title_001	Wipe ~mission(Location) out	Wipe ~mission(Location) out		Unmodified
+headhunters_EliminateAll_Missing_Generic_M_title_001	Bring the hammer down	Bring the hammer down		Unmodified
+headhunters_EliminateAll_Missing_Xenothreat_H_title_001	Should'a left it to a professional	Should'a left it to a professional		Unmodified
+headhunters_EliminateAll_Missing_Xenothreat_VH_title_001	Unfinished Contract	Unfinished Contract		Unmodified
+Headhunters_EliminateAll_OLP_H_title_001	Deliver a Message	Deliver a Message		Unmodified
+Headhunters_EliminateAll_PAF_H_title_001	Show Them Who's Boss	Show Them Who's Boss		Unmodified
+headhunters_eliminateall_retrievestolen_base_Generic_M_title_001	Death and cargo	Death and cargo		Unmodified
+headhunters_eliminateall_retrievestolen_missingperson_base_Generic_M_title_001	A tricky tricky task	A tricky tricky task		Unmodified
+headhunters_EliminateBoss_Generic_VH_title_001	Clip a big fish	Clip a big fish		Unmodified
+Headhunters_EliminateBoss_OLP_VH_title_001	Settle a Grudge	Settle a Grudge		Unmodified
+Headhunters_eliminatespecific_caves_title_01	Course Correction	Course Correction		Unmodified
+headhunters_EliminateSpecific_defect_CFP_M_title_001	Catch a word real quick	Catch a word real quick		Unmodified
+headhunters_EliminateSpecific_FactionAlign_CFP_E_title_001	Need a trigger	Need a trigger		Unmodified
+Headhunters_EliminateSpecific_PAF_title_001	Ghost ~mission(TargetName)	Ghost ~mission(TargetName)		Unmodified
+Headhunters_HaulCargo_AToB_OLP_title_01	Cargo Retrieval	Cargo Retrieval		Unmodified
+Headhunters_HaulCargo_AToB_PAF_title_01	Stock Taking	Stock Taking		Unmodified
+Headhunters_HaulCargo_MultiToSingle_title_01	Getting Our Goods Back	Getting Our Goods Back		Unmodified
+headhunters_HaulCargo_RegionLink_title_001	Hauling ask.	Hauling ask.		Unmodified
+headhunters_killship_asteroid_rank0_title_001	Target takedown for a fast track in	Target takedown for a fast track in		Unmodified
+headhunters_killship_asteroid_rank1_title_001	Target at ~mission(Location)	Target at ~mission(Location)		Unmodified
+headhunters_killship_cfp_hrt_title_001	Kill Order	Kill Order		Unmodified
+headhunters_killship_cfp_mrt_title_001	Hit a CFP Ship	Hit a CFP Ship		Unmodified
+headhunters_killship_cfp_vhrt_title_001	Primo Target	Primo Target		Unmodified
+headhunters_killship_defection_title_001	A proposal	A proposal		Unmodified
+headhunters_killship_factionalign_title_001	Hit a moving target	Hit a moving target		Unmodified
+headhunters_killship_gen_hrt_title_001	Wanted: ~mission(TargetName)	Wanted: ~mission(TargetName)		Unmodified
+headhunters_killship_gen_lrt_title_001	Simple Hit	Simple Hit		Unmodified
+headhunters_killship_gen_mrt_title_001	Treat yourself to a fight	Treat yourself to a fight		Unmodified
+headhunters_killship_gen_vlrt_title_001	~mission(TargetName) needs stomping	~mission(TargetName) needs stomping		Unmodified
+headhunters_killship_gen_vlrt_rank0_title_001	Wanna be a Headhunter?	Wanna be a Headhunter?		Unmodified
+headhunters_killship_xenothreat_ert_title_001	Ghost some XenoTrash	Ghost some XenoTrash		Unmodified
+headhunters_maintenance_E_title_001	~mission(Location) needs some repairs	~mission(Location) needs some repairs		Unmodified
+headhunters_maintenance_H_title_001	~mission(Location) needs massive repairs	~mission(Location) needs massive repairs		Unmodified
+headhunters_maintenance_local_E_title_001	~mission(Location) needs some repairs	~mission(Location) needs some repairs		Unmodified
+headhunters_maintenance_local_H_title_001	~mission(Location) needs massive repairs	~mission(Location) needs massive repairs		Unmodified
+headhunters_maintenance_local_M_title_001	~mission(Location) needs a bunch of repairs	~mission(Location) needs a bunch of repairs		Unmodified
+headhunters_maintenance_M_title_001	~mission(Location) needs a bunch of repairs	~mission(Location) needs a bunch of repairs		Unmodified
+headhunters_missingperson_sabotage_M_title_001	Find Headhunter Crewmember and Help Finish the Job	Find Headhunter Crewmember and Help Finish the Job		Unmodified
+headhunters_missingperson_sabotage_server_H_XT_title_001	Find Headhunter Crewmember and Help Finish the Job	Find Headhunter Crewmember and Help Finish the Job		Unmodified
+headhunters_missingperson_sabotage_VH_XT_title_001	Find Headhunter Crewmember and Help Finish the Job	Find Headhunter Crewmember and Help Finish the Job		Unmodified
+headhunters_multikillship_base_Generic_M_title_001	Crash some ships	Crash some ships		Unmodified
+headhunters_Nyx_bombingrun_E_title_001	Staking a Claim	Staking a Claim		Unmodified
+headhunters_Nyx_bombingrun_H_title_001	Gross Misconduct	Gross Misconduct		Unmodified
+headhunters_Nyx_bombingrun_M_title_001	Unfriendly Competition	Unfriendly Competition		Unmodified
+headhunters_Nyx_bombingrun_S_title_001	Get Them Before They Get Us	Get Them Before They Get Us		Unmodified
+headhunters_Nyx_bombingrun_VE_title_001	Lowering the Property Value	Lowering the Property Value		Unmodified
+headhunters_Nyx_bombingrun_VH_title_001	Aggressive Expansion	Aggressive Expansion		Unmodified
+Headhunters_RetrieveCargo_AsteroidBase_XT_H_title_001	Get Our Goods from XenoThreat	Get Our Goods from XenoThreat		Unmodified
+Headhunters_RetrieveCargo_CrimBase_E_title_001	Return Goods	Return Goods		Unmodified
+Headhunters_RetrieveCargo_CrimBase_H_title_001	Get the Good Stuff	Get the Good Stuff		Unmodified
+Headhunters_RetrieveCargo_CrimBase_XT_VH_title_001	Two Birds, One Stone	Two Birds, One Stone		Unmodified
+Headhunters_RetrieveCargo_Intro_title_001	Test Your Mettle	Test Your Mettle		Unmodified
+Headhunters_RetrieveCargo_Lagrange_E_title_001	Get Our Shit!	Get Our Shit!		Unmodified
+Headhunters_RetrieveCargo_Lagrange_E_title_002	Search for Ship	Search for Ship		Unmodified
+Headhunters_RetrieveCargo_Multi_Cluster_H_title_001	Lost in Space	Lost in Space		Unmodified
+Headhunters_RetrieveCargo_Multi_CrimBase_H_title_001	Strike Back	Strike Back		Unmodified
+Headhunters_RetrieveCargo_Multi_CrimBase_H_title_002	Revenge Raid	Revenge Raid		Unmodified
+Headhunters_RetrieveCargo_Multi_CrimBase_XT_VH_title_001	Raid Massive Ammo Resupply	Raid Massive Ammo Resupply		Unmodified
+Headhunters_RetrieveCargo_Multi_Lagrange_M_title_001	Get Our Goods Before They’re Gone	Get Our Goods Before They’re Gone		Unmodified
+Headhunters_RetrieveCargo_OccuCave_M_title_001	Cave Raid	Cave Raid		Unmodified
+Headhunters_RetrieveCargo_RegionLink_E_title_001	Gone But Not Forgotten	Gone But Not Forgotten		Unmodified
+headhunters_sabotage_generators_E_CFP_title_001	Cut Citizens For Prosperity Power	Cut Citizens For Prosperity Power		Unmodified
+headhunters_sabotage_generators_multi_M_title_001	Knock Power Out	Knock Power Out		Unmodified
+headhunters_sabotage_generators_multi_M_CFP_title_001	Paving the Way for Raid on Citizens for Prosperity	Paving the Way for Raid on Citizens for Prosperity		Unmodified
+headhunters_sabotage_generators_multi_M_XT_title_001	Paving the Way for Raid on XenoThreat	Paving the Way for Raid on XenoThreat		Unmodified
+headhunters_sabotage_generators_VE_title_001	Shut Off Power at ~mission(Location)	Shut Off Power at ~mission(Location)		Unmodified
+headhunters_sabotage_servers_E_CFP_title_001	Clear Citizens for Prosperity Servers	Clear Citizens for Prosperity Servers		Unmodified
+headhunters_sabotage_servers_E_CFP_faction_title_001	Take a Stand Against Citizens for Prosperity	Take a Stand Against Citizens for Prosperity		Unmodified
+headhunters_sabotage_servers_H_XT_Title_001	Wipe Out XenoThreat Servers	Wipe Out XenoThreat Servers		Unmodified
+headhunters_sabotage_servers_M_CFP_title_001	Wipe Citizens for Prosperity Data Farm	Wipe Citizens for Prosperity Data Farm		Unmodified
+headhunters_sabotage_servers_M_CFP_defection_title_001	Clear Out Citizens for Prosperity Snitch Files	Clear Out Citizens for Prosperity Snitch Files		Unmodified
+headhunters_sabotage_servers_VH_XT_title_001	Purge XenoThreat Servers	Purge XenoThreat Servers		Unmodified
+Headhunters_Salvage_CoverUp_M_title_001	Quickly Pick CFP Convoy Clean	Quickly Pick CFP Convoy Clean		Unmodified
+Headhunters_Salvage_CoverUp_XT_VH_title_001	Swiftly Salvage XenoThreat ~mission(Ship)	Swiftly Salvage XenoThreat ~mission(Ship)		Unmodified
+Headhunters_Salvage_DefendShip_XT_VH_title_001	Defend, Destroy, and Salvage\n	Defend, Destroy, and Salvage\n		Unmodified
+Headhunters_Salvage_E_title_001	~mission(Ship) Clean Up	~mission(Ship) Clean Up		Unmodified
+Headhunters_Salvage_FPS_title_001	Scrap Salvage at ~mission(Location)	Scrap Salvage at ~mission(Location)		Unmodified
+Headhunters_Salvage_KillShip_H_title_001	Savage and Salvage	Savage and Salvage		Unmodified
+Headhunters_Salvage_KillShip_M_title_001	Kill and Salvage ~mission(Ship)	Kill and Salvage ~mission(Ship)		Unmodified
+Headhunters_Salvage_Multi_M_title_001	Salvage Field Fun	Salvage Field Fun		Unmodified
+Headhunters_Salvage_Multi_XT_VH_title_001	XenoThreat Salvage for Grabs	XenoThreat Salvage for Grabs		Unmodified
+Headhunters_Salvage_VE_title_001	Easy ~mission(Ship) Salvage	Easy ~mission(Ship) Salvage		Unmodified
+headhunters_searchbody_danger_outpost_title_001	Track Down ~mission(TargetName)	Track Down ~mission(TargetName)		Unmodified
+headhunters_searchbody_danger_station_title_001	Track Down ~mission(TargetName)	Track Down ~mission(TargetName)		Unmodified
+headhunters_searchbody_nodanger_outpost_title_001	Anybody Seen ~mission(TargetName)?	Anybody Seen ~mission(TargetName)?		Unmodified
+headhunters_searchbody_nodanger_station_title_001	Anybody Seen ~mission(TargetName)?	Anybody Seen ~mission(TargetName)?		Unmodified
+Headhunters_SecurityPatrol_E_Title_001	Scout and Scan	Scout and Scan		Unmodified
+Headhunters_SecurityPatrol_H_Title_001	Looking For Trouble	Looking For Trouble		Unmodified
+Headhunters_SecurityPatrol_Intro_Title_001	Patrol Our Turf	Patrol Our Turf		Unmodified
+Headhunters_SecurityPatrol_M_Title_001	Space Patrol	Space Patrol		Unmodified
+Headhunters_SecurityPatrol_S_Title_001	Hunt Some Heads	Hunt Some Heads		Unmodified
+Headhunters_SecurityPatrol_VE_Title_001	See What’s Out There	See What’s Out There		Unmodified
+Headhunters_SecurityPatrol_VH_Title_001	Stand Our Ground	Stand Our Ground		Unmodified
+HeadHunters_ShipAmbush_E_title_001	Silent Strike	Silent Strike		Unmodified
+HeadHunters_ShipAmbush_H_title_001	Reprisal Attack	Reprisal Attack		Unmodified
+HeadHunters_ShipAmbush_Intro_title_001	Setting a Trap	Setting a Trap		Unmodified
+HeadHunters_ShipAmbush_M_title_001	Ambush Op	Ambush Op		Unmodified
+HeadHunters_ShipAmbush_S_title_001	Elite Op	Elite Op		Unmodified
+HeadHunters_ShipAmbush_VE_title_001	Surprise Party	Surprise Party		Unmodified
+HeadHunters_ShipAmbush_VH_title_001	Tactical Strike	Tactical Strike		Unmodified
+Headhunters_theft_DerelictOutpost_E_title_001	Commandeer Supplies	Commandeer Supplies		Unmodified
+Headhunters_theft_intro_title_001	Sticky Fingers	Sticky Fingers		Unmodified
+Headhunters_theft_OccuCave_CFP_M_title_001	Cave Raid	Cave Raid		Unmodified
+Headhunters_Theft_OLP_title_001	Opportunity Knocks at ~mission(Location)	Opportunity Knocks at ~mission(Location)		Unmodified
+Headhunters_theft_outpost_CFP_M_title_001	Time to Resupply	Time to Resupply		Unmodified
+Headhunters_theft_outpost_XT_VH_title_001	Smash and Dash	Smash and Dash		Unmodified
+Headhunters_Theft_PAF_title_001	Steal Some ~mission(Item)	Steal Some ~mission(Item)		Unmodified
+Headhunters_theft_RegionLink_E_title_001	Grab Requested Goods	Grab Requested Goods		Unmodified
+Headhunters_theft_XSOutpost_CFP_E_title_001	Easy Pickings	Easy Pickings		Unmodified
+Headhunters_theft_XSOutpost_M_title_001	Steal Some ~mission(Item)	Steal Some ~mission(Item)		Unmodified
+Headhunters_theft_XSOutpost_XT_H_title_001	Steal and Slip Away	Steal and Slip Away		Unmodified
+HH_CH2_JournalTitle_Phase1	Headhunters Op. Protect Pyro - Launch Summary	Headhunters Op. Protect Pyro - Launch Summary		Unmodified
+HH_CH2_JournalTitle_Phase2	Headhunters Op. Protect Pyro - Phase 2 Summary	Headhunters Op. Protect Pyro - Phase 2 Summary		Unmodified
+HH_CH2_JournalTitle_Phase3	HH Op. Avenge Pyro - Phase 3 Summary	HH Op. Avenge Pyro - Phase 3 Summary		Unmodified
+hh_killanimals_e_derelictoutpostscaves_title_001	Deal with Kopions at ~mission(Location)	Deal with Kopions at ~mission(Location)		Unmodified
+hh_killanimals_e_derelictoutpostscaves_title_002	Creds for Kopion Kills at ~mission(Location)	Creds for Kopion Kills at ~mission(Location)		Unmodified
+hh_killanimals_h_derelictoutpostscaves_title_001	Butcher Kopion Pack at ~mission(Location)	Butcher Kopion Pack at ~mission(Location)		Unmodified
+hh_killanimals_m_derelictoutpostscaves_title_001	Kill Kopions at ~mission(Location)	Kill Kopions at ~mission(Location)		Unmodified
+hh_killanimals_m_derelictoutpostscaves_title_002	Big Payout for Kopion Kills at ~mission(Location)	Big Payout for Kopion Kills at ~mission(Location)		Unmodified
+hh_missingperson_inv_chain_h_xenothreat_title_01	Track Down ~mission(TargetName)	Track Down ~mission(TargetName)		Unmodified
+hh_missingperson_inv_e_criminalbase_title_01	Track Down ~mission(TargetName)	Track Down ~mission(TargetName)		Unmodified
+hh_missingperson_inv_e_faunacave_title_01	Track Down ~mission(TargetName)	Track Down ~mission(TargetName)		Unmodified
+hh_missingperson_inv_m_criminalbase_title_01	Find ~mission(TargetName|Last)\n	Find ~mission(TargetName|Last)\n		Unmodified
+Highpoint_KillAnimals_AtLocation_title_intro	Population Management	Population Management		Unmodified
+Highpoint_Killanimals_Derelictoutpostscaves_Nearoutposts_Title_E_001	Overpopulated Kopions Need Exterminating	Overpopulated Kopions Need Exterminating		Unmodified
+Highpoint_Killanimals_Derelictoutpostscaves_Nearoutposts_Title_M_001	Protect CFP Members from Overactive Kopions	Protect CFP Members from Overactive Kopions		Unmodified
+Highpoint_KillAnimals_Derelictoutpostscaves_Title_E_001	Pack of Kopions Threatening CFP	Pack of Kopions Threatening CFP		Unmodified
+Highpoint_Killanimals_Derelictoutpostscaves_Title_E_002	Kopion Culling for CFP	Kopion Culling for CFP		Unmodified
+Highpoint_KillAnimals_Derelictoutpostscaves_Title_H_001	Protect Settlement from Kopion Packs	Protect Settlement from Kopion Packs		Unmodified
+Highpoint_Killanimals_Derelictoutpostscaves_Title_M_001	Overaggressive Kopions Need Removing	Overaggressive Kopions Need Removing		Unmodified
+Highpoint_KillAnimals_rockcracker_title_H_001	Exterminate Valakkar Infestation Aboard Station	Exterminate Valakkar Infestation Aboard Station		Unmodified
+Highpoint_KillAnimals_rockcracker_title_M_001	Cull Valakkar Population Aboard Station	Cull Valakkar Population Aboard Station		Unmodified
+Highpoint_KillAnimals_storm_H_title_001	Cull Irradiated Kopions	Cull Irradiated Kopions		Unmodified
+Hockcrow_SearchBody_Easy_Title_001	Locate Missing Employee	Locate Missing Employee		Unmodified
+Hockcrow_SearchBody_Hard_Title_001	Locate Missing Family Member	Locate Missing Family Member		Unmodified
+Hockcrow_SearchBody_Medium_Title_001	Locate Missing Team	Locate Missing Team		Unmodified
+Hockcrow_SearchBody_Super_Title_001	Locate Missing Crew	Locate Missing Crew		Unmodified
+Hockcrow_SearchBody_VeryEasy_Title_001	Locate Missing Clients	Locate Missing Clients		Unmodified
+Hockcrow_SearchBody_VeryHard_Title_001	Locate Missing Contractors	Locate Missing Contractors		Unmodified
+Hockrow_BlackBox_space_E_Title_001	Blackbox Recovery Request: Junior Level	Blackbox Recovery Request: Junior Level		Unmodified
+Hockrow_BlackBox_space_H_Title_001	Blackbox Recovery Request: Senior Investigator Level	Blackbox Recovery Request: Senior Investigator Level		Unmodified
+Hockrow_BlackBox_space_Intro_Title_001	NEW HIRE: Blackbox Recovery	NEW HIRE: Blackbox Recovery		Unmodified
+Hockrow_BlackBox_space_M_Title_001	Blackbox Recovery Request: Investigator Level	Blackbox Recovery Request: Investigator Level		Unmodified
+Hockrow_BlackBox_space_S_Title_001	Blackbox Recovery Request: Special Investigator Level	Blackbox Recovery Request: Special Investigator Level		Unmodified
+Hockrow_BlackBox_space_VE_Title_001	Blackbox Recovery Request: Probationary Level	Blackbox Recovery Request: Probationary Level		Unmodified
+Hockrow_BlackBox_space_VH_Title_001	Blackbox Recovery Request: Lead Investigator Level	Blackbox Recovery Request: Lead Investigator Level		Unmodified
+Hockrow_searchbody_space_E_Title_001	Potential Assassin Victim: ~mission(TargetName)	Potential Assassin Victim: ~mission(TargetName)		Unmodified
+Hockrow_searchbody_space_H_Title_001	Locate Missing Agent: ~mission(TargetName)	Locate Missing Agent: ~mission(TargetName)		Unmodified
+Hockrow_searchbody_space_Intro_Title_001	NEW HIRE: Locate Missing Person	NEW HIRE: Locate Missing Person		Unmodified
+Hockrow_searchbody_space_M_Title_001	Locate Missing Friend: ~mission(TargetName)	Locate Missing Friend: ~mission(TargetName)		Unmodified
+Hockrow_searchbody_space_S_Title_001	Verify Deceased Criminal: ~mission(TargetName)	Verify Deceased Criminal: ~mission(TargetName)		Unmodified
+Hockrow_searchbody_space_VE_Title_001	Locate Missing Person: ~mission(TargetName)	Locate Missing Person: ~mission(TargetName)		Unmodified
+Hockrow_searchbody_space_VH_Title_001	Locate Missing Pilot: ~mission(TargetName)	Locate Missing Pilot: ~mission(TargetName)		Unmodified
+hurston_assassination_title_001	Authorized Execution Warrant	Authorized Execution Warrant		Unmodified
+hurston_basesweep_title_001	Evict Illegal Occupants	Evict Illegal Occupants		Unmodified
+hurston_bounty_title_0001	Wanted: ~mission(TargetName)	Wanted: ~mission(TargetName)		Unmodified
+hurston_bounty_fps_title_first	Entrenched Bounty Contractor Evaluation	Entrenched Bounty Contractor Evaluation		Unmodified
+hurston_bounty_fps_title_rehire	Entrenched Bounty Contractor Reevaluation	Entrenched Bounty Contractor Reevaluation		Unmodified
+hurston_destroyblade_title_001	Destroy Lost Prototype	Destroy Lost Prototype		Unmodified
+hurston_destroyprobe_title_0001	Halt Illegal Surveillance	Halt Illegal Surveillance		Unmodified
+Hurston_destroystash_dc_title_001	Destroy Contraband	Destroy Contraband		Unmodified
+hurston_hackprevent_title_001	Illegal Network Access	Illegal Network Access		Unmodified
+Hurston_killcreatureslocation_onetype_multilocation_title_01	Eradicate All Nests	Eradicate All Nests		Unmodified
+Hurston_killcreatureslocation_onetype_onelocation_title_01	Exterminate Nest of ~mission(Creature)	Exterminate Nest of ~mission(Creature)		Unmodified
+hurston_recover_title_Easy_001	Hurston Security Danger Recover Easy placeholder	Hurston Security Danger Recover Easy placeholder		Unmodified
+hurston_recover_title_Hard_001	Hurston Security Danger Recover Hard placeholder	Hurston Security Danger Recover Hard placeholder		Unmodified
+hurston_recover_title_intro_001	Hurston Security Danger Recover Intro placeholder	Hurston Security Danger Recover Intro placeholder		Unmodified
+hurston_recover_title_Medium_001	Hurston Security Danger Recover Medium placeholder	Hurston Security Danger Recover Medium placeholder		Unmodified
+hurston_recoverspace__title_0001	Stolen Property	Stolen Property		Unmodified
+Hurston_searchbody_dc_title_001	Missing Person Report: ~mission(TargetName)	Missing Person Report: ~mission(TargetName)		Unmodified
+hurston_sectorsweep_title_001	Eliminate Threat from Hurston Space	Eliminate Threat from Hurston Space		Unmodified
+hurston_UGF_defend_S_title_001	Guard Facility Against Extremely Dangerous Hostiles	Guard Facility Against Extremely Dangerous Hostiles		Unmodified
+hurston_UGF_defend_VE_title_001	Guard Facility	Guard Facility		Unmodified
+Intersec_DefendShip_Title_Intro_001	New Defense Contract: Defend Pilot	New Defense Contract: Defend Pilot		Unmodified
+Intersec_ShipWaveAttack_DrawOutBoss_S_Title_001	Eradicate UEE Threat: ~mission(TargetName)	Eradicate UEE Threat: ~mission(TargetName)		Unmodified
+Intersec_ShipWaveAttack_DrawOutBoss_VH_Title_001	Terminate UEE Threat: ~mission(TargetName)	Terminate UEE Threat: ~mission(TargetName)		Unmodified
+kareahsweep_title_0001	Trespassers Detected at ~mission(Location)	Trespassers Detected at ~mission(Location)		Unmodified
+kareahsweep_title_0002	Security Post Breached	Security Post Breached		Unmodified
+kareahsweep_title_0003	~mission(Location) Infiltrated	~mission(Location) Infiltrated		Unmodified
+kareahsweep_title_0004	Break In At ~mission(Location)	Break In At ~mission(Location)		Unmodified
+KillShip_Title_AssassinationMultiTarget_01	Assassinate Targets	Assassinate Targets		Unmodified
+KillShip_Title_AssassinationSingleTarget_01	Assassinate Target	Assassinate Target		Unmodified
+KillShip_Title_AssassinationTimed_01	Urgent Assassination Contract	Urgent Assassination Contract		Unmodified
+KillShip_Title_AssassinationWaves_01	Assassinate Target Crew Members	Assassinate Target Crew Members		Unmodified
+KillShip_Title_BountyTimed_01	Urgent Bounty Contract	Urgent Bounty Contract		Unmodified
+KillShip_Title_HUD_AssassinationMultiTarget_01	Assassinate Targets	Assassinate Targets		Unmodified
+KillShip_Title_HUD_AssassinationSingleTarget_01	Assassinate Target	Assassinate Target		Unmodified
+KillShip_Title_HUD_AssassinationTimed_01	Urgent Assassination Contract	Urgent Assassination Contract		Unmodified
+KillShip_Title_HUD_AssassinationWaves_01	Assassinate Target Crew Members	Assassinate Target Crew Members		Unmodified
+KillShip_Title_HUD_BountyTimed_01	Urgent Bounty Contract	Urgent Bounty Contract		Unmodified
+KillShip_Title_HUD_MultiTargets_01	Neutralize Wanted Criminals	Neutralize Wanted Criminals		Unmodified
+KillShip_Title_HUD_SingleTarget_01	Neutralize Wanted Criminal	Neutralize Wanted Criminal		Unmodified
+KillShip_Title_HUD_Waves_01	Neutralize Criminal Gang Members	Neutralize Criminal Gang Members		Unmodified
+KillShip_Title_MultiTargets_01	Neutralize Wanted Criminals	Neutralize Wanted Criminals		Unmodified
+KillShip_Title_SingleTarget_01	Neutralize Wanted Criminal	Neutralize Wanted Criminal		Unmodified
+KillShip_Title_Waves_01	Neutralize Criminal Gang Members	Neutralize Criminal Gang Members		Unmodified
+LingFamily_delivery_title_001	Ling Shipment Delivery	Ling Shipment Delivery		Unmodified
+LingFamily_delivery_title_intro	Job Opportunity with Ling Hauling	Job Opportunity with Ling Hauling		Unmodified
+LocalDelivery_DrugProd_title_01	~mission(Contractor|LocalDeliveryDrugProdTitle)	~mission(Contractor|LocalDeliveryDrugProdTitle)		Unmodified
+LocalDelivery_DrugProd_mgtitle_01	~mission(Contractor|LocalDeliveryDrugProdTitle) - ~mission(Reward)	~mission(Contractor|LocalDeliveryDrugProdTitle) - ~mission(Reward)		Unmodified
+LocationRush_CFP_Mining_Title_01	Strategic Resource Reserve – Small Resupply	Strategic Resource Reserve – Small Resupply		Unmodified
+LocationRush_CFP_Mining_Title_LargeDonation	Strategic Resource Reserve – Large Resupply	Strategic Resource Reserve – Large Resupply		Unmodified
+LocationRush_CFP_Mining_Title_MediumDonation	Strategic Resource Reserve – Medium Resupply	Strategic Resource Reserve – Medium Resupply		Unmodified
+LocationRush_CFP_Salvage_Title_01	Strategic Salvage Reserve – Small Resupply	Strategic Salvage Reserve – Small Resupply		Unmodified
+LocationRush_CFP_Salvage_Title_LargeDonation	Strategic Salvage Reserve – Large Resupply	Strategic Salvage Reserve – Large Resupply		Unmodified
+LocationRush_CFP_Salvage_Title_MediumDonation	Strategic Salvage Reserve – Medium Resupply	Strategic Salvage Reserve – Medium Resupply		Unmodified
+LocationRush_HH_Mining_Title_Large	Out of Resources – Large Resupply	Out of Resources – Large Resupply		Unmodified
+LocationRush_HH_Mining_Title_Medium	Out of Resources – Medium Resupply	Out of Resources – Medium Resupply		Unmodified
+LocationRush_HH_Salvage_Title_LargeDontation	Out of Salvage – Large Resupply	Out of Salvage – Large Resupply		Unmodified
+LocationRush_HH_Salvage_Title_MediumDonation	Out of Salvage – Medium Resupply	Out of Salvage – Medium Resupply		Unmodified
+me_blackboxillegal_title_0004	Retrieval	Retrieval		Unmodified
+me_bounty_title_0003	Capture/Kill Order	Capture/Kill Order		Unmodified
+me_planetcollect_steal_title_0003	Collection job	Collection job		Unmodified
+meet_miles_il_title_0001	Something on the side	Something on the side		Unmodified
+meet_miles_il_title_0002	Extra work	Extra work		Unmodified
+meet_miles_il_title_0003	Job opportunity	Job opportunity		Unmodified
+meet_miles_il_title_0004	A paid favor	A paid favor		Unmodified
+mg_battaglia_blackbox_title_0001	Black Box Recovery	Black Box Recovery		Unmodified
+mg_battaglia_claimsweep_title_001	Remove Thieves From ~mission(Location)	Remove Thieves From ~mission(Location)		Unmodified
+mg_battaglia_deliver_ore_title_0001	Ore Sample Delivery	Ore Sample Delivery		Unmodified
+mg_battaglia_escort_safety_title_0001	Escort To Safety	Escort To Safety		Unmodified
+mg_battaglia_escort_scan_title_0001	Armed Escort	Armed Escort		Unmodified
+mg_battaglia_intro_title_0001	Miners Amalgamated Now Contracting	Miners Amalgamated Now Contracting		Unmodified
+mg_battaglia_invite_title_0001	Job Opportunity w/ M.A.	Job Opportunity w/ M.A.		Unmodified
+mg_battaglia_invite_title_0002	Meet To Discuss Work	Meet To Discuss Work		Unmodified
+mg_battaglia_invite_title_0003	M.A. Work Offer	M.A. Work Offer		Unmodified
+mg_battaglia_invite_title_0004	M.A. Job Opening	M.A. Job Opening		Unmodified
+mg_battaglia_mining_title_001	Mining Temp Title	Mining Temp Title		Unmodified
+mg_battaglia_recover_cargo__title_0001	Cargo Recovery	Cargo Recovery		Unmodified
+mg_battaglia_recover_stolen_title_0001	Stolen Cargo Recovery	Stolen Cargo Recovery		Unmodified
+mg_battaglia_search_body_title_0001	Confirm ~mission(TargetName|Last)'s Status	Confirm ~mission(TargetName|Last)'s Status		Unmodified
+mg_battaglia_search_crew_title_0001	Confirm Missing Crew's Status	Confirm Missing Crew's Status		Unmodified
+mg_battaglia_sectorsweep_title_0001	Clear Sector of Hostiles	Clear Sector of Hostiles		Unmodified
+mg_clovus_acquirepart_title_01	Mana From Heaven	Mana From Heaven		Unmodified
+mg_clovus_bladesteal_title_01	Manna From Heaven	Manna From Heaven		Unmodified
+mg_clovus_bladesteal_title_02	A Bold Opportunity	A Bold Opportunity		Unmodified
+mg_clovus_bladesteal_title_03	Ashes and Opportunities	Ashes and Opportunities		Unmodified
+mg_clovus_bladesteal_title_04	A Financial Windfall	A Financial Windfall		Unmodified
+mg_clovus_bladesteal_title_05	Crash and Earn	Crash and Earn		Unmodified
+mg_clovus_havejob_title_0001	An enticing offer	An enticing offer		Unmodified
+mg_clovus_havejob_title_0002	Employment opportunity	Employment opportunity		Unmodified
+mg_clovus_havejob_title_0003	Added sweat to the brow	Added sweat to the brow		Unmodified
+mg_clovus_havejob_title_0004	A fine day's work	A fine day's work		Unmodified
+mg_clovus_havejob_title_0005	The possibility of financial security	The possibility of financial security		Unmodified
+mg_clovus_invite_title_0001	Potential Opportunity	Potential Opportunity		Unmodified
+mg_constantine_invite_title_001	Outsourcing Opportunity	Outsourcing Opportunity		Unmodified
+mg_constantine_oredelivery_title_001	Ore Consignment	Ore Consignment		Unmodified
+mg_klim_deliver_drug_title_0001	Chem run	Chem run		Unmodified
+mg_klim_deliver_drug_title_0002	Need a re-up delivered	Need a re-up delivered		Unmodified
+mg_klim_deliver_drug_title_0003	Need your services	Need your services		Unmodified
+mg_klim_deliver_drug_title_0004	mmmmmmmmmmmmmoney?	mmmmmmmmmmmmmoney?		Unmodified
+mg_klim_deliver_drug_title_0005	a quick little drop	a quick little drop		Unmodified
+mg_klim_deliver_drug_title_0006	how about a run?	how about a run?		Unmodified
+mg_klim_invite_title_0001	looking for work	looking for work		Unmodified
+mg_klim_planetcollect_chem_title_0001	chem run	chem run		Unmodified
+mg_klim_planetcollect_chem_title_0002	call for ~mission(Item)	call for ~mission(Item)		Unmodified
+mg_klim_planetcollect_chem_title_0003	need some mats	need some mats		Unmodified
+mg_klim_planetcollect_chem_title_0004	looking for a hookup	looking for a hookup		Unmodified
+mg_klim_planetcollect_chem_title_0005	supply run	supply run		Unmodified
+mg_miles_assassin_title_0001	A little job	A little job		Unmodified
+mg_miles_assassin_title_0002	Need you to meet someone	Need you to meet someone		Unmodified
+mg_miles_assassin_title_0003	Conflict Resolution	Conflict Resolution		Unmodified
+mg_miles_assassin_title_0004	End of the line	End of the line		Unmodified
+mg_miles_assassin_title_0005	Hatchet job	Hatchet job		Unmodified
+mg_miles_blackboxillegal_title_0001	Black Box Recovery	Black Box Recovery		Unmodified
+mg_miles_blackboxillegal_title_0002	Content Deletion	Content Deletion		Unmodified
+mg_miles_blackboxillegal_title_0003	Wipe job	Wipe job		Unmodified
+mg_miles_blackboxlegal_title_0001	Black Box Recovery	Black Box Recovery		Unmodified
+mg_miles_bounty_title_0001	Bounty Issued	Bounty Issued		Unmodified
+mg_miles_bounty_title_0002	Bounty Contract	Bounty Contract		Unmodified
+mg_miles_bounty_title_E	CrimeStat 2 Bounty Contract	CrimeStat 2 Bounty Contract		Unmodified
+mg_miles_bounty_title_H	CrimeStat 4 Bounty Contract	CrimeStat 4 Bounty Contract		Unmodified
+mg_miles_bounty_title_M	CrimeStat 3 Bounty Contract	CrimeStat 3 Bounty Contract		Unmodified
+mg_miles_bounty_title_VE	CrimeStat 1 Bounty Contract	CrimeStat 1 Bounty Contract		Unmodified
+mg_miles_bounty_title_VH	CrimeStat 5 Bounty Contract	CrimeStat 5 Bounty Contract		Unmodified
+mg_miles_collectcargo_legal_title_0001	Cargo Retrieval	Cargo Retrieval		Unmodified
+mg_miles_collectcargo_legal_title_0002	Secure Cargo	Secure Cargo		Unmodified
+mg_miles_collectcargo_legal_title_0003	Cargo Salvage	Cargo Salvage		Unmodified
+mg_miles_delivercargo_lawful_title_0001	Delivery	Delivery		Unmodified
+mg_miles_delivercargo_lawful_title_0002	Courier Op	Courier Op		Unmodified
+mg_miles_delivercargo_lawful_title_0003	Cargo Delivery	Cargo Delivery		Unmodified
+mg_miles_escortscan_title_0001	Escort Contract	Escort Contract		Unmodified
+mg_miles_escortscan_title_0002	Op File: Escort Mission (Survey)	Op File: Escort Mission (Survey)		Unmodified
+mg_miles_escortscan_title_0003	Escort Mission	Escort Mission		Unmodified
+mg_miles_escortscan_title_0004	Escort Op (Survey)	Escort Op (Survey)		Unmodified
+mg_miles_havejob_title_0001	Have a job	Have a job		Unmodified
+mg_miles_havejob_title_0002	Op for you	Op for you		Unmodified
+mg_miles_havejob_title_0003	Job op	Job op		Unmodified
+mg_miles_havejob_title_0004	Business opportunity	Business opportunity		Unmodified
+mg_miles_havejob_title_0005	Possible Contract	Possible Contract		Unmodified
+mg_miles_havejob_title_0006	Let's Meet	Let's Meet		Unmodified
+mg_miles_havejob_title_0007	Come See Me	Come See Me		Unmodified
+mg_miles_havejob_title_0008	New Contract Offer	New Contract Offer		Unmodified
+mg_miles_MissingPerson_title_0001	Missing Person	Missing Person		Unmodified
+mg_miles_MissingPerson_title_0002	Tracking Contract	Tracking Contract		Unmodified
+mg_miles_MissingPerson_title_0003	Search: Missing Person	Search: Missing Person		Unmodified
+mg_miles_planetcollect_drug_title_0001	Need a pick up	Need a pick up		Unmodified
+mg_miles_planetcollect_drug_title_0002	Package	Package		Unmodified
+mg_miles_planetcollect_drug_title_0003	Favor for a friend	Favor for a friend		Unmodified
+mg_miles_planetcollect_drug_title_0004	Courier gig	Courier gig		Unmodified
+mg_miles_planetcollect_drug_title_0005	Pick up	Pick up		Unmodified
+mg_miles_planetcollect_steal_title_0001	Pickup	Pickup		Unmodified
+mg_miles_planetcollect_steal_title_0002	Cargo pickup	Cargo pickup		Unmodified
+mg_miles_recoverStolen_title_0001	Retrieval of Stolen Goods	Retrieval of Stolen Goods		Unmodified
+mg_miles_recoverStolen_title_0002	Cargo Retrieval	Cargo Retrieval		Unmodified
+mg_miles_spacecollect_steal_title_0001	Pickup	Pickup		Unmodified
+mg_miles_spacecollect_steal_title_0002	Cargo pickup	Cargo pickup		Unmodified
+mg_miles_spacecollect_steal_title_0003	Collection job	Collection job		Unmodified
+mg_miles_sweeplegal_title_0001	Sweep and Clear	Sweep and Clear		Unmodified
+mg_miles_sweeplegal_title_0002	Target: ~mission(client) / Multiple engagement	Target: ~mission(client) / Multiple engagement		Unmodified
+mg_miles_sweeplegal_title_0003	Sector Sweep	Sector Sweep		Unmodified
+mg_miles_sweeplegal_title_0004	Staged Op: Sector Clearance	Staged Op: Sector Clearance		Unmodified
+mg_miles_sweeplegal_title_0005	Search and Destroy	Search and Destroy		Unmodified
+mg_miles_sweeplegal_title_0006	Combat Assist	Combat Assist		Unmodified
+mg_pacheco_assassin_law_title_001	Criminal Justice	Criminal Justice		Unmodified
+mg_pacheco_assassin_law_title_002	Wrong Arm of the Law	Wrong Arm of the Law		Unmodified
+mg_pacheco_assassin_law_title_003	Officer Down	Officer Down		Unmodified
+mg_pacheco_assassin_law_title_004	Justice Reform	Justice Reform		Unmodified
+mg_pacheco_assassin_sync_title_001	Simultaneous Hit	Simultaneous Hit		Unmodified
+mg_pacheco_asteroidchase_title_0001	<ph>(PH) An Inconvenient Target</ph>	<ph>(PH) An Inconvenient Target</ph>		Unmodified
+mg_pacheco_basesweep_law_title_001	BlacJac Blackout	BlacJac Blackout		Unmodified
+mg_pacheco_basesweep_law_title_002	Dearly Departed	Dearly Departed		Unmodified
+mg_pacheco_basesweep_law_title_003	Down for the Count	Down for the Count		Unmodified
+mg_pacheco_DestroyEvidence_title_001	Not A Shred of Evidence	Not A Shred of Evidence		Unmodified
+mg_pacheco_invite_title_001	Time for a Visit	Time for a Visit		Unmodified
+mg_pacheco_invite_title_002	We Need to Talk	We Need to Talk		Unmodified
+mg_pacheco_invite_title_003	Come See Me	Come See Me		Unmodified
+mg_pacheco_invite_title_004	Let's Meet	Let's Meet		Unmodified
+mg_pacheco_prisonerbreak_title_001	The Price of Freedom	The Price of Freedom		Unmodified
+mg_pacheco_StealEvidence_title_001	Burden of Proof	Burden of Proof		Unmodified
+mg_pacheco_stealstash__title_0001	Their Loss, Our Gain	Their Loss, Our Gain		Unmodified
+mg_ruto_assassin_title_0001	future ghost	future ghost		Unmodified
+mg_ruto_assassin_title_0002	empty casket	empty casket		Unmodified
+mg_ruto_assassin_title_0003	problem elimination	problem elimination		Unmodified
+mg_ruto_assassin_title_0004	permanent lesson	permanent lesson		Unmodified
+mg_ruto_assassin_title_0005	gone for good	gone for good		Unmodified
+mg_ruto_assassin_title_0006	target erased	target erased		Unmodified
+mg_ruto_assassin_title_0007	goodbye ~mission(TargetName)	goodbye ~mission(TargetName)		Unmodified
+mg_ruto_blackboxillegal_title_0001	box pull	box pull		Unmodified
+mg_ruto_blackboxillegal_title_0002	box runner	box runner		Unmodified
+mg_ruto_blackboxillegal_title_0003	data wipe	data wipe		Unmodified
+mg_ruto_blackboxillegal_title_0004	damn evidence	damn evidence		Unmodified
+mg_ruto_commhack_title_0001	Blackout	Blackout		Unmodified
+mg_ruto_commhack_title_0002	Dark zone	Dark zone		Unmodified
+mg_ruto_commhack_title_0003	Comm Down	Comm Down		Unmodified
+mg_ruto_commhack_title_0004	Cover Needed	Cover Needed		Unmodified
+mg_ruto_commhack_title_0005	Array Hack	Array Hack		Unmodified
+mg_ruto_commhack_title_0006	Disruption Needed	Disruption Needed		Unmodified
+mg_ruto_commhack_title_0007	Service Interrupt	Service Interrupt		Unmodified
+mg_ruto_confirmkill_title_0001	ID check	ID check		Unmodified
+mg_ruto_confirmkill_title_0002	a bit of proof	a bit of proof		Unmodified
+mg_ruto_confirmkill_title_0003	tag and bag	tag and bag		Unmodified
+mg_ruto_confirmkill_title_0004	dead man's shoes	dead man's shoes		Unmodified
+mg_ruto_confirmkill_title_0005	ghost hunter	ghost hunter		Unmodified
+mg_ruto_deploypiggyback_title_0001	need a tap	need a tap		Unmodified
+mg_ruto_deploypiggyback_title_0002	listening device drop	listening device drop		Unmodified
+mg_ruto_deploypiggyback_title_0003	it's all about the intel	it's all about the intel		Unmodified
+mg_ruto_deploypiggyback_title_0004	hack Benson Mining Outpost	hack Benson Mining Outpost		Unmodified
+mg_ruto_deploypiggyback_title_0005	connect the streams	connect the streams		Unmodified
+mg_ruto_deploypiggyback_title_0006	data link	data link		Unmodified
+mg_ruto_distraction_title_0001	a little distraction	a little distraction		Unmodified
+mg_ruto_distraction_title_0002	make some noise	make some noise		Unmodified
+mg_ruto_distraction_title_0003	unleash the beast	unleash the beast		Unmodified
+mg_ruto_distraction_title_0004	all eyes on you	all eyes on you		Unmodified
+mg_ruto_havejob_title_0001	job opportunity	job opportunity		Unmodified
+mg_ruto_havejob_title_0002	a little favor	a little favor		Unmodified
+mg_ruto_havejob_title_0003	swing on by	swing on by		Unmodified
+mg_ruto_havejob_title_0004	need to talk	need to talk		Unmodified
+mg_ruto_havejob_title_0005	you busy?	you busy?		Unmodified
+mg_ruto_havejob_title_0006	new gig	new gig		Unmodified
+mg_ruto_havejob_title_0007	let's talk	let's talk		Unmodified
+mg_ruto_havejob_title_0008	got something for you	got something for you		Unmodified
+mg_ruto_intromission_title_0001	job opportunity	job opportunity		Unmodified
+mg_ruto_intromission_title_0002	got a minute?	got a minute?		Unmodified
+mg_ruto_intromission_title_0003	a little arrangement	a little arrangement		Unmodified
+mg_ruto_intromission_title_0004	help wanted	help wanted		Unmodified
+mg_ruto_intromission_title_0005	jobs, right?	jobs, right?		Unmodified
+mg_ruto_invite_title_0001	a mutually beneficial arrangement	a mutually beneficial arrangement		Unmodified
+mg_ruto_invite_title_0002	good job, now more jobs	good job, now more jobs		Unmodified
+mg_ruto_invite_title_0003	up for a face to face?	up for a face to face?		Unmodified
+mg_ruto_invite_title_0004	think it's time we meet	think it's time we meet		Unmodified
+mg_ruto_invite_title_0005	let's do this	let's do this		Unmodified
+mg_ruto_outpost_repair_title_0001	battery run	battery run		Unmodified
+mg_ruto_outpost_repair_title_0002	black out	black out		Unmodified
+mg_ruto_outpost_repair_title_0003	power outage	power outage		Unmodified
+mg_ruto_outpost_repair_title_0004	replacement battery	replacement battery		Unmodified
+mg_ruto_outpost_repair_title_0005	outpost offline	outpost offline		Unmodified
+mg_ruto_planetcollect_body_title_0001	personnel change	personnel change		Unmodified
+mg_ruto_planetcollect_body_title_0002	cleaning house	cleaning house		Unmodified
+mg_ruto_planetcollect_body_title_0003	early retirement	early retirement		Unmodified
+mg_ruto_planetcollect_body_title_0004	one last trip	one last trip		Unmodified
+mg_ruto_planetcollect_body_title_0005	rest in peace	rest in peace		Unmodified
+mg_ruto_planetcollect_body_title_0006	final destination	final destination		Unmodified
+mg_ruto_planetcollect_drug_title_0001	courier	courier		Unmodified
+mg_ruto_planetcollect_drug_title_0002	package run	package run		Unmodified
+mg_ruto_planetcollect_drug_title_0003	delivery needed	delivery needed		Unmodified
+mg_ruto_planetcollect_drug_title_0004	courier gig	courier gig		Unmodified
+mg_ruto_planetcollect_drug_title_0005	smuggler wanted	smuggler wanted		Unmodified
+mg_ruto_planetcollect_drug_title_0006	a simple run	a simple run		Unmodified
+mg_ruto_planetcollect_steal_title_0001	need something nicked	need something nicked		Unmodified
+mg_ruto_planetcollect_steal_title_0002	quick run	quick run		Unmodified
+mg_ruto_planetcollect_steal_title_0003	pick up, drop off, you know...	pick up, drop off, you know...		Unmodified
+mg_ruto_planetcollect_steal_title_0004	that thing I was telling you about	that thing I was telling you about		Unmodified
+mg_ruto_planetcollect_steal_title_0005	prime opportunity	prime opportunity		Unmodified
+mg_ruto_planetcollect_waste_title_0001	crap toss	crap toss		Unmodified
+mg_ruto_planetcollect_waste_title_0002	bio-waste dump	bio-waste dump		Unmodified
+mg_ruto_planetcollect_waste_title_0003	disposal	disposal		Unmodified
+mg_ruto_sectorsweep_title_0001	cleaning house	cleaning house		Unmodified
+mg_ruto_sectorsweep_title_0002	security sweep	security sweep		Unmodified
+mg_ruto_sectorsweep_title_0003	bad neighbors	bad neighbors		Unmodified
+mg_ruto_sectorsweep_title_0004	all clear	all clear		Unmodified
+mg_ruto_sectorsweep_title_0005	get out	get out		Unmodified
+mg_ruto_spacecargo_illegal_title_0001	space boost	space boost		Unmodified
+mg_ruto_spacecargo_illegal_title_0002	wreck diving	wreck diving		Unmodified
+mg_ruto_spacecargo_illegal_title_0003	need a scavenger	need a scavenger		Unmodified
+mg_ruto_spacecargo_illegal_title_0004	need a ~mission(item)	need a ~mission(item)		Unmodified
+mg_ruto_spacecargo_illegal_title_0005	retrieval	retrieval		Unmodified
+mg_ruto_spacecargo_illegal_title_0006	No questions	No questions		Unmodified
+mg_ruto_spacecargo_illegal_title_0007	blah blah	blah blah		Unmodified
+mg_ruto_spacecargo_illegal_title_0008	~mission(ship) dive	~mission(ship) dive		Unmodified
+mg_ruto_spacecargo_illegal_title_0009	package run	package run		Unmodified
+mg_ruto_spacecargo_illegal_title_0010	pick up drop off	pick up drop off		Unmodified
+mg_ruto_spacesteal_title_0001	smash and grab	smash and grab		Unmodified
+mg_ruto_spacesteal_title_0002	boost job	boost job		Unmodified
+mg_ruto_spacesteal_title_0003	hit and a heist	hit and a heist		Unmodified
+mg_ruto_spacesteal_title_0004	spaceway robbery	spaceway robbery		Unmodified
+mg_ruto_UGF_eliminateall_allies_title_001	hostile takeover	hostile takeover		Unmodified
+MiningClaimLawful_Title_001	**WIP** Lawful Title	**WIP** Lawful Title		Unmodified
+MiningClaimUnlawful_Title_001	**WIP** Unlawful Title	**WIP** Unlawful Title		Unmodified
+mission_Defend_ICCProbe_Title_Short	ICC Assistance	ICC Assistance		Unmodified
+mission_Demo_MissingPersons_Planet_Title_Short	Dashiell Appraisal Services	Dashiell Appraisal Services		Unmodified
+MissionManager_BennyNoodle_Title_Short	Title Short	Title Short		Unmodified
+missionManager_BravoAssault_Title_Short	Kill Kareah Security	Kill Kareah Security		Unmodified
+missionManager_BravoDefender_Title_Short	Security Guard Post	Security Guard Post		Unmodified
+MissionManager_BravoStation_Hackers_Title_Description	Will pay handsomely for any hacking of the server terminals located on Kareah station. Better pay the longer you can remain logged in. - CHC	Will pay handsomely for any hacking of the server terminals located on Kareah station. Better pay the longer you can remain logged in. - CHC		Unmodified
+MissionManager_BravoStation_Hackers_Title_Short	Hack Kareah Servers	Hack Kareah Servers		Unmodified
+MissionManager_BravoStation_Security_Title_Description	Private security contractors wanted.  Kareah Station is in need of private security contractors to defend the server terminals integrity against criminal hackers.  You will be rewarded for the accumulated up time of the servers and for eliminating criminal trespassers.	Private security contractors wanted.  Kareah Station is in need of private security contractors to defend the server terminals integrity against criminal hackers.  You will be rewarded for the accumulated up time of the servers and for eliminating criminal trespassers.		Unmodified
+MissionManager_BravoStation_Security_Title_Short	Security Post Kareah Station	Security Post Kareah Station		Unmodified
+missionManager_Charlie_Title_Short	P.I. Wanted	P.I. Wanted		Unmodified
+missionManager_CommsArrays_Mission_Title_Short	Comm Tech Contract	Comm Tech Contract		Unmodified
+missionManager_CommsArrays_Mission_1_Title_Short	Repair ~mission(CommArray)	Repair ~mission(CommArray)		Unmodified
+missionManager_CommsArrays_Mission_2_Title_Short	Repair Array 275	Repair Array 275		Unmodified
+missionManager_CommsArrays_Mission_3_Title_Short	Repair Array 306	Repair Array 306		Unmodified
+missionManager_CommsArrays_Mission_4_Title_Short	Repair Array 472	Repair Array 472		Unmodified
+missionManager_CommsArrays_Mission_5_Title_Short	Repair Array 556	Repair Array 556		Unmodified
+missionManager_CommsArrays_Mission_6_Title_Short	Repair Array 625	Repair Array 625		Unmodified
+missionManager_CommsArrays_Mission_7_Title_Short	Repair Array 730	Repair Array 730		Unmodified
+missionManager_CommsArrays_Mission_8_Title_Short	Repair Array 849	Repair Array 849		Unmodified
+missionManager_CrusaderBounty_Title_Short	Public Enemy	Public Enemy		Unmodified
+missionManager_CrusaderHunted_Title_Short	Death Warrant	Death Warrant		Unmodified
+missionManager_CrusaderWantedTutorial_Title_Short	Reduce CrimeStat	Reduce CrimeStat		Unmodified
+MissionManager_CryAstroCrime_1_Title_Short	Eliminate A Problem	Eliminate A Problem		Unmodified
+MissionManager_CryAstroCrime_2_Title_Short	Eliminate A Problem	Eliminate A Problem		Unmodified
+MissionManager_CryAstroCrime_3_Title_Short	Eliminate A Problem	Eliminate A Problem		Unmodified
+missionManager_DeathRace_Title_Short	Title Short	Title Short		Unmodified
+MissionManager_DisableCommArrays_1_Title_Short	Silence the ECN	Silence the ECN		Unmodified
+MissionManager_DisableCommArrays_2_Title_Short	Silence the ECN	Silence the ECN		Unmodified
+MissionManager_DisableCommArrays_3_Title_Short	Silence the ECN	Silence the ECN		Unmodified
+MissionManager_GrimHEX_Race_Title_Short	Grim HEX Race	Grim HEX Race		Unmodified
+missionManager_Homestead01_Mission_Title_Short	Distress Beacon	Distress Beacon		Unmodified
+missionManager_Homestead02_Mission_Title_Short	New Distress Beacon	New Distress Beacon		Unmodified
+missionManager_Homestead03_Mission_Title_Short	Distress Beacon Cluster	Distress Beacon Cluster		Unmodified
+MissionManager_KillCommTechs_Title_Short	Stop Aciedo Techs	Stop Aciedo Techs		Unmodified
+missionManager_Research03_Mission_Title_Short	ICC Assistance	ICC Assistance		Unmodified
+missionManager_Research04_Mission_Title_Short	ICC Assistance	ICC Assistance		Unmodified
+missionManager_Research05_Mission_Title_Short	ICC Assistance	ICC Assistance		Unmodified
+missionManager_Research06_Mission_Title_Short	ICC Assistance	ICC Assistance		Unmodified
+missionManager_Research07_Mission_Title_Short	ICC Assistance	ICC Assistance		Unmodified
+missionManager_Research08_Mission_Title_Short	ICC Assistance	ICC Assistance		Unmodified
+missionManager_StarfarerWreck_Mission_Title_Short	ICC Assistance	ICC Assistance		Unmodified
+mtps_basesweep_title_01	Remove Illegal Occupants	Remove Illegal Occupants		Unmodified
+mtps_bounty_title_VHRT	Active Bounty: ~mission(TargetName) (VHRT)	Active Bounty: ~mission(TargetName) (VHRT)		Unmodified
+mtps_destroyprobe_title_001	Illegal Monitors Detected	Illegal Monitors Detected		Unmodified
+MTPS_destroystash_dc_title_001	Eradicate Illegal Stash	Eradicate Illegal Stash		Unmodified
+Mtps_killallcreatures_multitype_easy_title_01	Wildlife Population Adjustment	Wildlife Population Adjustment		Unmodified
+Mtps_killallcreatures_multitype_hard_title_01	Wildlife Population Management	Wildlife Population Management		Unmodified
+Mtps_killallcreatures_multitype_medium_title_01	Wildlife Population Control	Wildlife Population Control		Unmodified
+Mtps_killallcreatures_onetype_title_01	Wildlife Control: ~mission(Creature)	Wildlife Control: ~mission(Creature)		Unmodified
+MTPS_searchbody_danger_dc_title_001	~mission(TargetName) Whereabouts Unknown	~mission(TargetName) Whereabouts Unknown		Unmodified
+MTPS_searchbody_dc_title_001	~mission(TargetName) Reported Missing	~mission(TargetName) Reported Missing		Unmodified
+mtps_UGF_defend_S_title_001	Defend Location Against Deadly Threats	Defend Location Against Deadly Threats		Unmodified
+mtps_UGF_defend_VE_title_001	Defend Location	Defend Location		Unmodified
+murderspree_title_0001	Blood for Blood	Blood for Blood		Unmodified
+murderspree_title_0002	High Stakes	High Stakes		Unmodified
+murderspree_title_0003	Naval Strike	Naval Strike		Unmodified
+ninetails_assassination_title_Easy_001	NineTails Title Easy placeholder	NineTails Title Easy placeholder		Unmodified
+ninetails_assassination_title_Intro_001	NineTails Title Intro placeholder	NineTails Title Intro placeholder		Unmodified
+ninetails_assassination_title_Medium_001	NineTails Title Medium placeholder	NineTails Title Medium placeholder		Unmodified
+ninetails_steal_Title_Hard_001	NineTails Steal Hard Title placeholder text	NineTails Steal Hard Title placeholder text		Unmodified
+northrock_boarders_890J_title_001	URGENT: Boarding Action In Progress	URGENT: Boarding Action In Progress		Unmodified
+northrock_boarders_890J_VIP_title_001	URGENT: VIP in danger	URGENT: VIP in danger		Unmodified
+northrock_bounty_title_001	Bounty Assignment: ~mission(TargetName)	Bounty Assignment: ~mission(TargetName)		Unmodified
+northrock_bounty_title_E	Bounty Assignment: ~mission(TargetName) (LRT)	Bounty Assignment: ~mission(TargetName) (LRT)		Unmodified
+northrock_bounty_title_rehire	Pro Tem Bounty Contract (Reevaluation)	Pro Tem Bounty Contract (Reevaluation)		Unmodified
+northrock_bounty_title_S	Bounty Assignment: ~mission(TargetName) (ERT)	Bounty Assignment: ~mission(TargetName) (ERT)		Unmodified
+northrock_bounty_title_VE	Bounty Assignment: ~mission(TargetName) (VLRT)	Bounty Assignment: ~mission(TargetName) (VLRT)		Unmodified
+northrock_bounty_title_VH	Bounty Assignment: ~mission(TargetName) (VHRT)	Bounty Assignment: ~mission(TargetName) (VHRT)		Unmodified
+Northrock_Bounty_OLP_Boss_H_title_001	Pro Tem Bounty Assignment: ~mission(TargetName)	Pro Tem Bounty Assignment: ~mission(TargetName)		Unmodified
+northrock_recoverspace_title_0001	Property Retrieval	Property Retrieval		Unmodified
+outlawsweep_title_0001	Known Criminals Sighted	Known Criminals Sighted		Unmodified
+outlawsweep_title_0002	Criminal Activity in Progress	Criminal Activity in Progress		Unmodified
+outlawsweep_title_0003	Wanted Criminals Spotted	Wanted Criminals Spotted		Unmodified
+outlawsweep_title_0004	Report of Hostile Activity	Report of Hostile Activity		Unmodified
+outpost_repair_title_0001	Outpost Repair	Outpost Repair		Unmodified
+outpost_repair_title_0002	Onsite Repair & Installation	Onsite Repair & Installation		Unmodified
+outpost_repair_title_0003	Electrical Issues	Electrical Issues		Unmodified
+outpost_repair_title_0004	Power Problems	Power Problems		Unmodified
+outpost_repair_title_0005	Electrical Technician Needed	Electrical Technician Needed		Unmodified
+outpost_repair_title_0006	Repair Technician Wanted	Repair Technician Wanted		Unmodified
+outpost_repair_title_0007	Repair Request	Repair Request		Unmodified
+planetcollect_drug_title_0001	Runner Needed	Runner Needed		Unmodified
+planetcollect_drug_title_0002	Package Delivery	Package Delivery		Unmodified
+planetcollect_drug_title_0003	Pick Up Needed	Pick Up Needed		Unmodified
+planetcollect_drug_title_0004	Delivery Job. No Questions.	Delivery Job. No Questions.		Unmodified
+planetcollect_drug_title_0005	Hot Drop	Hot Drop		Unmodified
+planetcollect_drug_title_0006	Grab and Drop	Grab and Drop		Unmodified
+planetcollect_food_title_0001	Cargo Transport Needed	Cargo Transport Needed		Unmodified
+planetcollect_food_title_0002	Delivery	Delivery		Unmodified
+planetcollect_food_title_0003	Shipment Transport	Shipment Transport		Unmodified
+planetcollect_food_title_0004	Cargo Delivery	Cargo Delivery		Unmodified
+planetcollect_food_title_0005	Delivery Ready For Pick Up	Delivery Ready For Pick Up		Unmodified
+planetcollect_food_title_0006	Scheduled Shipment	Scheduled Shipment		Unmodified
+planetcollect_food_title_0007	Delivery Needed	Delivery Needed		Unmodified
+planetcollect_food_title_0008	Delivery Opportunity	Delivery Opportunity		Unmodified
+planetcollect_food_title_0009	Delivery Request	Delivery Request		Unmodified
+planetcollect_illegalwaste_title_0001	Big Dump	Big Dump		Unmodified
+planetcollect_illegalwaste_title_0002	Wasted	Wasted		Unmodified
+planetcollect_illegalwaste_title_0003	Clean Up	Clean Up		Unmodified
+planetcollect_illegalwaste_title_0004	Cleaner Needed	Cleaner Needed		Unmodified
+planetcollect_illegalwaste_title_0005	Messy Situation	Messy Situation		Unmodified
+planetcollect_illegalwaste_title_0006	Magic Trick	Magic Trick		Unmodified
+planetcollect_legal_title_0001	Cargo Transport Needed	Cargo Transport Needed		Unmodified
+planetcollect_legal_title_0002	Delivery	Delivery		Unmodified
+planetcollect_legal_title_0003	Shipment Transport	Shipment Transport		Unmodified
+planetcollect_legal_title_0004	Cargo Delivery	Cargo Delivery		Unmodified
+planetcollect_legal_title_0005	Delivery Ready For Pick Up	Delivery Ready For Pick Up		Unmodified
+planetcollect_legal_title_0006	Scheduled Shipment	Scheduled Shipment		Unmodified
+planetcollect_legal_title_0007	Delivery Needed	Delivery Needed		Unmodified
+planetcollect_legal_title_0008	Delivery Opportunity	Delivery Opportunity		Unmodified
+planetcollect_legal_title_0009	Delivery Request	Delivery Request		Unmodified
+planetcollect_meds_title_0001	Cargo Transport	Cargo Transport		Unmodified
+planetcollect_meds_title_0002	Delivery	Delivery		Unmodified
+planetcollect_meds_title_0003	Shipment Transport	Shipment Transport		Unmodified
+planetcollect_meds_title_0004	Cargo Delivery	Cargo Delivery		Unmodified
+planetcollect_meds_title_0005	Delivery Ready For Pick Up	Delivery Ready For Pick Up		Unmodified
+planetcollect_meds_title_0006	Scheduled Shipment	Scheduled Shipment		Unmodified
+planetcollect_meds_title_0007	Delivery Needed	Delivery Needed		Unmodified
+planetcollect_meds_title_0008	Delivery Opportunity	Delivery Opportunity		Unmodified
+planetcollect_meds_title_0009	Delivery Request	Delivery Request		Unmodified
+planetcollect_ore_title_0001	Cargo Transport Needed	Cargo Transport Needed		Unmodified
+planetcollect_ore_title_0002	Delivery	Delivery		Unmodified
+planetcollect_ore_title_0003	Shipment Transport	Shipment Transport		Unmodified
+planetcollect_ore_title_0004	Cargo Delivery	Cargo Delivery		Unmodified
+planetcollect_ore_title_0005	Delivery Ready For Pick Up	Delivery Ready For Pick Up		Unmodified
+planetcollect_ore_title_0006	Scheduled Shipment	Scheduled Shipment		Unmodified
+planetcollect_ore_title_0007	Delivery Needed	Delivery Needed		Unmodified
+planetcollect_ore_title_0008	Delivery Opportunity	Delivery Opportunity		Unmodified
+planetcollect_ore_title_0009	Delivery Request	Delivery Request		Unmodified
+planetcollect_oresamp_title_0001	Cargo Transport Needed	Cargo Transport Needed		Unmodified
+planetcollect_oresamp_title_0002	Delivery	Delivery		Unmodified
+planetcollect_oresamp_title_0003	Shipment Transport	Shipment Transport		Unmodified
+planetcollect_oresamp_title_0004	Cargo Delivery	Cargo Delivery		Unmodified
+planetcollect_oresamp_title_0005	Delivery Ready For Pick Up	Delivery Ready For Pick Up		Unmodified
+planetcollect_oresamp_title_0006	Scheduled Shipment	Scheduled Shipment		Unmodified
+planetcollect_oresamp_title_0007	Delivery Needed	Delivery Needed		Unmodified
+planetcollect_oresamp_title_0008	Delivery Opportunity	Delivery Opportunity		Unmodified
+planetcollect_oresamp_title_0009	Delivery Request	Delivery Request		Unmodified
+planetcollect_research_title_0001	Cargo Transport Needed	Cargo Transport Needed		Unmodified
+planetcollect_research_title_0002	Delivery	Delivery		Unmodified
+planetcollect_research_title_0003	Shipment Transport	Shipment Transport		Unmodified
+planetcollect_research_title_0004	Cargo Delivery	Cargo Delivery		Unmodified
+planetcollect_research_title_0005	Delivery Ready For Pick Up	Delivery Ready For Pick Up		Unmodified
+planetcollect_research_title_0006	Scheduled Shipment	Scheduled Shipment		Unmodified
+planetcollect_research_title_0007	Delivery Needed	Delivery Needed		Unmodified
+planetcollect_research_title_0008	Delivery Opportunity	Delivery Opportunity		Unmodified
+planetcollect_research_title_0009	Delivery Request	Delivery Request		Unmodified
+planetcollect_seeds_title_0001	Cargo Transport Needed	Cargo Transport Needed		Unmodified
+planetcollect_seeds_title_0002	Delivery	Delivery		Unmodified
+planetcollect_seeds_title_0003	Shipment Transport	Shipment Transport		Unmodified
+planetcollect_seeds_title_0004	Cargo Delivery	Cargo Delivery		Unmodified
+planetcollect_seeds_title_0005	Delivery Ready For Pick Up	Delivery Ready For Pick Up		Unmodified
+planetcollect_seeds_title_0006	Scheduled Shipment	Scheduled Shipment		Unmodified
+planetcollect_seeds_title_0007	Delivery Needed	Delivery Needed		Unmodified
+planetcollect_seeds_title_0008	Delivery Opportunity	Delivery Opportunity		Unmodified
+planetcollect_seeds_title_0009	Delivery Request	Delivery Request		Unmodified
+planetcollect_steal_title_0001	D-Liver	D-Liver		Unmodified
+planetcollect_steal_title_0002	Take Away	Take Away		Unmodified
+planetcollect_steal_title_0003	Special Order	Special Order		Unmodified
+planetcollect_steal_title_0004	Grab 'N Go	Grab 'N Go		Unmodified
+planetcollect_steal_title_0005	Drop Off	Drop Off		Unmodified
+planetcollect_steal_title_0006	Go Fetch	Go Fetch		Unmodified
+planetcollect_steal_title_0007	Quick Run	Quick Run		Unmodified
+planetcollect_steal_title_0008	Pick Up	Pick Up		Unmodified
+planetcollect_steal_title_0009	You Busy?	You Busy?		Unmodified
+planetcollect_steal_title_0010	Procurement	Procurement		Unmodified
+planetcollect_waste_title_0001	Collection & Disposal	Collection & Disposal		Unmodified
+planetcollect_waste_title_0002	Removal Services Needed	Removal Services Needed		Unmodified
+planetcollect_waste_title_0003	Disposal Request	Disposal Request		Unmodified
+PreventData_Title_001	**WIP** Prevent Data Title	**WIP** Prevent Data Title		Unmodified
+protlife_blackbox_recover_title_01	Investigate Wreckage Claim	Investigate Wreckage Claim		Unmodified
+protlife_searchbody_cave_title_0001	Investigate Missing Client ~mission(TargetName)	Investigate Missing Client ~mission(TargetName)		Unmodified
+ProtLife_TimeSensitive_Recover_Title_001	Zeta-Prolanide Salvage Claim	Zeta-Prolanide Salvage Claim		Unmodified
+RAIN_CollectResources_IrradiatedPearls_Title_001	Acquire Irradiated Valakkar Pearls	Acquire Irradiated Valakkar Pearls		Unmodified
+RAIN_CollectResources_storm_title_001	Collect Irradiated Kopion Horns	Collect Irradiated Kopion Horns		Unmodified
+RAIN_CollectResources_storm_title_002	Obtain Irradiated Valakkar Pearls	Obtain Irradiated Valakkar Pearls		Unmodified
+RAIN_CollectResources_storm_title_003	Gather Irradiated Valakkar Fangs	Gather Irradiated Valakkar Fangs		Unmodified
+RAIN_CollectResources_storm_title_004	Collect Irradiated Valakkar Eggs	Collect Irradiated Valakkar Eggs		Unmodified
+RAIN_CollectResources_YormandiEyes_Title_001	Obtain Yormandi Eyes	Obtain Yormandi Eyes		Unmodified
+RAIN_killcollectcreatures_multitype_title_01	Biological Research Material Needed	Biological Research Material Needed		Unmodified
+RAIN_killcollectcreatures_onetype_title_01	Research Material Needed: ~mission(Items)	Research Material Needed: ~mission(Items)		Unmodified
+recoverstolen_title_0001	Recover Property	Recover Property		Unmodified
+recoverstolen_title_0002	Property Retrieval	Property Retrieval		Unmodified
+recoverstolen_title_0003	Property Reclamation	Property Reclamation		Unmodified
+recoverstolen_title_0004	Stolen Goods Located	Stolen Goods Located		Unmodified
+recoverstolen_title_0005	Retrieve Stolen Property	Retrieve Stolen Property		Unmodified
+recoverstolen_title_0006	Stolen Property Found	Stolen Property Found		Unmodified
+recoverstolen_space_title_0001	Recover Stolen Property	Recover Stolen Property		Unmodified
+recoverstolen_space_title_0002	Retrieve Property From Thief	Retrieve Property From Thief		Unmodified
+recoverstolen_space_title_0003	Reclaim Stolen Items	Reclaim Stolen Items		Unmodified
+recoverstolen_space_title_0004	Stolen Goods Found	Stolen Goods Found		Unmodified
+recoverstolen_space_title_0005	Property Retrieval	Property Retrieval		Unmodified
+recoverstolen_space_title_0006	Thief Located	Thief Located		Unmodified
+recoverstolen_space_title_easy	~mission(Contractor|RecoveryEasyTitle)	~mission(Contractor|RecoveryEasyTitle)		Unmodified
+recoverstolen_space_title_hard	~mission(Contractor|RecoveryHardTitle)	~mission(Contractor|RecoveryHardTitle)		Unmodified
+recoverstolen_space_title_medium	~mission(Contractor|RecoveryMediumTitle)	~mission(Contractor|RecoveryMediumTitle)		Unmodified
+redwind_delivery_title_001	RED WIND DELIVERY PILOT NEEDED	RED WIND DELIVERY PILOT NEEDED		Unmodified
+RedWind_HaulCargo_title_intro	Red Wind Seeking New Haulers	Red Wind Seeking New Haulers		Unmodified
+RedWind_HaulCargo_AToB_title_01	~mission(ReputationRank) Hauler Needed for Direct ~mission(CargoGradeToken) Shipment	~mission(ReputationRank) Hauler Needed for Direct ~mission(CargoGradeToken) Shipment		Unmodified
+RedWind_HaulCargo_CFP_RegionLink_title_001	Red Wind Direct Cargo Haul	Red Wind Direct Cargo Haul		Unmodified
+RedWind_HaulCargo_HH_RegionLink_title_001	Red Wind Direct & Discreet Cargo Haul	Red Wind Direct & Discreet Cargo Haul		Unmodified
+RedWind_HaulCargo_MultiToSingle_title_01	~mission(ReputationRank) Hauler Needed for ~mission(CargoGradeToken) Shipment	~mission(ReputationRank) Hauler Needed for ~mission(CargoGradeToken) Shipment		Unmodified
+RedWind_HaulCargo_SingleToMulti_title_01	~mission(ReputationRank) Hauler Needed for ~mission(CargoGradeToken) Shipment	~mission(ReputationRank) Hauler Needed for ~mission(CargoGradeToken) Shipment		Unmodified
+RedWind_RecoverItem_E_Title_001	Red Wind Easy Package Recovery	Red Wind Easy Package Recovery		Unmodified
+RedWind_RecoverItem_H_Title_001	Red Wind Challenging Package Recovery	Red Wind Challenging Package Recovery		Unmodified
+RedWind_RecoverItem_Intro_Title_001	Red Wind Seeking New Couriers	Red Wind Seeking New Couriers		Unmodified
+RedWind_RecoverItem_M_Title_001	Red Wind Straightforward Package Recovery	Red Wind Straightforward Package Recovery		Unmodified
+RedWind_RecoverItem_VE_Title_001	Red Wind Package Recovery	Red Wind Package Recovery		Unmodified
+RedWind_RecoverItem_VH_Title_001	Red Wind Dangerous Package Recovery	Red Wind Dangerous Package Recovery		Unmodified
+RetrieveConsignment_Journal_Title_01	Consignment Code and Contents	Consignment Code and Contents		Unmodified
+roughready_bounty_title_001	Strike Saboteur	Strike Saboteur		Unmodified
+roughready_bounty_title_002	Long Overdue	Long Overdue		Unmodified
+roughready_bounty_title_003	Parting Gift	Parting Gift		Unmodified
+roughready_bounty_cargoship_title_001	Double Dealing	Double Dealing		Unmodified
+roughready_bounty_cargoship_title_002	Failed Delivery	Failed Delivery		Unmodified
+roughready_bounty_cargoship_title_003	Trigger A Trap	Trigger A Trap		Unmodified
+roughready_claimsweep_title_easy	Silence Spying Op	Silence Spying Op		Unmodified
+roughready_claimsweep_title_hard	Stomp Spying Op	Stomp Spying Op		Unmodified
+roughready_claimsweep_title_intro	Stop Spying Op	Stop Spying Op		Unmodified
+roughready_claimsweep_title_medium	Squash Spying Op	Squash Spying Op		Unmodified
+roughready_claimsweep_title_rand	Suppress Spying Op	Suppress Spying Op		Unmodified
+roughready_delivery_station_title_001	~mission(Destination) Stroll	~mission(Destination) Stroll		Unmodified
+roughready_eliminateall_hangar_title_01	Unwanted Guests	Unwanted Guests		Unmodified
+roughready_eliminateall_maintenance_title_01	Extermination Job	Extermination Job		Unmodified
+roughready_eliminateall_maintenance_title_02	Unwelcome Competition	Unwelcome Competition		Unmodified
+roughready_missingperson_inv_e_station_title_001	Missing: ~mission(TargetName)	Missing: ~mission(TargetName)		Unmodified
+roughready_replaceparts_title_001	|| Need a patchup \\	|| Need a patchup \\		Unmodified
+roughready_salvage_E_title_001	Wrecked Ships for Sale	Wrecked Ships for Sale		Unmodified
+roughready_salvage_M_title_001	Salvage Wrecked Ships on the Drift	Salvage Wrecked Ships on the Drift		Unmodified
+roughready_Salvage_XT_VH_title_001	Claim XenoThreat ~mission(Ship)	Claim XenoThreat ~mission(Ship)		Unmodified
+roughready_searchbody_danger_station_title_001	~mission(TargetName) Gone Missing	~mission(TargetName) Gone Missing		Unmodified
+roughready_searchbody_nodanger_station_title_001	~mission(TargetName) Vanished	~mission(TargetName) Vanished		Unmodified
+ScrambleRace_RaceTypeTitle_01	Small Ship	Small Ship		Unmodified
+ScrambleRace_RaceTypeTitle_02	Gravlev Vehicle	Gravlev Vehicle		Unmodified
+ScrambleRace_RaceTypeTitle_03	Wheeled Vehicle	Wheeled Vehicle		Unmodified
+ScrambleRace_Title_Regular_01	Scramble Race! (~mission(RaceType|Title))	Scramble Race! (~mission(RaceType|Title))		Unmodified
+ScrambleRace_Title_Suicide_01	Suicide Scramble! (~mission(RaceType|Title))	Suicide Scramble! (~mission(RaceType|Title))		Unmodified
+searchbody_title_0001	Missing Person	Missing Person		Unmodified
+searchbody_title_0002	Searching for ~mission(TargetName|Last)	Searching for ~mission(TargetName|Last)		Unmodified
+searchbody_title_0003	Missing Persons Report	Missing Persons Report		Unmodified
+searchbody_title_0004	Missing Persons Case	Missing Persons Case		Unmodified
+searchbodyspace_title_E	~mission(Contractor|SearchBodySpaceTitleEasy)	~mission(Contractor|SearchBodySpaceTitleEasy)		Unmodified
+searchbodyspace_title_H	~mission(Contractor|SearchBodySpaceTitleHard)	~mission(Contractor|SearchBodySpaceTitleHard)		Unmodified
+searchbodyspace_title_intro	~mission(Contractor|SearchBodySpaceTitleIntro)	~mission(Contractor|SearchBodySpaceTitleIntro)		Unmodified
+searchbodyspace_title_M	~mission(Contractor|SearchBodySpaceTitleMedium)	~mission(Contractor|SearchBodySpaceTitleMedium)		Unmodified
+searchbodyspace_title_S	~mission(Contractor|SearchBodySpaceTitleSuper)	~mission(Contractor|SearchBodySpaceTitleSuper)		Unmodified
+searchbodyspace_title_VE	~mission(Contractor|SearchBodySpaceTitleVeryEasy)	~mission(Contractor|SearchBodySpaceTitleVeryEasy)		Unmodified
+searchbodyspace_title_VH	~mission(Contractor|SearchBodySpaceTitleVeryHard)	~mission(Contractor|SearchBodySpaceTitleVeryHard)		Unmodified
+searchcrew_title_0001	Missing Crew	Missing Crew		Unmodified
+searchcrew_title_0002	Crewmembers Missing	Crewmembers Missing		Unmodified
+searchcrew_title_0003	~mission(Ship)'s Crew Missing	~mission(Ship)'s Crew Missing		Unmodified
+searchcrew_title_0004	Search for Missing Crew	Search for Missing Crew		Unmodified
+sectorsweep_title_0001	Eliminate ~mission(Client) Nest	Eliminate ~mission(Client) Nest		Unmodified
+sectorsweep_title_0002	Clear Out ~mission(Client) Hunting Grounds	Clear Out ~mission(Client) Hunting Grounds		Unmodified
+sectorsweep_title_0003	Sector Sweep	Sector Sweep		Unmodified
+sectorsweep_title_0004	Outlaw Roundup	Outlaw Roundup		Unmodified
+sectorsweep_title_0005	Tactical Raid	Tactical Raid		Unmodified
+SecurityPatrol_Title_1	(DEBUG) Security Patrol - 100% Ace Pilot	(DEBUG) Security Patrol - 100% Ace Pilot		Unmodified
+SecurityPatrol_Title_4	(DEBUG) Security Patrol - 100% Gladiator	(DEBUG) Security Patrol - 100% Gladiator		Unmodified
+ServiceBeacon_CombatAssist_Mission_Title_Difficulty_Easy	Combat Assistance - LOW THREAT	Combat Assistance - LOW THREAT		Unmodified
+ServiceBeacon_CombatAssist_Mission_Title_Difficulty_Hard	Combat Assistance - HIGH THREAT	Combat Assistance - HIGH THREAT		Unmodified
+ServiceBeacon_CombatAssist_Mission_Title_Difficulty_Medium	Combat Assistance - MODERATE THREAT	Combat Assistance - MODERATE THREAT		Unmodified
+ServiceBeacon_CombatAssist_Mission_Title_Difficulty_VeryHard	Combat Assistance - CRITICAL THREAT	Combat Assistance - CRITICAL THREAT		Unmodified
+shubin_claimsweep_title_001	Remove Claimjumpers	Remove Claimjumpers		Unmodified
+shubin_claimsweep_title_easy	Remove Claimjumpers	Remove Claimjumpers		Unmodified
+shubin_claimsweep_title_hard	Oust Claimjumpers	Oust Claimjumpers		Unmodified
+shubin_claimsweep_title_intro	Clear Claimjumpers	Clear Claimjumpers		Unmodified
+shubin_claimsweep_title_med	Expel Claimjumpers	Expel Claimjumpers		Unmodified
+shubin_claimsweep_title_rand	Evict Claimjumpers	Evict Claimjumpers		Unmodified
+Shubin_Industrial_GroundVehicle_Nyx_VH_Interstellar_Title_001	XL Purchase Order: Vehicle Mined Ore	XL Purchase Order: Vehicle Mined Ore		Unmodified
+Shubin_Industrial_GroundVehicle_Pyro_E_DiscoverPlanetary_Title_001	Small Purchase Order: Vehicle Mined Ore	Small Purchase Order: Vehicle Mined Ore		Unmodified
+Shubin_Industrial_GroundVehicle_Pyro_H_Solar_Title_001	Lrg. Purchase Order: Vehicle Mined Ore	Lrg. Purchase Order: Vehicle Mined Ore		Unmodified
+Shubin_Industrial_GroundVehicle_Pyro_M_PlanetarySystem_Title_001	Med. Purchase Order: Vehicle Mined Ore	Med. Purchase Order: Vehicle Mined Ore		Unmodified
+Shubin_Industrial_GroundVehicle_Pyro_VH_Interstellar_Title_001	XL Purchase Order: Vehicle Mined Ore	XL Purchase Order: Vehicle Mined Ore		Unmodified
+Shubin_Industrial_GroundVehicle_Stanton_E_DiscoverPlanetary_Title_001	Small Purchase Order: Vehicle Mined Ore	Small Purchase Order: Vehicle Mined Ore		Unmodified
+Shubin_Industrial_GroundVehicle_Stanton_H_Solar_Title_001	Med. Purchase Order: Vehicle Mined Ore	Med. Purchase Order: Vehicle Mined Ore		Unmodified
+Shubin_Industrial_GroundVehicle_Stanton_M_PlanetarySystem_Title_001	Small Purchase Order: Vehicle Mined Ore	Small Purchase Order: Vehicle Mined Ore		Unmodified
+Shubin_Industrial_GroundVehicle_Stanton_VH_Solar_Title_001	XL Purchase Order: Vehicle Mined Ore	XL Purchase Order: Vehicle Mined Ore		Unmodified
+Shubin_Industrial_HandMining_Nyx_E_Interstellar_Title_001	Small Purchase Order: Hand Mined Materials	Small Purchase Order: Hand Mined Materials		Unmodified
+Shubin_Industrial_HandMining_Nyx_M_PlanetarySystem_Title_001	Small Mining Order: Sadaryx	Small Mining Order: Sadaryx		Unmodified
+Shubin_Industrial_HandMining_Nyx_S_Interstellar_Title_002	Mjr. Purchase Order: Hand Mined Materials	Mjr. Purchase Order: Hand Mined Materials		Unmodified
+Shubin_Industrial_HandMining_Pyro_S_Interstellar_Title_001	Mjr. Purchase Order: Hand Mined Materials	Mjr. Purchase Order: Hand Mined Materials		Unmodified
+Shubin_Industrial_HandMining_Pyro_S_Solar_Title_001	Mjr. Purchase Order: Hand Mined Materials	Mjr. Purchase Order: Hand Mined Materials		Unmodified
+Shubin_Industrial_HandMining_Stanton_H_Solar_Title_001	Lrg. Purchase Order: Hand Mined Materials	Lrg. Purchase Order: Hand Mined Materials		Unmodified
+Shubin_Industrial_HandMining_Stanton_S_Solar_Title_002	Mjr. Purchase Order: Hand Mined Materials	Mjr. Purchase Order: Hand Mined Materials		Unmodified
+Shubin_Industrial_ShipMining_Pyro_VE_Local_Title_001	XS Purchase Order: Ship Mined Ore	XS Purchase Order: Ship Mined Ore		Unmodified
+Shubin_Industrial_ShipMining_S_Org_Title_001	Special Purchase Order: Mined Materials	Special Purchase Order: Mined Materials		Unmodified
+Shubin_Rockcracker_CollectLenses_Title_001	Supply Order: Sadaryx Focus Lenses	Supply Order: Sadaryx Focus Lenses		Unmodified
+shubin_rockcracker_pvp_title_specific_01	QV Breaker Station BRK-204 Mining Rights (Shared)	QV Breaker Station BRK-204 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_02	QV Breaker Station BRK-320 Mining Rights (Shared)	QV Breaker Station BRK-320 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_03	QV Breaker Station BRK-546 Mining Rights (Shared)	QV Breaker Station BRK-546 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_04	QV Breaker Station BRK-127 Mining Rights (Shared)	QV Breaker Station BRK-127 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_05	QV Breaker Station BRK-425 Mining Rights (Shared)	QV Breaker Station BRK-425 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_06	QV Breaker Station BRK-608 Mining Rights (Shared)	QV Breaker Station BRK-608 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_07	QV Breaker Station BRK-267 Mining Rights (Shared)	QV Breaker Station BRK-267 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_08	QV Breaker Station BRK-235 Mining Rights (Shared)	QV Breaker Station BRK-235 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_09	QV Breaker Station BRK-304 Mining Rights (Shared)	QV Breaker Station BRK-304 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_10	QV Breaker Station BRK-521 Mining Rights (Shared)	QV Breaker Station BRK-521 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_11	QV Breaker Station BRK-985 Mining Rights (Shared)	QV Breaker Station BRK-985 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_12	QV Breaker Station BRK-542 Mining Rights (Shared)	QV Breaker Station BRK-542 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_13	QV Breaker Station BRK-184 Mining Rights (Shared)	QV Breaker Station BRK-184 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_14	QV Breaker Station BRK-970 Mining Rights (Shared)	QV Breaker Station BRK-970 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_15	QV Breaker Station BRK-879 Mining Rights (Shared)	QV Breaker Station BRK-879 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_16	QV Breaker Station BRK-563 Mining Rights (Shared)	QV Breaker Station BRK-563 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_17	QV Breaker Station BRK-782 Mining Rights (Shared)	QV Breaker Station BRK-782 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_18	QV Breaker Station BRK-711 Mining Rights (Shared)	QV Breaker Station BRK-711 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_19	QV Breaker Station BRK-284 Mining Rights (Shared)	QV Breaker Station BRK-284 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_20	QV Breaker Station BRK-437 Mining Rights (Shared)	QV Breaker Station BRK-437 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_21	QV Breaker Station BRK-630 Mining Rights (Shared)	QV Breaker Station BRK-630 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_22	QV Breaker Station BRK-892 Mining Rights (Shared)	QV Breaker Station BRK-892 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_23	QV Breaker Station BRK-597 Mining Rights (Shared)	QV Breaker Station BRK-597 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_24	QV Breaker Station BRK-110 Mining Rights (Shared)	QV Breaker Station BRK-110 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_25	QV Breaker Station BRK-913 Mining Rights (Shared)	QV Breaker Station BRK-913 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_26	QV Breaker Station BRK-864 Mining Rights (Shared)	QV Breaker Station BRK-864 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_27	QV Breaker Station BRK-529 Mining Rights (Shared)	QV Breaker Station BRK-529 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_28	QV Breaker Station BRK-709 Mining Rights (Shared)	QV Breaker Station BRK-709 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_29	QV Breaker Station BRK-766 Mining Rights (Shared)	QV Breaker Station BRK-766 Mining Rights (Shared)		Unmodified
+shubin_rockcracker_pvp_title_specific_30	QV Breaker Station BRK-223 Mining Rights (Shared)	QV Breaker Station BRK-223 Mining Rights (Shared)		Unmodified
+spacecargo_illegal_title_0001	Property Reclamation	Property Reclamation		Unmodified
+spacecargo_illegal_title_0002	Take Away	Take Away		Unmodified
+spacecargo_illegal_title_0003	Lost and Found	Lost and Found		Unmodified
+spacecargo_illegal_title_0004	A Light Touch	A Light Touch		Unmodified
+spacecargo_illegal_title_0005	Floater	Floater		Unmodified
+spacecargo_illegal_title_0006	Grab 'N Go	Grab 'N Go		Unmodified
+spacecargo_illegal_title_0007	Go Fish	Go Fish		Unmodified
+spacecargo_illegal_title_0008	Search and Seizure	Search and Seizure		Unmodified
+spacecargo_illegal_title_0009	Appropriation	Appropriation		Unmodified
+spacecargo_illegal_title_0010	Procurement	Procurement		Unmodified
+spacecargo_legal_title_0001	Cargo Recovery	Cargo Recovery		Unmodified
+spacecargo_legal_title_0002	Cargo Retrieval	Cargo Retrieval		Unmodified
+spacecargo_legal_title_0003	Cargo Salvage	Cargo Salvage		Unmodified
+spacecargo_legal_title_0004	Cargo Collection	Cargo Collection		Unmodified
+spacecargo_legal_title_0005	Retrieval Needed	Retrieval Needed		Unmodified
+spacecargo_legal_title_0006	Lost Cargo	Lost Cargo		Unmodified
+spacecargo_legal_title_0007	Cargo Assist	Cargo Assist		Unmodified
+spacecargo_legal_title_0008	Shipment Lost	Shipment Lost		Unmodified
+spacecargo_legal_title_0009	Need a Hand	Need a Hand		Unmodified
+spacecargo_legal_title_0010	Lost in Space	Lost in Space		Unmodified
+spacecollect_cargo_title_01	~mission(Contractor|RecoverSpaceTitle)	~mission(Contractor|RecoverSpaceTitle)		Unmodified
+spacecollect_cargo_title_E_01	~mission(Contractor|RecoverSpaceTitleEasy)	~mission(Contractor|RecoverSpaceTitleEasy)		Unmodified
+spacecollect_cargo_title_H_01	~mission(Contractor|RecoverSpaceTitleHard)	~mission(Contractor|RecoverSpaceTitleHard)		Unmodified
+spacecollect_cargo_title_intro_01	~mission(Contractor|RecoverSpaceTitleIntro)	~mission(Contractor|RecoverSpaceTitleIntro)		Unmodified
+spacecollect_cargo_title_M_01	~mission(Contractor|RecoverSpaceTitleMedium)	~mission(Contractor|RecoverSpaceTitleMedium)		Unmodified
+spacecollect_cargo_title_S_01	~mission(Contractor|RecoverSpaceTitleSuper)	~mission(Contractor|RecoverSpaceTitleSuper)		Unmodified
+spacecollect_cargo_title_VE_01	~mission(Contractor|RecoverSpaceTitleVeryEasy)	~mission(Contractor|RecoverSpaceTitleVeryEasy)		Unmodified
+spacecollect_cargo_title_VH_01	~mission(Contractor|RecoverSpaceTitleVeryHard)	~mission(Contractor|RecoverSpaceTitleVeryHard)		Unmodified
+spacecollectmulti_cargo_title_01	~mission(Contractor|RecoverSpaceMultiTitle)	~mission(Contractor|RecoverSpaceMultiTitle)		Unmodified
+spacecollectmulti_cargo_title_E_01	~mission(Contractor|RecoverSpaceMultiTitleEasy)	~mission(Contractor|RecoverSpaceMultiTitleEasy)		Unmodified
+spacecollectmulti_cargo_title_H_01	~mission(Contractor|RecoverSpaceMultiTitleHard)	~mission(Contractor|RecoverSpaceMultiTitleHard)		Unmodified
+spacecollectmulti_cargo_title_intro_01	~mission(Contractor|RecoverSpaceMultiTitleIntro)	~mission(Contractor|RecoverSpaceMultiTitleIntro)		Unmodified
+spacecollectmulti_cargo_title_M_01	~mission(Contractor|RecoverSpaceMultiTitleMedium)	~mission(Contractor|RecoverSpaceMultiTitleMedium)		Unmodified
+spacecollectmulti_cargo_title_S_01	~mission(Contractor|RecoverSpaceMultiTitleSuper)	~mission(Contractor|RecoverSpaceMultiTitleSuper)		Unmodified
+spacecollectmulti_cargo_title_VE_01	~mission(Contractor|RecoverSpaceMultiTitleVeryEasy)	~mission(Contractor|RecoverSpaceMultiTitleVeryEasy)		Unmodified
+spacecollectmulti_cargo_title_VH_01	~mission(Contractor|RecoverSpaceMultiTitleVeryHard)	~mission(Contractor|RecoverSpaceMultiTitleVeryHard)		Unmodified
+spacesteal_title_0001	Five Finger Discount	Five Finger Discount		Unmodified
+spacesteal_title_0002	Take Away	Take Away		Unmodified
+spacesteal_title_0003	Shopping Spree	Shopping Spree		Unmodified
+spacesteal_title_0004	Piñata	Piñata		Unmodified
+spacesteal_title_0005	Smash & Grab	Smash & Grab		Unmodified
+spacesteal_title_0006	Procurement Job	Procurement Job		Unmodified
+spacesteal_title_easy	~mission(Contractor|StealEasyTitle)	~mission(Contractor|StealEasyTitle)		Unmodified
+spacesteal_title_hard	~mission(Contractor|StealHardTitle)	~mission(Contractor|StealHardTitle)		Unmodified
+spacesteal_title_medium	~mission(Contractor|StealMediumTitle)	~mission(Contractor|StealMediumTitle)		Unmodified
+Tarpits_assassinate_dc_title_001	Scrap ~mission(TargetName)	Scrap ~mission(TargetName)		Unmodified
+Tarpits_destroyitem_bombingrun_dc_title_001	Mass Destruction	Mass Destruction		Unmodified
+Tarpits_destroyitem_dc_title_001	Demolition Mission	Demolition Mission		Unmodified
+Tarpits_eliminateboss_dc_title_001	~mission(TargetName)’s Time Has Come	~mission(TargetName)’s Time Has Come		Unmodified
+Tarpits_eliminateboss_destroyitem_dc_title_001	Shake ~mission(TargetName) Loose	Shake ~mission(TargetName) Loose		Unmodified
+Tarpits_heist_buyin_dc_title_001	Theft For Sale	Theft For Sale		Unmodified
+TarPits_ShipStrip_title_001	~mission(ship) clean up	~mission(ship) clean up		Unmodified
+Tarpits_theft_mines_dc_title_001	Dangerous Take	Dangerous Take		Unmodified
+TarPits_TimedSalvage_Title_01	Risky ~mission(Ship) Salvage Job	Risky ~mission(Ship) Salvage Job		Unmodified
+Test_Title_FromDepot	Courier\nFrom: Depot \nTo: Local Destination	Courier\nFrom: Depot \nTo: Local Destination		Unmodified
+Test_Title_MultiDropOff	Multi Dropoff - ~mission(Reward)	Multi Dropoff - ~mission(Reward)		Unmodified
+Test_Title_MultiPickUp	Multi Pickup - ~mission(Reward)	Multi Pickup - ~mission(Reward)		Unmodified
+Test_Title_OnFoot	From strut to strut	From strut to strut		Unmodified
+Test_Title_ToDepot	Courier \nFrom: Location \nTo: Local Depot	Courier \nFrom: Location \nTo: Local Depot		Unmodified
+Test_Title_Revenge_02	Revenge 02 (WIP)	Revenge 02 (WIP)		Unmodified
+Test_Title_Revenge_03	Revenge 03 (WIP)	Revenge 03 (WIP)		Unmodified
+Test_Title_Revenge_04	Revenge 04 (WIP)	Revenge 04 (WIP)		Unmodified
+Test_Title_Revenge_05	Revenge 05 (WIP)	Revenge 05 (WIP)		Unmodified
+Test_Title_Revenge_06	Revenge 06 (WIP)	Revenge 06 (WIP)		Unmodified
+Test_Title_Revenge_07	Revenge 07 (WIP)	Revenge 07 (WIP)		Unmodified
+TheCollector_Conversion_Favors_Title_1	Trade Merc Scrip for Favors?	Trade Merc Scrip for Favors?		Unmodified
+TheCollector_Conversion_Favors_Title_2	Trade Council Scrip for Favors?	Trade Council Scrip for Favors?		Unmodified
+TheCollector_Conversion_Favors_Title_3	Trade Worm Parts for Favors?	Trade Worm Parts for Favors?		Unmodified
+TheCollector_Menu_Title_DesertArm	Look at desert but don't see you	Look at desert but don't see you		Unmodified
+TheCollector_Menu_Title_DesertVolt	Make gun sandy	Make gun sandy		Unmodified
+TheCollector_Menu_Title_HighComp	Want super useful ship parts?	Want super useful ship parts?		Unmodified
+TheCollector_Menu_Title_HighTierShip	Very very nice ship for trade	Very very nice ship for trade		Unmodified
+TheCollector_Menu_Title_JungleArm	Want armor look like tree?	Want armor look like tree?		Unmodified
+TheCollector_Menu_Title_JungleVolt	Zappy gun more woodlike	Zappy gun more woodlike		Unmodified
+TheCollector_Menu_Title_LowComp	Trade for useful ship parts	Trade for useful ship parts		Unmodified
+TheCollector_Menu_Title_LowTierShip	Have Good Ships for trade	Have Good Ships for trade		Unmodified
+TheCollector_Menu_Title_MedComp	Trade for very useful ship parts	Trade for very useful ship parts		Unmodified
+TheCollector_Menu_Title_MidTierShip	Want big ship? But not too big?	Want big ship? But not too big?		Unmodified
+TheCollector_Menu_Title_MiningGadg	Need mining things. Clever things to trade.	Need mining things. Clever things to trade.		Unmodified
+TheCollector_Menu_Title_NavyArm	Make space navy armor	Make space navy armor		Unmodified
+TheCollector_Menu_Title_NavyVolt	Volt gun more Navy-like	Volt gun more Navy-like		Unmodified
+TheCollector_Menu_Title_PolarisShip	Now make Polaris. Short Time Deal.	Now make Polaris. Short Time Deal.		Unmodified
+TheCollector_Menu_Title_RandomArmourFPS	Need Ore. Will give Guns.	Need Ore. Will give Guns.		Unmodified
+TheCollector_Menu_Title_WalkerSk	Turn ATLS suit pretty	Turn ATLS suit pretty		Unmodified
+TheCollector_Recipes_Title_ApolloSkin	Red Fight Apollo	Red Fight Apollo		Unmodified
+TheCollector_Recipes_Title_AtlsJump	Make jumpy ATLS shoot	Make jumpy ATLS shoot		Unmodified
+TheCollector_Recipes_Title_AtlsPew	Make ATLS shoot	Make ATLS shoot		Unmodified
+TheCollector_Recipes_Title_Battle	Test Armor	Test Armor		Unmodified
+TheCollector_Recipes_Title_BigBooma	Curious Weapon	Curious Weapon		Unmodified
+TheCollector_Recipes_Title_Bino	Want Better Eyes?	Want Better Eyes?		Unmodified
+TheCollector_Recipes_Title_F55	F55 Look Better	F55 Look Better		Unmodified
+TheCollector_Recipes_Title_HeavyUtil	Shiny Builder Suit	Shiny Builder Suit		Unmodified
+TheCollector_Recipes_Title_Hush	Hide Snow Suit	Hide Snow Suit		Unmodified
+TheCollector_Recipes_Title_IrrArm	Make glowy armor	Make glowy armor		Unmodified
+TheCollector_Recipes_Title_KopSkull	Fun Kopion Skull Gun	Fun Kopion Skull Gun		Unmodified
+TheCollector_Recipes_Title_KopTooth	Fun Kopion Tooth Gun	Fun Kopion Tooth Gun		Unmodified
+TheCollector_Recipes_Title_LotsOfZipZap	Heavy VOLT Zapper	Heavy VOLT Zapper		Unmodified
+TheCollector_Recipes_Title_MiltSkull	Fun Military Skull Gun	Fun Military Skull Gun		Unmodified
+TheCollector_Recipes_Title_MiltTooth	Fun Military Tooth Gun	Fun Military Tooth Gun		Unmodified
+TheCollector_Recipes_Title_Molten	Do Lava Suit	Do Lava Suit		Unmodified
+TheCollector_Recipes_Title_NonePistol	Hot Shot	Hot Shot		Unmodified
+TheCollector_Recipes_Title_RedHunterArmor	Red Fight Armor	Red Fight Armor		Unmodified
+TheCollector_Recipes_Title_SandArmour	Armor with horn and string	Armor with horn and string		Unmodified
+TheCollector_Recipes_Title_SlimyLMG	Yormandi Gun	Yormandi Gun		Unmodified
+TheCollector_Recipes_Title_SpikeyArmor	Armor with Vanduul	Armor with Vanduul		Unmodified
+TheCollector_Recipes_Title_VoltThwack	Make VOLT shotgun angrier	Make VOLT shotgun angrier		Unmodified
+TheCollector_Recipes_Title_ZipZap	Snow Snipe	Snow Snipe		Unmodified
+TheCollector_Recipes_Title_GMNI_Shotgun	Red Fight Shotgun	Red Fight Shotgun		Unmodified
+uwc_repairship_title_001	Contractor Needed for Vehicle Repairs	Contractor Needed for Vehicle Repairs		Unmodified
+vaughn_assassination_title_H	~mission(Contractor|BountyTitleHard)	~mission(Contractor|BountyTitleHard)		Unmodified
+vaughn_assassination_E_title_001	A Straightforward Task	A Straightforward Task		Unmodified
+vaughn_assassination_E_title_002	An Uncomplicated Task	An Uncomplicated Task		Unmodified
+vaughn_assassination_E_title_003	A Basic Task	A Basic Task		Unmodified
+vaughn_assassination_E_title_intro	Spread Your Wings	Spread Your Wings		Unmodified
+vaughn_assassination_FPS_title_001	An Intimate Affair	An Intimate Affair		Unmodified
+vaughn_assassination_FPS_title_002	The Whites Of Their Eyes	The Whites Of Their Eyes		Unmodified
+vaughn_assassination_FPS_title_003	A Personal Touch	A Personal Touch		Unmodified
+vaughn_assassination_FPS_title_intro	A Chance to Prove Your Mettle	A Chance to Prove Your Mettle		Unmodified
+vaughn_assassination_FPS_title_rehire	Another Chance to Prove Your Mettle	Another Chance to Prove Your Mettle		Unmodified
+vaughn_assassination_FPS_UGF_illegal_title_002	There Is A Season	There Is A Season		Unmodified
+vaughn_assassination_FPS_UGF_illegal_title_003	Struck Down In Their Prime	Struck Down In Their Prime		Unmodified
+vaughn_assassination_FPS_UGF_legal_title_002	Not Long For This Universe	Not Long For This Universe		Unmodified
+vaughn_assassination_FPS_UGF_legal_title_003	Dearly Departed	Dearly Departed		Unmodified
+vaughn_assassination_FPS_UGF_targetonly_title_001	Measure Twice, Cut Once	Measure Twice, Cut Once		Unmodified
+vaughn_assassination_FPS_UGF_targetonly_title_002	The Devil's In The Details	The Devil's In The Details		Unmodified
+vaughn_assassination_FPS_UGF_targetonly_title_003	Be More Precise	Be More Precise		Unmodified
+vaughn_assassination_H_title_001	A Difficult Task	A Difficult Task		Unmodified
+vaughn_assassination_H_title_002	An Arduous Task	An Arduous Task		Unmodified
+vaughn_assassination_H_title_003	A Challenging Task	A Challenging Task		Unmodified
+vaughn_assassination_H_title_intro	Above and Beyond	Above and Beyond		Unmodified
+vaughn_assassination_M_title_001	A Complicated Task	A Complicated Task		Unmodified
+vaughn_assassination_M_title_002	A Demanding Task	A Demanding Task		Unmodified
+vaughn_assassination_M_title_003	A Task Requiring Skill	A Task Requiring Skill		Unmodified
+vaughn_assassination_M_title_intro	More Than Capable	More Than Capable		Unmodified
+vaughn_assassination_S_title_001	A Troublesome Task	A Troublesome Task		Unmodified
+vaughn_assassination_S_title_002	An Extremely Difficult Task	An Extremely Difficult Task		Unmodified
+vaughn_assassination_S_title_003	An Onerous Task	An Onerous Task		Unmodified
+vaughn_assassination_S_title_intro	It's Impossible Until It's Done	It's Impossible Until It's Done		Unmodified
+vaughn_assassination_VE_title_001	A Simple Task	A Simple Task		Unmodified
+vaughn_assassination_VE_title_002	A Rudimentary Task	A Rudimentary Task		Unmodified
+vaughn_assassination_VE_title_003	A Negligible Task	A Negligible Task		Unmodified
+vaughn_assassination_VH_title_001	A Very Difficult Task	A Very Difficult Task		Unmodified
+vaughn_assassination_VH_title_002	A Very Challenging Task	A Very Challenging Task		Unmodified
+vaughn_assassination_VH_title_003	A Most Trying Task	A Most Trying Task		Unmodified
+vaughn_assassination_VH_title_intro	A Most Elusive Mark	A Most Elusive Mark		Unmodified
+Vaughn_EliminateSpecific_FPS_storm_H_title_001	A Challenging Contract	A Challenging Contract		Unmodified
+Vaughn_EliminateSpecific_FPS_storm_H_title_002	Another Challenge to be Removed	Another Challenge to be Removed		Unmodified
+Vaughn_EliminateSpecific_FPS_storm_H_title_003	Killing a Ghost	Killing a Ghost		Unmodified
+Vaughn_EliminateSpecific_FPS_storm_H_title_004	Pyro Contract	Pyro Contract		Unmodified
+vaughn_searchbody_space_E_Title_001	Checking For a Pulse	Checking For a Pulse		Unmodified
+vaughn_searchbody_space_H_Title_001	Down For the Count	Down For the Count		Unmodified
+vaughn_searchbody_space_Intro_Title_001	An Unprecedented Opportunity	An Unprecedented Opportunity		Unmodified
+vaughn_searchbody_space_M_Title_001	My Deepest Condolences	My Deepest Condolences		Unmodified
+vaughn_searchbody_space_S_Title_001	No Honor Amongst Assassins	No Honor Amongst Assassins		Unmodified
+vaughn_searchbody_space_VE_Title_001	Putting a Mind at Ease	Putting a Mind at Ease		Unmodified
+vaughn_searchbody_space_VH_Title_001	A Fond Farewell	A Fond Farewell		Unmodified
+VendingMachine_Puzzle_Title_FindUnit	Find the Power Unit.	Find the Power Unit.		Unmodified
+VendingMachine_Puzzle_Title_FixOS	Reboot the Vending Machine's onboard computer.	Reboot the Vending Machine's onboard computer.		Unmodified
+VendingMachine_Puzzle_Title_JammedRack	Find the jam in the item dispensers.	Find the jam in the item dispensers.		Unmodified
+WantedLevel5_Title_001	**WIP** Causing A Distraction	**WIP** Causing A Distraction		Unmodified
+WSTR_TimeTrial_repeat_title_01	~mission(RaceType) Time Trial: ~mission(location)	~mission(RaceType) Time Trial: ~mission(location)		Unmodified
+Xenothreat_bounty_headhunter_title_001	Track Down Gang Member	Track Down Gang Member		Unmodified
+Xenothreat_bounty_headhunter_title_002	Track Down Traitor	Track Down Traitor		Unmodified
+Xenothreat_bounty_headhunter_title_003	Track Down Spy	Track Down Spy		Unmodified
+xenothreat_defend_HH_H_title_001	Halt Incoming Headhunter Raid	Halt Incoming Headhunter Raid		Unmodified
+xenothreat_defend_HH_M_title_001	Halt Incoming Headhunter Attack	Halt Incoming Headhunter Attack		Unmodified
+xenothreat_defend_HH_VH_title_001	Halt Incoming Headhunter Incursion	Halt Incoming Headhunter Incursion		Unmodified
+Xenothreat_destroyitems_CFP_vehicle_title_01	Supply Line Sabotage	Supply Line Sabotage		Unmodified
+Xenothreat_destroyitems_Hh_vehicle_title_01	Preemptive Strike	Preemptive Strike		Unmodified
+xenothreat_eliminateall_HH_derelicts_title_01	Kill Order: Headhunters at ~mission(location)	Kill Order: Headhunters at ~mission(location)		Unmodified
+Xenothreat_theft_outpost_cfp_title_001	Steal Subsidies	Steal Subsidies		Unmodified
+Xenothreat_theft_outpost_headhunters_title_001	Repossess Supplies	Repossess Supplies		Unmodified
+Xenothreat_theft_station_cfp_title_001	Agent of Chaos	Agent of Chaos		Unmodified
+Xenothreat_theft_station_roughready_title_001	Price of Business	Price of Business		Unmodified

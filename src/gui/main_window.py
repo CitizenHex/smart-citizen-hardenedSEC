@@ -108,6 +108,7 @@ from src.parser.ini_parser import load_source_files, load_sources_from_settings,
 from src.utils.settings import AppSettings
 from src.merger.ini_merger import merge_sources_by_hierarchy
 from src.utils.version import get_version
+from src.utils.perf import timed
 from src.gui.config_tab import ConfigTab
 from src.gui.enhancements_tab import EnhancementsTab
 from src.gui.log_tab import LogTab
@@ -160,15 +161,15 @@ class FileLoaderWorker(QThread):
             # New system: load sources from settings if not provided
             if self.sources_dict is None and self.hierarchy is None:
                 logger.info("No sources_dict provided, loading from settings...")
-                self.sources_dict, self.hierarchy, self._stats_key_categories = load_sources_from_settings()
+                self.sources_dict, self.hierarchy, self._enhancements_key_categories = load_sources_from_settings()
                 logger.info(f"Loaded from settings: sources={list(self.sources_dict.keys())}, hierarchy={self.hierarchy}")
             else:
-                self._stats_key_categories = None
+                self._enhancements_key_categories = None
 
             # If still no sources (empty settings), try legacy base_path
             if self.sources_dict and self.hierarchy:
                 logger.info(f"Calling load_source_files with {len(self.sources_dict)} sources")
-                entries = load_source_files(self.sources_dict, self.hierarchy, stats_key_categories=self._stats_key_categories)
+                entries = load_source_files(self.sources_dict, self.hierarchy, enhancements_key_categories=self._enhancements_key_categories)
                 logger.info(f"load_source_files returned {len(entries)} entries")
             elif self.base_path:
                 # Legacy: single base file loading
@@ -207,20 +208,10 @@ class StartupSyncWorker(QThread):
         cache_dir = AppSettings.get_cache_dir()
         cache_mapping = {
             AppSettings.SOURCE_GLOBAL:      "base.ini",
-            AppSettings.SOURCE_CONTRACTS:   "contracts.ini",
-            AppSettings.SOURCE_COMPONENTS:  "components.ini",
-            AppSettings.SOURCE_SHIPS:       "ships.ini",
-            AppSettings.SOURCE_COMMODITIES: "commodities.ini",
-            AppSettings.SOURCE_GEAR:        "gear.ini",
         }
 
         for source_name in [
             AppSettings.SOURCE_GLOBAL,
-            AppSettings.SOURCE_CONTRACTS,
-            AppSettings.SOURCE_COMPONENTS,
-            AppSettings.SOURCE_SHIPS,
-            AppSettings.SOURCE_COMMODITIES,
-            AppSettings.SOURCE_GEAR,
         ]:
             if not AppSettings.is_source_enabled(source_name):
                 continue
@@ -243,8 +234,8 @@ class StartupSyncWorker(QThread):
         self.finished.emit()
 
 
-class StatsGeneratorWorker(QThread):
-    """Worker thread for generating stats INI files via generate_stats_ini.py."""
+class EnhancementsGeneratorWorker(QThread):
+    """Worker thread for generating enhancements INI files via generate_enhancements_ini.py."""
 
     progress = pyqtSignal(str)
     finished = pyqtSignal(bool)
@@ -255,18 +246,18 @@ class StatsGeneratorWorker(QThread):
         import sys as sys_module
         try:
             if getattr(sys, 'frozen', False):
-                script_path = Path(sys._MEIPASS) / 'scripts' / 'generate_stats_ini.py'
+                script_path = Path(sys._MEIPASS) / 'scripts' / 'generate_enhancements_ini.py'
             else:
                 # src/gui/main_window.py → src/gui → src → project root
-                script_path = Path(__file__).parent.parent.parent / 'scripts' / 'generate_stats_ini.py'
+                script_path = Path(__file__).parent.parent.parent / 'scripts' / 'generate_enhancements_ini.py'
 
             if not script_path.exists():
-                raise FileNotFoundError(f"Stats generator script not found: {script_path}")
+                raise FileNotFoundError(f"Enhancements generator script not found: {script_path}")
 
-            self.progress.emit("Loading stats generator...")
+            self.progress.emit("Loading enhancements generator...")
 
             # Force module cache refresh to avoid stale imports during startup
-            module_name = "generate_stats_ini_worker"
+            module_name = "generate_enhancements_ini_worker"
             if module_name in sys_module.modules:
                 del sys_module.modules[module_name]
 
@@ -278,18 +269,18 @@ class StatsGeneratorWorker(QThread):
             spec.loader.exec_module(mod)
 
             self.progress.emit("Generating enhancements (may take a few minutes on first run)...")
-            logger.info("Stats generation worker: calling mod.main()")
+            logger.info("Enhancements generation worker: calling mod.main()")
 
             base_ini  = AppSettings.get_cache_dir() / 'base.ini'
             forge_dir = AppSettings.get_dataforge_cache_dir()
 
-            logger.info(f"Stats generation: base_ini={base_ini}, forge_dir={forge_dir}")
+            logger.info(f"Enhancements generation: base_ini={base_ini}, forge_dir={forge_dir}")
             mod.main(base_ini, forge_dir)
-            logger.info("Stats generation worker: mod.main() completed successfully")
+            logger.info("Enhancements generation worker: mod.main() completed successfully")
 
             self.finished.emit(True)
         except Exception as e:
-            logger.exception(f"Stats generation failed: {e}")
+            logger.exception(f"Enhancements generation failed: {e}")
             self.error.emit(str(e))
             self.finished.emit(False)
 
@@ -387,17 +378,17 @@ class MainWindow(QMainWindow):
         self._p4k_worker: Optional[P4kExtractWorker] = None
         self._p4k_progress: Optional[QProgressDialog] = None
 
-        # Stats generation worker
-        self._stats_worker: Optional[StatsGeneratorWorker] = None
-        self._stats_progress_dialog: Optional[AnimatedProgressDialog] = None
+        # Enhancements generation worker
+        self._enhancements_worker: Optional[EnhancementsGeneratorWorker] = None
+        self._enhancements_progress_dialog: Optional[AnimatedProgressDialog] = None
 
         # DataForge extraction worker
         self._forge_worker: Optional[DataForgeExtractWorker] = None
 
-        # Track whether we've prompted for stats on startup (prevents duplicate dialogs)
-        self._stats_prompted_on_startup = False
-        # Flag to defer stats checking until after file loading completes (avoid I/O contention)
-        self._check_stats_after_loading = False
+        # Track whether we've prompted for enhancements on startup (prevents duplicate dialogs)
+        self._enhancements_prompted_on_startup = False
+        # Flag to defer enhancements checking until after file loading completes (avoid I/O contention)
+        self._check_enhancements_after_loading = False
 
         # Status bar state (composed message) - tracks sync status per source
         self._source_status: dict[str, str] = {}  # source_name -> status_string
@@ -455,7 +446,7 @@ class MainWindow(QMainWindow):
         # Enhancements tab
         self.enhancements_tab = EnhancementsTab()
         self.enhancements_tab.merge_requested.connect(self.perform_merge_and_reload)
-        self.enhancements_tab.stats_pipeline_requested.connect(self._run_stats_pipeline)
+        self.enhancements_tab.enhancements_pipeline_requested.connect(self._run_enhancements_pipeline)
         tabs.addTab(self.enhancements_tab, "Enhancements")
 
         self.log_tab = LogTab()
@@ -853,6 +844,7 @@ class MainWindow(QMainWindow):
         self.restore_backup_btn.setEnabled(enabled)
         self.clear_loc_btn.setEnabled(enabled)
 
+    @timed
     def load_default_values(self):
         """Load default values from cached base source in AppData."""
         from src.parser.ini_parser import parse_ini_file
@@ -874,7 +866,7 @@ class MainWindow(QMainWindow):
         """Automatically load and merge configured sources, or fall back to legacy behavior."""
         try:
             # Try new system first: load configured sources from settings
-            sources_dict, hierarchy, stats_key_categories = load_sources_from_settings()
+            sources_dict, hierarchy, enhancements_key_categories = load_sources_from_settings()
 
             if sources_dict and hierarchy:
                 logger.info(f"Loading configured sources: {list(sources_dict.keys())} with hierarchy {hierarchy}")
@@ -883,7 +875,7 @@ class MainWindow(QMainWindow):
                 try:
                     # Load synchronously in main thread to avoid threading issues
                     logger.info("Synchronously loading sources...")
-                    entries = load_source_files(sources_dict, hierarchy, stats_key_categories=stats_key_categories)
+                    entries = load_source_files(sources_dict, hierarchy, enhancements_key_categories=enhancements_key_categories)
                     logger.info(f"Loaded {len(entries)} entries")
                     self.entries = entries
                     self.update_category_combo()
@@ -959,6 +951,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("No base file found - please configure sources in Config tab or load a file manually")
 
     @pyqtSlot()
+    @timed
     def apply_to_game(self):
         """Apply merged sources + user edits to game installation and backup existing file."""
         if not self.entries:
@@ -1013,7 +1006,7 @@ class MainWindow(QMainWindow):
             # Warn if any enabled non-user sources are missing from the loaded dict
             missing_sources = [
                 name for name in hierarchy
-                if name != AppSettings.SOURCE_USER and name != "stats"
+                if name != AppSettings.SOURCE_USER and name != "enhancements"
                 and name not in sources_dict
                 and AppSettings.is_source_enabled(name)
             ]
@@ -1052,11 +1045,6 @@ class MainWindow(QMainWindow):
                     # Map source name to cache file
                     cache_mapping = {
                         AppSettings.SOURCE_GLOBAL:      "base.ini",
-                        AppSettings.SOURCE_CONTRACTS:   "contracts.ini",
-                        AppSettings.SOURCE_COMPONENTS:  "components.ini",
-                        AppSettings.SOURCE_SHIPS:       "ships.ini",
-                        AppSettings.SOURCE_COMMODITIES: "commodities.ini",
-                        AppSettings.SOURCE_GEAR:        "gear.ini",
                     }
                     if source_name in cache_mapping:
                         cache_file = AppSettings.get_cache_dir() / cache_mapping[source_name]
@@ -1372,6 +1360,7 @@ class MainWindow(QMainWindow):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(loc_dir)))
 
     @pyqtSlot()
+    @timed
     def perform_merge_and_reload(self):
         """Perform merge of configured sources and reload table.
 
@@ -1380,7 +1369,7 @@ class MainWindow(QMainWindow):
         """
         try:
             # Load all configured sources
-            sources_dict, hierarchy, stats_key_categories = load_sources_from_settings()
+            sources_dict, hierarchy, enhancements_key_categories = load_sources_from_settings()
 
             if not sources_dict or not hierarchy:
                 QMessageBox.warning(self, "Warning", "No sources configured. Please configure data sources in Config tab.")
@@ -1391,7 +1380,7 @@ class MainWindow(QMainWindow):
             try:
                 # Load synchronously in main thread
                 logger.info("Merging configured sources...")
-                entries = load_source_files(sources_dict, hierarchy, stats_key_categories=stats_key_categories)
+                entries = load_source_files(sources_dict, hierarchy, enhancements_key_categories=enhancements_key_categories)
                 logger.info(f"Merge complete: {len(entries)} entries")
                 self.entries = entries
                 self.update_category_combo()
@@ -1512,14 +1501,14 @@ Click **Clear Localization** to delete the custom global.ini from the game direc
 ## 9. After Game Updates
 When Star Citizen updates, your edits are preserved in your Documents folder. Simply reload the new base file and your customizations automatically re-apply.
 
-## Stats Enhancements
-When stats files are present (generated by generate_stats_ini.py), numerical stats such as SCM speed, DPS, shield HP, cargo capacity, and weapon loadouts are automatically appended to ship and component descriptions. Toggle this on/off in the Config tab.
+## Enhancements
+When enhancement files are present (generated by generate_enhancements_ini.py), numerical stats such as SCM speed, DPS, shield HP, cargo capacity, and weapon loadouts are automatically appended to ship and component descriptions. Toggle this on/off in the Config tab.
 
 ## Config Tab
 - Configure data source paths (Global, Contracts, Components, Ships)
 - Set your Star Citizen installation path
 - Drag sources to reorder the merge hierarchy
-- Enable or disable Stats Enhancements
+- Enable or disable Enhancements
 
 ## Status Bar
 Shows the sync status for each configured source. "✓" means up to date.
@@ -1647,9 +1636,9 @@ Shows the sync status for each configured source. "✓" means up to date.
         if p4k_extraction_started:
             return
 
-        # Don't check stats during startup - defer until after file loading completes
-        # to avoid concurrent I/O contention between file loader and stats generator
-        self._check_stats_after_loading = True
+        # Don't check enhancements during startup - defer until after file loading completes
+        # to avoid concurrent I/O contention between file loader and enhancements generator
+        self._check_enhancements_after_loading = True
 
         # Show progress dialog during file loading
         self._show_loading_progress()
@@ -1696,19 +1685,19 @@ Shows the sync status for each configured source. "✓" means up to date.
             return True
         return False
 
-    def _check_stats_freshness(self):
-        """If stats INI files are missing, prompt to generate them.
+    def _check_enhancements_freshness(self):
+        """If enhancements INI files are missing, prompt to generate them.
 
-        On startup, shows a dialog if stats are missing. If called again after P4K
-        extraction and we already prompted, skips the dialog and runs stats directly.
+        On startup, shows a dialog if enhancements are missing. If called again after P4K
+        extraction and we already prompted, skips the dialog and runs enhancements directly.
         """
         cache_dir = AppSettings.get_cache_dir()
         if not (cache_dir / 'base.ini').exists():
             return
-        if self._stats_worker is not None or self._forge_worker is not None:
+        if self._enhancements_worker is not None or self._forge_worker is not None:
             return
 
-        missing = [f for f in AppSettings.STATS_FILES.values()
+        missing = [f for f in AppSettings.ENHANCEMENTS_FILES.values()
                    if not (cache_dir / f).exists()]
         if not missing:
             return
@@ -1717,25 +1706,25 @@ Shows the sync status for each configured source. "✓" means up to date.
         if not p4k_path.exists():
             return  # can't generate without the game files; user can trigger manually
 
-        # If we already prompted at startup and user said Yes, just run stats generation
+        # If we already prompted at startup and user said Yes, just run enhancements generation
         # (they're here because P4K extraction completed)
-        if self._stats_prompted_on_startup:
-            self._run_stats_pipeline()
+        if self._enhancements_prompted_on_startup:
+            self._run_enhancements_pipeline()
             return
 
         # First prompt - show dialog to user
-        self._stats_prompted_on_startup = True
-        total_stats = len(AppSettings.STATS_FILES)
+        self._enhancements_prompted_on_startup = True
+        total_enhancements = len(AppSettings.ENHANCEMENTS_FILES)
         reply = QMessageBox.question(
-            self, "Generate Stats",
-            f"{len(missing)} of {total_stats} stats files are missing.\n\n"
-            "Generate ship, component, weapon, mission, and missile stats from your installed Data.p4k?\n"
+            self, "Generate Enhancements",
+            f"{len(missing)} of {total_enhancements} enhancement files are missing.\n\n"
+            "Generate ship, component, weapon, mission, and missile enhancements from your installed Data.p4k?\n"
             "DataForge data will be extracted automatically if not already cached\n"
             "(first run takes ~5–10 minutes).",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
-            self._run_stats_pipeline()
+            self._run_enhancements_pipeline()
 
     def _show_loading_progress(self, message: str = "Loading localization strings...") -> None:
         """Show an animated progress dialog while loading files in a worker thread.
@@ -1774,10 +1763,9 @@ Shows the sync status for each configured source. "✓" means up to date.
         self._loader_worker.start()
 
     @pyqtSlot(list)
+    @timed
     def _on_loading_finished(self, entries: list):
         """Handle file loading completion."""
-        import time as _time
-
         # Close progress dialog and clean up worker FIRST so the modal event loop
         # exits before we do heavy synchronous UI work (populate_table with 87K+ rows).
         if self._loading_progress is not None:
@@ -1790,29 +1778,19 @@ Shows the sync status for each configured source. "✓" means up to date.
 
         self.statusBar().showMessage("Populating table…")
 
-        t0 = _time.perf_counter()
         self.load_default_values()
-        logger.info(f"load_default_values: {_time.perf_counter() - t0:.3f}s")
-
         self.entries = entries
-
-        t1 = _time.perf_counter()
         self.update_category_combo()
-        logger.info(f"update_category_combo: {_time.perf_counter() - t1:.3f}s")
-
-        t2 = _time.perf_counter()
         self.populate_table()
-        logger.info(f"populate_table: {_time.perf_counter() - t2:.3f}s")
 
         # Update status bar with entry counts and per-source status
         self._update_status_bar()
-        logger.info(f"_on_loading_finished total: {_time.perf_counter() - t0:.3f}s")
 
-        # If stats check was deferred during startup, do it now (after file loading completes)
-        # This avoids concurrent I/O contention between file loader and stats generator
-        if self._check_stats_after_loading:
-            self._check_stats_after_loading = False
-            self._check_stats_freshness()
+        # If enhancements check was deferred during startup, do it now (after file loading completes)
+        # This avoids concurrent I/O contention between file loader and enhancements generator
+        if self._check_enhancements_after_loading:
+            self._check_enhancements_after_loading = False
+            self._check_enhancements_freshness()
 
     @pyqtSlot(str)
     def _on_loading_error(self, error_msg: str):
@@ -1825,9 +1803,9 @@ Shows the sync status for each configured source. "✓" means up to date.
             self._loader_worker.wait()
             self._loader_worker = None
 
-    def _run_stats_pipeline(self):
-        """Entry point for the stats button: extract DataForge if needed, then generate stats."""
-        if self._stats_worker is not None or self._forge_worker is not None:
+    def _run_enhancements_pipeline(self):
+        """Entry point for the enhancements button: extract DataForge if needed, then generate enhancements."""
+        if self._enhancements_worker is not None or self._forge_worker is not None:
             return  # already running
 
         from src.utils.pak_extractor import dataforge_cache_is_fresh
@@ -1835,51 +1813,51 @@ Shows the sync status for each configured source. "✓" means up to date.
         p4k_path  = AppSettings.get_p4k_path()
 
         if dataforge_cache_is_fresh(p4k_path, forge_dir):
-            self._run_stats_generation()
+            self._run_enhancements_generation()
         else:
             self._run_dataforge_extraction()
 
-    def _run_stats_generation(self):
-        """Launch StatsGeneratorWorker in the background with animated progress dialog."""
-        if self._stats_worker is not None:
+    def _run_enhancements_generation(self):
+        """Launch EnhancementsGeneratorWorker in the background with animated progress dialog."""
+        if self._enhancements_worker is not None:
             return  # already running
 
-        self._stats_worker = StatsGeneratorWorker()
+        self._enhancements_worker = EnhancementsGeneratorWorker()
         self.enhancements_tab.set_operation_running("Generating enhancements…")
         self.statusBar().showMessage("Generating enhancements in background…")
 
         # Show animated progress dialog
-        self._stats_progress_dialog = AnimatedProgressDialog(
+        self._enhancements_progress_dialog = AnimatedProgressDialog(
             "Generating enhanced localizations from DataForge…\n\nThis may take a few minutes on the first run.",
             parent=self,
             title="Generating Enhancements",
         )
 
-        self._stats_worker.progress.connect(self.enhancements_tab.set_operation_progress)
-        self._stats_worker.progress.connect(self.statusBar().showMessage)
-        self._stats_worker.progress.connect(self._stats_progress_dialog.setLabelText)
-        self._stats_worker.error.connect(self._on_stats_generation_error)
-        self._stats_worker.finished.connect(self._on_stats_generation_finished)
-        self._stats_worker.start()
+        self._enhancements_worker.progress.connect(self.enhancements_tab.set_operation_progress)
+        self._enhancements_worker.progress.connect(self.statusBar().showMessage)
+        self._enhancements_worker.progress.connect(self._enhancements_progress_dialog.setLabelText)
+        self._enhancements_worker.error.connect(self._on_enhancements_generation_error)
+        self._enhancements_worker.finished.connect(self._on_enhancements_generation_finished)
+        self._enhancements_worker.start()
 
-    def _on_stats_generation_error(self, message: str):
-        logger.error(f"Stats generation error: {message}")
+    def _on_enhancements_generation_error(self, message: str):
+        logger.error(f"Enhancements generation error: {message}")
         # Close progress dialog on error
-        if self._stats_progress_dialog is not None:
-            self._stats_progress_dialog.close()
-            self._stats_progress_dialog = None
+        if self._enhancements_progress_dialog is not None:
+            self._enhancements_progress_dialog.close()
+            self._enhancements_progress_dialog = None
 
-    def _on_stats_generation_finished(self, success: bool):
+    def _on_enhancements_generation_finished(self, success: bool):
         # Close progress dialog
-        if self._stats_progress_dialog is not None:
-            self._stats_progress_dialog.close()
-            self._stats_progress_dialog = None
+        if self._enhancements_progress_dialog is not None:
+            self._enhancements_progress_dialog.close()
+            self._enhancements_progress_dialog = None
 
-        self._stats_worker.quit()
-        self._stats_worker.wait()
-        self._stats_worker = None
+        self._enhancements_worker.quit()
+        self._enhancements_worker.wait()
+        self._enhancements_worker = None
         self.enhancements_tab.set_operation_idle()
-        self.enhancements_tab.refresh_stats_status()
+        self.enhancements_tab.refresh_enhancements_status()
 
         if success:
             self.statusBar().showMessage("Enhancements generated — reloading entries…")
@@ -1918,7 +1896,7 @@ Shows the sync status for each configured source. "✓" means up to date.
 
         if success:
             self.statusBar().showMessage("DataForge extracted — generating enhancements…")
-            self._run_stats_generation()
+            self._run_enhancements_generation()
         else:
             self.enhancements_tab.set_operation_idle()
             self.statusBar().showMessage("DataForge extraction failed — check the Log tab for details")
@@ -1958,8 +1936,8 @@ Shows the sync status for each configured source. "✓" means up to date.
             self.config_tab.source_widgets[AppSettings.SOURCE_GLOBAL].load_settings()
             self.config_tab._refresh_p4k_status()
 
-            # Defer stats check until after file loading completes (avoid I/O contention)
-            self._check_stats_after_loading = True
+            # Defer enhancements check until after file loading completes (avoid I/O contention)
+            self._check_enhancements_after_loading = True
 
             # Show progress dialog while reloading with extracted data
             self._show_loading_progress("Reloading with extracted base.ini...")
@@ -1988,6 +1966,7 @@ Shows the sync status for each configured source. "✓" means up to date.
 
         event.accept()
 
+    @timed
     def _filtered_entry_indices(self) -> list[tuple[int, "StringEntry"]]:
         """Return (index, entry) pairs for entries passing the current filters."""
         column_filters = self.filter_header.get_filter_texts()
@@ -2029,11 +2008,9 @@ Shows the sync status for each configured source. "✓" means up to date.
                 result.append((idx, entry))
         return result
 
+    @timed
     def populate_table(self):
         """Populate table with only the entries that pass current filters."""
-        import time as _time
-        t0 = _time.perf_counter()
-
         filtered = self._filtered_entry_indices()
 
         self.table.setUpdatesEnabled(False)
@@ -2106,7 +2083,6 @@ Shows the sync status for each configured source. "✓" means up to date.
 
         self.table.setUpdatesEnabled(True)
         self.table_status_label.setText(f"Showing {len(filtered)} of {len(self.entries)} strings")
-        logger.info(f"populate_table: {len(filtered)} rows ({_time.perf_counter() - t0:.3f}s)")
 
     def _create_item(self, text: str):
         """Create table item with text."""
@@ -2156,6 +2132,7 @@ Shows the sync status for each configured source. "✓" means up to date.
         }
         return colors.get(status, QColor("black"))
 
+    @timed
     def update_category_combo(self):
         """Update category combo with unique categories from entries.
 

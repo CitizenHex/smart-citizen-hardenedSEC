@@ -5,10 +5,12 @@ from typing import List
 
 from src.models.string_model import StringEntry
 from src.parser.ini_parser import parse_ini_file
+from src.utils.perf import timed
 
 logger = logging.getLogger(__name__)
 
 
+@timed
 def save_overrides(entries: List[StringEntry], overrides_path: Path) -> int:
     """Write only modified/new entries to overrides.ini.
 
@@ -47,6 +49,7 @@ def save_overrides(entries: List[StringEntry], overrides_path: Path) -> int:
         raise
 
 
+@timed
 def generate_overrides_from_diff(
     reference_path: Path,
     current_path: Path,

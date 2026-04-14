@@ -1,3 +1,23 @@
+## 0.6.x Dependency Internalization
+- removed dependencies on external ini sources 
+- started adding item stat enhancements 
+
+## 0.7.x Final Ship, Gear, Item & Journal Detail Enhancements & App Rearchitecture
+- remove data folder dependency so all enhancements are dynamically generated
+- rename overrides.ini to user.ini
+- change config so that users can import any external ini that will be used to update user.ini
+- complete stats for ships, gear, components
+- useful info added to journal such as crafting/mining information
+
+## 0.8.x Final Mission, Crafting, & Commodity Detail Enhancements
+
+## 0.9.x
+-pre-release final work
+-stability & bugfixes
+-performance optimization
+-cache streamlining
+
+
 This File lists all the remaining objectives as of the release of v0.5.3 on the road to 1.0 release:
 
 # Further enrich contract details
