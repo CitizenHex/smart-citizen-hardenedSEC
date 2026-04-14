@@ -50,41 +50,46 @@ class EnhancementsTab(QWidget):
         group = QGroupBox("Localization Enhancements")
         gl = QVBoxLayout(group)
 
-        self.enhancements_enabled_checkbox = QCheckBox(
-            "Enhance ship, component, and weapon descriptions with game data"
-        )
-        self.enhancements_enabled_checkbox.setChecked(AppSettings.get_enhancements_enabled())
-        self.enhancements_enabled_checkbox.toggled.connect(self._on_enhancements_toggled)
-        gl.addWidget(self.enhancements_enabled_checkbox)
-
         enhancements_desc = QLabel(
-            "When enabled, numerical stats (speed, DPS, shield HP, etc.) are appended to "
-            "description entries. Enhancements are generated from your installed Data.p4k."
+            "Select which enhancement categories to include. "
+            "Click Apply to save changes. Enhancements are generated from your installed Data.p4k."
         )
         enhancements_desc.setStyleSheet("font-size: 11px; color: #666;")
         enhancements_desc.setWordWrap(True)
         gl.addWidget(enhancements_desc)
 
-        # Per-file status dots + single action button
+        # Per-category checkbox + status dot pairs
         self._enhancements_status_labels: dict = {}
-        status_row = QHBoxLayout()
+        self._enhancements_checkboxes: dict = {}
+        categories_layout = QVBoxLayout()
 
-        for key, label in {
-            "ship_descs":        "Ships",
-            "component_descs":   "Components",
-            "ship_weapon_descs": "Ship Weapons",
-            "fps_weapon_descs":  "FPS Weapons",
-        }.items():
+        for key, label in AppSettings.ENHANCEMENT_LABELS.items():
+            row = QHBoxLayout()
+            cb = QCheckBox(label)
+            cb.setChecked(AppSettings.get_enhancement_category_enabled(key))
+            cb.setStyleSheet("font-size: 11px;")
+            row.addWidget(cb)
+            self._enhancements_checkboxes[key] = cb
+
             dot = QLabel("●")
             dot.setStyleSheet("color: #999; font-size: 12px;")
-            status_row.addWidget(dot)
-            lbl = QLabel(label)
-            lbl.setStyleSheet("font-size: 11px;")
-            status_row.addWidget(lbl)
-            status_row.addSpacing(8)
+            row.addWidget(dot)
             self._enhancements_status_labels[key] = dot
 
-        status_row.addStretch()
+            row.addStretch()
+            categories_layout.addLayout(row)
+
+        gl.addLayout(categories_layout)
+
+        btn_row = QHBoxLayout()
+
+        self._apply_categories_btn = QPushButton("Apply")
+        self._apply_categories_btn.setMaximumWidth(100)
+        self._apply_categories_btn.setToolTip(
+            "Save category selection. Unchecked categories will be removed."
+        )
+        self._apply_categories_btn.clicked.connect(self._apply_category_changes)
+        btn_row.addWidget(self._apply_categories_btn)
 
         self._generate_enhancements_btn = QPushButton("Generate Enhancements")
         self._generate_enhancements_btn.setMaximumWidth(160)
@@ -94,9 +99,10 @@ class EnhancementsTab(QWidget):
             "(first run takes ~5–10 minutes; subsequent runs are fast)."
         )
         self._generate_enhancements_btn.clicked.connect(self.enhancements_pipeline_requested.emit)
-        status_row.addWidget(self._generate_enhancements_btn)
+        btn_row.addWidget(self._generate_enhancements_btn)
 
-        gl.addLayout(status_row)
+        btn_row.addStretch()
+        gl.addLayout(btn_row)
 
         self._forge_status_label = QLabel()
         self._forge_status_label.setStyleSheet("font-size: 10px; color: #666;")
@@ -110,9 +116,42 @@ class EnhancementsTab(QWidget):
         self.refresh_enhancements_status()
         return group
 
-    def _on_enhancements_toggled(self, checked: bool):
-        AppSettings.set_enhancements_enabled(checked)
+    def _apply_category_changes(self):
+        """Save checkbox states, disable/restore enhancement files, and trigger reload."""
+        for key, cb in self._enhancements_checkboxes.items():
+            now_enabled = cb.isChecked()
+            AppSettings.set_enhancement_category_enabled(key, now_enabled)
+
+            cache_dir = AppSettings.get_cache_dir()
+            filename = AppSettings.ENHANCEMENTS_FILES[key]
+            active_file = cache_dir / filename
+            disabled_file = cache_dir / (filename + ".disabled")
+
+            if not now_enabled and active_file.exists():
+                # Disable: rename to .disabled so it's not loaded but can be restored
+                try:
+                    active_file.rename(disabled_file)
+                    logger.info(f"Disabled enhancement file: {filename}")
+                except OSError as e:
+                    logger.warning(f"Failed to disable {filename}: {e}")
+
+            elif now_enabled and not active_file.exists() and disabled_file.exists():
+                # Re-enable: restore from .disabled
+                try:
+                    disabled_file.rename(active_file)
+                    logger.info(f"Restored enhancement file: {filename}")
+                except OSError as e:
+                    logger.warning(f"Failed to restore {filename}: {e}")
+
+        self.refresh_enhancements_status()
         self.merge_requested.emit()
+
+    def revert_category_checkboxes(self):
+        """Reset checkboxes to match the saved settings (called when leaving tab without applying)."""
+        for key, cb in self._enhancements_checkboxes.items():
+            cb.blockSignals(True)
+            cb.setChecked(AppSettings.get_enhancement_category_enabled(key))
+            cb.blockSignals(False)
 
     # ── Favorites ─────────────────────────────────────────────────────────────
 
@@ -168,7 +207,7 @@ class EnhancementsTab(QWidget):
         old_prefix = self._loaded_prefix
 
         if new_prefix != old_prefix:
-            overrides_path = AppSettings.get_overrides_path()
+            overrides_path = AppSettings.get_user_ini_path()
             if overrides_path.exists():
                 try:
                     lines = overrides_path.read_text(encoding="utf-8").splitlines()

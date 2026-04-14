@@ -32,6 +32,16 @@ class AppSettings:
         "missile_enhancements": "missile_enhancements.ini",
     }
 
+    ENHANCEMENT_LABELS = {
+        "ship_descs":        "Ships",
+        "component_descs":   "Components",
+        "ship_weapon_descs": "Ship Weapons",
+        "fps_weapon_descs":  "FPS Weapons",
+        "mission_rewards":   "Missions",
+        "commodity_crafting": "Commodities",
+        "missile_enhancements": "Missiles",
+    }
+
     # Settings keys - Legacy (kept for migration)
     BASE_GLOBAL_PATH = "base_global_path"
     VEHICLES_PATH = "vehicles_path"
@@ -71,6 +81,26 @@ class AppSettings:
     def set_enhancements_enabled(enabled: bool) -> None:
         """Enable or disable enhancements."""
         AppSettings.settings().setValue(AppSettings.ENHANCEMENTS_ENABLED, enabled)
+
+    @staticmethod
+    def get_enhancement_category_enabled(key: str) -> bool:
+        """Check if a specific enhancement category is enabled (default: True)."""
+        return AppSettings.settings().value(
+            f"enhancements/categories/{key}/enabled", True, type=bool)
+
+    @staticmethod
+    def set_enhancement_category_enabled(key: str, enabled: bool) -> None:
+        """Enable or disable a specific enhancement category."""
+        AppSettings.settings().setValue(
+            f"enhancements/categories/{key}/enabled", enabled)
+
+    @staticmethod
+    def get_enabled_enhancement_categories() -> set[str]:
+        """Return the set of enabled enhancement category keys."""
+        return {
+            key for key in AppSettings.ENHANCEMENTS_FILES
+            if AppSettings.get_enhancement_category_enabled(key)
+        }
 
     @staticmethod
     def get_favorite_prefix() -> str:
@@ -354,8 +384,8 @@ class AppSettings:
         AppSettings.set_source_enabled(AppSettings.SOURCE_COMMODITIES, True)
         AppSettings.set_source_auto_update(AppSettings.SOURCE_COMMODITIES, True)
 
-        # User source: set to overrides path
-        user_path = str(AppSettings.get_overrides_path())
+        # User source: set to user.ini path
+        user_path = str(AppSettings.get_user_ini_path())
         AppSettings.set_source_path(AppSettings.SOURCE_USER, user_path)
 
         # Default hierarchy: global → components → contracts → commodities → user
@@ -425,13 +455,28 @@ class AppSettings:
         return cache_dir
 
     @staticmethod
-    def get_overrides_path() -> Path:
-        r"""Get canonical path for overrides.ini in Documents\SC Localization Editor\.
+    def get_user_ini_path() -> Path:
+        r"""Get canonical path for user.ini in Documents\SC Localization Editor\.
+
+        Migrates from overrides.ini → user.ini on first call if needed.
 
         Returns:
-            Path to Documents\SC Localization Editor\overrides.ini
+            Path to Documents\SC Localization Editor\user.ini
         """
-        return AppSettings.get_user_data_dir() / "overrides.ini"
+        data_dir = AppSettings.get_user_data_dir()
+        user_ini = data_dir / "user.ini"
+        old_overrides = data_dir / "overrides.ini"
+
+        # Migrate: rename overrides.ini → user.ini if needed
+        if old_overrides.exists() and not user_ini.exists():
+            try:
+                old_overrides.rename(user_ini)
+                logger.info(f"Migrated {old_overrides} → {user_ini}")
+            except OSError as e:
+                logger.warning(f"Failed to migrate overrides.ini → user.ini: {e}")
+                return old_overrides  # fall back to old name
+
+        return user_ini
 
     @staticmethod
     def get_backups_dir() -> Path:
@@ -534,17 +579,15 @@ class AppSettings:
         return game_path / 'LIVE' / 'Data.p4k'
 
     @staticmethod
-    def ensure_overrides_file() -> None:
-        """Ensure overrides.ini exists, creating empty file if needed."""
-        overrides_path = AppSettings.get_overrides_path()
+    def ensure_user_ini_file() -> None:
+        """Ensure user.ini exists, creating empty file if needed."""
+        user_ini_path = AppSettings.get_user_ini_path()
 
-        # Create parent directory if needed
-        overrides_path.parent.mkdir(parents=True, exist_ok=True)
+        user_ini_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Create empty overrides file if it doesn't exist
-        if not overrides_path.exists():
+        if not user_ini_path.exists():
             try:
-                overrides_path.touch()
-                logger.info(f"Created empty overrides.ini: {overrides_path}")
+                user_ini_path.touch()
+                logger.info(f"Created empty user.ini: {user_ini_path}")
             except Exception as e:
-                logger.error(f"Failed to create overrides.ini: {e}")
+                logger.error(f"Failed to create user.ini: {e}")

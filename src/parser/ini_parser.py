@@ -321,9 +321,12 @@ def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str], 
         "missile_enhancements": "Ship Items",
     }
     enhancements_key_categories: Dict[str, str] = {}
-    if AppSettings.get_enhancements_enabled():
+    enabled_categories = AppSettings.get_enabled_enhancement_categories()
+    if enabled_categories:
         enhancements_combined: Dict[str, str] = {}
         for label, filename in AppSettings.ENHANCEMENTS_FILES.items():
+            if label not in enabled_categories:
+                continue
             enhancements_file = cache_dir / filename
             if enhancements_file.exists():
                 data = parse_ini_file(enhancements_file)

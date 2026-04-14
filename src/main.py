@@ -37,11 +37,11 @@ def main():
     # Move user data files from old AppData location to Documents (idempotent)
     AppSettings.migrate_data_to_documents()
 
-    # Always keep user source path in sync with canonical overrides location
-    AppSettings.set_source_path(AppSettings.SOURCE_USER, str(AppSettings.get_overrides_path()))
+    # Always keep user source path in sync with canonical user.ini location
+    AppSettings.set_source_path(AppSettings.SOURCE_USER, str(AppSettings.get_user_ini_path()))
 
-    # Ensure overrides.ini exists (create empty if first run)
-    AppSettings.ensure_overrides_file()
+    # Ensure user.ini exists (create empty if first run)
+    AppSettings.ensure_user_ini_file()
 
     # Required on Windows so the taskbar groups the app under its own icon
     # instead of the Python interpreter icon.
