@@ -77,18 +77,28 @@ def write_ini(path: Path, entries: dict[str, str]) -> None:
     logger.info(f"Written {len(entries):,} entries -> {path}")
 
 
-ENHANCEMENT_SEPARATOR = "\\n\\n== Stats ==\\n"
+ENHANCEMENT_SEPARATOR = "\\n\\n<EM3>STATS</EM3>\\n"
+MISSION_SEPARATOR = "\\n\\n<EM3>MISSION DETAILS</EM3>\\n"
 
 
-def append_enhancements(existing_value: str, enhancements_block: str) -> str:
+def append_enhancements(existing_value: str, enhancements_block: str,
+                        separator: str = ENHANCEMENT_SEPARATOR) -> str:
     if not enhancements_block:
         return existing_value
-    if "== Stats ==" in existing_value:
-        existing_value = existing_value[:existing_value.index("\\n\\n== Stats ==")]
-    return existing_value + ENHANCEMENT_SEPARATOR + enhancements_block
+    # Strip any existing stats/mission details block
+    for marker in ("\\n\\n<EM3>STATS</EM3>", "\\n\\n<EM3>MISSION DETAILS</EM3>",
+                    "\\n\\n<EM3>== Stats ==</EM3>", "\\n\\n<EM3>== Mission Details ==</EM3>",
+                    "\\n\\n== Stats ==", "\\n\\n== Mission Details =="):
+        if marker in existing_value:
+            existing_value = existing_value[:existing_value.index(marker)]
+            break
+    return existing_value + separator + enhancements_block
 
 
 # ── Stat formatters ───────────────────────────────────────────────────────────
+
+_OVERHEAT_PLACEHOLDER = 450_000  # Items with this overheat temp have no real overheat stat
+
 
 def _fmt(value, unit="", decimals=0) -> str:
     if value is None:
@@ -669,7 +679,11 @@ def enhancements_cooler(root: ET.Element) -> str:
         if ir_sig is not None: parts.append(f"IR: {_fmt(ir_sig)}")
         lines.append("Signatures:  " + "  |  ".join(parts))
     if overheat is not None:
-        lines.append(f"Overheat Temp: {_fmt(overheat, 'K')}")
+        try:
+            if float(overheat) < _OVERHEAT_PLACEHOLDER:
+                lines.append(f"Overheat Temp: {_fmt(overheat, 'K')}")
+        except (ValueError, TypeError):
+            lines.append(f"Overheat Temp: {_fmt(overheat, 'K')}")
     return "\\n".join(lines)
 
 
@@ -692,7 +706,11 @@ def enhancements_powerplant(root: ET.Element) -> str:
         if ir_sig is not None: parts.append(f"IR: {_fmt(ir_sig)}")
         lines.append("Signatures:  " + "  |  ".join(parts))
     if overheat is not None:
-        lines.append(f"Overheat Temp: {_fmt(overheat, 'K')}")
+        try:
+            if float(overheat) < _OVERHEAT_PLACEHOLDER:
+                lines.append(f"Overheat Temp: {_fmt(overheat, 'K')}")
+        except (ValueError, TypeError):
+            lines.append(f"Overheat Temp: {_fmt(overheat, 'K')}")
     if distort is not None:
         lines.append(f"Max Distortion: {_fmt(distort)}")
     return "\\n".join(lines)
@@ -751,7 +769,11 @@ def enhancements_quantum_drive(root: ET.Element) -> str:
         if ir_sig is not None: parts.append(f"IR: {_fmt(ir_sig)}")
         lines.append("Signatures:  " + "  |  ".join(parts))
     if overheat is not None:
-        lines.append(f"Overheat Temp: {_fmt(overheat, 'K')}")
+        try:
+            if float(overheat) < _OVERHEAT_PLACEHOLDER:
+                lines.append(f"Overheat Temp: {_fmt(overheat, 'K')}")
+        except (ValueError, TypeError):
+            lines.append(f"Overheat Temp: {_fmt(overheat, 'K')}")
     if distort is not None:
         lines.append(f"Max Distortion: {_fmt(distort)}")
     return "\\n".join(lines)
@@ -788,17 +810,165 @@ def _extract_mission_xp(root: ET.Element, reputation_lookup: dict[str, int] | No
     return total_rep_xp
 
 
+def _extract_spawn_counts(element: ET.Element) -> tuple[int, int, int]:
+    """Extract wave count, enemy count, and non-enemy count from spawn descriptions.
+
+    Parses SpawnDescription_ShipGroup and SpawnDescription_NPC_Group elements
+    within the given XML element scope.
+
+    Returns:
+        (num_waves, num_enemies, num_not_enemies)
+    """
+    num_enemies = 0
+    num_not_enemies = 0
+    wave_groups = 0
+
+    # Ship-based spawns (hostile)
+    for sg in element.findall(".//SpawnDescription_ShipGroup"):
+        name = sg.get("Name", "").lower()
+        ships = sg.findall(".//SpawnDescription_Ship")
+        total = sum(int(s.get("concurrentAmount", "0")) for s in ships)
+        if total <= 0:
+            continue
+        # Classify by group name
+        if any(kw in name for kw in ("target", "reinforcement", "enemy", "hostile", "pirate", "bandit")):
+            num_enemies += total
+            wave_groups += 1
+        elif any(kw in name for kw in ("escort", "friendly", "salvage", "defend", "protect")):
+            num_not_enemies += total
+        else:
+            # Default: assume hostile if in a combat context
+            num_enemies += total
+            wave_groups += 1
+
+    # NPC-based spawns
+    for ng in element.findall(".//SpawnDescription_NPC_Group"):
+        name = ng.get("Name", "")
+        auto_settings = ng.findall(".//autoSpawnSettings")
+        total_npcs = 0
+        for auto in auto_settings:
+            max_spawns = auto.get("maxSpawns", "0")
+            if max_spawns != "-1":
+                total_npcs += max(int(max_spawns), 0)
+            else:
+                max_concurrent = auto.get("maxConcurrentSpawns", "0")
+                if max_concurrent != "-1":
+                    total_npcs += max(int(max_concurrent), 0)
+
+        if total_npcs <= 0:
+            # Try parsing count from name (e.g., "Soldier x 3")
+            import re
+            m = re.search(r"x\s*(\d+)", name)
+            if m:
+                total_npcs = int(m.group(1))
+
+        if total_npcs > 0:
+            name_lower = name.lower()
+            if any(kw in name_lower for kw in ("target", "soldier", "cqc", "sniper", "tech", "guard", "sentry", "captain")):
+                num_enemies += total_npcs
+                wave_groups += 1
+            elif any(kw in name_lower for kw in ("escort", "friendly", "civilian", "hostage")):
+                num_not_enemies += total_npcs
+            else:
+                num_enemies += total_npcs
+                wave_groups += 1
+
+    return wave_groups, num_enemies, num_not_enemies
+
+
+def _parse_difficulty_rating(value: str) -> int:
+    """Extract the trailing numeric rating from a difficulty attribute value.
+
+    Example: 'Hard_PvE_or_Easy_PvP_action_5' → 5
+    """
+    if not value:
+        return 0
+    parts = value.rsplit("_", 1)
+    if len(parts) == 2 and parts[1].isdigit():
+        return int(parts[1])
+    return 0
+
+
+def _extract_difficulty(element: ET.Element) -> str:
+    """Extract difficulty rating from a ContractDifficulty element or missionDifficulty attribute.
+
+    For contract generators: parses the 4-axis ContractDifficulty element.
+    For pu_missions: falls back to the simple missionDifficulty integer attribute.
+
+    Returns a formatted difficulty string, or empty string if not available.
+    """
+    # Try ContractDifficulty element first (contract generators)
+    diff_elem = element.find(".//ContractDifficulty")
+    if diff_elem is not None:
+        combat = _parse_difficulty_rating(diff_elem.get("mechanicalSkill", ""))
+        complexity = _parse_difficulty_rating(diff_elem.get("mentalLoad", ""))
+        risk = _parse_difficulty_rating(diff_elem.get("riskOfLoss", ""))
+        knowledge = _parse_difficulty_rating(diff_elem.get("gameKnowledge", ""))
+        if any([combat, complexity, risk, knowledge]):
+            parts = []
+            if combat:
+                parts.append(f"Combat {combat}/7")
+            if complexity:
+                parts.append(f"Complexity {complexity}/7")
+            if risk:
+                parts.append(f"Risk {risk}/7")
+            if knowledge:
+                parts.append(f"Knowledge {knowledge}/7")
+            return " | ".join(parts)
+
+    # Fallback: simple missionDifficulty attribute (pu_missions)
+    diff_val = element.get("missionDifficulty", "-1")
+    if diff_val and diff_val != "-1":
+        try:
+            return f"{int(diff_val)}/7"
+        except ValueError:
+            pass
+
+    return ""
+
+
+def _extract_mission_flags(root: ET.Element) -> list[str]:
+    """Extract boolean mission flags from a MissionBrokerEntry XML root.
+
+    Returns list of flag strings like 'Chain', 'Starter', 'Unique'.
+    """
+    null_uuid = "00000000-0000-0000-0000-000000000000"
+    flags = []
+
+    linked = root.get("linkedMission", null_uuid)
+    if linked != null_uuid:
+        flags.append("Chain")
+
+    if root.get("tutorial") == "1":
+        flags.append("Starter")
+
+    if root.get("onceOnly") == "1":
+        flags.append("Unique")
+
+    return flags
+
+
 def enhancements_mission(root: ET.Element, reputation_lookup: dict[str, int] | None = None) -> str:
-    """Extract mission/contract reward stats (aUEC + Reputation XP).
+    """Extract mission/contract reward stats (aUEC + Reputation XP) and flags.
 
     Extracts:
     - aUEC mission reward amount
     - Reputation XP from reward UUID references using the reputation_lookup table
+    - Mission flags (Chain, Starter, Unique)
     """
     lines = []
     reputation_lookup = reputation_lookup or {}
 
     try:
+        # Extract mission flags
+        flags = _extract_mission_flags(root)
+        lines.append(f"<EM4>Mission Type:</EM4> {', '.join(flags) if flags else 'Standard'}")
+
+        # Extract difficulty rating
+        difficulty = _extract_difficulty(root)
+        if difficulty:
+            lines.append(f"<EM4>Difficulty (1-7):</EM4> {difficulty}")
+
         # Extract aUEC reward
         mission_reward = root.find(".//missionReward")
         if mission_reward is not None:
@@ -807,14 +977,21 @@ def enhancements_mission(root: ET.Element, reputation_lookup: dict[str, int] | N
                 try:
                     reward_val = int(float(reward_attr))
                     if reward_val > 0:
-                        lines.append(f"aUEC Reward: {reward_val:,}")
+                        lines.append(f"<EM4>aUEC Reward:</EM4> {reward_val:,}")
                 except (ValueError, TypeError):
                     pass
 
         # Extract mission success XP (from first/success outcome only, not all outcomes)
         total_rep_xp = _extract_mission_xp(root, reputation_lookup)
         if total_rep_xp > 0:
-            lines.append(f"Reputation XP: +{total_rep_xp:,}")
+            lines.append(f"<EM4>Reputation XP:</EM4> +{total_rep_xp:,}")
+
+        # Extract spawn/wave counts
+        wave_groups, num_enemies, num_not_enemies = _extract_spawn_counts(root)
+        if num_enemies > 0:
+            lines.append(f"<EM4>Enemies:</EM4> {num_enemies}")
+        if num_not_enemies > 0:
+            lines.append(f"<EM4>Non-hostiles:</EM4> {num_not_enemies}")
 
     except Exception:
         pass
@@ -881,21 +1058,71 @@ def build_blueprint_pool_lookup(
     return pool_items
 
 
-def scan_contract_generators(contractgen_dir: Path, reputation_lookup: dict[str, int] | None = None, blueprint_pools: dict[str, list[str]] | None = None) -> tuple[dict[str, list[tuple[str, int, int, str]]], dict[str, list[str]]]:
+def _build_template_lookup(templates_dir: Path) -> dict[str, tuple[str, str]]:
+    """Build mapping of contract template UUID → (title_loc_key, desc_loc_key).
+
+    Some contracts don't have inline ContractStringParam elements and instead
+    inherit title/description from their template via LocID elements.
+    """
+    lookup: dict[str, tuple[str, str]] = {}
+    if not templates_dir.exists():
+        return lookup
+
+    for xml_file in templates_dir.rglob("*.xml"):
+        try:
+            root = ET.parse(xml_file).getroot()
+            ref = root.get("__ref", "")
+            if not ref:
+                continue
+            title_key = ""
+            desc_key = ""
+            for lid in root.findall(".//LocID"):
+                val = lid.get("value", "")
+                if not val or not val.startswith("@") or "LOC_EMPTY" in val or "UNINITIALIZED" in val:
+                    continue
+                key = val.lstrip("@")
+                if "_title" in key.lower() and not title_key:
+                    title_key = key
+                elif "_desc" in key.lower() and not desc_key:
+                    desc_key = key
+            if title_key:
+                lookup[ref] = (title_key, desc_key)
+        except ET.ParseError:
+            continue
+
+    logger.info(f"Contract template lookup: {len(lookup)} templates with titles")
+    return lookup
+
+
+def scan_contract_generators(
+    contractgen_dir: Path,
+    reputation_lookup: dict[str, int] | None = None,
+    blueprint_pools: dict[str, list[str]] | None = None,
+    entity_names: dict[str, str] | None = None,
+):
     """Scan contract generator XMLs for mission variants with different systems.
 
     Returns tuple of:
-        - missions: dict mapping title_key → [(system_name, success_xp, failure_xp, desc_key), ...]
+        - missions: dict mapping title_key → [(system_name, success_xp, failure_xp, desc_key, flags, num_enemies, num_not_enemies), ...]
         - mission_blueprints: dict mapping title_key → list of craftable item display names
+        - mission_items: dict mapping title_key → list of reward item display names
     Sorted by system name for consistent output.
     """
     if not contractgen_dir.exists():
-        return {}, {}
+        return {}, {}, {}
 
     reputation_lookup = reputation_lookup or {}
     blueprint_pools = blueprint_pools or {}
-    missions: dict[str, list[tuple[str, int, str]]] = {}
+    entity_names = entity_names or {}
+    # Variant tuple: (system_name, success_xp, failure_xp, desc_key, flags, num_enemies, num_not_enemies)
+    missions: dict[str, list[tuple[str, int, int, str, list[str], int, int]]] = {}
     mission_blueprints: dict[str, list[str]] = {}
+    mission_bp_chance: dict[str, float] = {}
+    mission_items: dict[str, list[str]] = {}
+
+    # Build template lookup for contracts that inherit title/desc from templates
+    templates_dir = contractgen_dir.parent / "contracttemplates"
+    template_lookup = _build_template_lookup(templates_dir)
 
     try:
         for xml_file in contractgen_dir.rglob("*.xml"):
@@ -925,6 +1152,20 @@ def scan_contract_generators(contractgen_dir: Path, reputation_lookup: dict[str,
                                 system_name = part
                                 break
 
+                    # Extract handler-level flags from defaultAvailability
+                    handler_flags = []
+                    da = handler.find(".//defaultAvailability")
+                    if da is not None:
+                        if da.get("onceOnly") == "1":
+                            handler_flags.append("Unique")
+                    # Chain detection: has prerequisite completed contract tags
+                    has_chain_prereqs = len(handler.findall(".//ContractPrerequisite_CompletedContractTags")) > 0
+                    if has_chain_prereqs:
+                        handler_flags.append("Chain")
+
+                    # Extract handler-level spawn counts (shared across contracts)
+                    _, handler_enemies, handler_not_enemies = _extract_spawn_counts(handler)
+
                     contracts = handler.findall(contract_xpath)
 
                     for contract in contracts:
@@ -933,22 +1174,58 @@ def scan_contract_generators(contractgen_dir: Path, reputation_lookup: dict[str,
                             title_param = contract.find(".//ContractStringParam[@param='Title']")
                             desc_param = contract.find(".//ContractStringParam[@param='Description']")
 
-                            if title_param is None:
-                                continue
+                            title_key = ""
+                            desc_key = ""
 
-                            title_key = title_param.get("value", "").lstrip("@")
-                            desc_key = desc_param.get("value", "").lstrip("@") if desc_param is not None else ""
+                            if title_param is not None:
+                                title_key = title_param.get("value", "").lstrip("@")
+                                desc_key = desc_param.get("value", "").lstrip("@") if desc_param is not None else ""
+
+                            # Fallback: resolve title/desc from contract template
+                            if not title_key:
+                                tmpl_uuid = contract.get("template", "")
+                                if tmpl_uuid and tmpl_uuid in template_lookup:
+                                    title_key, desc_key = template_lookup[tmpl_uuid]
 
                             if not title_key:
                                 continue
 
-                            # Extract blueprint pool UUID if present
+                            # Extract blueprint pool UUID and drop chance if present
+                            contract_has_bp = False
+                            contract_bp_chance = 0.0
+                            contract_bp_variant = contract.get("debugName", "")
                             for bp_elem in contract.iter("BlueprintRewards"):
                                 pool_uuid = bp_elem.get("blueprintPool", "")
                                 null_uuid = "00000000-0000-0000-0000-000000000000"
                                 if pool_uuid and pool_uuid != null_uuid and pool_uuid in blueprint_pools:
+                                    contract_has_bp = True
                                     if title_key not in mission_blueprints:
                                         mission_blueprints[title_key] = blueprint_pools[pool_uuid]
+                                    try:
+                                        contract_bp_chance = float(bp_elem.get("chance", "1"))
+                                    except (ValueError, TypeError):
+                                        contract_bp_chance = 1.0
+                                    if title_key not in mission_bp_chance:
+                                        mission_bp_chance[title_key] = contract_bp_chance
+
+                            # Extract item rewards
+                            null_uuid = "00000000-0000-0000-0000-000000000000"
+                            if entity_names:
+                                item_names = []
+                                for item_elem in contract.findall(".//ContractResult_Item"):
+                                    ec = item_elem.get("entityClass", "")
+                                    if ec and ec != null_uuid and ec in entity_names:
+                                        name = entity_names[ec]
+                                        if name not in item_names:
+                                            item_names.append(name)
+                                for weighted_elem in contract.findall(".//ItemAwardEntityClass"):
+                                    ec = weighted_elem.get("entityClass", "")
+                                    if ec and ec != null_uuid and ec in entity_names:
+                                        name = entity_names[ec]
+                                        if name not in item_names:
+                                            item_names.append(name)
+                                if item_names and title_key not in mission_items:
+                                    mission_items[title_key] = item_names
 
                             # Extract XP from ContractResult_LegacyReputation blocks
                             # First block with positive XP = success, first with negative = failure
@@ -967,12 +1244,29 @@ def scan_contract_generators(contractgen_dir: Path, reputation_lookup: dict[str,
                                         elif val < 0 and failure_xp == 0:
                                             failure_xp = val
 
-                            # Add mission if it has XP data or blueprint rewards
-                            has_bp = title_key in mission_blueprints
-                            if success_xp > 0 or has_bp:
-                                if title_key not in missions:
-                                    missions[title_key] = []
-                                missions[title_key].append((system_name, success_xp, failure_xp, desc_key))
+                            # Extract per-contract flags (starter = no minStanding requirement)
+                            contract_flags = list(handler_flags)  # inherit handler flags
+                            min_standing = contract.get("minStanding", "")
+                            null_uuid = "00000000-0000-0000-0000-000000000000"
+                            # A contract with no standing requirement at handler intro level is a starter
+                            # (detected by debugName containing "Intro" or being first in a career chain)
+                            contract_debug = contract.get("debugName", "")
+                            if "Intro" in contract_debug or "intro" in contract_debug:
+                                if "Starter" not in contract_flags:
+                                    contract_flags.append("Starter")
+
+                            # Extract per-contract spawn counts (fallback to handler-level)
+                            _, contract_enemies, contract_not_enemies = _extract_spawn_counts(contract)
+                            enemies = contract_enemies or handler_enemies
+                            not_enemies = contract_not_enemies or handler_not_enemies
+
+                            # Extract per-contract difficulty
+                            contract_difficulty = _extract_difficulty(contract)
+
+                            # Add all missions (not just those with XP/blueprint data)
+                            if title_key not in missions:
+                                missions[title_key] = []
+                            missions[title_key].append((system_name, success_xp, failure_xp, desc_key, contract_flags, enemies, not_enemies, contract_difficulty, contract_has_bp, contract_bp_chance, contract_bp_variant))
                         except Exception as e:
                             pass
 
@@ -983,8 +1277,8 @@ def scan_contract_generators(contractgen_dir: Path, reputation_lookup: dict[str,
     except Exception as e:
         logger.warning(f"Error scanning contract generators: {e}")
 
-    logger.info(f"Contract generators: {len(missions)} missions, {len(mission_blueprints)} with blueprints")
-    return missions, mission_blueprints
+    logger.info(f"Contract generators: {len(missions)} missions, {len(mission_blueprints)} with blueprints, {len(mission_items)} with items")
+    return missions, mission_blueprints, mission_bp_chance, mission_items
 
 
 def _resolve_resource_uuids(bp_dir: Path) -> set[str]:
@@ -1132,6 +1426,7 @@ def scan_crafting_blueprints(
     commodity_loc = {
         "agricium": ("items_commodities_agricium", "items_commodities_agricium_desc"),
         "aluminium": ("items_commodities_aluminum_ore", "items_commodities_aluminum_ore_desc"),
+        "aluminum": ("items_commodities_aluminum_ore", "items_commodities_aluminum_ore_desc"),
         "aslarite": ("items_commodities_aslarite", "items_commodities_aslarite_desc"),
         "beryl": ("items_commodities_beryl", "items_commodities_beryl_desc"),
         "copper": ("items_commodities_copper", "items_commodities_copper_desc"),
@@ -1388,7 +1683,11 @@ def enhancements_weapon(root: ET.Element, ammo_lookup: dict[str, ET.Element],
         if ir_sig is not None: parts.append(f"IR: {_fmt(ir_sig)}")
         lines.append("Signatures:  " + "  |  ".join(parts))
     if overheat is not None:
-        lines.append(f"Overheat Temp: {_fmt(overheat, 'K')}")
+        try:
+            if float(overheat) < _OVERHEAT_PLACEHOLDER:
+                lines.append(f"Overheat Temp: {_fmt(overheat, 'K')}")
+        except (ValueError, TypeError):
+            lines.append(f"Overheat Temp: {_fmt(overheat, 'K')}")
     return "\\n".join(lines)
 
 
@@ -1730,6 +2029,8 @@ def scan_entity_dir(
     loc: dict | None = None,
     loc_key_fn = None,
     generate_name_tags: bool = False,
+    separator: str = ENHANCEMENT_SEPARATOR,
+    capture_all: bool = False,
 ) -> dict[str, str]:
     """
     Scan all XML files in entity_dir, extract localization key + enhancements,
@@ -1740,6 +2041,7 @@ def scan_entity_dir(
     loc_key_fn is an optional custom function to extract the localization key (defaults to _loc_key).
     generate_name_tags: if True, also generate item_Name* entries with [CLASS-SIZE-GRADE] tags
         derived from the component description text.
+    capture_all: if True, emit entries even when enhancement_fn returns empty (for missions).
     """
     if loc_key_fn is None:
         loc_key_fn = _loc_key
@@ -1773,7 +2075,12 @@ def scan_entity_dir(
             continue
 
         if enhancements_block:
-            out[key] = append_enhancements(base_value, enhancements_block)
+            out[key] = append_enhancements(base_value, enhancements_block, separator)
+            matched += 1
+        elif capture_all:
+            # Still emit the base value so all missions are captured
+            if key not in out:
+                out[key] = base_value
             matched += 1
         else:
             missed += 1
@@ -2045,7 +2352,9 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                 pu_missions_dir,
                 lambda root: enhancements_mission(root, reputation_lookup),
                 loc=loc,
-                loc_key_fn=_mission_loc_key
+                loc_key_fn=_mission_loc_key,
+                separator=MISSION_SEPARATOR,
+                capture_all=True,
             ))
 
         # Also check entity-based missions (use standard _loc_key)
@@ -2060,7 +2369,9 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                 out_missions.update(scan_entity_dir(
                     mission_dir,
                     lambda root: enhancements_mission(root, reputation_lookup),
-                    loc=loc
+                    loc=loc,
+                    separator=MISSION_SEPARATOR,
+                    capture_all=True,
                 ))
 
         logger.info(f"CHECKPOINT: Finished missions ({len(out_missions)} entries)")
@@ -2083,10 +2394,10 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         logger.info("CHECKPOINT: Processing contract generator mission variants…")
         _flush()
         contractgen_dir = records / "contracts" / "contractgenerator"
-        contractgen_missions, mission_blueprints = scan_contract_generators(
-            contractgen_dir, reputation_lookup, blueprint_pools
+        contractgen_missions, mission_blueprints, mission_bp_chance, mission_items = scan_contract_generators(
+            contractgen_dir, reputation_lookup, blueprint_pools, entity_names
         )
-        logger.info(f"CHECKPOINT: Processed {len(contractgen_missions)} contract generator mission variants, {len(mission_blueprints)} with blueprints")
+        logger.info(f"CHECKPOINT: Processed {len(contractgen_missions)} contract generator mission variants, {len(mission_blueprints)} with blueprints, {len(mission_items)} with items")
         _flush()
 
         known_system_names = {"Stanton", "Pyro", "Nyx", "Desert", "ArcCorp", "Crusader"}
@@ -2098,7 +2409,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
 
             # Collect unique (success_xp, failure_xp) tiers, preserving order
             seen_tiers: list[tuple[int, int]] = []
-            for _, sxp, fxp, _ in variants:
+            for _, sxp, fxp, _, _, _, _, _, _, _, _ in variants:
                 tier = (sxp, fxp)
                 if tier not in seen_tiers:
                     seen_tiers.append(tier)
@@ -2107,9 +2418,14 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
 
             # Title: append [BP] tag if blueprints exist, then [XP] tag (skip if no XP data)
             has_blueprints = title_key in mission_blueprints
+            # Check if ALL or only SOME variants award blueprints
+            _bp_variants = [v[8] for v in variants]  # v[8] = contract_has_bp
+            _all_have_bp = has_blueprints and all(_bp_variants)
             augmented_title = base_title
-            if has_blueprints:
+            if _all_have_bp:
                 augmented_title += " <EM4>[BP]</EM4>"
+            elif has_blueprints:
+                augmented_title += " <EM4>[BP*]</EM4>"  # Some variants only
             nonzero_xp = [x for x in unique_xp if x > 0]
             if len(nonzero_xp) == 1:
                 augmented_title += f" [{nonzero_xp[0]:,} XP]"
@@ -2118,37 +2434,90 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             out_missions[title_key] = augmented_title
             mission_titles_augmented += 1
 
-            # Description: append blueprint list (if any), then XP/reputation data
+            # Description: append flags, blueprint list (if any), then XP/reputation data
             desc_key = variants[0][3]
             if desc_key and desc_key in loc:
                 base_desc = loc[desc_key]
 
+                # Collect unique flags and enemy counts across all variants
+                all_flags = []
+                max_enemies = 0
+                max_not_enemies = 0
+                all_difficulties = []
+                bp_variant_names = []
+                all_variants_have_bp = True
+                any_variant_has_bp = False
+                variant_bp_chance = 0.0
+                for _, _, _, _, vflags, venemies, vnot, vdiff, vhas_bp, vbp_chance, vbp_variant in variants:
+                    for f in vflags:
+                        if f not in all_flags:
+                            all_flags.append(f)
+                    max_enemies = max(max_enemies, venemies)
+                    max_not_enemies = max(max_not_enemies, vnot)
+                    if vdiff and vdiff not in all_difficulties:
+                        all_difficulties.append(vdiff)
+                    if vhas_bp:
+                        any_variant_has_bp = True
+                        variant_bp_chance = max(variant_bp_chance, vbp_chance)
+                        # Extract a human-readable variant name from debugName
+                        short_name = vbp_variant.rsplit("_", 1)[-1] if vbp_variant else ""
+                        if short_name and short_name not in bp_variant_names:
+                            bp_variant_names.append(short_name)
+                    else:
+                        all_variants_have_bp = False
+
+                # Build details block
+                details_lines = []
+                details_lines.append(f"<EM4>Mission Type:</EM4> {', '.join(all_flags) if all_flags else 'Standard'}")
+
+                # Add difficulty rating (use first variant's difficulty as representative)
+                if all_difficulties:
+                    details_lines.append(f"<EM4>Difficulty (1-7):</EM4> {all_difficulties[0]}")
+
+                # Add enemy/NPC counts
+                if max_enemies > 0:
+                    details_lines.append(f"<EM4>Enemies:</EM4> {max_enemies}")
+                if max_not_enemies > 0:
+                    details_lines.append(f"<EM4>Non-hostiles:</EM4> {max_not_enemies}")
+
                 # Build XP block (only if we have actual XP data)
                 nonzero_tiers = [(s, f) for s, f in seen_tiers if s > 0]
-                xp_block = ""
                 if len(nonzero_tiers) == 1:
                     sxp, fxp = nonzero_tiers[0]
-                    xp_block = f"Reputation XP: +{sxp:,}"
+                    details_lines.append(f"<EM4>Reputation XP:</EM4> +{sxp:,}")
                     if fxp < 0:
-                        xp_block += f"\\nFailure Penalty: {fxp:,} XP"
+                        details_lines.append(f"<EM4>Failure Penalty:</EM4> {fxp:,} XP")
                 elif len(nonzero_tiers) > 1:
-                    xp_lines = []
                     for i, (sxp, fxp) in enumerate(sorted(nonzero_tiers, key=lambda t: t[0]), 1):
-                        line = f"Tier {i}: +{sxp:,} XP"
+                        line = f"<EM4>Tier {i}:</EM4> +{sxp:,} XP"
                         if fxp < 0:
                             line += f" (Failure: {fxp:,})"
-                        xp_lines.append(line)
-                    xp_block = "\\n".join(xp_lines)
+                        details_lines.append(line)
 
-                # Append blueprint list before XP data if available
-                if has_blueprints:
+                # Append blueprint info before details block if available
+                if any_variant_has_bp and has_blueprints:
+                    chance_pct = int(variant_bp_chance * 100)
+                    if all_variants_have_bp:
+                        bp_header = f"<EM4>Blueprint Reward:</EM4> {chance_pct}% chance" if chance_pct < 100 else "<EM4>Blueprint Reward:</EM4> Guaranteed"
+                    else:
+                        # Only some variants award blueprints — note which ones
+                        variant_note = ", ".join(bp_variant_names) if bp_variant_names else "select variants"
+                        bp_header = f"<EM4>Blueprint Reward:</EM4> {chance_pct}% chance ({variant_note} only)"
+                    details_lines.append(bp_header)
                     bp_list = "\\n".join(f"- {name}" for name in mission_blueprints[title_key])
-                    base_desc += f"\\n\\n<EM4>Potential Blueprints</EM4>\\n{bp_list}"
+                    base_desc += f"\\n\\n<EM3>POTENTIAL BLUEPRINTS</EM3>\\n{bp_list}"
 
-                if xp_block:
-                    augmented_desc = append_enhancements(base_desc, xp_block)
+                # Append item rewards if available
+                if title_key in mission_items:
+                    item_list = "\\n".join(f"- {name}" for name in mission_items[title_key])
+                    base_desc += f"\\n\\n<EM3>ITEM REWARDS</EM3>\\n{item_list}"
+
+                details_block = "\\n".join(details_lines)
+                if details_block:
+                    augmented_desc = append_enhancements(base_desc, details_block, MISSION_SEPARATOR)
                 else:
                     augmented_desc = base_desc
+                # Always emit desc entries for all missions
                 out_missions[desc_key] = augmented_desc
 
         # Process mission titles from the primary mission directory (pu_missions)
@@ -2172,12 +2541,15 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                     if title_key in contractgen_missions:
                         continue
 
-                    # Extract XP and augment title
-                    total_rep_xp = _extract_mission_xp(root, reputation_lookup)
-                    if total_rep_xp > 0:
-                        base_title = (loc or {}).get(title_key)
-                        if base_title:
-                            augmented_title = f"{base_title} [{total_rep_xp:,} XP]"
+                    # Augment title with XP tag (if available)
+                    base_title = (loc or {}).get(title_key)
+                    if base_title:
+                        total_rep_xp = _extract_mission_xp(root, reputation_lookup)
+                        augmented_title = base_title
+                        if total_rep_xp > 0:
+                            augmented_title += f" [{total_rep_xp:,} XP]"
+                        # Only write if we have something new (XP tag or not already in out_missions)
+                        if title_key not in out_missions or total_rep_xp > 0:
                             out_missions[title_key] = augmented_title
                             mission_titles_augmented += 1
                 except (ET.ParseError, Exception):

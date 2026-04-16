@@ -21,9 +21,9 @@
 - fix missing blueprints
 
 ## 0.8.x Final Mission, Crafting, & Commodity Detail Enhancements
--complete enhancements for missions
--complete enhancements for crafting
--complete enhancements for commodity details
+- complete enhancements & fixes for missions
+- complete enhancements & fixes for crafting
+- complete enhancements & fixes for commodity details
 -stability & bugfixes
 -end-to-end testing & version release
 
