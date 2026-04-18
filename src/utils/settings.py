@@ -163,13 +163,18 @@ class AppSettings:
     @staticmethod
     def get_game_install_path() -> str:
         """Get Star Citizen install path from registry (installer) or QSettings."""
-        # First, check if installer set the SC directory in registry
+        # First, check if installer set the SC directory in registry. Mirror it
+        # into QSettings on first read so the app is self-sufficient if the
+        # installer key is later cleared (e.g. clean reinstall, registry cleanup).
         try:
             reg_path = r'Software\Osiris DevWorks\SC Localization Editor'
             registry_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path)
             sc_directory, _ = winreg.QueryValueEx(registry_key, 'sc_directory')
             winreg.CloseKey(registry_key)
             if sc_directory:
+                saved = AppSettings.settings().value(AppSettings.GAME_INSTALL_PATH, "")
+                if saved != sc_directory:
+                    AppSettings.settings().setValue(AppSettings.GAME_INSTALL_PATH, sc_directory)
                 return sc_directory
         except (WindowsError, OSError):
             pass

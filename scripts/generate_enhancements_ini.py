@@ -2626,6 +2626,16 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                 if details_block:
                     sections.append(f"<EM3>MISSION DETAILS</EM3>\\n{details_block}")
 
+                if any_variant_has_bp and has_blueprints and not all_variants_have_bp:
+                    if bp_variant_names:
+                        quoted = ", ".join(f'"{n}"' for n in bp_variant_names)
+                        if len(bp_variant_names) == 1:
+                            sections.append(f"<EM4>* = only the {quoted} mission variant awards blueprints</EM4>")
+                        else:
+                            sections.append(f"<EM4>* = only the {quoted} mission variants award blueprints</EM4>")
+                    else:
+                        sections.append("<EM4>* = only some mission variants reward blueprints</EM4>")
+
                 out_missions[desc_key] = "\\n\\n".join(sections)
 
         # Process mission titles from the primary mission directory (pu_missions).
