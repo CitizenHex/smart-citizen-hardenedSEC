@@ -150,7 +150,7 @@ Favorites prepend a configurable prefix (default `*`) to `custom_value`. The pre
 3. Run `cd scripts/build && build_all.bat`
 4. Test exe and installer
 5. Commit, tag (`git tag -a v0.X.0 -m "Release v0.X.0"`), push
-6. Create GitHub release with both `dist/SCLocalizationEditor-v{VERSION}.exe` and `SCLocalizationEditor-v{VERSION}-Setup.exe`
+6. Create GitHub release and attach `dist/SCLocalizationEditor-{VERSION}-Setup.exe` (installer only; portable onefile exe has been retired)
 
 Discord notification is automatic via GitHub Actions (`scripts/discord_notify.py`) if `DISCORD_RELEASE_WEBHOOK_URL` secret is configured.
 

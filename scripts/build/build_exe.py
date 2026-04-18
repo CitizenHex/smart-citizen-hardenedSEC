@@ -80,7 +80,9 @@ common_args = [
     '--hidden-import=xml.etree.ElementTree',
 ]
 
-# Build --onedir version (for installer — files stay in install folder, not temp)
+# Build --onedir version only — feeds the Inno Setup installer. The portable
+# --onefile build was retired because we release the installer as the sole
+# distribution artifact.
 print("Building --onedir version (for installer)...")
 print(f"  Output: dist/{exe_name}/")
 print()
@@ -92,29 +94,11 @@ onedir_args = common_args + [
 
 try:
     PyInstaller.__main__.run(onedir_args)
-    print(f"\n  --onedir build successful: dist/{exe_name}/")
-except Exception as e:
-    print(f"\nError building --onedir executable: {e}")
-    sys.exit(1)
-
-# Build --onefile version (standalone portable exe)
-print("\nBuilding --onefile version (portable)...")
-print(f"  Output: dist/{exe_name}.exe")
-print()
-
-onefile_args = common_args + [
-    '--onefile',
-    '--distpath', os.path.join(root_dir, 'dist'),
-]
-
-try:
-    PyInstaller.__main__.run(onefile_args)
     print(f"\n{'='*60}")
     print("Build successful!")
     print(f"{'='*60}")
-    print(f"Portable exe: dist/{exe_name}.exe")
     print(f"Installer dir: dist/{exe_name}/")
     print()
 except Exception as e:
-    print(f"\nError building --onefile executable: {e}")
+    print(f"\nError building --onedir executable: {e}")
     sys.exit(1)

@@ -25,10 +25,11 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 ENHANCEMENTS_INI = FIXTURES_DIR / "mission_rewards_enhancements.ini"
 MISSIONS_CSV = FIXTURES_DIR / "missions_4.7.177.csv"
 
-# Regex patterns for extracting data from INI values
-XP_TAG_RE = re.compile(r"\[(\d[\d,]*(?:[–\-]\d[\d,]*)?)\s*XP\]\s*$")
-AUEC_REWARD_RE = re.compile(r"aUEC Reward:\s*([\d,]+)")
-REP_XP_RE = re.compile(r"Reputation XP:\s*\+([\d,]+)")
+# Regex patterns for extracting data from INI values.
+# Labels may be wrapped in <EM4>...</EM4> (blue styling) per the annotation
+# paradigm — patterns must tolerate both wrapped and bare forms.
+XP_TAG_RE = re.compile(r"(?:<EM4>)?\[(\d[\d,]*(?:[–\-]\d[\d,]*)?)\s*XP\](?:</EM4>)?\s*$")
+REP_XP_RE = re.compile(r"(?:<EM4>)?Reputation XP:(?:</EM4>)?\s*\+([\d,]+)")
 
 
 def _load_csv_missions():
@@ -59,17 +60,13 @@ def _strip_xp_tag(title_value):
 
 
 def _extract_desc_stats(desc_value):
-    """Extract aUEC reward and reputation XP from a desc value's stats block.
+    """Extract reputation XP from a desc value's stats block.
 
     Returns:
-        (auec_str|None, rep_xp_str|None) — raw formatted strings like '32,000'
+        rep_xp_str|None — raw formatted string like '32,000'
     """
-    auec_match = AUEC_REWARD_RE.search(desc_value)
     xp_match = REP_XP_RE.search(desc_value)
-    return (
-        auec_match.group(1) if auec_match else None,
-        xp_match.group(1) if xp_match else None,
-    )
+    return xp_match.group(1) if xp_match else None
 
 
 def _key_prefix(key):
@@ -184,48 +181,39 @@ class TestMissionDescStructure:
         assert len(descs) > 0, "No _Desc_ entries found in enhancements INI"
 
     def test_stats_block_format(self):
-        """Desc entries with stats should use the correct separator format.
+        """Desc entries with stats should use the MISSION DETAILS separator.
 
-        Mission descs use '== Mission Details ==' while other types use '== Stats =='.
-        The fixture may contain either format depending on when it was generated.
+        The canonical header is '<EM3>MISSION DETAILS</EM3>'. Older fixtures
+        may still contain '== Mission Details ==' or '== Stats =='.
         """
         _, descs = _parse_enhancements()
+        markers = (
+            "<EM3>MISSION DETAILS</EM3>",
+            "== Mission Details ==",
+            "== Stats ==",
+        )
         stats_count = 0
         for key, value in descs.items():
-            # Accept both separators (fixture may predate the rename)
-            if "== Stats ==" in value or "== Mission Details ==" in value:
-                stats_count += 1
-                for marker in ("== Mission Details ==", "== Stats =="):
-                    if marker in value:
-                        stats_section = value[value.index(marker):]
-                        break
-                # Should contain at least one stat line after the header
-                # Formats: "Reputation XP: +N", "aUEC Reward: N", or tiered "Tier N: +N XP"
-                # Should contain at least one recognizable line:
-                # stats (Reputation XP, aUEC Reward, Tier XP),
-                # flags (Chain, Starter, Unique), or encounter data (Enemies, Non-hostiles)
-                has_content = (
-                    "Reputation XP" in stats_section
-                    or "aUEC Reward" in stats_section
-                    or "XP" in stats_section
-                    or "Mission Type:" in stats_section
-                    or "Enemies" in stats_section
-                    or "Non-hostiles" in stats_section
-                )
-                assert has_content, (
-                    f"Stats block in {key} has no recognizable content"
-                )
+            if not any(m in value for m in markers):
+                continue
+            stats_count += 1
+            for marker in markers:
+                if marker in value:
+                    stats_section = value[value.index(marker):]
+                    break
+            # At least one recognizable line: stats (Reputation XP, Tier XP),
+            # flags (Mission Type), or encounter data (Enemies, Non-hostiles)
+            has_content = (
+                "Reputation XP" in stats_section
+                or "Tier" in stats_section
+                or "Mission Type:" in stats_section
+                or "Enemies" in stats_section
+                or "Non-hostiles" in stats_section
+            )
+            assert has_content, (
+                f"Stats block in {key} has no recognizable content"
+            )
         assert stats_count > 0, "No desc entries contain stats blocks"
-
-    def test_auec_reward_format(self):
-        """aUEC reward values should be properly comma-formatted numbers."""
-        _, descs = _parse_enhancements()
-        for key, value in descs.items():
-            m = AUEC_REWARD_RE.search(value)
-            if m:
-                raw = m.group(1).replace(",", "")
-                assert raw.isdigit(), f"Non-numeric aUEC reward in {key}: '{m.group(1)}'"
-                assert int(raw) > 0, f"Zero/negative aUEC reward in {key}"
 
     def test_reputation_xp_format(self):
         """Reputation XP values should be properly formatted positive numbers."""
@@ -280,70 +268,6 @@ class TestMissionCsvAlignment:
             f"Too many INI XP values not found in CSV: {unmatched}"
         )
 
-    def test_ini_reward_values_found_in_csv(self):
-        """aUEC reward values from INI descs should mostly appear in the CSV reward column.
-
-        The enhancements INI only annotates a subset of missions with aUEC values,
-        so we compare the unique reward amounts rather than requiring exact coverage.
-        """
-        _, descs = _parse_enhancements()
-        csv_rows = _load_csv_missions()
-
-        # Build set of all reward amounts from CSV (normalize: strip commas and " aUEC")
-        csv_reward_values = set()
-        for row in csv_rows:
-            reward = row["reward"].strip()
-            if reward and reward != "—":
-                m = re.match(r"([\d,]+)\s*aUEC", reward)
-                if m:
-                    csv_reward_values.add(m.group(1).replace(",", ""))
-
-        # Extract reward amounts from INI descs
-        ini_reward_values = set()
-        for key, value in descs.items():
-            auec_str, _ = _extract_desc_stats(value)
-            if auec_str:
-                ini_reward_values.add(auec_str.replace(",", ""))
-
-        matched = ini_reward_values & csv_reward_values
-        assert len(matched) > 0, "No INI reward values found in CSV at all"
-
-    def test_csv_reward_coverage_in_ini(self):
-        """The INI should contain at least some of the unique reward amounts from the CSV.
-
-        The enhancements file only annotates a subset of all missions, so we check
-        that it covers a meaningful portion of distinct reward tiers (not per-row).
-        """
-        _, descs = _parse_enhancements()
-        csv_rows = _load_csv_missions()
-
-        # Build set of INI reward amounts
-        ini_reward_values = set()
-        for key, value in descs.items():
-            auec_str, _ = _extract_desc_stats(value)
-            if auec_str:
-                ini_reward_values.add(auec_str.replace(",", ""))
-
-        # Build set of unique CSV reward amounts
-        csv_reward_values = set()
-        for row in csv_rows:
-            reward = row["reward"].strip()
-            if reward and reward != "—" and "aUEC" in reward:
-                m = re.match(r"([\d,]+)\s*aUEC", reward)
-                if m:
-                    csv_reward_values.add(m.group(1).replace(",", ""))
-
-        # Both sources should have reward data
-        assert len(ini_reward_values) > 0, "No aUEC reward values found in INI"
-        assert len(csv_reward_values) > 0, "No aUEC reward values found in CSV"
-
-        # INI reward values should overlap with CSV
-        overlap = ini_reward_values & csv_reward_values
-        assert len(overlap) > 0, (
-            f"No overlap between INI rewards ({len(ini_reward_values)} unique) "
-            f"and CSV rewards ({len(csv_reward_values)} unique)"
-        )
-
     def test_csv_xp_coverage_in_ini(self):
         """CSV missions with base XP should have corresponding XP tags in the INI."""
         titles, _ = _parse_enhancements()
@@ -392,7 +316,7 @@ class TestMissionCsvAlignment:
             desc_key_candidate = prefix + suffix.replace("_Title_", "_Desc_")
 
             if desc_key_candidate in descs:
-                _, desc_xp = _extract_desc_stats(descs[desc_key_candidate])
+                desc_xp = _extract_desc_stats(descs[desc_key_candidate])
                 if desc_xp:
                     title_xp_norm = title_xp.replace(",", "")
                     desc_xp_norm = desc_xp.replace(",", "")

@@ -30,11 +30,11 @@ if errorlevel 1 (
 echo   - Executable created
 echo.
 
-echo Step 4: Testing executable...
-if exist "dist\SCLocalizationEditor-v*.exe" (
-    echo   - Executable exists: OK
+echo Step 4: Verifying onedir build...
+if exist "dist\SCLocalizationEditor-v*\" (
+    echo   - Build folder exists: OK
 ) else (
-    echo   - ERROR: Executable not found!
+    echo   - ERROR: Build folder not found!
     pause
     exit /b 1
 )
@@ -62,13 +62,12 @@ echo Build Complete!
 echo ========================================
 echo.
 echo Outputs:
-for %%f in (dist\SCLocalizationEditor-v*.exe) do (
-    echo   [OK] Executable: %%f
+for %%f in (dist\SCLocalizationEditor-*-Setup.exe) do (
+    echo   [OK] Installer: %%f
 )
 echo.
 echo Next steps:
-echo   1. Test the executable: dist\SCLocalizationEditor-v*.exe
-echo   2. Create installer with Inno Setup (if not already done)
-echo   3. Upload to GitHub releases!
+echo   1. Test the installer: dist\SCLocalizationEditor-*-Setup.exe
+echo   2. Upload the installer to GitHub releases!
 echo.
 pause
