@@ -1,13 +1,13 @@
 [Setup]
 AppId={{9A8B7C6D-4E3F-5B2A-0D1E-8F7G6H5I4J3K}
 AppName=SC Localization Editor
-AppVersion=0.8.0
+AppVersion=0.8.1
 AppPublisher=Osiris DevWorks
 AppPublisherURL=https://github.com/Osiris-DevWorks/sc-localization-editor
 DefaultDirName={localappdata}\Osiris DevWorks\SC Localization Editor
 DefaultGroupName=SC Localization Editor
 OutputDir=dist
-OutputBaseFilename=SCLocalizationEditor-0.8.0-Setup
+OutputBaseFilename=SCLocalizationEditor-0.8.1-Setup
 Compression=lzma
 SolidCompression=yes
 ArchitecturesAllowed=x64
@@ -32,15 +32,15 @@ SCDirectoryDefaultPath=C:\Program Files\Roberts Space Industries\StarCitizen\LIV
 Type: filesandordirs; Name: "{app}\*"
 
 [Files]
-Source: "dist\SCLocalizationEditor-v0.8.0\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\SCLocalizationEditor-v0.8.1\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\SC Localization Editor"; Filename: "{app}\SCLocalizationEditor-v0.8.0.exe"
+Name: "{group}\SC Localization Editor"; Filename: "{app}\SCLocalizationEditor-v0.8.1.exe"
 Name: "{group}\{cm:UninstallProgram,SC Localization Editor}"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\SC Localization Editor"; Filename: "{app}\SCLocalizationEditor-v0.8.0.exe"
+Name: "{commondesktop}\SC Localization Editor"; Filename: "{app}\SCLocalizationEditor-v0.8.1.exe"
 
 [Run]
-Filename: "{app}\SCLocalizationEditor-v0.8.0.exe"; Description: "{cm:LaunchProgram,SC Localization Editor}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\SCLocalizationEditor-v0.8.1.exe"; Description: "{cm:LaunchProgram,SC Localization Editor}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 var
@@ -108,8 +108,9 @@ begin
   if DirExists(UserDataDir) then
   begin
     Log('Cleaning cached data from: ' + UserDataDir);
+    { Only \cache is deleted. \backups (user's global.ini safety net) and
+      user.ini (their customizations) must survive install AND uninstall. }
     DelTree(UserDataDir + '\cache', True, True, True);
-    { Preserve backups and user.ini across upgrades }
   end;
 end;
 
@@ -145,6 +146,24 @@ begin
 
     { Clear cached data but preserve registry settings (source paths, preferences, etc.) }
     CleanCachedData();
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  UserDataDir: String;
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    UserDataDir := GetDocumentsDir();
+    if DirExists(UserDataDir) then
+    begin
+      Log('Cleaning cached data during uninstall: ' + UserDataDir);
+      { Only \cache is deleted. \backups (user's global.ini safety net) and
+        user.ini (their customizations) must survive uninstall — a user
+        reinstalling later should find their backups intact. }
+      DelTree(UserDataDir + '\cache', True, True, True);
+    end;
   end;
 end;
 
