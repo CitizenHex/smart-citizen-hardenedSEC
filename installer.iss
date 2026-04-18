@@ -1,13 +1,20 @@
+; Single source of truth: VERSION.TXT at the project root. Update that file
+; and re-run the build — every version-stamped field below is derived from it.
+#define VersionFile FileOpen(AddBackslash(SourcePath) + "VERSION.TXT")
+#define AppVer Trim(FileRead(VersionFile))
+#expr FileClose(VersionFile)
+#undef VersionFile
+
 [Setup]
 AppId={{9A8B7C6D-4E3F-5B2A-0D1E-8F7G6H5I4J3K}
 AppName=SC Localization Editor
-AppVersion=0.8.2
+AppVersion={#AppVer}
 AppPublisher=Osiris DevWorks
 AppPublisherURL=https://github.com/Osiris-DevWorks/sc-localization-editor
 DefaultDirName={localappdata}\Osiris DevWorks\SC Localization Editor
 DefaultGroupName=SC Localization Editor
 OutputDir=dist
-OutputBaseFilename=SCLocalizationEditor-0.8.2-Setup
+OutputBaseFilename=SCLocalizationEditor-{#AppVer}-Setup
 Compression=lzma
 SolidCompression=yes
 ArchitecturesAllowed=x64
@@ -32,15 +39,15 @@ SCDirectoryDefaultPath=C:\Program Files\Roberts Space Industries\StarCitizen\LIV
 Type: filesandordirs; Name: "{app}\*"
 
 [Files]
-Source: "dist\SCLocalizationEditor-v0.8.2\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\SCLocalizationEditor-v{#AppVer}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\SC Localization Editor"; Filename: "{app}\SCLocalizationEditor-v0.8.2.exe"
+Name: "{group}\SC Localization Editor"; Filename: "{app}\SCLocalizationEditor-v{#AppVer}.exe"
 Name: "{group}\{cm:UninstallProgram,SC Localization Editor}"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\SC Localization Editor"; Filename: "{app}\SCLocalizationEditor-v0.8.2.exe"
+Name: "{commondesktop}\SC Localization Editor"; Filename: "{app}\SCLocalizationEditor-v{#AppVer}.exe"
 
 [Run]
-Filename: "{app}\SCLocalizationEditor-v0.8.2.exe"; Description: "{cm:LaunchProgram,SC Localization Editor}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\SCLocalizationEditor-v{#AppVer}.exe"; Description: "{cm:LaunchProgram,SC Localization Editor}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 var
