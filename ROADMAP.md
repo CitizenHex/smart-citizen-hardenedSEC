@@ -169,8 +169,8 @@
 * [x] portable onefile exe retired — installer-only going forward
 
 ## 0.8.2 Bug Fixes
-* [ ] when a user provides a different Star Citizen installation path during setup, it isn't being propagated to the game settings
-* [ ] what is with the BP* annotations?
+* [x] when a user provides a different Star Citizen installation path during setup, it isn't being propagated to the game settings — `get_game_install_path()` now mirrors the installer-written `sc_directory` into QSettings on first read, so the app survives registry cleanup or clean reinstall
+* [x] what is with the BP* annotations? — intentional marker for "only some mission variants reward BP" (14 of 233 BP-annotated missions, ~6%). Descriptions already list the specific variants; added a footer line `* = only some mission variants reward bp` to `[BP*]` mission descriptions so the asterisk is self-explanatory.
 
 # 0.9.x Pre-Release Polish
 * [ ] pre-release final polish
