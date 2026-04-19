@@ -7,14 +7,14 @@
 
 [Setup]
 AppId={{9A8B7C6D-4E3F-5B2A-0D1E-8F7G6H5I4J3K}
-AppName=SC Localization Editor
+AppName=Smart Citizen
 AppVersion={#AppVer}
 AppPublisher=Osiris DevWorks
-AppPublisherURL=https://github.com/Osiris-DevWorks/sc-localization-editor
-DefaultDirName={localappdata}\Osiris DevWorks\SC Localization Editor
-DefaultGroupName=SC Localization Editor
+AppPublisherURL=https://github.com/Osiris-DevWorks/smart-citizen
+DefaultDirName={localappdata}\Osiris DevWorks\Smart Citizen
+DefaultGroupName=Smart Citizen
 OutputDir=dist
-OutputBaseFilename=SCLocalizationEditor-{#AppVer}-Setup
+OutputBaseFilename=SmartCitizen-{#AppVer}-Setup
 Compression=lzma
 SolidCompression=yes
 ArchitecturesAllowed=x64
@@ -39,15 +39,15 @@ SCDirectoryDefaultPath=C:\Program Files\Roberts Space Industries\StarCitizen\LIV
 Type: filesandordirs; Name: "{app}\*"
 
 [Files]
-Source: "dist\SCLocalizationEditor-v{#AppVer}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\SmartCitizen-v{#AppVer}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\SC Localization Editor"; Filename: "{app}\SCLocalizationEditor-v{#AppVer}.exe"
-Name: "{group}\{cm:UninstallProgram,SC Localization Editor}"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\SC Localization Editor"; Filename: "{app}\SCLocalizationEditor-v{#AppVer}.exe"
+Name: "{group}\Smart Citizen"; Filename: "{app}\SmartCitizen-v{#AppVer}.exe"
+Name: "{group}\{cm:UninstallProgram,Smart Citizen}"; Filename: "{uninstallexe}"
+Name: "{commondesktop}\Smart Citizen"; Filename: "{app}\SmartCitizen-v{#AppVer}.exe"
 
 [Run]
-Filename: "{app}\SCLocalizationEditor-v{#AppVer}.exe"; Description: "{cm:LaunchProgram,SC Localization Editor}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\SmartCitizen-v{#AppVer}.exe"; Description: "{cm:LaunchProgram,Smart Citizen}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 var
@@ -187,7 +187,7 @@ begin
   if UninstallString <> '' then
   begin
     { Show custom dialog with three options }
-    ButtonPressed := MsgBox('SC Localization Editor is already installed.' + #13#10 + #13#10 +
+    ButtonPressed := MsgBox('A previous version of this application is already installed.' + #13#10 + #13#10 +
                             'Choose an option:' + #13#10 +
                             '  - Click YES to uninstall the old version and install this new version' + #13#10 +
                             '  - Click NO to uninstall the old version only (without installing)' + #13#10 +

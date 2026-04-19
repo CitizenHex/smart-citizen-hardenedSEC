@@ -41,7 +41,15 @@ _DEFAULT_STATUS_COLOR = QColor("black")
 
 _FAV_GOLD = QColor("#FFD700")
 _FAV_GREY = QColor("#666666")
-_FAV_BG = QColor("#3a3000")
+_FAV_BG_DARK = QColor("#3a3000")   # deep gold-brown for dark theme
+_FAV_BG_LIGHT = QColor("#FFF4C4")  # soft pale gold for light theme
+
+
+def _fav_row_bg() -> QColor:
+    """Return the favorite-row highlight appropriate for the current theme."""
+    from src.utils.settings import AppSettings
+    from src.gui.theme import THEME_LIGHT
+    return _FAV_BG_LIGHT if AppSettings.get_theme() == THEME_LIGHT else _FAV_BG_DARK
 
 
 def status_color(status: str) -> QColor:
@@ -280,7 +288,7 @@ class StringTableModel(QAbstractTableModel):
         # -- background colour (favorite rows) ------------------------------
         if role == Qt.ItemDataRole.BackgroundRole:
             if entry.category == "Ships" and entry.custom_value.startswith(prefix):
-                return _FAV_BG
+                return _fav_row_bg()
             return None
 
         # -- alignment ------------------------------------------------------

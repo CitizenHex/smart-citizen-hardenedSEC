@@ -18,6 +18,9 @@ class AppSettings:
     # Settings keys - Favorites
     FAVORITE_PREFIX = "favorite_prefix"
 
+    # Settings keys - Appearance
+    THEME = "theme"
+
     # Settings keys - Enhancements
     ENHANCEMENTS_ENABLED = "enhancements_enabled"
 
@@ -113,6 +116,19 @@ class AppSettings:
             if AppSettings.get_enhancement_category_enabled(checkbox_key):
                 result.update(file_keys)
         return result
+
+    @staticmethod
+    def get_theme() -> str:
+        """Get UI theme name ('light' or 'dark')."""
+        from src.gui.theme import DEFAULT_THEME, AVAILABLE_THEMES
+        value = AppSettings.settings().value(AppSettings.THEME, DEFAULT_THEME)
+        return value if value in AVAILABLE_THEMES else DEFAULT_THEME
+
+    @staticmethod
+    def set_theme(theme: str) -> None:
+        """Persist UI theme name."""
+        AppSettings.settings().setValue(AppSettings.THEME, theme)
+        AppSettings.settings().sync()
 
     @staticmethod
     def get_favorite_prefix() -> str:
@@ -378,25 +394,25 @@ class AppSettings:
         AppSettings.set_source_auto_update(AppSettings.SOURCE_GLOBAL, False)
 
         # Contracts: OsirisDevworks-hosted
-        contracts_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/contracts.ini"
+        contracts_url = "https://raw.githubusercontent.com/Osiris-DevWorks/smart-citizen/main/data/contracts.ini"
         AppSettings.set_source_path(AppSettings.SOURCE_CONTRACTS, contracts_url)
         AppSettings.set_source_enabled(AppSettings.SOURCE_CONTRACTS, True)
         AppSettings.set_source_auto_update(AppSettings.SOURCE_CONTRACTS, True)
 
         # Components: OsirisDevworks-hosted
-        components_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/components.ini"
+        components_url = "https://raw.githubusercontent.com/Osiris-DevWorks/smart-citizen/main/data/components.ini"
         AppSettings.set_source_path(AppSettings.SOURCE_COMPONENTS, components_url)
         AppSettings.set_source_enabled(AppSettings.SOURCE_COMPONENTS, True)
         AppSettings.set_source_auto_update(AppSettings.SOURCE_COMPONENTS, True)
 
         # Ships: OsirisDevworks-hosted
-        ships_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/ships.ini"
+        ships_url = "https://raw.githubusercontent.com/Osiris-DevWorks/smart-citizen/main/data/ships.ini"
         AppSettings.set_source_path(AppSettings.SOURCE_SHIPS, ships_url)
         AppSettings.set_source_enabled(AppSettings.SOURCE_SHIPS, True)
         AppSettings.set_source_auto_update(AppSettings.SOURCE_SHIPS, True)
 
         # Commodities: OsirisDevworks-hosted
-        commodities_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/commodities.ini"
+        commodities_url = "https://raw.githubusercontent.com/Osiris-DevWorks/smart-citizen/main/data/commodities.ini"
         AppSettings.set_source_path(AppSettings.SOURCE_COMMODITIES, commodities_url)
         AppSettings.set_source_enabled(AppSettings.SOURCE_COMMODITIES, True)
         AppSettings.set_source_auto_update(AppSettings.SOURCE_COMMODITIES, True)

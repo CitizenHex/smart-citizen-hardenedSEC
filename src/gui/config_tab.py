@@ -1,14 +1,15 @@
-"""Configuration tab for SC Localization Editor."""
+"""Configuration tab for Smart Citizen."""
 import logging
 from pathlib import Path
 from datetime import datetime
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLineEdit,
-    QPushButton, QLabel, QFileDialog, QMessageBox,
+    QPushButton, QLabel, QFileDialog, QMessageBox, QComboBox,
 )
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import pyqtSignal, QTimer
 
+from src.gui.theme import AVAILABLE_THEMES, THEME_LIGHT, THEME_DARK, THEME_SCLE, THEME_ODW, get_secondary_text_color
 from src.utils.settings import AppSettings
 
 logger = logging.getLogger(__name__)
@@ -38,16 +39,38 @@ class ConfigTab(QWidget):
             "Configure your Star Citizen installation path, extract base localization "
             "from Data.p4k, and import external INI files to customize your strings."
         )
-        instructions.setStyleSheet("font-size: 11px; color: #666;")
+        instructions.setStyleSheet(f"font-size: 11px; color: {get_secondary_text_color()};")
         instructions.setWordWrap(True)
         layout.addWidget(instructions)
+
+        # ── Appearance ───────────────────────────────────────────────────────
+        appearance_group = QGroupBox("Appearance")
+        appearance_layout = QHBoxLayout(appearance_group)
+
+        theme_label = QLabel("Theme:")
+        appearance_layout.addWidget(theme_label)
+
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItem("Default", THEME_SCLE)
+        self.theme_combo.addItem("Light", THEME_LIGHT)
+        self.theme_combo.addItem("Dark", THEME_DARK)
+        self.theme_combo.addItem("ODW", THEME_ODW)
+        current = AppSettings.get_theme()
+        idx = self.theme_combo.findData(current)
+        if idx >= 0:
+            self.theme_combo.setCurrentIndex(idx)
+        self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
+        self.theme_combo.setMaximumWidth(150)
+        appearance_layout.addWidget(self.theme_combo)
+        appearance_layout.addStretch()
+        layout.addWidget(appearance_group)
 
         # ── Star Citizen Installation ────────────────────────────────────────
         game_group = QGroupBox("Star Citizen Installation")
         game_layout = QVBoxLayout(game_group)
 
         game_desc = QLabel("Path to Star Citizen LIVE directory")
-        game_desc.setStyleSheet("font-size: 11px; color: #666; margin-bottom: 5px;")
+        game_desc.setStyleSheet(f"font-size: 11px; color: {get_secondary_text_color()}; margin-bottom: 5px;")
         game_layout.addWidget(game_desc)
 
         game_input_layout = QHBoxLayout()
@@ -74,7 +97,7 @@ class ConfigTab(QWidget):
             "Extract global.ini from your installed Data.p4k to get stock game strings "
             "that always match your installed version."
         )
-        p4k_desc.setStyleSheet("font-size: 11px; color: #666;")
+        p4k_desc.setStyleSheet(f"font-size: 11px; color: {get_secondary_text_color()};")
         p4k_desc.setWordWrap(True)
         p4k_layout.addWidget(p4k_desc)
 
@@ -84,7 +107,7 @@ class ConfigTab(QWidget):
         p4k_status_row.addWidget(self._p4k_status_dot)
 
         self._p4k_status_label = QLabel()
-        self._p4k_status_label.setStyleSheet("font-size: 11px; color: #666;")
+        self._p4k_status_label.setStyleSheet(f"font-size: 11px; color: {get_secondary_text_color()};")
         p4k_status_row.addWidget(self._p4k_status_label)
         p4k_status_row.addStretch()
 
@@ -106,7 +129,7 @@ class ConfigTab(QWidget):
             "Import an external INI file to merge custom strings into your user.ini. "
             "Keys are validated against base.ini, and conflicts are resolved interactively."
         )
-        tools_desc.setStyleSheet("font-size: 11px; color: #666;")
+        tools_desc.setStyleSheet(f"font-size: 11px; color: {get_secondary_text_color()};")
         tools_desc.setWordWrap(True)
         tools_layout.addWidget(tools_desc)
 
@@ -127,6 +150,31 @@ class ConfigTab(QWidget):
         layout.addWidget(tools_group)
 
         layout.addStretch()
+
+    # ── Theme ────────────────────────────────────────────────────────────────
+
+    def _on_theme_changed(self, _index: int):
+        """Defer the actual swap to the next event-loop tick. Running
+        app.setPalette() directly from a QComboBox.currentIndexChanged slot
+        crashes Qt 6 because the combo's event chain hasn't finished unwinding.
+        """
+        theme = self.theme_combo.currentData()
+        if theme not in AVAILABLE_THEMES:
+            return
+        QTimer.singleShot(0, lambda: self._apply_theme_change(theme))
+
+    def _apply_theme_change(self, theme: str):
+        """Persist and apply the theme. Runs via QTimer.singleShot so we're
+        outside the combo's event handling — required for setPalette safety."""
+        from PyQt6.QtWidgets import QApplication
+        from src.gui.theme import apply_theme
+        AppSettings.set_theme(theme)
+        app = QApplication.instance()
+        if app is not None:
+            apply_theme(app, theme)
+        mw = self.window()
+        if hasattr(mw, "refresh_action_buttons"):
+            mw.refresh_action_buttons()
 
     # ── Game path ────────────────────────────────────────────────────────────
 

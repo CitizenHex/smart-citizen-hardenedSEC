@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-SC Localization Editor is a Windows-only PyQt6 GUI application for customizing Star Citizen localization strings. Users configure multiple data sources (Global, Contracts, Components, Ships, Commodities, Gear, User) with a drag-and-drop merge hierarchy, edit strings in a table, and apply changes to their game installation with automatic backup management.
+Smart Citizen (formerly SC Localization Editor) is a Windows-only PyQt6 GUI application for customizing Star Citizen localization strings. Tagline: *Smarter Strings for Star Citizen*. Users configure multiple data sources (Global, Contracts, Components, Ships, Commodities, Gear, User) with a drag-and-drop merge hierarchy, edit strings in a table, and apply changes to their game installation with automatic backup management.
+
+**Rebrand status**: As of 0.9.0, user-facing strings and build artifacts reference "Smart Citizen" / `smart-citizen` repo. Storage paths (registry under `Osiris DevWorks\SC Localization Editor`, `Documents\SC Localization Editor\`) are preserved with automatic migration — see the migration code in `AppSettings`.
 
 **Current Version**: Read from `VERSION.TXT` (single source of truth).
 
@@ -151,9 +153,9 @@ Favorites prepend a configurable prefix (default `*`) to `custom_value`. The pre
 1. Edit `VERSION.TXT` to new version (sole source of truth — `installer.iss` reads it via ISPP at compile time)
 2. Build the PyInstaller onedir: `.venv/Scripts/python.exe scripts/build/build_exe.py`
 3. Compile the installer (Inno Setup is a per-user install, invoke via PowerShell): `powershell -NoProfile -Command "& 'C:\Users\<you>\AppData\Local\Programs\Inno Setup 6\ISCC.exe' installer.iss"`
-4. Test installer from `dist/SCLocalizationEditor-{VERSION}-Setup.exe`
+4. Test installer from `dist/SmartCitizen-{VERSION}-Setup.exe`
 5. Commit (include VERSION.TXT bump), tag (`git tag -a v0.X.Y -m "Release v0.X.Y"`), push branch + tag
-6. Create GitHub release and attach `dist/SCLocalizationEditor-{VERSION}-Setup.exe` (installer only; portable onefile exe has been retired)
+6. Create GitHub release and attach `dist/SmartCitizen-{VERSION}-Setup.exe` (installer only; portable onefile exe has been retired)
 
 Discord notification is automatic via GitHub Actions (`scripts/discord_notify.py`) if `DISCORD_RELEASE_WEBHOOK_URL` secret is configured.
 

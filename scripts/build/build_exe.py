@@ -1,5 +1,5 @@
 """
-Build script for creating SC Localization Editor executable
+Build script for creating Smart Citizen executable
 
 Usage:
     python build_exe.py                    # Build without incrementing version
@@ -51,7 +51,7 @@ for folder in ['build', 'dist']:
 print()
 
 # Build executable with PyInstaller
-exe_name = f"SCLocalizationEditor-v{current_version}"
+exe_name = f"SmartCitizen-v{current_version}"
 
 assets_dir   = os.path.join(root_dir, 'assets')
 icon_path    = os.path.join(assets_dir, 'logo.ico')

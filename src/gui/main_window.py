@@ -1,4 +1,4 @@
-"""Main window for SC Localization Editor."""
+"""Main window for Smart Citizen."""
 import logging
 import os
 import sys
@@ -54,6 +54,7 @@ from src.merger.ini_merger import merge_sources_by_hierarchy
 from src.utils.version import get_version
 from src.utils.perf import timed
 from src.gui.config_tab import ConfigTab
+from src.gui.theme import get_secondary_text_color, get_button_color, get_button_text_color, get_title_color, get_tagline_color, BRAND_FONT_FAMILY
 from src.gui.enhancements_tab import EnhancementsTab
 from src.gui.log_tab import LogTab
 
@@ -311,7 +312,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"SC Localization Editor v{get_version()}")
+        self.setWindowTitle(f"Smart Citizen v{get_version()}")
         self.setGeometry(100, 100, 1400, 800)
 
         # Set window icon (taskbar + window title bar + favicon)
@@ -378,13 +379,16 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(8, 8, 8, 8)
         main_layout.setSpacing(8)
 
-        # Title bar
-        title_label = QLabel("SC Localization Editor")
-        title_font = QFont()
-        title_font.setPointSize(14)
-        title_font.setBold(True)
-        title_label.setFont(title_font)
-        main_layout.addWidget(title_label)
+        # Title bar — branded font (Hyperspace Race Expanded Bold)
+        self.title_label = QLabel("SMART CITIZEN")
+        title_font = QFont(BRAND_FONT_FAMILY)
+        title_font.setPointSize(22)
+        self.title_label.setFont(title_font)
+        main_layout.addWidget(self.title_label)
+
+        self.tagline_label = QLabel("SMARTER STRINGS FOR STAR CITIZEN")
+        main_layout.addWidget(self.tagline_label)
+        self._apply_branding_styles()
 
         # Toolbar
         toolbar_layout = self.create_toolbar()
@@ -438,39 +442,42 @@ class MainWindow(QMainWindow):
         # Button row
         button_layout = QHBoxLayout()
 
-        # Load buttons
+        # Blue group — read / navigate
         self.load_btn = QPushButton("Load Base File")
-        self.load_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 6px;")
+        self.load_btn.setStyleSheet(f"background-color: {get_button_color('load')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
         self.load_btn.clicked.connect(self.load_files)
         button_layout.addWidget(self.load_btn)
 
-        self.restore_backup_btn = QPushButton("Restore Backup")
-        self.restore_backup_btn.setStyleSheet("background-color: #FF5722; color: white; font-weight: bold; padding: 6px;")
-        self.restore_backup_btn.clicked.connect(self.restore_backup)
-        button_layout.addWidget(self.restore_backup_btn)
+        self.open_loc_dir_btn = QPushButton("Open Localization Dir")
+        self.open_loc_dir_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
+        self.open_loc_dir_btn.setToolTip("Open the game's localization directory in Windows Explorer")
+        self.open_loc_dir_btn.clicked.connect(self.open_localization_dir)
+        button_layout.addWidget(self.open_loc_dir_btn)
 
+        # Green — commit
         self.apply_btn = QPushButton("Apply to Game")
-        self.apply_btn.setStyleSheet("background-color: #FF9800; color: white; font-weight: bold; padding: 6px;")
+        self.apply_btn.setStyleSheet(f"background-color: {get_button_color('apply')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
         self.apply_btn.clicked.connect(self.apply_to_game)
         button_layout.addWidget(self.apply_btn)
 
+        # Red-orange — rollback
+        self.restore_backup_btn = QPushButton("Restore Backup")
+        self.restore_backup_btn.setStyleSheet(f"background-color: {get_button_color('restore')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
+        self.restore_backup_btn.clicked.connect(self.restore_backup)
+        button_layout.addWidget(self.restore_backup_btn)
+
+        # Gray group — cleanup
         self.clear_loc_btn = QPushButton("Clear Localization")
-        self.clear_loc_btn.setStyleSheet("background-color: #9E9E9E; color: white; font-weight: bold; padding: 6px;")
+        self.clear_loc_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
         self.clear_loc_btn.setToolTip("Delete the applied global.ini from the game's localization directory, reverting to vanilla game text")
         self.clear_loc_btn.clicked.connect(self.clear_localization)
         button_layout.addWidget(self.clear_loc_btn)
 
         self.clear_cache_btn = QPushButton("Clear Cache")
-        self.clear_cache_btn.setStyleSheet("background-color: #9E9E9E; color: white; font-weight: bold; padding: 6px;")
+        self.clear_cache_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
         self.clear_cache_btn.setToolTip("Delete all cached source files (base.ini, contracts.ini, etc.) from the local cache directory")
         self.clear_cache_btn.clicked.connect(self.clear_cache)
         button_layout.addWidget(self.clear_cache_btn)
-
-        self.open_loc_dir_btn = QPushButton("Open Localization Dir")
-        self.open_loc_dir_btn.setStyleSheet("background-color: #2196F3; color: white; font-weight: bold; padding: 6px;")
-        self.open_loc_dir_btn.setToolTip("Open the game's localization directory in Windows Explorer")
-        self.open_loc_dir_btn.clicked.connect(self.open_localization_dir)
-        button_layout.addWidget(self.open_loc_dir_btn)
 
         button_layout.addStretch()
 
@@ -569,7 +576,7 @@ class MainWindow(QMainWindow):
 
         # Donation label
         donation_label = QLabel("Support this project:")
-        donation_label.setStyleSheet("font-size: 12px; color: #666; margin-right: 5px;")
+        donation_label.setStyleSheet(f"font-size: 12px; color: {get_secondary_text_color()}; margin-right: 5px;")
         footer_layout.addWidget(donation_label)
 
         # PayPal button (right side)
@@ -712,31 +719,34 @@ class MainWindow(QMainWindow):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        # About content in a scrollable text browser
-        about_browser = QTextBrowser()
-        about_browser.setOpenExternalLinks(True)
+        self.about_browser = QTextBrowser()
+        self.about_browser.setOpenExternalLinks(True)
+        self._render_about_html()
+        layout.addWidget(self.about_browser)
+        return widget
 
+    def _render_about_html(self):
+        """(Re)render the About tab HTML using the current palette. Also
+        force the browser's palette to match so its chrome (viewport bg,
+        scrollbars) tracks the theme — widget-local palette can otherwise
+        lag behind QApplication.setPalette."""
+        from PyQt6.QtWidgets import QApplication
+        self.about_browser.setPalette(QApplication.palette())
         try:
-            # Load ABOUT.md file
             about_path = get_resource_path("ABOUT.md")
             with open(about_path, 'r', encoding='utf-8') as f:
                 about_content = f.read()
-
-            # Add version to the first heading
             about_content = about_content.replace(
-                "# SC Localization Editor",
-                f"# SC Localization Editor v{get_version()}"
+                "# Smart Citizen",
+                f"# Smart Citizen v{get_version()}"
             )
-
-            # Convert markdown to HTML
-            about_html = self.markdown_to_html(about_content)
-            about_browser.setHtml(about_html)
+            self.about_browser.setHtml(self.markdown_to_html(about_content))
         except Exception as e:
             logger.error(f"Error loading ABOUT.md: {e}", exc_info=True)
-            about_browser.setHtml(f"<h1>About</h1><p>Unable to load about information.</p><p style='color: gray;'>{str(e)}</p>")
-
-        layout.addWidget(about_browser)
-        return widget
+            self.about_browser.setHtml(
+                f"<h1>About</h1><p>Unable to load about information.</p>"
+                f"<p style='color: gray;'>{str(e)}</p>"
+            )
 
     @pyqtSlot()
     def load_files(self):
@@ -1395,6 +1405,30 @@ class MainWindow(QMainWindow):
     # ── INI Import ────────────────────────────────────────────────────────────
 
     @pyqtSlot()
+    def _apply_branding_styles(self):
+        """Apply per-theme colors to the title + tagline header labels."""
+        self.title_label.setStyleSheet(f"color: {get_title_color()};")
+        self.tagline_label.setStyleSheet(
+            f"font-size: 11px; letter-spacing: 2px; color: {get_tagline_color()};"
+        )
+
+    def refresh_action_buttons(self):
+        """Re-apply theme-dependent stylesheets on the 6 top action buttons
+        and re-render the About tab HTML (whose palette-derived colors are
+        baked in at render time). Called after a live theme swap.
+        """
+        self._apply_branding_styles()
+        base = "font-weight: bold; padding: 6px;"
+        text = get_button_text_color()
+        self.load_btn.setStyleSheet(f"background-color: {get_button_color('load')}; color: {text}; {base}")
+        self.open_loc_dir_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {text}; {base}")
+        self.apply_btn.setStyleSheet(f"background-color: {get_button_color('apply')}; color: {text}; {base}")
+        self.restore_backup_btn.setStyleSheet(f"background-color: {get_button_color('restore')}; color: {text}; {base}")
+        self.clear_loc_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {text}; {base}")
+        self.clear_cache_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {text}; {base}")
+        if hasattr(self, "about_browser"):
+            self._render_about_html()
+
     def _handle_import_ini(self):
         """Handle Import INI button: get source, validate, resolve conflicts, merge."""
         from PyQt6.QtWidgets import (
@@ -1619,7 +1653,7 @@ class MainWindow(QMainWindow):
         """Show help dialog with usage instructions."""
         from PyQt6.QtWidgets import QDialog
 
-        help_markdown = """# SC Localization Editor - Quick Start Guide
+        help_markdown = """# Smart Citizen - Quick Start Guide
 
 ## First Time Setup
 On launch, the app automatically downloads the latest base localization file and mission contracts from GitHub. Your customizations from previous sessions are loaded automatically.
@@ -1694,7 +1728,7 @@ Shows the sync status for each configured source. "✓" means up to date.
 
         # Create a custom dialog
         dialog = QDialog(self)
-        dialog.setWindowTitle("Help - SC Localization Editor")
+        dialog.setWindowTitle("Help - Smart Citizen")
         dialog.setGeometry(100, 100, 700, 600)
 
         # Create layout
@@ -1972,7 +2006,7 @@ Shows the sync status for each configured source. "✓" means up to date.
             "DataForge data will be extracted automatically if not already cached.\n"
             "First run takes ~5-10 minutes."
         )
-        info.setStyleSheet("font-size: 11px; color: #666;")
+        info.setStyleSheet(f"font-size: 11px; color: {get_secondary_text_color()};")
         info.setWordWrap(True)
         layout.addWidget(info)
 
@@ -2500,11 +2534,15 @@ Shows the sync status for each configured source. "✓" means up to date.
 
     def markdown_to_html(self, markdown_text: str) -> str:
         """Convert markdown to HTML with theme-aware styling."""
-        # Get theme-aware colors from the application palette
-        palette = self.palette()
-        text_color = palette.color(palette.ColorRole.Text).name()
-        base_color = palette.color(palette.ColorRole.Base).name()
-        link_color = palette.color(palette.ColorRole.Link).name()
+        # Pull directly from the application palette so this is stable even when
+        # called synchronously right after QApplication.setPalette (widget-local
+        # palettes can lag one event-loop tick behind the app palette).
+        from PyQt6.QtWidgets import QApplication
+        from PyQt6.QtGui import QPalette
+        palette = QApplication.palette()
+        text_color = palette.color(QPalette.ColorRole.Text).name()
+        base_color = palette.color(QPalette.ColorRole.Base).name()
+        link_color = palette.color(QPalette.ColorRole.Link).name()
 
         # Build HTML with styling
         html = "<html><head><style>"

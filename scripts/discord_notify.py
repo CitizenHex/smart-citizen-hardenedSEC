@@ -1,5 +1,5 @@
 """
-Discord Release Notification Script for SC Localization Editor
+Discord Release Notification Script for Smart Citizen
 
 Posts release announcements to Discord via webhook with release notes.
 
@@ -31,7 +31,7 @@ env_path = project_root / ".env"
 load_dotenv(env_path)
 
 WEBHOOK_URL = os.getenv("DISCORD_RELEASE_WEBHOOK_URL")
-GITHUB_REPO = "Osiris-DevWorks/sc-localization-editor"
+GITHUB_REPO = "Osiris-DevWorks/smart-citizen"
 
 
 def create_embed(version: str, release_notes: str = "") -> dict:
@@ -39,7 +39,7 @@ def create_embed(version: str, release_notes: str = "") -> dict:
     release_url = f"https://github.com/{GITHUB_REPO}/releases/tag/{version}"
 
     description_parts = [
-        "🎉 **SC Localization Editor Release**\n",
+        "🎉 **Smart Citizen Release**\n",
     ]
 
     if release_notes.strip():
@@ -55,12 +55,12 @@ def create_embed(version: str, release_notes: str = "") -> dict:
         description = description[:3997] + "..."
 
     embed = {
-        "title": f"SC Localization Editor {version}",
+        "title": f"Smart Citizen {version}",
         "description": description,
         "color": 0x1E90FF,  # Dodger blue
         "url": release_url,
         "footer": {
-            "text": f"SC Localization Editor {version}"
+            "text": f"Smart Citizen {version}"
         }
     }
 
@@ -78,7 +78,7 @@ def send_discord_notification(version: str, release_notes: str = "") -> bool:
 
     payload = {
         "embeds": [embed],
-        "username": "SC Localization Editor",
+        "username": "Smart Citizen",
     }
 
     data = json.dumps(payload).encode('utf-8')
@@ -89,7 +89,7 @@ def send_discord_notification(version: str, release_notes: str = "") -> bool:
             data=data,
             headers={
                 'Content-Type': 'application/json',
-                'User-Agent': 'SCLocalizationEditor-Release-Bot/1.0'
+                'User-Agent': 'SmartCitizen-Release-Bot/1.0'
             }
         )
 

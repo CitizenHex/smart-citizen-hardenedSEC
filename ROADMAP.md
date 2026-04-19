@@ -173,8 +173,13 @@
 * [x] what is with the BP* annotations? — intentional marker for "only some mission variants reward BP" (14 of 233 BP-annotated missions, ~6%). Descriptions already list the specific variants; added a footer line `* = only some mission variants reward bp` to `[BP*]` mission descriptions so the asterisk is self-explanatory.
 
 # 0.9.x Pre-Release Polish
+* [x] UI themes: dark, light, SCLE and ODW themes
+* [x] Rebranding as "Smart Citizen: Smarter Strings for Star Citizen"
+* [x] Fix sorting of favorites column
+* [x] ship armor enhancements — `entities/scitem/ships/armor/` (~197 XMLs, ~100 loc keys in base.ini). Damage multipliers (physical/energy/distortion/thermal), deflection, health pools. Reuses the weapon-damage parsing pattern; output as `ship_armor_desc_enhancements.ini` merged as a new source.
+
+## 0.9.1
 * [ ] pre-release final polish
-* [ ] UI themes: dark and light modes
 * [ ] stability & bugfixes
 * [ ] performance optimization
 * [ ] cache streamlining

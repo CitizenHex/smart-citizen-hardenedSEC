@@ -1,4 +1,4 @@
-# Development and Testing Requirements for SC Localization Editor
+# Development and Testing Requirements for Smart Citizen
 
 # Main application requirements (from requirements.txt)
 PyQt6>=6.10.0
