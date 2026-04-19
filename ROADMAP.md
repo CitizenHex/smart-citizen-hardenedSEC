@@ -192,5 +192,6 @@
 * [ ] stability & bugfixes
 * [ ] finalize in-app documentation
 * [ ] performance optimization
+* [ ] parallelize enhancements generation + switch to determinate progress bars — run independent lookup builds (entity_names, blueprint_pools, reputation_lookup, etc.) concurrently, and fan out the 8 output file generators across threads. Threads (not processes) because the builders share large read-only lookup dicts and spend most time in GIL-releasing XML parse + file I/O. Shared plumbing: a thread-safe progress sink (Lock + counter or `queue.Queue`) that both (a) replaces the sequential `_flush()` pattern and (b) drives a determinate QProgressBar — each worker reports `(current, total)` sub-progress that funnels into a single aggregated `completed / total` value shown in `AnimatedProgressDialog`. Apply the same determinate treatment to file loading (N sources) and P4K/DataForge extraction (phase-level: "unp4k → unforge → cache").
 * [ ] cache streamlining
 * [ ] end-to-end testing & version release
