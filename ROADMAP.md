@@ -181,6 +181,7 @@
 ## 0.9.1
 * [ ] pre-release final polish
 * [ ] stability & bugfixes
+* [ ] finalize in-app documentation
 * [ ] performance optimization
 * [ ] cache streamlining
 * [ ] end-to-end testing & version release
