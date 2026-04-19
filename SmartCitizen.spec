@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec for SC Localization Editor
+# PyInstaller spec for Smart Citizen
 
 a = Analysis(
     ['src/main.py'],
@@ -26,7 +26,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='SCLocalizationEditor',
+    name='SmartCitizen',
     icon='assets/logo.ico',
     debug=False,
     bootloader_ignore_signals=False,
@@ -49,5 +49,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='SCLocalizationEditor',
+    name='SmartCitizen',
 )

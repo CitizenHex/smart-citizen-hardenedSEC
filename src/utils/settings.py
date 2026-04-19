@@ -18,6 +18,9 @@ class AppSettings:
     # Settings keys - Favorites
     FAVORITE_PREFIX = "favorite_prefix"
 
+    # Settings keys - Appearance
+    THEME = "theme"
+
     # Settings keys - Enhancements
     ENHANCEMENTS_ENABLED = "enhancements_enabled"
 
@@ -113,6 +116,19 @@ class AppSettings:
             if AppSettings.get_enhancement_category_enabled(checkbox_key):
                 result.update(file_keys)
         return result
+
+    @staticmethod
+    def get_theme() -> str:
+        """Get UI theme name ('light' or 'dark')."""
+        from src.gui.theme import DEFAULT_THEME, AVAILABLE_THEMES
+        value = AppSettings.settings().value(AppSettings.THEME, DEFAULT_THEME)
+        return value if value in AVAILABLE_THEMES else DEFAULT_THEME
+
+    @staticmethod
+    def set_theme(theme: str) -> None:
+        """Persist UI theme name."""
+        AppSettings.settings().setValue(AppSettings.THEME, theme)
+        AppSettings.settings().sync()
 
     @staticmethod
     def get_favorite_prefix() -> str:
@@ -378,25 +394,25 @@ class AppSettings:
         AppSettings.set_source_auto_update(AppSettings.SOURCE_GLOBAL, False)
 
         # Contracts: OsirisDevworks-hosted
-        contracts_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/contracts.ini"
+        contracts_url = "https://raw.githubusercontent.com/Osiris-DevWorks/smart-citizen/main/data/contracts.ini"
         AppSettings.set_source_path(AppSettings.SOURCE_CONTRACTS, contracts_url)
         AppSettings.set_source_enabled(AppSettings.SOURCE_CONTRACTS, True)
         AppSettings.set_source_auto_update(AppSettings.SOURCE_CONTRACTS, True)
 
         # Components: OsirisDevworks-hosted
-        components_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/components.ini"
+        components_url = "https://raw.githubusercontent.com/Osiris-DevWorks/smart-citizen/main/data/components.ini"
         AppSettings.set_source_path(AppSettings.SOURCE_COMPONENTS, components_url)
         AppSettings.set_source_enabled(AppSettings.SOURCE_COMPONENTS, True)
         AppSettings.set_source_auto_update(AppSettings.SOURCE_COMPONENTS, True)
 
         # Ships: OsirisDevworks-hosted
-        ships_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/ships.ini"
+        ships_url = "https://raw.githubusercontent.com/Osiris-DevWorks/smart-citizen/main/data/ships.ini"
         AppSettings.set_source_path(AppSettings.SOURCE_SHIPS, ships_url)
         AppSettings.set_source_enabled(AppSettings.SOURCE_SHIPS, True)
         AppSettings.set_source_auto_update(AppSettings.SOURCE_SHIPS, True)
 
         # Commodities: OsirisDevworks-hosted
-        commodities_url = "https://raw.githubusercontent.com/Osiris-DevWorks/sc-localization-editor/main/data/commodities.ini"
+        commodities_url = "https://raw.githubusercontent.com/Osiris-DevWorks/smart-citizen/main/data/commodities.ini"
         AppSettings.set_source_path(AppSettings.SOURCE_COMMODITIES, commodities_url)
         AppSettings.set_source_enabled(AppSettings.SOURCE_COMMODITIES, True)
         AppSettings.set_source_auto_update(AppSettings.SOURCE_COMMODITIES, True)
@@ -437,15 +453,8 @@ class AppSettings:
 
 
     @staticmethod
-    def get_user_data_dir() -> Path:
-        r"""Get the user data directory: Documents\SC Localization Editor\.
-
-        Uses the real Documents folder path from the registry, which correctly
-        handles OneDrive/folder-redirection. Falls back to Path.home()/Documents.
-
-        Returns:
-            Path to Documents\SC Localization Editor\ (created if needed)
-        """
+    def _resolve_docs_base() -> Path:
+        """Resolve the real Documents root (honors OneDrive redirection)."""
         try:
             key = winreg.OpenKey(
                 winreg.HKEY_CURRENT_USER,
@@ -455,17 +464,46 @@ class AppSettings:
             winreg.CloseKey(key)
         except (WindowsError, OSError):
             docs_path = Path.home() / "Documents"
+        return docs_path
 
-        data_dir = docs_path / "SC Localization Editor"
+    @staticmethod
+    def migrate_docs_folder_rename() -> None:
+        r"""Rename legacy Documents\SC Localization Editor\ → Documents\Smart Citizen\.
+
+        Safe to call on every startup — only acts when the old folder exists
+        and the new one does not. The installer handles this on upgrade; this
+        path covers dev runs and anyone who bypassed the installer.
+        """
+        docs = AppSettings._resolve_docs_base()
+        old_dir = docs / "SC Localization Editor"
+        new_dir = docs / "Smart Citizen"
+        if old_dir.exists() and not new_dir.exists():
+            try:
+                old_dir.rename(new_dir)
+                logger.info(f"Renamed data folder: {old_dir} → {new_dir}")
+            except OSError as e:
+                logger.warning(f"Could not rename data folder {old_dir}: {e}")
+
+    @staticmethod
+    def get_user_data_dir() -> Path:
+        r"""Get the user data directory: Documents\Smart Citizen\.
+
+        Uses the real Documents folder path from the registry, which correctly
+        handles OneDrive/folder-redirection. Falls back to Path.home()/Documents.
+
+        Returns:
+            Path to Documents\Smart Citizen\ (created if needed)
+        """
+        data_dir = AppSettings._resolve_docs_base() / "Smart Citizen"
         data_dir.mkdir(parents=True, exist_ok=True)
         return data_dir
 
     @staticmethod
     def get_cache_dir() -> Path:
-        r"""Get canonical cache directory in Documents\SC Localization Editor\cache\.
+        r"""Get canonical cache directory in Documents\Smart Citizen\cache\.
 
         Returns:
-            Path to Documents\SC Localization Editor\cache\ (created if needed)
+            Path to Documents\Smart Citizen\cache\ (created if needed)
         """
         cache_dir = AppSettings.get_user_data_dir() / "cache"
         cache_dir.mkdir(parents=True, exist_ok=True)
@@ -473,12 +511,12 @@ class AppSettings:
 
     @staticmethod
     def get_user_ini_path() -> Path:
-        r"""Get canonical path for user.ini in Documents\SC Localization Editor\.
+        r"""Get canonical path for user.ini in Documents\Smart Citizen\.
 
         Migrates from overrides.ini → user.ini on first call if needed.
 
         Returns:
-            Path to Documents\SC Localization Editor\user.ini
+            Path to Documents\Smart Citizen\user.ini
         """
         data_dir = AppSettings.get_user_data_dir()
         user_ini = data_dir / "user.ini"
@@ -497,10 +535,10 @@ class AppSettings:
 
     @staticmethod
     def get_backups_dir() -> Path:
-        r"""Get canonical backups directory in Documents\SC Localization Editor\backups\.
+        r"""Get canonical backups directory in Documents\Smart Citizen\backups\.
 
         Returns:
-            Path to Documents\SC Localization Editor\backups\ (created if needed)
+            Path to Documents\Smart Citizen\backups\ (created if needed)
         """
         backups_dir = AppSettings.get_user_data_dir() / "backups"
         backups_dir.mkdir(parents=True, exist_ok=True)

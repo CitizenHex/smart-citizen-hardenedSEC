@@ -46,7 +46,7 @@ def _get_documents_dir() -> Path:
         return Path.home() / "Documents"
 
 
-APP_CACHE_DIR    = _get_documents_dir() / "SC Localization Editor" / "cache"
+APP_CACHE_DIR    = _get_documents_dir() / "Smart Citizen" / "cache"
 DEFAULT_BASE_INI = APP_CACHE_DIR / "base.ini"
 DEFAULT_FORGE_DIR = APP_CACHE_DIR / "dataforge"
 
@@ -1904,10 +1904,72 @@ def build_controller_lookup(controller_dir: Path) -> dict[str, ET.Element]:
     return lookup
 
 
+def build_armor_lookup(armor_dir: Path) -> dict[str, ET.Element]:
+    """Build lookup: armor_class_lower → armor entity XML root.
+
+    Armor files live at entities/scitem/ships/armor/*.xml and each has a root
+    tag of the form 'EntityClassDefinition.ARMR_<MFR>_<ShipName>'. Ships
+    reference them by entityClassName on an SItemPortLoadoutEntryParams with
+    itemPortName='hardpoint_armour', so we index by the ClassName part
+    lowercased for case-insensitive matching.
+    """
+    lookup: dict[str, ET.Element] = {}
+    if not armor_dir.exists():
+        return lookup
+    for xml_file in armor_dir.glob("*.xml"):
+        try:
+            root = ET.parse(xml_file).getroot()
+        except ET.ParseError:
+            continue
+        tag = root.tag
+        class_name = tag.split(".", 1)[1] if "." in tag else xml_file.stem
+        lookup[class_name.lower()] = root
+    return lookup
+
+
+def _armor_stats_block(armor_root: ET.Element) -> str:
+    """Format a ship armor record into stat lines (Health, Dmg Mult, Deflect).
+
+    Returns lines already joined by the escaped '\\n' that the ini output
+    layer uses (same convention as the rest of enhancements_ship_dataforge).
+    """
+    lines: list[str] = []
+
+    health = _attr(armor_root, "SHealthComponentParams", "Health")
+    if health is not None:
+        lines.append(f"Armor HP: {_fmt(health)}")
+
+    dm = _find(armor_root, "damageMultiplier")
+    if dm is not None:
+        di = dm.find("DamageInfo")
+        if di is not None:
+            p, e, d, t = (di.get(k) for k in
+                ("DamagePhysical", "DamageEnergy", "DamageDistortion", "DamageThermal"))
+            if any(v is not None for v in (p, e, d, t)):
+                lines.append(
+                    f"Dmg Mult: P {_fmt(p, 'x', 2)}  |  E {_fmt(e, 'x', 2)}"
+                    f"  |  D {_fmt(d, 'x', 2)}  |  T {_fmt(t, 'x', 2)}"
+                )
+
+    ad = _find(armor_root, "armorDeflection")
+    if ad is not None:
+        dv = ad.find("deflectionValue")
+        if dv is not None:
+            p, e, d, t = (dv.get(k) for k in
+                ("DamagePhysical", "DamageEnergy", "DamageDistortion", "DamageThermal"))
+            if any(v is not None for v in (p, e, d, t)):
+                lines.append(
+                    f"Deflect: P {_fmt(p)}  |  E {_fmt(e)}  |  D {_fmt(d)}  |  T {_fmt(t)}"
+                )
+
+    return "\\n".join(lines)
+
+
 def enhancements_ship_dataforge(
     root: ET.Element,
     controller_root: ET.Element | None,
     loc: dict | None = None,
+    armor_lookup: dict[str, ET.Element] | None = None,
 ) -> str:
     """Generate stats block for a spaceship from DataForge entity + flight controller."""
     vpc = _find(root, "VehicleComponentParams")
@@ -1930,6 +1992,20 @@ def enhancements_ship_dataforge(
 
     # Default loadout summary
     weapons_line, core_line = _loadout_summary(root)
+
+    # Default armor (via hardpoint_armor/hardpoint_armour loadout entry → armor
+    # XML lookup). Both spellings appear in the data — American form is more
+    # common (~554 ships) but some use British (~262).
+    armor_block = ""
+    if armor_lookup:
+        for entry in root.iter("SItemPortLoadoutEntryParams"):
+            if entry.get("itemPortName") in ("hardpoint_armor", "hardpoint_armour"):
+                armor_class = (entry.get("entityClassName") or "").lower()
+                if armor_class:
+                    armor_root = armor_lookup.get(armor_class)
+                    if armor_root is not None:
+                        armor_block = _armor_stats_block(armor_root)
+                break
 
     # Flight stats from controller
     scm = max_spd = boost_fwd = boost_bwd = None
@@ -1972,6 +2048,8 @@ def enhancements_ship_dataforge(
         lines.append(weapons_line)
     if core_line:
         lines.append(core_line)
+    if armor_block:
+        lines.append(armor_block)
 
     if ins_base is not None:
         lines.append(
@@ -1985,6 +2063,7 @@ def scan_spaceships(
     spaceships_dir: Path,
     controller_lookup: dict,
     loc: dict,
+    armor_lookup: dict | None = None,
 ) -> dict[str, str]:
     """Scan DataForge spaceship entities and generate ship stat descriptions."""
     out: dict[str, str] = {}
@@ -2024,7 +2103,7 @@ def scan_spaceships(
         controller_root = controller_lookup.get(ship_class)
 
         try:
-            block = enhancements_ship_dataforge(root, controller_root, loc)
+            block = enhancements_ship_dataforge(root, controller_root, loc, armor_lookup)
         except Exception as e:
             logger.warning(f"Ship enhancements failed for {xml_file.name}: {e}")
             continue
@@ -2400,10 +2479,17 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         logger.info(f"CHECKPOINT: Controllers: {len(controller_lookup)} loaded")
         _flush()
 
+        logger.info("CHECKPOINT: Building ship armor lookup…")
+        _flush()
+        armor_dir = records / "entities" / "scitem" / "ships" / "armor"
+        armor_lookup = build_armor_lookup(armor_dir)
+        logger.info(f"CHECKPOINT: Armors: {len(armor_lookup)} loaded")
+        _flush()
+
         logger.info("CHECKPOINT: Processing ship descriptions…")
         _flush()
         spaceships_dir = records / "entities" / "spaceships"
-        out_ships = scan_spaceships(spaceships_dir, controller_lookup, loc)
+        out_ships = scan_spaceships(spaceships_dir, controller_lookup, loc, armor_lookup)
         logger.info(f"CHECKPOINT: Finished ships ({len(out_ships)} entries)")
         _flush()
 

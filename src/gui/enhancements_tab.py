@@ -1,4 +1,4 @@
-"""Enhancements tab for SC Localization Editor."""
+"""Enhancements tab for Smart Citizen."""
 import logging
 
 from PyQt6.QtWidgets import (
@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal
 
+from src.gui.theme import get_secondary_text_color
 from src.utils.settings import AppSettings
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ class EnhancementsTab(QWidget):
             "Optional features that extend the base localization data. "
             "Each can be enabled or disabled independently."
         )
-        desc.setStyleSheet("font-size: 11px; color: #666;")
+        desc.setStyleSheet(f"font-size: 11px; color: {get_secondary_text_color()};")
         desc.setWordWrap(True)
         layout.addWidget(desc)
 
@@ -54,7 +55,7 @@ class EnhancementsTab(QWidget):
             "Select which enhancement categories to include. "
             "Click Apply to save changes. Enhancements are generated from your installed Data.p4k."
         )
-        enhancements_desc.setStyleSheet("font-size: 11px; color: #666;")
+        enhancements_desc.setStyleSheet(f"font-size: 11px; color: {get_secondary_text_color()};")
         enhancements_desc.setWordWrap(True)
         gl.addWidget(enhancements_desc)
 
@@ -87,7 +88,7 @@ class EnhancementsTab(QWidget):
             self._enhancements_status_labels[key] = dot
 
             desc = QLabel(_CATEGORY_DESCRIPTIONS.get(key, ""))
-            desc.setStyleSheet("font-size: 10px; color: #888;")
+            desc.setStyleSheet(f"font-size: 10px; color: {get_secondary_text_color()};")
             row.addWidget(desc)
 
             row.addStretch()
@@ -120,7 +121,7 @@ class EnhancementsTab(QWidget):
         gl.addLayout(btn_row)
 
         self._forge_status_label = QLabel()
-        self._forge_status_label.setStyleSheet("font-size: 10px; color: #666;")
+        self._forge_status_label.setStyleSheet(f"font-size: 10px; color: {get_secondary_text_color()};")
         gl.addWidget(self._forge_status_label)
 
         self._operation_label = QLabel()
@@ -193,7 +194,7 @@ class EnhancementsTab(QWidget):
             "Favorited ships have a prefix character prepended to their name so they "
             "sort to the top of the in-game ship list. Choose which character to use:"
         )
-        favorites_desc.setStyleSheet("font-size: 11px; color: #666;")
+        favorites_desc.setStyleSheet(f"font-size: 11px; color: {get_secondary_text_color()};")
         favorites_desc.setWordWrap(True)
         gl.addWidget(favorites_desc)
 

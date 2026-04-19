@@ -1,9 +1,8 @@
-# SC Localization Editor
+# Smart Citizen
+
+*Smarter Strings for Star Citizen*
 
 A PyQt6 GUI application for managing Star Citizen localization string customizations.
-
-
-![large.png](assets/large.png)
 
 > [!NOTE]
 > This project is forked from [ExoAE's ScCompLangPack](https://github.com/ExoAE/ScCompLangPack) and built upon the merge concepts from [MrKraken's ASOP terminal enhancements](https://www.youtube.com/@MrKraken). In this application, we've created an intuitive desktop GUI to make localization customization more user-friendly.
@@ -27,7 +26,7 @@ A PyQt6 GUI application for managing Star Citizen localization string customizat
 ## Quick Start
 
 ### Using the Release
-Grab the latest release here: [SC Localization Editor Releases](https://github.com/Osiris-DevWorks/sc-localization-editor/releases)
+Grab the latest release here: [Smart Citizen Releases](https://github.com/Osiris-DevWorks/smart-citizen/releases)
 
 Just download the **-Setup.exe** installer and run it. The app will auto-detect your Star Citizen installation.
 
@@ -41,8 +40,8 @@ Just download the **-Setup.exe** installer and run it. The app will auto-detect 
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/OsirisDevworks/sc-localization-editor.git
-   cd sc-localization-editor
+   git clone https://github.com/Osiris-DevWorks/smart-citizen.git
+   cd smart-citizen
    ```
 
 2. **Install dependencies**
@@ -84,7 +83,7 @@ Just download the **-Setup.exe** installer and run it. The app will auto-detect 
 
 All settings are stored in Windows Registry under:
 - **Organization**: Osiris DevWorks
-- **Application**: SC Localization Editor
+- **Application**: Smart Citizen
 
 The Config tab lets you set:
 - **Data sources**: Path/URL, enable/disable, auto-update per source
@@ -112,7 +111,7 @@ python src/main.py
 cd scripts/build
 python build_exe.py
 ```
-This creates `dist/SCLocalizationEditor-v{VERSION}.exe` using PyInstaller, where VERSION comes from `VERSION.TXT`.
+This creates `dist/SmartCitizen-v{VERSION}.exe` using PyInstaller, where VERSION comes from `VERSION.TXT`.
 
 ### Create Installer (Windows)
 Requires [Inno Setup](https://jrsoftware.org/isdl.php):
@@ -127,8 +126,8 @@ The build script:
 3. Compiles the installer with Inno Setup (if installed)
 
 Outputs:
-- `dist/SCLocalizationEditor-v{VERSION}.exe` - Standalone executable
-- `SCLocalizationEditor-v{VERSION}-Setup.exe` - Installer
+- `dist/SmartCitizen-v{VERSION}\SmartCitizen-v{VERSION}.exe` - Standalone executable (onedir)
+- `dist/SmartCitizen-v{VERSION}-Setup.exe` - Installer
 
 ## Project Structure
 
@@ -206,7 +205,7 @@ For issues, feature requests, or contributions:
 
 ### Support the Project
 
-SC Localization Editor is a free, open-source project created to help Star Citizen players customize their game localization. If you find it useful and would like to support the development:
+Smart Citizen is a free, open-source project created to help Star Citizen players customize their game localization. If you find it useful and would like to support the development:
 
 **Donate:**
 - [PayPal Donation](https://paypal.me/RighteousKill) - Support via PayPal

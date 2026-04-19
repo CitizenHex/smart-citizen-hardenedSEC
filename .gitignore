@@ -55,7 +55,7 @@ dist/
 *.manifest
 
 # Allow current spec and build scripts (needed for builds from any computer)
-!SCLocalizationEditor.spec
+!SmartCitizen.spec
 !scripts/build/
 
 # Runtime Data Files (auto-generated/downloaded)

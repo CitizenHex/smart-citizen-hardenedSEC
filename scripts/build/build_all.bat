@@ -1,6 +1,6 @@
 @echo off
 echo ========================================
-echo SC Localization Editor - Build Script
+echo Smart Citizen - Build Script
 echo ========================================
 echo.
 
@@ -31,7 +31,7 @@ echo   - Executable created
 echo.
 
 echo Step 4: Verifying onedir build...
-if exist "dist\SCLocalizationEditor-v*\" (
+if exist "dist\SmartCitizen-v*\" (
     echo   - Build folder exists: OK
 ) else (
     echo   - ERROR: Build folder not found!
@@ -62,12 +62,12 @@ echo Build Complete!
 echo ========================================
 echo.
 echo Outputs:
-for %%f in (dist\SCLocalizationEditor-*-Setup.exe) do (
+for %%f in (dist\SmartCitizen-*-Setup.exe) do (
     echo   [OK] Installer: %%f
 )
 echo.
 echo Next steps:
-echo   1. Test the installer: dist\SCLocalizationEditor-*-Setup.exe
+echo   1. Test the installer: dist\SmartCitizen-*-Setup.exe
 echo   2. Upload the installer to GitHub releases!
 echo.
 pause

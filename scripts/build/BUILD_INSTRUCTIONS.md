@@ -1,4 +1,4 @@
-# Build Instructions for SC Localization Editor
+# Build Instructions for Smart Citizen
 
 ## Quick Start
 
@@ -61,11 +61,11 @@ This will:
 - Clean previous builds
 - Package the application into a single `.exe` file
 - Include all necessary data files (global.ini)
-- Create `dist/SCLocalizationEditor-v0.1.0.exe`
+- Create `dist/SmartCitizen-v0.1.0.exe`
 
 **Testing the EXE:**
 ```bash
-dist\SCLocalizationEditor-v0.1.0.exe
+dist\SmartCitizen-v0.1.0.exe
 ```
 
 ---
@@ -96,14 +96,14 @@ This runs both build_exe.py and Inno Setup automatically.
 
 The installer will be created in the project root as:
 ```
-SCLocalizationEditor-v0.1.0-Setup.exe
+SmartCitizen-v0.1.0-Setup.exe
 ```
 
 ---
 
 ## Step 3: Test the Installer
 
-1. Run the installer: `SCLocalizationEditor-v0.1.0-Setup.exe`
+1. Run the installer: `SmartCitizen-v0.1.0-Setup.exe`
 2. Follow the installation wizard
 3. Test the installed application:
    - Launch the app
@@ -117,7 +117,7 @@ SCLocalizationEditor-v0.1.0-Setup.exe
 ## Distribution Package Contents
 
 The installer includes:
-- ✅ Main executable (`SCLocalizationEditor.exe`)
+- ✅ Main executable (`SmartCitizen.exe`)
 - ✅ Data files (default global.ini)
 - ✅ Start menu shortcuts
 - ✅ User config setup

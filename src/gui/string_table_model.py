@@ -41,7 +41,15 @@ _DEFAULT_STATUS_COLOR = QColor("black")
 
 _FAV_GOLD = QColor("#FFD700")
 _FAV_GREY = QColor("#666666")
-_FAV_BG = QColor("#3a3000")
+_FAV_BG_DARK = QColor("#3a3000")   # deep gold-brown for dark theme
+_FAV_BG_LIGHT = QColor("#FFF4C4")  # soft pale gold for light theme
+
+
+def _fav_row_bg() -> QColor:
+    """Return the favorite-row highlight appropriate for the current theme."""
+    from src.utils.settings import AppSettings
+    from src.gui.theme import THEME_LIGHT
+    return _FAV_BG_LIGHT if AppSettings.get_theme() == THEME_LIGHT else _FAV_BG_DARK
 
 
 def status_color(status: str) -> QColor:
@@ -100,7 +108,7 @@ def _group_sort_key(key: str) -> tuple[str, int]:
 # ---------------------------------------------------------------------------
 # Column key-function factories for sort()
 # ---------------------------------------------------------------------------
-def _make_sort_key(entries, default_values, sort_keys, col, grouped):
+def _make_sort_key(entries, default_values, sort_keys, col, grouped, favorite_prefix):
     """Return a key function for sorted() given the column and grouped-sort state."""
     if col == COL_KEY and grouped:
         return lambda idx: sort_keys[idx]
@@ -116,7 +124,17 @@ def _make_sort_key(entries, default_values, sort_keys, col, grouped):
         return lambda idx: entries[idx].custom_value.lower()
     if col == COL_STATUS:
         return lambda idx: entries[idx].status.lower()
-    # COL_STAR or unknown — fall back to key
+    if col == COL_STAR:
+        # Favorite = Ship with the configured prefix on its custom_value.
+        # Primary key 0 for favorites, 1 for non-favorites → ascending puts
+        # favorites at top. Tie-break by entry key so ordering within each
+        # group is stable.
+        def fav_key(idx):
+            e = entries[idx]
+            is_fav = e.category == "Ships" and e.custom_value.startswith(favorite_prefix)
+            return (0 if is_fav else 1, e.key.lower())
+        return fav_key
+    # unknown — fall back to key
     return lambda idx: entries[idx].key.lower()
 
 
@@ -280,7 +298,7 @@ class StringTableModel(QAbstractTableModel):
         # -- background colour (favorite rows) ------------------------------
         if role == Qt.ItemDataRole.BackgroundRole:
             if entry.category == "Ships" and entry.custom_value.startswith(prefix):
-                return _FAV_BG
+                return _fav_row_bg()
             return None
 
         # -- alignment ------------------------------------------------------
@@ -335,7 +353,7 @@ class StringTableModel(QAbstractTableModel):
             return
         key_fn = _make_sort_key(
             self._entries, self._default_values, self._sort_keys,
-            self._sort_column, self._grouped_sort,
+            self._sort_column, self._grouped_sort, self._favorite_prefix,
         )
         reverse = self._sort_order == Qt.SortOrder.DescendingOrder
         self._filtered_indices.sort(key=key_fn, reverse=reverse)

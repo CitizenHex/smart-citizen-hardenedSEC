@@ -7,14 +7,14 @@
 
 [Setup]
 AppId={{9A8B7C6D-4E3F-5B2A-0D1E-8F7G6H5I4J3K}
-AppName=SC Localization Editor
+AppName=Smart Citizen
 AppVersion={#AppVer}
 AppPublisher=Osiris DevWorks
-AppPublisherURL=https://github.com/Osiris-DevWorks/sc-localization-editor
-DefaultDirName={localappdata}\Osiris DevWorks\SC Localization Editor
-DefaultGroupName=SC Localization Editor
+AppPublisherURL=https://github.com/Osiris-DevWorks/smart-citizen
+DefaultDirName={localappdata}\Osiris DevWorks\Smart Citizen
+DefaultGroupName=Smart Citizen
 OutputDir=dist
-OutputBaseFilename=SCLocalizationEditor-{#AppVer}-Setup
+OutputBaseFilename=SmartCitizen-{#AppVer}-Setup
 Compression=lzma
 SolidCompression=yes
 ArchitecturesAllowed=x64
@@ -39,15 +39,15 @@ SCDirectoryDefaultPath=C:\Program Files\Roberts Space Industries\StarCitizen\LIV
 Type: filesandordirs; Name: "{app}\*"
 
 [Files]
-Source: "dist\SCLocalizationEditor-v{#AppVer}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\SmartCitizen-v{#AppVer}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\SC Localization Editor"; Filename: "{app}\SCLocalizationEditor-v{#AppVer}.exe"
-Name: "{group}\{cm:UninstallProgram,SC Localization Editor}"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\SC Localization Editor"; Filename: "{app}\SCLocalizationEditor-v{#AppVer}.exe"
+Name: "{group}\Smart Citizen"; Filename: "{app}\SmartCitizen-v{#AppVer}.exe"
+Name: "{group}\{cm:UninstallProgram,Smart Citizen}"; Filename: "{uninstallexe}"
+Name: "{commondesktop}\Smart Citizen"; Filename: "{app}\SmartCitizen-v{#AppVer}.exe"
 
 [Run]
-Filename: "{app}\SCLocalizationEditor-v{#AppVer}.exe"; Description: "{cm:LaunchProgram,SC Localization Editor}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\SmartCitizen-v{#AppVer}.exe"; Description: "{cm:LaunchProgram,Smart Citizen}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 var
@@ -94,17 +94,42 @@ begin
     Result := 1;
 end;
 
-function GetDocumentsDir(): String;
-var
-  DocsPath: String;
+function GetDocumentsBase(): String;
 begin
   if not RegQueryStringValue(HKCU,
     'SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders',
-    'Personal', DocsPath) then
+    'Personal', Result) then
   begin
-    DocsPath := ExpandConstant('{userdocs}');
+    Result := ExpandConstant('{userdocs}');
   end;
-  Result := DocsPath + '\SC Localization Editor';
+end;
+
+function GetDocumentsDir(): String;
+begin
+  Result := GetDocumentsBase() + '\Smart Citizen';
+end;
+
+procedure MigrateUserDocsFolder();
+var
+  DocsBase, OldDir, NewDir: String;
+begin
+  { Rebrand: rename Documents\SC Localization Editor\ → Documents\Smart Citizen\
+    if the old folder exists and the new one does not. User data (user.ini,
+    backups, cache) moves with the rename — no copy required. }
+  DocsBase := GetDocumentsBase();
+  OldDir := DocsBase + '\SC Localization Editor';
+  NewDir := DocsBase + '\Smart Citizen';
+  if DirExists(OldDir) and not DirExists(NewDir) then
+  begin
+    MsgBox('Your user data folder will be renamed as part of this update:' + #13#10 + #13#10 +
+           '  ' + OldDir + #13#10 +
+           '  →  ' + NewDir + #13#10 + #13#10 +
+           'Your custom edits, backups, and cached files will move with it — nothing is lost.',
+           mbInformation, MB_OK);
+    Log('Renaming user data folder: ' + OldDir + ' -> ' + NewDir);
+    if not RenameFile(OldDir, NewDir) then
+      Log('WARNING: rename failed; data remains at old location');
+  end;
 end;
 
 procedure CleanCachedData();
@@ -151,6 +176,10 @@ begin
       UnInstallOldVersion();
     end;
 
+    { Rebrand migration: rename Documents\SC Localization Editor\ to
+      Documents\Smart Citizen\ before we touch any cached data. }
+    MigrateUserDocsFolder();
+
     { Clear cached data but preserve registry settings (source paths, preferences, etc.) }
     CleanCachedData();
   end;
@@ -187,7 +216,7 @@ begin
   if UninstallString <> '' then
   begin
     { Show custom dialog with three options }
-    ButtonPressed := MsgBox('SC Localization Editor is already installed.' + #13#10 + #13#10 +
+    ButtonPressed := MsgBox('A previous version of this application is already installed.' + #13#10 + #13#10 +
                             'Choose an option:' + #13#10 +
                             '  - Click YES to uninstall the old version and install this new version' + #13#10 +
                             '  - Click NO to uninstall the old version only (without installing)' + #13#10 +
@@ -245,6 +274,15 @@ begin
 
   SCDirectoryPage.Add('');
   SCDirectoryPage.Values[0] := DefaultPath;
+
+  { Rebrand: if the prior install is still under the old "SC Localization
+    Editor" folder name, override the prefilled app dir (and start-menu
+    group) to the new brand. Any other prior location — including one the
+    user customized — is preserved. }
+  if Pos('SC Localization Editor', WizardForm.DirEdit.Text) > 0 then
+    WizardForm.DirEdit.Text := ExpandConstant('{localappdata}\Osiris DevWorks\Smart Citizen');
+  if Pos('SC Localization Editor', WizardForm.GroupEdit.Text) > 0 then
+    WizardForm.GroupEdit.Text := 'Smart Citizen';
 end;
 
 procedure CurFinished(LastStep: TSetupStep);

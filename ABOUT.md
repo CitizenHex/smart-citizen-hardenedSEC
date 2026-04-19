@@ -1,8 +1,10 @@
-# SC Localization Editor
+# Smart Citizen
+
+*Smarter Strings for Star Citizen*
 
 ## About This Project
 
-**SC Localization Editor** is a powerful, user-friendly tool for Star Citizen players to customize their game's localization strings. Load, edit, and apply localization changes with full persistence, automatic backups, and seamless support for game updates.
+**Smart Citizen** is a powerful, user-friendly tool for Star Citizen players to customize their game's localization strings. Load, edit, and apply localization changes with full persistence, automatic backups, and seamless support for game updates.
 
 Developed by **Osiris DevWorks**, a one-man development studio dedicated to creating valuable tools for the gaming community.
 
@@ -34,6 +36,11 @@ All Osiris DevWorks tools will be either **completely free** or have a **free ti
 - **Mission Rewards**: Payment amounts appended to mission descriptions
 - **Selective Categories**: Enable or disable each enhancement category independently from the Enhancements tab
 
+### 🎨 Themes
+- **Light / Dark**: Classic UI themes
+- **Default**: Deep-navy cyber theme inspired by Star Citizen's mobiGlas UI
+- **ODW**: Osiris DevWorks signature theme — navy charcoal with antique gold
+
 ### 🛡️ Data Management
 - **Automatic Backups**: Timestamped backups created before applying changes to your game
 - **Registry Persistence**: All paths and preferences saved securely in Windows Registry
@@ -54,7 +61,7 @@ All Osiris DevWorks tools will be either **completely free** or have a **free ti
 - 💬 [Discord Community](https://discord.gg/BNzRegKZ7k) - Get support, share configs, request features
 
 ### Support This Project
-SC Localization Editor is completely free. If you find it valuable:
+Smart Citizen is completely free. If you find it valuable:
 - 💳 [Donate via PayPal](https://paypal.me/RighteousKill)
 - 💰 [Donate via Venmo](https://venmo.com/u/Amr-Abouelleil)
 
@@ -67,4 +74,4 @@ SC Localization Editor is completely free. If you find it valuable:
 
 Built with **PyQt6** and powered by the Star Citizen community's localization work.
 
-**GitHub**: https://github.com/Osiris-DevWorks/sc-localization-editor
+**GitHub**: https://github.com/Osiris-DevWorks/smart-citizen

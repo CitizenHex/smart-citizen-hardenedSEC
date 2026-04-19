@@ -1,4 +1,4 @@
-"""SC Localization Editor - Main entry point."""
+"""Smart Citizen - Main entry point."""
 import ctypes
 import logging
 import sys
@@ -7,6 +7,7 @@ from pathlib import Path
 from PyQt6.QtWidgets import QApplication
 
 from src.gui.main_window import MainWindow
+from src.gui.theme import apply_theme, load_application_fonts
 from src.utils.version import get_version
 from src.utils.settings import AppSettings
 
@@ -26,7 +27,12 @@ logger = logging.getLogger(__name__)
 
 def main():
     """Application entry point."""
-    logger.info(f"Starting SC Localization Editor v{get_version()}")
+    logger.info(f"Starting Smart Citizen v{get_version()}")
+
+    # Rename Documents\SC Localization Editor\ → Documents\Smart Citizen\ on
+    # first run after the 0.9.0 rebrand (idempotent). Must run before any
+    # path-resolving setting is touched.
+    AppSettings.migrate_docs_folder_rename()
 
     # Migrate legacy settings to new data source format
     AppSettings.migrate_legacy_settings()
@@ -47,10 +53,12 @@ def main():
     # instead of the Python interpreter icon.
     if sys.platform == 'win32':
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-            'OsirisDevWorks.SCLocalizationEditor'
+            'OsirisDevWorks.SmartCitizen'
         )
 
     app = QApplication(sys.argv)
+    load_application_fonts()
+    apply_theme(app, AppSettings.get_theme())
     window = MainWindow()
     window.show()
 

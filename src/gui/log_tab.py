@@ -10,6 +10,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QObject
 from PyQt6.QtGui import QTextCharFormat, QColor, QFont, QTextCursor
 
+from src.gui.theme import get_secondary_text_color
+
 # Maximum lines kept in the viewer before oldest lines are dropped
 _MAX_LINES = 2000
 
@@ -128,7 +130,7 @@ class LogTab(QWidget):
 
         # Status bar
         self._status_label = QLabel("0 lines")
-        self._status_label.setStyleSheet("font-size: 10px; color: #666;")
+        self._status_label.setStyleSheet(f"font-size: 10px; color: {get_secondary_text_color()};")
         layout.addWidget(self._status_label)
 
     # ── Handler lifecycle ─────────────────────────────────────────────────────
