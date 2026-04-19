@@ -596,6 +596,12 @@ class MainWindow(QMainWindow):
             self._eye_pulse.setEasingCurve(QEasingCurve.Type.InOutSine)
             self._eye_pulse.setLoopCount(-1)
 
+            # Separate one-shot animation used when work ends mid-pulse —
+            # eases the current opacity down to 0 instead of snapping off.
+            self._eye_fadeout = QPropertyAnimation(self._eye_glow, b"opacity", self)
+            self._eye_fadeout.setEasingCurve(QEasingCurve.Type.InOutSine)
+            self._eye_fadeout.setEndValue(0.0)
+
             stack.addWidget(base_label)
             stack.addWidget(self._eye_label)
 
@@ -633,6 +639,7 @@ class MainWindow(QMainWindow):
             """)
             self._eye_pulse = None
             self._eye_glow = None
+            self._eye_fadeout = None
             self.osiris_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
             self.osiris_button.mousePressEvent = self.open_discord_link
             footer_layout.addWidget(self.osiris_button)
@@ -1836,16 +1843,33 @@ Shows the sync status for each configured source. "✓" means up to date.
         Polled by `_eye_pulse_monitor` instead of wiring into every worker
         lifecycle slot — polling is cheaper than touching every entrypoint
         and guarantees we can't forget to stop the pulse on an error path.
+        When work ends mid-pulse we ease the current opacity down to 0
+        instead of snapping it off.
         """
         if self._eye_pulse is None or self._eye_glow is None:
             return
         running = self._has_long_running_worker()
-        anim_running = self._eye_pulse.state() == QPropertyAnimation.State.Running
-        if running and not anim_running:
-            self._eye_pulse.start()
-        elif not running and anim_running:
+        pulse_on   = self._eye_pulse.state()   == QPropertyAnimation.State.Running
+        fadeout_on = self._eye_fadeout.state() == QPropertyAnimation.State.Running
+
+        if running:
+            # Starting up or resuming — cancel any in-flight fade-out and
+            # rejoin the pulse loop.
+            if fadeout_on:
+                self._eye_fadeout.stop()
+            if not pulse_on:
+                self._eye_pulse.start()
+        elif pulse_on:
+            # Work just ended — stop the loop, then ease from wherever we
+            # are right now down to 0. Duration scales with remaining
+            # opacity so a near-dark eye fades quickly and a bright one
+            # takes the full ~600ms.
+            current = self._eye_glow.opacity()
             self._eye_pulse.stop()
-            self._eye_glow.setOpacity(0.0)
+            self._eye_fadeout.stop()
+            self._eye_fadeout.setStartValue(current)
+            self._eye_fadeout.setDuration(int(100 + 500 * current))
+            self._eye_fadeout.start()
 
     def _has_long_running_worker(self) -> bool:
         """True while an extract/generate/load worker is running. Status-bar
