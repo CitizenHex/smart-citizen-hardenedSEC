@@ -46,7 +46,7 @@ def _get_documents_dir() -> Path:
         return Path.home() / "Documents"
 
 
-APP_CACHE_DIR    = _get_documents_dir() / "SC Localization Editor" / "cache"
+APP_CACHE_DIR    = _get_documents_dir() / "Smart Citizen" / "cache"
 DEFAULT_BASE_INI = APP_CACHE_DIR / "base.ini"
 DEFAULT_FORGE_DIR = APP_CACHE_DIR / "dataforge"
 

@@ -43,7 +43,7 @@ def get_documents_dir() -> Path:
 
 
 def get_default_cache_dir() -> Path:
-    return get_documents_dir() / "SC Localization Editor" / "cache"
+    return get_documents_dir() / "Smart Citizen" / "cache"
 
 
 def parse_ini(path: Path) -> dict[str, str]:

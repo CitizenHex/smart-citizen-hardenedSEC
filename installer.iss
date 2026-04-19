@@ -94,17 +94,42 @@ begin
     Result := 1;
 end;
 
-function GetDocumentsDir(): String;
-var
-  DocsPath: String;
+function GetDocumentsBase(): String;
 begin
   if not RegQueryStringValue(HKCU,
     'SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders',
-    'Personal', DocsPath) then
+    'Personal', Result) then
   begin
-    DocsPath := ExpandConstant('{userdocs}');
+    Result := ExpandConstant('{userdocs}');
   end;
-  Result := DocsPath + '\SC Localization Editor';
+end;
+
+function GetDocumentsDir(): String;
+begin
+  Result := GetDocumentsBase() + '\Smart Citizen';
+end;
+
+procedure MigrateUserDocsFolder();
+var
+  DocsBase, OldDir, NewDir: String;
+begin
+  { Rebrand: rename Documents\SC Localization Editor\ → Documents\Smart Citizen\
+    if the old folder exists and the new one does not. User data (user.ini,
+    backups, cache) moves with the rename — no copy required. }
+  DocsBase := GetDocumentsBase();
+  OldDir := DocsBase + '\SC Localization Editor';
+  NewDir := DocsBase + '\Smart Citizen';
+  if DirExists(OldDir) and not DirExists(NewDir) then
+  begin
+    MsgBox('Your user data folder will be renamed as part of this update:' + #13#10 + #13#10 +
+           '  ' + OldDir + #13#10 +
+           '  →  ' + NewDir + #13#10 + #13#10 +
+           'Your custom edits, backups, and cached files will move with it — nothing is lost.',
+           mbInformation, MB_OK);
+    Log('Renaming user data folder: ' + OldDir + ' -> ' + NewDir);
+    if not RenameFile(OldDir, NewDir) then
+      Log('WARNING: rename failed; data remains at old location');
+  end;
 end;
 
 procedure CleanCachedData();
@@ -150,6 +175,10 @@ begin
     begin
       UnInstallOldVersion();
     end;
+
+    { Rebrand migration: rename Documents\SC Localization Editor\ to
+      Documents\Smart Citizen\ before we touch any cached data. }
+    MigrateUserDocsFolder();
 
     { Clear cached data but preserve registry settings (source paths, preferences, etc.) }
     CleanCachedData();
@@ -245,6 +274,15 @@ begin
 
   SCDirectoryPage.Add('');
   SCDirectoryPage.Values[0] := DefaultPath;
+
+  { Rebrand: if the prior install is still under the old "SC Localization
+    Editor" folder name, override the prefilled app dir (and start-menu
+    group) to the new brand. Any other prior location — including one the
+    user customized — is preserved. }
+  if Pos('SC Localization Editor', WizardForm.DirEdit.Text) > 0 then
+    WizardForm.DirEdit.Text := ExpandConstant('{localappdata}\Osiris DevWorks\Smart Citizen');
+  if Pos('SC Localization Editor', WizardForm.GroupEdit.Text) > 0 then
+    WizardForm.GroupEdit.Text := 'Smart Citizen';
 end;
 
 procedure CurFinished(LastStep: TSetupStep);

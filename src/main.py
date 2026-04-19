@@ -29,6 +29,11 @@ def main():
     """Application entry point."""
     logger.info(f"Starting Smart Citizen v{get_version()}")
 
+    # Rename Documents\SC Localization Editor\ → Documents\Smart Citizen\ on
+    # first run after the 0.9.0 rebrand (idempotent). Must run before any
+    # path-resolving setting is touched.
+    AppSettings.migrate_docs_folder_rename()
+
     # Migrate legacy settings to new data source format
     AppSettings.migrate_legacy_settings()
 

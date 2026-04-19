@@ -453,15 +453,8 @@ class AppSettings:
 
 
     @staticmethod
-    def get_user_data_dir() -> Path:
-        r"""Get the user data directory: Documents\SC Localization Editor\.
-
-        Uses the real Documents folder path from the registry, which correctly
-        handles OneDrive/folder-redirection. Falls back to Path.home()/Documents.
-
-        Returns:
-            Path to Documents\SC Localization Editor\ (created if needed)
-        """
+    def _resolve_docs_base() -> Path:
+        """Resolve the real Documents root (honors OneDrive redirection)."""
         try:
             key = winreg.OpenKey(
                 winreg.HKEY_CURRENT_USER,
@@ -471,17 +464,46 @@ class AppSettings:
             winreg.CloseKey(key)
         except (WindowsError, OSError):
             docs_path = Path.home() / "Documents"
+        return docs_path
 
-        data_dir = docs_path / "SC Localization Editor"
+    @staticmethod
+    def migrate_docs_folder_rename() -> None:
+        r"""Rename legacy Documents\SC Localization Editor\ → Documents\Smart Citizen\.
+
+        Safe to call on every startup — only acts when the old folder exists
+        and the new one does not. The installer handles this on upgrade; this
+        path covers dev runs and anyone who bypassed the installer.
+        """
+        docs = AppSettings._resolve_docs_base()
+        old_dir = docs / "SC Localization Editor"
+        new_dir = docs / "Smart Citizen"
+        if old_dir.exists() and not new_dir.exists():
+            try:
+                old_dir.rename(new_dir)
+                logger.info(f"Renamed data folder: {old_dir} → {new_dir}")
+            except OSError as e:
+                logger.warning(f"Could not rename data folder {old_dir}: {e}")
+
+    @staticmethod
+    def get_user_data_dir() -> Path:
+        r"""Get the user data directory: Documents\Smart Citizen\.
+
+        Uses the real Documents folder path from the registry, which correctly
+        handles OneDrive/folder-redirection. Falls back to Path.home()/Documents.
+
+        Returns:
+            Path to Documents\Smart Citizen\ (created if needed)
+        """
+        data_dir = AppSettings._resolve_docs_base() / "Smart Citizen"
         data_dir.mkdir(parents=True, exist_ok=True)
         return data_dir
 
     @staticmethod
     def get_cache_dir() -> Path:
-        r"""Get canonical cache directory in Documents\SC Localization Editor\cache\.
+        r"""Get canonical cache directory in Documents\Smart Citizen\cache\.
 
         Returns:
-            Path to Documents\SC Localization Editor\cache\ (created if needed)
+            Path to Documents\Smart Citizen\cache\ (created if needed)
         """
         cache_dir = AppSettings.get_user_data_dir() / "cache"
         cache_dir.mkdir(parents=True, exist_ok=True)
@@ -489,12 +511,12 @@ class AppSettings:
 
     @staticmethod
     def get_user_ini_path() -> Path:
-        r"""Get canonical path for user.ini in Documents\SC Localization Editor\.
+        r"""Get canonical path for user.ini in Documents\Smart Citizen\.
 
         Migrates from overrides.ini → user.ini on first call if needed.
 
         Returns:
-            Path to Documents\SC Localization Editor\user.ini
+            Path to Documents\Smart Citizen\user.ini
         """
         data_dir = AppSettings.get_user_data_dir()
         user_ini = data_dir / "user.ini"
@@ -513,10 +535,10 @@ class AppSettings:
 
     @staticmethod
     def get_backups_dir() -> Path:
-        r"""Get canonical backups directory in Documents\SC Localization Editor\backups\.
+        r"""Get canonical backups directory in Documents\Smart Citizen\backups\.
 
         Returns:
-            Path to Documents\SC Localization Editor\backups\ (created if needed)
+            Path to Documents\Smart Citizen\backups\ (created if needed)
         """
         backups_dir = AppSettings.get_user_data_dir() / "backups"
         backups_dir.mkdir(parents=True, exist_ok=True)

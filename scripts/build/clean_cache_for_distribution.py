@@ -29,7 +29,7 @@ def get_documents_dir():
         return Path.home() / "Documents"
 
 def main():
-    cache_dir = get_documents_dir() / "SC Localization Editor" / "cache" / "dataforge"
+    cache_dir = get_documents_dir() / "Smart Citizen" / "cache" / "dataforge"
     raw_dir = cache_dir / "raw"
 
     if not raw_dir.exists():
