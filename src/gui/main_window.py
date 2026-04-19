@@ -54,7 +54,7 @@ from src.merger.ini_merger import merge_sources_by_hierarchy
 from src.utils.version import get_version
 from src.utils.perf import timed
 from src.gui.config_tab import ConfigTab
-from src.gui.theme import get_secondary_text_color, get_button_color, get_button_text_color, get_title_color, get_tagline_color, BRAND_FONT_FAMILY
+from src.gui.theme import get_button_color, get_button_text_color, get_title_color, get_tagline_color, BRAND_FONT_FAMILY
 from src.gui.enhancements_tab import EnhancementsTab
 from src.gui.log_tab import LogTab
 
@@ -574,9 +574,11 @@ class MainWindow(QMainWindow):
         # Stretch to push donation buttons to the right
         footer_layout.addStretch()
 
-        # Donation label
+        # Donation label — role=secondary lets the app-level QSS re-color on
+        # theme swap without us having to track individual labels.
         donation_label = QLabel("Support this project:")
-        donation_label.setStyleSheet(f"font-size: 12px; color: {get_secondary_text_color()}; margin-right: 5px;")
+        donation_label.setProperty("role", "secondary")
+        donation_label.setStyleSheet("font-size: 12px; margin-right: 5px;")
         footer_layout.addWidget(donation_label)
 
         # PayPal button (right side)
@@ -1762,6 +1764,19 @@ Shows the sync status for each configured source. "✓" means up to date.
         else:
             super().keyPressEvent(event)
 
+    def _has_long_running_worker(self) -> bool:
+        """True while an extract/generate/load worker is running. Status-bar
+        refreshes that would otherwise fall back to 'Ready' are suppressed
+        during that window so in-progress messages aren't clobbered mid-run.
+        """
+        workers = (
+            self._enhancements_worker,
+            self._forge_worker,
+            self._p4k_worker,
+            self._loader_worker,
+        )
+        return any(w is not None and w.isRunning() for w in workers)
+
     def _update_status_bar(self):
         """Compose sync status from all configured sources plus entry counts and game version.
 
@@ -1792,7 +1807,12 @@ Shows the sync status for each configured source. "✓" means up to date.
             short_version = ".".join(version_parts[:3]) if len(version_parts) >= 3 else game_version
             parts.append(f"SC v{short_version}")
 
-        self.statusBar().showMessage("  |  ".join(parts) if parts else "Ready")
+        if parts:
+            self.statusBar().showMessage("  |  ".join(parts))
+        elif not self._has_long_running_worker():
+            # Don't overwrite a progress message with "Ready" while a worker
+            # is still running — the user reads the empty state as "done".
+            self.statusBar().showMessage("Ready")
 
     def _set_source_status(self, source_name: str, status: str) -> None:
         """Set sync status for a specific source and update status bar.
@@ -1969,25 +1989,30 @@ Shows the sync status for each configured source. "✓" means up to date.
             QPushButton, QHBoxLayout
         )
 
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Generate Enhancements")
-        dialog.setMinimumWidth(400)
-        layout = QVBoxLayout(dialog)
-
-        layout.addWidget(QLabel(
-            f"{len(missing_keys)} enhancement files are missing.\n"
-            "Select which categories to generate.\n"
-            "You can change this later in the Enhancements tab."
-        ))
-
-        layout.addSpacing(8)
-
-        # Determine which checkbox categories have missing files
+        # Collapse the missing-file list down to the set of category checkboxes
+        # the user will actually see. The dialog is category-shaped, not
+        # file-shaped — reporting the file count here confuses users because a
+        # single category (e.g. ship_items) maps to multiple files.
         missing_file_keys = set(missing_keys)
         missing_checkbox_keys = set()
         for checkbox_key, file_keys in AppSettings.ENHANCEMENT_CATEGORY_FILES.items():
             if any(fk in missing_file_keys for fk in file_keys):
                 missing_checkbox_keys.add(checkbox_key)
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Generate Enhancements")
+        dialog.setMinimumWidth(400)
+        layout = QVBoxLayout(dialog)
+
+        n = len(missing_checkbox_keys)
+        noun = "category is" if n == 1 else "categories are"
+        layout.addWidget(QLabel(
+            f"{n} enhancement {noun} missing.\n"
+            "Select which to generate.\n"
+            "You can change this later in the Enhancements tab."
+        ))
+
+        layout.addSpacing(8)
 
         checkboxes: dict[str, QCheckBox] = {}
         for key, label in AppSettings.ENHANCEMENT_LABELS.items():
@@ -2006,7 +2031,8 @@ Shows the sync status for each configured source. "✓" means up to date.
             "DataForge data will be extracted automatically if not already cached.\n"
             "First run takes ~5-10 minutes."
         )
-        info.setStyleSheet(f"font-size: 11px; color: {get_secondary_text_color()};")
+        info.setProperty("role", "secondary")
+        info.setStyleSheet("font-size: 11px;")
         info.setWordWrap(True)
         layout.addWidget(info)
 
