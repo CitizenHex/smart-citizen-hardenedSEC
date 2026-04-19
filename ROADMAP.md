@@ -180,6 +180,7 @@
 
 ## 0.9.1
 * [ ] pre-release final polish
+* [ ] Add battlestations to other apps in about section
 * [ ] stability & bugfixes
 * [ ] finalize in-app documentation
 * [ ] performance optimization
