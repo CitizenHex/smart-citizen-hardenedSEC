@@ -189,6 +189,7 @@
 ## 0.9.2
 * [ ] pre-release final polish
 * [ ] Add Battlestations to other apps in about section
+* [ ] Add/Update acknowledgements section to include everyone who tested and gave feedback on the application
 * [ ] stability & bugfixes
 * [ ] finalize in-app documentation
 * [ ] performance optimization
