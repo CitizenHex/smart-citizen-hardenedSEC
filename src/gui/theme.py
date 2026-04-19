@@ -1,8 +1,10 @@
-"""Application theme management — light and dark modes.
+"""Application theme management.
 
-Themes are applied by swapping the Qt palette on the QApplication. Widgets that
-need theme-aware text colors should rely on the palette's WindowText/Text roles
-(the default); secondary/dim labels use the static SECONDARY_TEXT_COLOR below.
+Themes are applied by swapping the Qt palette on the QApplication. Widgets
+that need theme-aware text colors should rely on the palette's
+WindowText/Text roles (the default); dim labels mark themselves with
+`setProperty("role", "secondary")` and an app-level QSS rule (installed by
+`apply_theme`) recolors them when the theme changes.
 """
 import logging
 import os
@@ -53,15 +55,15 @@ THEME_ODW = "odw"
 AVAILABLE_THEMES = (THEME_LIGHT, THEME_DARK, THEME_SCLE, THEME_ODW)
 DEFAULT_THEME = THEME_SCLE
 
-# Neutral mid-gray used for secondary/dim text in both themes. Readable on
-# both light and dark backgrounds. Kept theme-independent so live theme
-# switching doesn't need to walk every label to re-apply stylesheets.
-SECONDARY_TEXT_COLOR = "#888888"
-
-
-def get_secondary_text_color() -> str:
-    """Return the secondary/dim text color (theme-independent)."""
-    return SECONDARY_TEXT_COLOR
+# Secondary/dim text color per theme. A single shade can't stay readable on
+# both #C8C8C8 (light window) and #0D1826 (scle navy) — so we resolve it
+# per-theme and surface it via the app-level QSS rule in `_app_stylesheet_for`.
+_SECONDARY_TEXT_COLORS = {
+    THEME_LIGHT: "#2A2A2A",
+    THEME_DARK:  "#D5D5D5",
+    THEME_SCLE:  "#D5D5D5",
+    THEME_ODW:   "#D4B876",
+}
 
 
 # Toolbar action button colors per theme. Light uses Material 500 shades;
@@ -157,14 +159,19 @@ def _light_palette() -> QPalette:
     p.setColor(QPalette.ColorRole.Button,          QColor(200, 200, 200))
     p.setColor(QPalette.ColorRole.ButtonText,      QColor(25, 25, 25))
     p.setColor(QPalette.ColorRole.BrightText,      QColor(255, 0, 0))
-    p.setColor(QPalette.ColorRole.Highlight,       QColor(0, 120, 215))
+    # Highlight pulls double duty: text-selection + Fusion's QProgressBar
+    # chunk gradient. The chunk gradient widens when Highlight sits at mid
+    # luminance (Fusion's lighter()/darker() factors have room to move both
+    # ways), so the two scrolling tones read as distinct.
+    p.setColor(QPalette.ColorRole.Highlight,       QColor(21, 101, 192))   # #1565C0
     p.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
     p.setColor(QPalette.ColorRole.Link,            QColor(0, 102, 204))
-    p.setColor(QPalette.ColorRole.PlaceholderText, QColor(110, 110, 110))
-    # Disabled-state overrides so disabled text reads clearly in both modes
-    p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, QColor(150, 150, 150))
-    p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text,       QColor(150, 150, 150))
-    p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(150, 150, 150))
+    p.setColor(QPalette.ColorRole.PlaceholderText, QColor(90, 90, 90))
+    # Disabled-state overrides — darker than 150-gray so disabled text keeps
+    # ~4:1 contrast against the 200-gray window (was 150, which blurred away).
+    p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, QColor(100, 100, 100))
+    p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text,       QColor(100, 100, 100))
+    p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(100, 100, 100))
     return p
 
 
@@ -172,22 +179,24 @@ def _dark_palette() -> QPalette:
     """Return a dark palette inspired by the Qt-community "Fusion dark" pattern."""
     p = QPalette()
     p.setColor(QPalette.ColorRole.Window,          QColor(30, 30, 30))
-    p.setColor(QPalette.ColorRole.WindowText,      QColor(220, 220, 220))
+    p.setColor(QPalette.ColorRole.WindowText,      QColor(232, 232, 232))
     p.setColor(QPalette.ColorRole.Base,            QColor(30, 30, 30))
     p.setColor(QPalette.ColorRole.AlternateBase,   QColor(45, 45, 48))
     p.setColor(QPalette.ColorRole.ToolTipBase,     QColor(45, 45, 48))
-    p.setColor(QPalette.ColorRole.ToolTipText,     QColor(220, 220, 220))
-    p.setColor(QPalette.ColorRole.Text,            QColor(220, 220, 220))
+    p.setColor(QPalette.ColorRole.ToolTipText,     QColor(232, 232, 232))
+    p.setColor(QPalette.ColorRole.Text,            QColor(232, 232, 232))
     p.setColor(QPalette.ColorRole.Button,          QColor(55, 55, 58))
-    p.setColor(QPalette.ColorRole.ButtonText,      QColor(220, 220, 220))
+    p.setColor(QPalette.ColorRole.ButtonText,      QColor(232, 232, 232))
     p.setColor(QPalette.ColorRole.BrightText,      QColor(255, 80, 80))
-    p.setColor(QPalette.ColorRole.Highlight,       QColor(38, 112, 182))
+    # Brighter mid-tone blue so Fusion's indeterminate chunk gradient has
+    # a visible light/dark delta against the near-black track.
+    p.setColor(QPalette.ColorRole.Highlight,       QColor(59, 130, 246))   # #3B82F6
     p.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
     p.setColor(QPalette.ColorRole.Link,            QColor(100, 170, 255))
-    p.setColor(QPalette.ColorRole.PlaceholderText, QColor(160, 160, 160))
-    p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, QColor(120, 120, 120))
-    p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text,       QColor(120, 120, 120))
-    p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(120, 120, 120))
+    p.setColor(QPalette.ColorRole.PlaceholderText, QColor(175, 175, 175))
+    p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, QColor(150, 150, 150))
+    p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text,       QColor(150, 150, 150))
+    p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(150, 150, 150))
     return p
 
 
@@ -205,7 +214,11 @@ def _scle_palette() -> QPalette:
     p.setColor(QPalette.ColorRole.Button,          QColor(26, 45, 68))    # #1A2D44 raised panel
     p.setColor(QPalette.ColorRole.ButtonText,      QColor(216, 232, 240))
     p.setColor(QPalette.ColorRole.BrightText,      QColor(255, 138, 66))  # #FF8A42 orange accent
-    p.setColor(QPalette.ColorRole.Highlight,       QColor(0, 212, 255))   # #00D4FF selection cyan
+    # Pulled down from near-max-brightness #00D4FF to a mid-luminance teal-
+    # cyan so Fusion's QProgressBar chunk gradient has room to produce a
+    # visible light/dark delta (bright-cyan Highlight capped the lighter()
+    # endpoint and the bar read as a single flat color).
+    p.setColor(QPalette.ColorRole.Highlight,       QColor(0, 153, 204))   # #0099CC
     p.setColor(QPalette.ColorRole.HighlightedText, QColor(10, 18, 32))    # dark on cyan
     p.setColor(QPalette.ColorRole.Link,            QColor(79, 215, 232))  # #4FD7E8
     p.setColor(QPalette.ColorRole.PlaceholderText, QColor(111, 181, 208)) # #6FB5D0
@@ -229,7 +242,10 @@ def _odw_palette() -> QPalette:
     p.setColor(QPalette.ColorRole.Button,          QColor(36, 41, 56))    # raised
     p.setColor(QPalette.ColorRole.ButtonText,      QColor(240, 230, 207))
     p.setColor(QPalette.ColorRole.BrightText,      QColor(199, 122, 77))  # #C77A4D copper
-    p.setColor(QPalette.ColorRole.Highlight,       QColor(201, 169, 97))  # #C9A961 Osiris gold
+    # More saturated / mid-luminance gold — the previous muted #C9A961
+    # gave Fusion's chunk gradient almost no light/dark spread, so the
+    # scrolling bar read as two near-identical shades of gold.
+    p.setColor(QPalette.ColorRole.Highlight,       QColor(212, 160, 23))  # #D4A017
     p.setColor(QPalette.ColorRole.HighlightedText, QColor(26, 31, 46))    # navy on gold
     p.setColor(QPalette.ColorRole.Link,            QColor(212, 184, 118)) # #D4B876 brighter gold
     p.setColor(QPalette.ColorRole.PlaceholderText, QColor(160, 140, 90))  # #A08C5A muted gold
@@ -249,6 +265,19 @@ def _palette_for(theme: str) -> QPalette:
     return _light_palette()
 
 
+def _app_stylesheet_for(theme: str) -> str:
+    """QSS applied at the QApplication level. Used for widget-role rules that
+    need to re-color on live theme swap without walking every tracked label.
+
+    Intentionally does not touch QProgressBar — any QSS on the chunk switches
+    Fusion to a styled render path that stops animating the indeterminate
+    busy indicator. Per-theme progress-bar contrast is handled via the
+    palette's Highlight role in the theme palettes below.
+    """
+    secondary = _SECONDARY_TEXT_COLORS.get(theme, _SECONDARY_TEXT_COLORS[DEFAULT_THEME])
+    return f'QLabel[role="secondary"] {{ color: {secondary}; }}'
+
+
 def apply_theme(app: QApplication, theme: str) -> None:
     """Apply the named theme to the application.
 
@@ -265,4 +294,5 @@ def apply_theme(app: QApplication, theme: str) -> None:
     if current_style.lower() != "fusion":
         app.setStyle("Fusion")
     app.setPalette(_palette_for(theme))
+    app.setStyleSheet(_app_stylesheet_for(theme))
     logger.info(f"Applied theme: {theme}")

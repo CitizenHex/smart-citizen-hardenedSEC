@@ -1230,13 +1230,27 @@ def scan_contract_generators(
 
                             if title_param is not None:
                                 title_key = title_param.get("value", "").lstrip("@")
-                                desc_key = desc_param.get("value", "").lstrip("@") if desc_param is not None else ""
+                            if desc_param is not None:
+                                desc_key = desc_param.get("value", "").lstrip("@")
 
-                            # Fallback: resolve title/desc from contract template
-                            if not title_key:
+                            # Resolve either key from the contract template when
+                            # the inline ContractStringParam is missing. The
+                            # previous version only triggered this fallback when
+                            # *title* was missing — so a contract with a title
+                            # but no desc_param silently dropped its description
+                            # path, and its title_key never appeared in
+                            # unique_desc_keys. That meant no BP / stats block
+                            # ever got written for that mission's desc (e.g.
+                            # Jorrit Dossier P2M4 "Updated Power Usage Data" in
+                            # 4.7.177's output).
+                            if not title_key or not desc_key:
                                 tmpl_uuid = contract.get("template", "")
                                 if tmpl_uuid and tmpl_uuid in template_lookup:
-                                    title_key, desc_key = template_lookup[tmpl_uuid]
+                                    tmpl_title, tmpl_desc = template_lookup[tmpl_uuid]
+                                    if not title_key:
+                                        title_key = tmpl_title
+                                    if not desc_key:
+                                        desc_key = tmpl_desc
 
                             if not title_key:
                                 continue
@@ -2625,6 +2639,16 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             # title but have different descs (e.g. FPS intro + standard killship
             # bounty) each get their own stats block, aggregated only from the
             # variants that actually use that desc.
+            #
+            # Conversely, skip desc_keys that a *different* title_key already
+            # wrote to this run. Some upstream contracts have broken
+            # desc_params that point at another mission's loc-key — e.g.
+            # Hockrow_FacilityDelve_P2M4-Stanton4_Repeat ("Updated Power Usage
+            # Data") references Hockrow_FacilityDelve_P2M1_Repeat_desc
+            # ("Updated Energy Anomaly Data"). Without this guard the later
+            # iteration clobbers the earlier one, and the shared desc ends up
+            # showing the wrong pool's blueprints for the mission that owns
+            # the loc-key.
             unique_desc_keys: list[str] = []
             for v in variants:
                 dk = v[3]
@@ -2632,6 +2656,12 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                     unique_desc_keys.append(dk)
 
             for desc_key in unique_desc_keys:
+                if desc_key in out_missions:
+                    logger.debug(
+                        f"Skipping shared desc_key {desc_key!r} for title_key {title_key!r}: "
+                        f"already written by a prior title_key (likely a game-side data bug)"
+                    )
+                    continue
                 desc_variants = [v for v in variants if v[3] == desc_key]
                 base_desc = loc[desc_key]
 

@@ -172,17 +172,26 @@
 * [x] when a user provides a different Star Citizen installation path during setup, it isn't being propagated to the game settings — `get_game_install_path()` now mirrors the installer-written `sc_directory` into QSettings on first read, so the app survives registry cleanup or clean reinstall
 * [x] what is with the BP* annotations? — intentional marker for "only some mission variants reward BP" (14 of 233 BP-annotated missions, ~6%). Descriptions already list the specific variants; added a footer line `* = only some mission variants reward bp` to `[BP*]` mission descriptions so the asterisk is self-explanatory.
 
-# 0.9.x Pre-Release Polish
+# 0.9.0 Pre-Release Polish
 * [x] UI themes: dark, light, SCLE and ODW themes
 * [x] Rebranding as "Smart Citizen: Smarter Strings for Star Citizen"
 * [x] Fix sorting of favorites column
 * [x] ship armor enhancements — `entities/scitem/ships/armor/` (~197 XMLs, ~100 loc keys in base.ini). Damage multipliers (physical/energy/distortion/thermal), deflection, health pools. Reuses the weapon-damage parsing pattern; output as `ship_armor_desc_enhancements.ini` merged as a new source.
 
 ## 0.9.1
+* [x] default theme progress bar is all solid and doesn't animate — retuned SCLE `Highlight` from near-max #00D4FF to #0099CC so Fusion's chunk gradient has room to animate
+* [x] progress bars for other themes the two colors are too similar — shifted each theme's `Highlight` to mid-luminance (Light #1565C0, Dark #3B82F6, ODW #D4A017) so the chunk gradient's lighter/darker tones read distinctly
+* [x] use better contrast on text for light and dark themes — palette disabled/placeholder tuned; secondary-text role retargeted per-theme (Light #2A2A2A, Dark/SCLE #D5D5D5, ODW #D4B876) via an app-level QSS rule
+* [x] when first starting and generation says files are missing, it says 8 but lists only 6 — dialog now counts the category checkboxes it actually renders, not the underlying files
+* [x] when generating stats, the footer at one point says "Ready" which is confusing because its actually still working — status bar no longer falls back to "Ready" while any extract/generate/load worker is running
+* [x] Jorrit Dossier P2M1/P2M4 share blueprint awards — game-side data bug (P2M4's contract references `P2M1_Repeat_desc`); first-writer-wins guard keeps P2M1's intended pool (Pool A, 11 items). Also extended contract-template fallback so `desc_key` resolves independently of `title_key`.
+
+## 0.9.2
 * [ ] pre-release final polish
-* [ ] Add battlestations to other apps in about section
+* [ ] Add Battlestations to other apps in about section
 * [ ] stability & bugfixes
 * [ ] finalize in-app documentation
 * [ ] performance optimization
+* [ ] parallelize enhancements generation + switch to determinate progress bars — run independent lookup builds (entity_names, blueprint_pools, reputation_lookup, etc.) concurrently, and fan out the 8 output file generators across threads. Threads (not processes) because the builders share large read-only lookup dicts and spend most time in GIL-releasing XML parse + file I/O. Shared plumbing: a thread-safe progress sink (Lock + counter or `queue.Queue`) that both (a) replaces the sequential `_flush()` pattern and (b) drives a determinate QProgressBar — each worker reports `(current, total)` sub-progress that funnels into a single aggregated `completed / total` value shown in `AnimatedProgressDialog`. Apply the same determinate treatment to file loading (N sources) and P4K/DataForge extraction (phase-level: "unp4k → unforge → cache").
 * [ ] cache streamlining
 * [ ] end-to-end testing & version release

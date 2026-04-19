@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal, QTimer
 
-from src.gui.theme import AVAILABLE_THEMES, THEME_LIGHT, THEME_DARK, THEME_SCLE, THEME_ODW, get_secondary_text_color
+from src.gui.theme import AVAILABLE_THEMES, THEME_LIGHT, THEME_DARK, THEME_SCLE, THEME_ODW
 from src.utils.settings import AppSettings
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,8 @@ class ConfigTab(QWidget):
             "Configure your Star Citizen installation path, extract base localization "
             "from Data.p4k, and import external INI files to customize your strings."
         )
-        instructions.setStyleSheet(f"font-size: 11px; color: {get_secondary_text_color()};")
+        instructions.setProperty("role", "secondary")
+        instructions.setStyleSheet("font-size: 11px;")
         instructions.setWordWrap(True)
         layout.addWidget(instructions)
 
@@ -70,7 +71,8 @@ class ConfigTab(QWidget):
         game_layout = QVBoxLayout(game_group)
 
         game_desc = QLabel("Path to Star Citizen LIVE directory")
-        game_desc.setStyleSheet(f"font-size: 11px; color: {get_secondary_text_color()}; margin-bottom: 5px;")
+        game_desc.setProperty("role", "secondary")
+        game_desc.setStyleSheet("font-size: 11px; margin-bottom: 5px;")
         game_layout.addWidget(game_desc)
 
         game_input_layout = QHBoxLayout()
@@ -97,7 +99,8 @@ class ConfigTab(QWidget):
             "Extract global.ini from your installed Data.p4k to get stock game strings "
             "that always match your installed version."
         )
-        p4k_desc.setStyleSheet(f"font-size: 11px; color: {get_secondary_text_color()};")
+        p4k_desc.setProperty("role", "secondary")
+        p4k_desc.setStyleSheet("font-size: 11px;")
         p4k_desc.setWordWrap(True)
         p4k_layout.addWidget(p4k_desc)
 
@@ -107,7 +110,8 @@ class ConfigTab(QWidget):
         p4k_status_row.addWidget(self._p4k_status_dot)
 
         self._p4k_status_label = QLabel()
-        self._p4k_status_label.setStyleSheet(f"font-size: 11px; color: {get_secondary_text_color()};")
+        self._p4k_status_label.setProperty("role", "secondary")
+        self._p4k_status_label.setStyleSheet("font-size: 11px;")
         p4k_status_row.addWidget(self._p4k_status_label)
         p4k_status_row.addStretch()
 
@@ -129,7 +133,8 @@ class ConfigTab(QWidget):
             "Import an external INI file to merge custom strings into your user.ini. "
             "Keys are validated against base.ini, and conflicts are resolved interactively."
         )
-        tools_desc.setStyleSheet(f"font-size: 11px; color: {get_secondary_text_color()};")
+        tools_desc.setProperty("role", "secondary")
+        tools_desc.setStyleSheet("font-size: 11px;")
         tools_desc.setWordWrap(True)
         tools_layout.addWidget(tools_desc)
 

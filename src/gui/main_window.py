@@ -5,14 +5,14 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QThread, pyqtSignal, QModelIndex
+from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QThread, pyqtSignal, QModelIndex, QPropertyAnimation, QEasingCurve
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QComboBox, QCheckBox,
     QFileDialog, QMessageBox, QTabWidget,
     QHeaderView, QStatusBar, QFrame, QStyledItemDelegate,
-    QAbstractItemView, QMenu, QProgressDialog, QTextBrowser,
-    QTableView,
+    QAbstractItemView, QMenu, QProgressDialog, QProgressBar, QTextBrowser,
+    QTableView, QStackedLayout, QGraphicsOpacityEffect,
 )
 from PyQt6.QtGui import QColor, QFont, QCursor, QPixmap, QIcon
 from PyQt6.QtCore import QUrl
@@ -29,23 +29,36 @@ class AnimatedProgressDialog(QProgressDialog):
     """Reusable animated progress dialog for long-running operations.
 
     Creates an indeterminate progress bar that automatically animates.
+    The progress bar itself also shows the current status message (mirrored
+    from the label) so users can read what's happening without glancing up.
     Use like: dialog = AnimatedProgressDialog("Loading...", parent)
     """
 
     def __init__(self, message: str, parent=None, title: str = "Processing"):
-        """Initialize indeterminate progress dialog.
-
-        Args:
-            message: Status message to display
-            parent: Parent widget
-            title: Window title
-        """
         # Range (0, 0) creates an indeterminate, auto-animating progress bar
         super().__init__(message, None, 0, 0, parent)
         self.setWindowTitle(title)
         self.setModal(True)
         self.setMinimumWidth(400)
+        # Show the current status message inside the bar itself. We locate
+        # the internal QProgressBar via findChild because QProgressDialog
+        # doesn't expose it as a getter.
+        self._bar = self.findChild(QProgressBar)
+        if self._bar is not None:
+            self._bar.setTextVisible(True)
+            self._bar.setFormat(message)
         self.show()
+
+    def setLabelText(self, text: str) -> None:   # type: ignore[override]
+        """Update both the label and the in-bar text in one shot.
+
+        Workers emit progress strings that are already connected to
+        `setLabelText`; routing the same text through `QProgressBar.setFormat`
+        means we don't need every worker-progress connection rewired.
+        """
+        super().setLabelText(text)
+        if self._bar is not None:
+            self._bar.setFormat(text)
 
 from src.models.string_model import StringEntry
 from src.parser.ini_parser import load_source_files, load_sources_from_settings, parse_ini_file
@@ -54,7 +67,7 @@ from src.merger.ini_merger import merge_sources_by_hierarchy
 from src.utils.version import get_version
 from src.utils.perf import timed
 from src.gui.config_tab import ConfigTab
-from src.gui.theme import get_secondary_text_color, get_button_color, get_button_text_color, get_title_color, get_tagline_color, BRAND_FONT_FAMILY
+from src.gui.theme import get_button_color, get_button_text_color, get_title_color, get_tagline_color, BRAND_FONT_FAMILY
 from src.gui.enhancements_tab import EnhancementsTab
 from src.gui.log_tab import LogTab
 
@@ -87,6 +100,7 @@ class FileLoaderWorker(QThread):
     # (entries, default_values dict, pre-computed group sort keys)
     finished = pyqtSignal(list, dict, list)
     error = pyqtSignal(str)
+    progress = pyqtSignal(str)
 
     def __init__(
         self,
@@ -110,6 +124,7 @@ class FileLoaderWorker(QThread):
 
             # New system: load sources from settings if not provided
             if self.sources_dict is None and self.hierarchy is None:
+                self.progress.emit("Reading source files...")
                 logger.info("No sources_dict provided, loading from settings...")
                 self.sources_dict, self.hierarchy, self._enhancements_key_categories = load_sources_from_settings()
                 logger.info(f"Loaded from settings: sources={list(self.sources_dict.keys())}, hierarchy={self.hierarchy}")
@@ -118,11 +133,13 @@ class FileLoaderWorker(QThread):
 
             # If still no sources (empty settings), try legacy base_path
             if self.sources_dict and self.hierarchy:
+                self.progress.emit("Creating StringEntry objects...")
                 logger.info(f"Calling load_source_files with {len(self.sources_dict)} sources")
                 entries = load_source_files(self.sources_dict, self.hierarchy, enhancements_key_categories=self._enhancements_key_categories)
                 logger.info(f"load_source_files returned {len(entries)} entries")
             elif self.base_path:
                 # Legacy: single base file loading
+                self.progress.emit("Creating StringEntry objects...")
                 logger.info(f"Using legacy base_path: {self.base_path}")
                 base_data = parse_ini_file(self.base_path)
                 self.sources_dict = {"global": base_data}
@@ -135,6 +152,7 @@ class FileLoaderWorker(QThread):
             default_values = dict(self.sources_dict.get("global", {}))
 
             # Pre-compute grouped sort keys on the worker thread
+            self.progress.emit("Computing sort keys...")
             sort_keys = [_group_sort_key(e.key) for e in entries]
 
             logger.info("FileLoaderWorker finished successfully")
@@ -396,7 +414,7 @@ class MainWindow(QMainWindow):
 
         # Tabs
         tabs = QTabWidget()
-        tabs.addTab(self.create_strings_tab(), "Strings")
+        tabs.addTab(self.create_strings_tab(), "String Editor")
 
         # Config tab
         self.config_tab = ConfigTab()
@@ -431,9 +449,6 @@ class MainWindow(QMainWindow):
         if self._previous_tab_index == self._enhancements_tab_index and new_index != self._enhancements_tab_index:
             self.enhancements_tab.revert_category_checkboxes()
         self._previous_tab_index = new_index
-
-        # Status bar
-        self.statusBar().showMessage("Ready")
 
     def create_toolbar(self) -> QVBoxLayout:
         """Create toolbar with buttons."""
@@ -539,20 +554,76 @@ class MainWindow(QMainWindow):
         footer_layout = QHBoxLayout()
         footer_layout.setContentsMargins(8, 8, 8, 0)
 
-        # Osiris DevWorks button (left side)
-        self.osiris_button = QLabel()
+        # Osiris DevWorks logo (left side). Built as a stacked pair so the
+        # Eye of Horus glyph can pulse-glow while a background worker is
+        # running. Base pixmap is the full logo; `osiris-eye-glow.png` is a
+        # same-size pre-rendered overlay with the eye + a baked-in gold halo
+        # stacked on top. We animate the overlay's QGraphicsOpacityEffect
+        # between 0 and 1 — opacity interpolation on a static sprite is
+        # exact float math and never re-renders, so no sub-pixel jitter
+        # (the earlier QGraphicsDropShadowEffect-on-the-fly approach had
+        # the shadow kernel rebuilt every frame and read as visibly shaky).
         osiris_image_path = get_resource_path(os.path.join("assets", "osiris-devworks.png"))
+        osiris_glow_path  = get_resource_path(os.path.join("assets", "osiris-eye-glow.png"))
 
-        # Try to load Osiris image, fall back to text if not found
-        if os.path.exists(osiris_image_path):
-            pixmap = QPixmap(osiris_image_path)
-            # Scale to reasonable size (max height 40px)
-            if pixmap.height() > 40:
-                pixmap = pixmap.scaledToHeight(40, Qt.TransformationMode.SmoothTransformation)
-            self.osiris_button.setPixmap(pixmap)
+        if os.path.exists(osiris_image_path) and os.path.exists(osiris_glow_path):
+            self.osiris_button = QWidget()
+            stack = QStackedLayout(self.osiris_button)
+            stack.setStackingMode(QStackedLayout.StackingMode.StackAll)
+            stack.setContentsMargins(0, 0, 0, 0)
+
+            base_label = QLabel()
+            base_pixmap = QPixmap(osiris_image_path)
+            if base_pixmap.height() > 40:
+                base_pixmap = base_pixmap.scaledToHeight(40, Qt.TransformationMode.SmoothTransformation)
+            base_label.setPixmap(base_pixmap)
+
+            self._eye_label = QLabel()
+            glow_pixmap = QPixmap(osiris_glow_path)
+            if glow_pixmap.height() > 40:
+                glow_pixmap = glow_pixmap.scaledToHeight(40, Qt.TransformationMode.SmoothTransformation)
+            self._eye_label.setPixmap(glow_pixmap)
+
+            self._eye_glow = QGraphicsOpacityEffect(self._eye_label)
+            self._eye_glow.setOpacity(0.0)
+            self._eye_label.setGraphicsEffect(self._eye_glow)
+
+            self._eye_pulse = QPropertyAnimation(self._eye_glow, b"opacity", self)
+            self._eye_pulse.setDuration(1800)
+            self._eye_pulse.setKeyValueAt(0.0, 0.0)
+            self._eye_pulse.setKeyValueAt(0.5, 1.0)
+            self._eye_pulse.setKeyValueAt(1.0, 0.0)
+            self._eye_pulse.setEasingCurve(QEasingCurve.Type.InOutSine)
+            self._eye_pulse.setLoopCount(-1)
+
+            # Separate one-shot animation used when work ends mid-pulse —
+            # eases the current opacity down to 0 instead of snapping off.
+            self._eye_fadeout = QPropertyAnimation(self._eye_glow, b"opacity", self)
+            self._eye_fadeout.setEasingCurve(QEasingCurve.Type.InOutSine)
+            self._eye_fadeout.setEndValue(0.0)
+
+            stack.addWidget(base_label)
+            stack.addWidget(self._eye_label)
+
+            # Pin to the scaled logo's natural size — opacity animation
+            # doesn't expand the paint rect the way drop-shadow did, so no
+            # extra padding is needed.
+            self.osiris_button.setFixedSize(base_pixmap.size())
+
+            self.osiris_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            self.osiris_button.mousePressEvent = self.open_discord_link
+            footer_layout.addWidget(self.osiris_button)
+
+            # Poll every 300ms and toggle the pulse to match worker state.
+            # Cheaper than wiring into every worker start/finish slot and
+            # robust to every extraction/generation/load entrypoint.
+            self._eye_pulse_monitor = QTimer(self)
+            self._eye_pulse_monitor.setInterval(300)
+            self._eye_pulse_monitor.timeout.connect(self._update_eye_pulse)
+            self._eye_pulse_monitor.start()
         else:
             # Fallback to styled text button
-            self.osiris_button.setText("Osiris DevWorks")
+            self.osiris_button = QLabel("Osiris DevWorks")
             self.osiris_button.setStyleSheet("""
                 QLabel {
                     background-color: #1a1f2e;
@@ -566,17 +637,21 @@ class MainWindow(QMainWindow):
                     background-color: #242938;
                 }
             """)
-
-        self.osiris_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.osiris_button.mousePressEvent = self.open_discord_link
-        footer_layout.addWidget(self.osiris_button)
+            self._eye_pulse = None
+            self._eye_glow = None
+            self._eye_fadeout = None
+            self.osiris_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            self.osiris_button.mousePressEvent = self.open_discord_link
+            footer_layout.addWidget(self.osiris_button)
 
         # Stretch to push donation buttons to the right
         footer_layout.addStretch()
 
-        # Donation label
+        # Donation label — role=secondary lets the app-level QSS re-color on
+        # theme swap without us having to track individual labels.
         donation_label = QLabel("Support this project:")
-        donation_label.setStyleSheet(f"font-size: 12px; color: {get_secondary_text_color()}; margin-right: 5px;")
+        donation_label.setProperty("role", "secondary")
+        donation_label.setStyleSheet("font-size: 12px; margin-right: 5px;")
         footer_layout.addWidget(donation_label)
 
         # PayPal button (right side)
@@ -764,12 +839,11 @@ class MainWindow(QMainWindow):
         self._set_toolbar_enabled(False)
 
         # Show progress dialog
-        self._progress_dialog = QProgressDialog(
-            "Loading file...", None, 0, 0, self
+        self._progress_dialog = AnimatedProgressDialog(
+            "Loading file...", parent=self, title="Loading"
         )
         self._progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
         self._progress_dialog.setAutoClose(False)
-        self._progress_dialog.show()
 
         # Create and start worker
         overrides_path = AppSettings.get_user_ini_path()
@@ -781,6 +855,7 @@ class MainWindow(QMainWindow):
         self._loader_worker = FileLoaderWorker(base_path, overrides_arg, contracts_arg)
         self._loader_worker.finished.connect(self._on_files_loaded)
         self._loader_worker.error.connect(self._on_load_error)
+        self._loader_worker.progress.connect(self._progress_dialog.setLabelText)
         self._loader_worker.start()
 
     @pyqtSlot(list, dict, list)
@@ -1762,6 +1837,54 @@ Shows the sync status for each configured source. "✓" means up to date.
         else:
             super().keyPressEvent(event)
 
+    def _update_eye_pulse(self) -> None:
+        """Toggle the Osiris eye glow animation to mirror worker activity.
+
+        Polled by `_eye_pulse_monitor` instead of wiring into every worker
+        lifecycle slot — polling is cheaper than touching every entrypoint
+        and guarantees we can't forget to stop the pulse on an error path.
+        When work ends mid-pulse we ease the current opacity down to 0
+        instead of snapping it off.
+        """
+        if self._eye_pulse is None or self._eye_glow is None:
+            return
+        running = self._has_long_running_worker()
+        pulse_on   = self._eye_pulse.state()   == QPropertyAnimation.State.Running
+        fadeout_on = self._eye_fadeout.state() == QPropertyAnimation.State.Running
+
+        if running:
+            # Starting up or resuming — cancel any in-flight fade-out and
+            # rejoin the pulse loop.
+            if fadeout_on:
+                self._eye_fadeout.stop()
+            if not pulse_on:
+                self._eye_pulse.start()
+        elif pulse_on:
+            # Work just ended — stop the loop, then ease from wherever we
+            # are right now down to 0. Duration scales with remaining
+            # opacity so a near-dark eye fades quickly and a bright one
+            # takes the full ~600ms.
+            current = self._eye_glow.opacity()
+            self._eye_pulse.stop()
+            self._eye_fadeout.stop()
+            self._eye_fadeout.setStartValue(current)
+            self._eye_fadeout.setDuration(int(100 + 500 * current))
+            self._eye_fadeout.start()
+
+    def _has_long_running_worker(self) -> bool:
+        """True while an extract/generate/load worker is running. Status-bar
+        refreshes that would otherwise fall back to 'Ready' are suppressed
+        during that window so in-progress messages aren't clobbered mid-run.
+        """
+        workers = (
+            self._enhancements_worker,
+            self._forge_worker,
+            self._p4k_worker,
+            self._loader_worker,
+            self._startup_sync_worker,
+        )
+        return any(w is not None and w.isRunning() for w in workers)
+
     def _update_status_bar(self):
         """Compose sync status from all configured sources plus entry counts and game version.
 
@@ -1792,7 +1915,12 @@ Shows the sync status for each configured source. "✓" means up to date.
             short_version = ".".join(version_parts[:3]) if len(version_parts) >= 3 else game_version
             parts.append(f"SC v{short_version}")
 
-        self.statusBar().showMessage("  |  ".join(parts) if parts else "Ready")
+        if parts:
+            self.statusBar().showMessage("  |  ".join(parts))
+        elif not self._has_long_running_worker():
+            # Don't overwrite a progress message with "Ready" while a worker
+            # is still running — the user reads the empty state as "done".
+            self.statusBar().showMessage("Ready")
 
     def _set_source_status(self, source_name: str, status: str) -> None:
         """Set sync status for a specific source and update status bar.
@@ -1969,25 +2097,30 @@ Shows the sync status for each configured source. "✓" means up to date.
             QPushButton, QHBoxLayout
         )
 
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Generate Enhancements")
-        dialog.setMinimumWidth(400)
-        layout = QVBoxLayout(dialog)
-
-        layout.addWidget(QLabel(
-            f"{len(missing_keys)} enhancement files are missing.\n"
-            "Select which categories to generate.\n"
-            "You can change this later in the Enhancements tab."
-        ))
-
-        layout.addSpacing(8)
-
-        # Determine which checkbox categories have missing files
+        # Collapse the missing-file list down to the set of category checkboxes
+        # the user will actually see. The dialog is category-shaped, not
+        # file-shaped — reporting the file count here confuses users because a
+        # single category (e.g. ship_items) maps to multiple files.
         missing_file_keys = set(missing_keys)
         missing_checkbox_keys = set()
         for checkbox_key, file_keys in AppSettings.ENHANCEMENT_CATEGORY_FILES.items():
             if any(fk in missing_file_keys for fk in file_keys):
                 missing_checkbox_keys.add(checkbox_key)
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Generate Enhancements")
+        dialog.setMinimumWidth(400)
+        layout = QVBoxLayout(dialog)
+
+        n = len(missing_checkbox_keys)
+        noun = "category is" if n == 1 else "categories are"
+        layout.addWidget(QLabel(
+            f"{n} enhancement {noun} missing.\n"
+            "Select which to generate.\n"
+            "You can change this later in the Enhancements tab."
+        ))
+
+        layout.addSpacing(8)
 
         checkboxes: dict[str, QCheckBox] = {}
         for key, label in AppSettings.ENHANCEMENT_LABELS.items():
@@ -2006,7 +2139,8 @@ Shows the sync status for each configured source. "✓" means up to date.
             "DataForge data will be extracted automatically if not already cached.\n"
             "First run takes ~5-10 minutes."
         )
-        info.setStyleSheet(f"font-size: 11px; color: {get_secondary_text_color()};")
+        info.setProperty("role", "secondary")
+        info.setStyleSheet("font-size: 11px;")
         info.setWordWrap(True)
         layout.addWidget(info)
 
@@ -2072,6 +2206,7 @@ Shows the sync status for each configured source. "✓" means up to date.
         # Connect worker signals to progress dialog label updates
         self._loader_worker.finished.connect(self._on_loading_finished)
         self._loader_worker.error.connect(self._on_loading_error)
+        self._loader_worker.progress.connect(self._loading_progress.setLabelText)
         self._loader_worker.start()
 
     @pyqtSlot(list, dict, list)
