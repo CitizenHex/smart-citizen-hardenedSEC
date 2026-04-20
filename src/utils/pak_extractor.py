@@ -36,6 +36,7 @@ def extract_global_ini(
     output_path: Path,
     unp4k_exe: Path,
     progress_callback=None,
+    progress_pct_callback=None,
 ) -> bool:
     """Extract global.ini from Data.p4k and save it to output_path.
 
@@ -61,9 +62,12 @@ def extract_global_ini(
     if not p4k_path.exists():
         raise FileNotFoundError(f"Data.p4k not found at: {p4k_path}")
 
+    TOTAL_PHASES = 2
     with tempfile.TemporaryDirectory() as tmp_dir:
         if progress_callback:
             progress_callback("Launching unp4k — this may take a minute...")
+        if progress_pct_callback:
+            progress_pct_callback(0, TOTAL_PHASES, "Launching unp4k…")
 
         logger.info(f"Running unp4k: {unp4k_exe} {p4k_path} global.ini (cwd={tmp_dir})")
         result = subprocess.run(
@@ -89,11 +93,15 @@ def extract_global_ini(
 
         if progress_callback:
             progress_callback("Copying extracted global.ini to cache...")
+        if progress_pct_callback:
+            progress_pct_callback(1, TOTAL_PHASES, "Copying extracted global.ini…")
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(str(extracted), str(output_path))
         logger.info(f"Extracted global.ini → {output_path}")
 
+    if progress_pct_callback:
+        progress_pct_callback(2, TOTAL_PHASES, "Done")
     return True
 
 
@@ -104,6 +112,7 @@ def extract_dataforge(
     unforge_exe: Path,
     dataforge_cache_dir: Path,
     progress_callback=None,
+    progress_pct_callback=None,
 ) -> bool:
     """Extract DataForge entity XMLs from Data.p4k and cache them.
 
@@ -135,12 +144,15 @@ def extract_dataforge(
     if not p4k_path.exists():
         raise FileNotFoundError(f"Data.p4k not found at: {p4k_path}")
 
+    TOTAL_PHASES = 3
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp = Path(tmp_dir)
 
         # ── Step 1: Extract Game2.dcb ─────────────────────────────────────────
         if progress_callback:
             progress_callback("Extracting Game2.dcb from Data.p4k…")
+        if progress_pct_callback:
+            progress_pct_callback(0, TOTAL_PHASES, "Extracting Game2.dcb from Data.p4k…")
         logger.info(f"Running unp4k to extract .dcb: {unp4k_exe} {p4k_path} .dcb")
         result = subprocess.run(
             [str(unp4k_exe), str(p4k_path), ".dcb"],
@@ -166,6 +178,8 @@ def extract_dataforge(
         # ── Step 2: Run unforge to produce entity XMLs ────────────────────────
         if progress_callback:
             progress_callback("Converting DataForge database — this takes several minutes…")
+        if progress_pct_callback:
+            progress_pct_callback(1, TOTAL_PHASES, "Converting DataForge database…")
         logger.info(f"Running unforge: {unforge_exe} {dcb_path}")
         result = subprocess.run(
             [str(unforge_exe), str(dcb_path)],
@@ -188,6 +202,8 @@ def extract_dataforge(
         # ── Step 3: Cache the full extraction ─────────────────────────────────
         if progress_callback:
             progress_callback("Caching entity files…")
+        if progress_pct_callback:
+            progress_pct_callback(2, TOTAL_PHASES, "Caching entity files…")
 
         # Ensure all file handles from extraction are released before copying
         gc.collect()
@@ -211,6 +227,8 @@ def extract_dataforge(
 
     # Ensure all file handles are released before returning
     gc.collect()
+    if progress_pct_callback:
+        progress_pct_callback(3, TOTAL_PHASES, "Done")
     return True
 
 

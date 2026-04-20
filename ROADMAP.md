@@ -187,12 +187,17 @@
 * [x] Jorrit Dossier P2M1/P2M4 share blueprint awards — game-side data bug (P2M4's contract references `P2M1_Repeat_desc`); first-writer-wins guard keeps P2M1's intended pool (Pool A, 11 items). Also extended contract-template fallback so `desc_key` resolves independently of `title_key`.
 
 ## 0.9.2
-* [ ] pre-release final polish
+* [x] parallelize enhancements generation + switch to determinate progress bars — ran independent lookup builds (ammo × 2, scitem, controller, armor, reputation) concurrently via a 6-way `ThreadPoolExecutor`, dropping the lookup phase to the time of its longest builder (scitem). Added `src/utils/progress_sink.py` (thread-safe `(completed, total, message)` sink), extended `AnimatedProgressDialog` with `set_progress()` for determinate mode with a two-tone chunk gradient, and plumbed per-phase ticks through the enhancements worker, file loader (3 phases), P4K extract (2 phases), and DataForge extract (3 phases: unp4k → unforge → cache). The original scope also called for fanning the 8 output generators across threads — deferred because the mission chain (scan → bp pools → contractgen → XP augmentation) has intertwined state; see 0.9.3 for that follow-up.
+* [ ] Bounty missions from the bounty hunter guild showing the mission details but not blueprints
+* [ ] Issue with P2M1/P2M4 blueprints not resolved
+* [ ] Regional blueprint awards are not showing properly for their region
 * [ ] Add Battlestations to other apps in about section
-* [ ] Add/Update acknowledgements section to include everyone who tested and gave feedback on the application
-* [ ] stability & bugfixes
+* [ ] Add/Update acknowledgements section to include everyone who tested and gave feedback on the application: Boogie Man, Perseuscz, Tichro, Flat Earth, Lord Valium
 * [ ] finalize in-app documentation
+
+## 0.9.3
 * [ ] performance optimization
-* [ ] parallelize enhancements generation + switch to determinate progress bars — run independent lookup builds (entity_names, blueprint_pools, reputation_lookup, etc.) concurrently, and fan out the 8 output file generators across threads. Threads (not processes) because the builders share large read-only lookup dicts and spend most time in GIL-releasing XML parse + file I/O. Shared plumbing: a thread-safe progress sink (Lock + counter or `queue.Queue`) that both (a) replaces the sequential `_flush()` pattern and (b) drives a determinate QProgressBar — each worker reports `(current, total)` sub-progress that funnels into a single aggregated `completed / total` value shown in `AnimatedProgressDialog`. Apply the same determinate treatment to file loading (N sources) and P4K/DataForge extraction (phase-level: "unp4k → unforge → cache").
+* [ ] parallelize the 8 output-file generators (deferred from 0.9.2) — wrap components, missiles, ship weapons, FPS weapons, ships, commodity/journal in a second `ThreadPoolExecutor` wave after the lookup phase; keep the mission chain (scan → bp pools → contractgen → XP augmentation) serial or carefully audit its shared state first.
 * [ ] cache streamlining
+* [ ] stability & bugfixes
 * [ ] end-to-end testing & version release

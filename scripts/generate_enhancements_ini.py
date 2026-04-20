@@ -22,7 +22,9 @@ import pickle
 import re
 import sys
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -2299,13 +2301,31 @@ def scan_entity_dir(
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main(base_ini_path: Path, forge_dir: Path | None = None,
-         categories: set[str] | None = None) -> None:
+         categories: set[str] | None = None,
+         progress_callback: Optional[Callable[[int, int, str], None]] = None,
+         max_workers: int = 6) -> None:
     import sys as sys_mod
+    # Deferred import — the script is loaded by both the app worker (where
+    # src.utils is on the path) and as a standalone CLI, so we swallow an
+    # ImportError and run without a sink if the module isn't reachable.
+    try:
+        from src.utils.progress_sink import ProgressSink
+        _sink = ProgressSink(callback=progress_callback)
+    except ImportError:
+        _sink = None
+
     def _flush():
         if sys_mod.stdout is not None:
             sys_mod.stdout.flush()
         if sys_mod.stderr is not None:
             sys_mod.stderr.flush()
+
+    def _tick(message: str) -> None:
+        """Mark a phase boundary: log, flush stdout, advance the progress sink."""
+        logger.info(f"CHECKPOINT: {message}")
+        _flush()
+        if _sink is not None:
+            _sink.advance(message=message)
 
     def _want(cat: str) -> bool:
         """Return True if *cat* should be generated (None means all)."""
@@ -2322,17 +2342,13 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # ── Parse base.ini ─────────────────────────────────────────────────────────
-    logger.info(f"CHECKPOINT: Parsing base.ini: {base_ini_path}")
-    _flush()
     if not base_ini_path.exists():
         raise FileNotFoundError(f"base.ini not found at {base_ini_path}")
     loc = parse_ini(base_ini_path)
-    logger.info(f"CHECKPOINT: Loaded {len(loc):,} localization keys")
+    logger.info(f"Loaded {len(loc):,} localization keys")
     _flush()
 
     # ── Check DataForge cache ─────────────────────────────────────────────────
-    logger.info("CHECKPOINT: Checking DataForge cache...")
-    _flush()
     records = forge_dir / "raw" / "libs" / "foundry" / "records"
     if not forge_dir.exists() or not records.exists():
         raise FileNotFoundError(
@@ -2340,44 +2356,118 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             "Run 'Extract DataForge' in the app first (Enhancements tab)."
         )
 
-    # ── Build ammo lookups (needed by ship_weapon_descs / fps_weapon_descs) ──
+    # ── Estimate total phases for determinate progress ────────────────────────
+    # One tick per logical phase. The sink caps at total, so over-counting is
+    # safer than under-counting.
+    need_mag = _want("ship_weapon_descs") or _want("fps_weapon_descs")
+    need_names = _want("mission_rewards") or _want("commodity_crafting") or _want("journal")
+    need_ammo = _want("ship_weapon_descs") or _want("fps_weapon_descs")
+    phase_total = (
+        1  # base.ini parsed
+        + (1 if need_ammo else 0)
+        + (1 if need_mag or need_names else 0)
+        + (1 if _want("component_descs") else 0)
+        + (1 if _want("missile_enhancements") else 0)
+        + (1 if _want("ship_weapon_descs") else 0)
+        + (1 if _want("fps_weapon_descs") else 0)
+        + (2 if _want("ship_descs") else 0)  # controller+armor lookup, scan
+        + (4 if _want("mission_rewards") else 0)  # rep lookup, scan, bp pools, contractgen+XP
+        + (1 if _want("commodity_crafting") or _want("journal") else 0)
+        + 1  # write files
+    )
+    if _sink is not None:
+        _sink.set_total(phase_total)
+    _tick(f"Loaded base.ini ({len(loc):,} keys)")
+
+    # ── Parallel build of independent lookups (Group A) ───────────────────────
+    # vehicle_ammo, fps_ammo, scitem_lookups, controller_lookup, armor_lookup,
+    # and reputation_lookup have no cross-dependencies and are dominated by
+    # XML parse + file I/O. Builders are pure: each returns a dict that is
+    # never mutated again, so thread-safe by construction. _cached_lookup
+    # writes to per-name pickle files, so parallel cache writes don't collide.
     vehicle_ammo: dict = {}
     fps_ammo: dict = {}
     mag_lookup: dict = {}
-    if _want("ship_weapon_descs") or _want("fps_weapon_descs"):
-        logger.info("CHECKPOINT: Building ammo damage lookups…")
-        _flush()
-        vehicle_ammo = build_ammo_lookup(records / "ammoparams" / "vehicle")
-        fps_ammo     = build_ammo_lookup(records / "ammoparams" / "fps")
-        logger.info(f"CHECKPOINT: Vehicle ammo: {len(vehicle_ammo)} records, FPS ammo: {len(fps_ammo)} records")
-        _flush()
-
-    # ── Combined scitem walk (magazines + entity names, one pass) ─────────────
-    # Both mag_lookup and entity_names used to iterate the ~20k scitem XMLs
-    # independently. Merging into one pass saves ~30s per run.
-    mag_lookup: dict = {}
     entity_names: dict[str, str] = {}
-    need_mag = _want("ship_weapon_descs") or _want("fps_weapon_descs")
-    need_names = _want("mission_rewards") or _want("commodity_crafting")
-    if need_mag or need_names:
-        logger.info("CHECKPOINT: Building scitem lookups (magazines + entity names)…")
-        _flush()
-        mag_lookup, entity_names = _cached_lookup(
+    controller_lookup: dict = {}
+    armor_lookup: dict = {}
+    reputation_lookup: dict[str, int] = {}
+
+    def _build_scitem_pair():
+        return _cached_lookup(
             forge_dir, "scitem_lookups",
             lambda: build_scitem_lookups(records / "entities" / "scitem", loc),
         )
-        logger.info(
-            f"CHECKPOINT: Magazine lookup: {len(mag_lookup)} entries, "
-            f"Entity names: {len(entity_names)} entries"
-        )
+
+    def _build_reputation():
+        rep_rewards_dir = records / "reputation" / "rewards" / "missionrewards_reputation"
+        def _builder() -> dict[str, int]:
+            out: dict[str, int] = {}
+            if not rep_rewards_dir.exists():
+                return out
+            for xml_file in rep_rewards_dir.rglob("*.xml"):
+                try:
+                    root = ET.parse(xml_file).getroot()
+                    uuid = root.get("__ref")
+                    rep_amount = root.get("reputationAmount")
+                    if uuid and rep_amount:
+                        try:
+                            out[uuid] = int(float(rep_amount))
+                        except (ValueError, TypeError):
+                            pass
+                except ET.ParseError:
+                    continue
+            return out
+        return _cached_lookup(forge_dir, "reputation", _builder)
+
+    lookup_jobs: dict[str, Callable] = {}
+    if need_ammo:
+        lookup_jobs["vehicle_ammo"] = lambda: build_ammo_lookup(records / "ammoparams" / "vehicle")
+        lookup_jobs["fps_ammo"]     = lambda: build_ammo_lookup(records / "ammoparams" / "fps")
+    if need_mag or need_names:
+        lookup_jobs["scitem"] = _build_scitem_pair
+    if _want("ship_descs"):
+        lookup_jobs["controller"] = lambda: build_controller_lookup(records / "entities" / "scitem" / "ships" / "controller")
+        lookup_jobs["armor"]      = lambda: build_armor_lookup(records / "entities" / "scitem" / "ships" / "armor")
+    if _want("mission_rewards"):
+        lookup_jobs["reputation"] = _build_reputation
+
+    if lookup_jobs:
+        logger.info(f"Building {len(lookup_jobs)} lookups in parallel (workers={min(max_workers, len(lookup_jobs))})…")
         _flush()
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(lookup_jobs)),
+                                thread_name_prefix="lookup") as pool:
+            futures = {name: pool.submit(fn) for name, fn in lookup_jobs.items()}
+            results = {name: fut.result() for name, fut in futures.items()}
+
+        if "vehicle_ammo" in results:
+            vehicle_ammo = results["vehicle_ammo"]
+            fps_ammo     = results["fps_ammo"]
+            logger.info(f"Vehicle ammo: {len(vehicle_ammo)} records, FPS ammo: {len(fps_ammo)} records")
+            _tick("Built ammo lookups")
+        if "scitem" in results:
+            mag_lookup, entity_names = results["scitem"]
+            logger.info(
+                f"Magazine lookup: {len(mag_lookup)} entries, "
+                f"Entity names: {len(entity_names)} entries"
+            )
+            _tick("Built scitem lookups")
+        if "controller" in results:
+            controller_lookup = results["controller"]
+            armor_lookup      = results["armor"]
+            logger.info(f"Controllers: {len(controller_lookup)}, Armors: {len(armor_lookup)}")
+            _tick("Built ship controller + armor lookups")
+        if "reputation" in results:
+            reputation_lookup = results["reputation"]
+            logger.info(f"Loaded {len(reputation_lookup)} reputation reward definitions")
+            _tick("Built reputation lookup")
 
     # ── Process components ────────────────────────────────────────────────────
     ships_scitem = records / "entities" / "scitem" / "ships"
     out_components: dict[str, str] = {}
 
     if _want("component_descs"):
-        logger.info("CHECKPOINT: Processing ship components…")
+        logger.info("Processing ship components…")
         _flush()
         for subdir, fn in [
             ("shieldgenerator", enhancements_shield),
@@ -2385,7 +2475,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             ("powerplant",      enhancements_powerplant),
             ("quantumdrive",    enhancements_quantum_drive),
         ]:
-            logger.info(f"CHECKPOINT: Processing {subdir}...")
+            logger.info(f"Processing {subdir}...")
             _flush()
             out_components.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc, generate_name_tags=True))
 
@@ -2439,6 +2529,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                     break
         if sibling_count:
             logger.info(f"Propagated enhancements to {sibling_count} sibling keys")
+        _tick("Generated component enhancements")
 
     # ── Process missiles/rockets/bombs ────────────────────────────────────────
     out_missiles: dict[str, str] = {}
@@ -2452,12 +2543,11 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             if missile_dir.exists():
                 logger.info(f"Processing from {missile_dir}…")
                 out_missiles.update(scan_entity_dir(missile_dir, enhancements_missile, loc=loc))
+        _tick("Generated missile enhancements")
 
     # ── Process ship weapons ──────────────────────────────────────────────────
     out_ship_weapons: dict[str, str] = {}
     if _want("ship_weapon_descs"):
-        logger.info("CHECKPOINT: Processing ship weapons…")
-        _flush()
         weapons_dir = ships_scitem / "weapons"
         if weapons_dir.exists():
             out_ship_weapons = scan_entity_dir(
@@ -2465,14 +2555,12 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                 lambda root: enhancements_weapon(root, vehicle_ammo, loc),
                 loc=loc,
             )
-        logger.info(f"CHECKPOINT: Finished ship weapons ({len(out_ship_weapons)} entries)")
-        _flush()
+        logger.info(f"Finished ship weapons ({len(out_ship_weapons)} entries)")
+        _tick("Generated ship weapon descriptions")
 
     # ── Process FPS weapons ───────────────────────────────────────────────────
     out_fps_weapons: dict[str, str] = {}
     if _want("fps_weapon_descs"):
-        logger.info("CHECKPOINT: Processing FPS weapons…")
-        _flush()
         fps_dir = records / "entities" / "scitem" / "weapons" / "fps_weapons"
         if fps_dir.exists():
             out_fps_weapons = scan_entity_dir(
@@ -2480,71 +2568,26 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                 lambda root: enhancements_weapon(root, fps_ammo, loc, mag_lookup),
                 loc=loc,
             )
-        logger.info(f"CHECKPOINT: Finished FPS weapons ({len(out_fps_weapons)} entries)")
-        _flush()
+        logger.info(f"Finished FPS weapons ({len(out_fps_weapons)} entries)")
+        _tick("Generated FPS weapon descriptions")
 
     # ── Process ships (DataForge spaceship entities + flight controllers) ──────
+    # controller_lookup + armor_lookup were built in parallel above (Group A).
     out_ships: dict[str, str] = {}
     if _want("ship_descs"):
-        logger.info("CHECKPOINT: Building flight controller lookup…")
-        _flush()
-        controller_dir = records / "entities" / "scitem" / "ships" / "controller"
-        controller_lookup = build_controller_lookup(controller_dir)
-        logger.info(f"CHECKPOINT: Controllers: {len(controller_lookup)} loaded")
-        _flush()
-
-        logger.info("CHECKPOINT: Building ship armor lookup…")
-        _flush()
-        armor_dir = records / "entities" / "scitem" / "ships" / "armor"
-        armor_lookup = build_armor_lookup(armor_dir)
-        logger.info(f"CHECKPOINT: Armors: {len(armor_lookup)} loaded")
-        _flush()
-
-        logger.info("CHECKPOINT: Processing ship descriptions…")
-        _flush()
         spaceships_dir = records / "entities" / "spaceships"
         out_ships = scan_spaceships(spaceships_dir, controller_lookup, loc, armor_lookup)
-        logger.info(f"CHECKPOINT: Finished ships ({len(out_ships)} entries)")
-        _flush()
+        logger.info(f"Finished ships ({len(out_ships)} entries)")
+        _tick("Generated ship descriptions")
 
     # ── Mission/contract processing ──────────────────────────────────────────
+    # reputation_lookup was built in parallel above (Group A).
     out_missions: dict[str, str] = {}
     if _want("mission_rewards"):
-        # ── Build reputation XP lookup ───────────────────────────────────────
-        logger.info("CHECKPOINT: Building reputation XP lookup…")
-        _flush()
-        rep_rewards_dir = records / "reputation" / "rewards" / "missionrewards_reputation"
-
-        def _build_reputation_lookup() -> dict[str, int]:
-            out: dict[str, int] = {}
-            if not rep_rewards_dir.exists():
-                return out
-            for xml_file in rep_rewards_dir.rglob("*.xml"):
-                try:
-                    root = ET.parse(xml_file).getroot()
-                    uuid = root.get("__ref")
-                    rep_amount = root.get("reputationAmount")
-                    if uuid and rep_amount:
-                        try:
-                            out[uuid] = int(float(rep_amount))
-                        except (ValueError, TypeError):
-                            pass
-                except ET.ParseError:
-                    continue
-            return out
-
-        reputation_lookup = _cached_lookup(forge_dir, "reputation", _build_reputation_lookup)
-        logger.info(f"CHECKPOINT: Loaded {len(reputation_lookup)} reputation reward definitions")
-        _flush()
-
-        # ── Process missions/contracts ────────────────────────────────────────
-        logger.info("CHECKPOINT: Processing mission/contract rewards…")
-        _flush()
-
         # Primary mission directories: missionbroker/pu_missions is the main source (uses _mission_loc_key)
         pu_missions_dir = records / "missionbroker" / "pu_missions"
         if pu_missions_dir.exists():
-            logger.info(f"CHECKPOINT: Processing {pu_missions_dir.name}…")
+            logger.info(f"Processing {pu_missions_dir.name}…")
             _flush()
             out_missions.update(scan_entity_dir(
                 pu_missions_dir,
@@ -2562,7 +2605,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             records / "entities" / "jobterminal",
         ]:
             if mission_dir.exists():
-                logger.info(f"CHECKPOINT: Processing {mission_dir.name}…")
+                logger.info(f"Processing {mission_dir.name}…")
                 _flush()
                 out_missions.update(scan_entity_dir(
                     mission_dir,
@@ -2572,33 +2615,27 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                     capture_all=True,
                 ))
 
-        logger.info(f"CHECKPOINT: Finished missions ({len(out_missions)} entries)")
-        _flush()
+        logger.info(f"Finished missions scan ({len(out_missions)} entries)")
+        _tick("Scanned missions")
 
         # ── Augment mission titles with XP ──────────────────────────────────
-        logger.info("CHECKPOINT: Augmenting mission titles with XP…")
-        _flush()
         mission_titles_augmented = 0
 
         # Build blueprint pool lookup for mission rewards
-        logger.info("CHECKPOINT: Building blueprint pool lookup…")
-        _flush()
         pool_dir = records / "crafting" / "blueprintrewards" / "blueprintmissionpools"
         bp_dir = records / "crafting" / "blueprints" / "crafting"
         blueprint_pools = _cached_lookup(
             forge_dir, "blueprint_pools",
             lambda: build_blueprint_pool_lookup(pool_dir, bp_dir, entity_names),
         )
-        _flush()
+        _tick("Built blueprint pool lookup")
 
         # Process contract generator missions (can have multiple variants per title key)
-        logger.info("CHECKPOINT: Processing contract generator mission variants…")
-        _flush()
         contractgen_dir = records / "contracts" / "contractgenerator"
         contractgen_missions, mission_blueprints, mission_bp_chance, mission_items = scan_contract_generators(
             contractgen_dir, reputation_lookup, blueprint_pools, entity_names
         )
-        logger.info(f"CHECKPOINT: Processed {len(contractgen_missions)} contract generator mission variants, {len(mission_blueprints)} with blueprints, {len(mission_items)} with items")
+        logger.info(f"Processed {len(contractgen_missions)} contract generator mission variants, {len(mission_blueprints)} with blueprints, {len(mission_items)} with items")
         _flush()
 
         known_system_names = {"Stanton", "Pyro", "Nyx", "Desert", "ArcCorp", "Crusader"}
@@ -2800,8 +2837,8 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             out_missions[title_key] = current
             mission_titles_augmented += 1
 
-        logger.info(f"CHECKPOINT: Augmented {mission_titles_augmented} mission titles with XP")
-        _flush()
+        logger.info(f"Augmented {mission_titles_augmented} mission titles with XP")
+        _tick("Augmented mission titles with XP")
 
         # ── Mission XP coverage report ────────────────────────────────────────
         # Count title keys that were augmented with XP vs those with descriptions
@@ -2850,15 +2887,19 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
     out_commodities: dict[str, str] = {}
     out_journal: dict[str, str] = {}
     if _want("commodity_crafting") or _want("journal"):
-        logger.info("CHECKPOINT: Processing crafting blueprints…")
+        logger.info("Processing crafting blueprints…")
         _flush()
 
         bp_dir = records / "crafting" / "blueprints" / "crafting"
-        carryables_dir = scitem_dir / "carryables"
+        # scitem_dir is defined in the components block; fall back to absolute
+        # path when components weren't requested.
+        scitem_dir_local = records / "entities" / "scitem"
+        carryables_dir = scitem_dir_local / "carryables"
         out_commodities, out_journal = scan_crafting_blueprints(bp_dir, carryables_dir, entity_names, loc)
+        _tick("Generated commodity & journal enhancements")
 
     # ── Write output ──────────────────────────────────────────────────────────
-    logger.info("CHECKPOINT: Writing output files…")
+    logger.info("Writing output files…")
     _flush()
     if _want("ship_descs"):
         write_ini(OUTPUT_DIR / "ships_desc_enhancements.ini",       out_ships)
@@ -2881,6 +2922,9 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
              len(out_fps_weapons) + len(out_missions) + len(out_commodities) +
              len(out_journal) + len(out_missiles))
     logger.info(f"Done — {total:,} total stat entries written to {OUTPUT_DIR}")
+    _tick("Wrote all output files")
+    if _sink is not None:
+        _sink.flush()
 
 
 if __name__ == "__main__":

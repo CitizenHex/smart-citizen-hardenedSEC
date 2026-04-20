@@ -26,39 +26,67 @@ from src.gui.string_table_model import (
 
 
 class AnimatedProgressDialog(QProgressDialog):
-    """Reusable animated progress dialog for long-running operations.
+    """Reusable progress dialog that toggles between indeterminate and determinate.
 
-    Creates an indeterminate progress bar that automatically animates.
-    The progress bar itself also shows the current status message (mirrored
-    from the label) so users can read what's happening without glancing up.
-    Use like: dialog = AnimatedProgressDialog("Loading...", parent)
+    Starts indeterminate (range 0-0, auto-animating). Call `set_progress(completed,
+    total, message)` to switch to determinate; pass total=0 to drop back to
+    indeterminate for phases with an unknown extent. The status message appears
+    above the bar; the bar itself shows a percentage in determinate mode and
+    nothing in indeterminate mode.
     """
 
     def __init__(self, message: str, parent=None, title: str = "Processing"):
-        # Range (0, 0) creates an indeterminate, auto-animating progress bar
         super().__init__(message, None, 0, 0, parent)
         self.setWindowTitle(title)
         self.setModal(True)
         self.setMinimumWidth(400)
-        # Show the current status message inside the bar itself. We locate
-        # the internal QProgressBar via findChild because QProgressDialog
-        # doesn't expose it as a getter.
         self._bar = self.findChild(QProgressBar)
         if self._bar is not None:
-            self._bar.setTextVisible(True)
-            self._bar.setFormat(message)
+            self._bar.setTextVisible(False)
         self.show()
 
-    def setLabelText(self, text: str) -> None:   # type: ignore[override]
-        """Update both the label and the in-bar text in one shot.
+    def set_progress(self, completed: int, total: int, message: str = "") -> None:
+        """Drive the bar from a ProgressSink. total=0 ⇒ indeterminate.
 
-        Workers emit progress strings that are already connected to
-        `setLabelText`; routing the same text through `QProgressBar.setFormat`
-        means we don't need every worker-progress connection rewired.
+        Determinate mode applies a two-tone gradient QSS; indeterminate
+        clears the QSS so Fusion's animated busy indicator still works.
         """
-        super().setLabelText(text)
-        if self._bar is not None:
-            self._bar.setFormat(text)
+        if total <= 0:
+            if self.maximum() != 0 or self.minimum() != 0:
+                self.setRange(0, 0)
+            if self._bar is not None:
+                self._bar.setTextVisible(False)
+                self._bar.setStyleSheet("")
+        else:
+            if self.maximum() != total:
+                self.setRange(0, total)
+            self.setValue(min(completed, total))
+            if self._bar is not None:
+                self._bar.setTextVisible(True)
+                from src.gui.theme import get_progress_groove_color, get_progress_chunk_color
+                chunk = QColor(get_progress_chunk_color())
+                light = chunk.lighter(135).name()
+                dark  = chunk.darker(125).name()
+                mid   = chunk.name()
+                self._bar.setStyleSheet(
+                    "QProgressBar {"
+                    f" background-color: {get_progress_groove_color()};"
+                    " border: 1px solid rgba(0,0,0,0.25);"
+                    " border-radius: 3px;"
+                    " text-align: center;"
+                    "}"
+                    "QProgressBar::chunk {"
+                    " background: qlineargradient("
+                    "  x1:0, y1:0, x2:0, y2:1,"
+                    f"  stop:0 {light},"
+                    f"  stop:0.5 {mid},"
+                    f"  stop:1 {dark}"
+                    " );"
+                    " border-radius: 2px;"
+                    "}"
+                )
+        if message:
+            self.setLabelText(message)
 
 from src.models.string_model import StringEntry
 from src.parser.ini_parser import load_source_files, load_sources_from_settings, parse_ini_file
@@ -101,6 +129,10 @@ class FileLoaderWorker(QThread):
     finished = pyqtSignal(list, dict, list)
     error = pyqtSignal(str)
     progress = pyqtSignal(str)
+    progress_pct = pyqtSignal(int, int, str)  # (completed, total, message)
+
+    # 3 phase boundaries: sources read → entries built → sort keys computed.
+    _PHASE_TOTAL = 3
 
     def __init__(
         self,
@@ -121,6 +153,7 @@ class FileLoaderWorker(QThread):
         from src.gui.string_table_model import _group_sort_key
         try:
             logger.info("FileLoaderWorker starting...")
+            self.progress_pct.emit(0, self._PHASE_TOTAL, "Reading source files...")
 
             # New system: load sources from settings if not provided
             if self.sources_dict is None and self.hierarchy is None:
@@ -130,6 +163,8 @@ class FileLoaderWorker(QThread):
                 logger.info(f"Loaded from settings: sources={list(self.sources_dict.keys())}, hierarchy={self.hierarchy}")
             else:
                 self._enhancements_key_categories = None
+
+            self.progress_pct.emit(1, self._PHASE_TOTAL, "Creating StringEntry objects...")
 
             # If still no sources (empty settings), try legacy base_path
             if self.sources_dict and self.hierarchy:
@@ -151,10 +186,12 @@ class FileLoaderWorker(QThread):
             # Extract default values from the global source (avoids re-parsing base.ini)
             default_values = dict(self.sources_dict.get("global", {}))
 
+            self.progress_pct.emit(2, self._PHASE_TOTAL, "Computing sort keys...")
             # Pre-compute grouped sort keys on the worker thread
             self.progress.emit("Computing sort keys...")
             sort_keys = [_group_sort_key(e.key) for e in entries]
 
+            self.progress_pct.emit(3, self._PHASE_TOTAL, "Ready")
             logger.info("FileLoaderWorker finished successfully")
             self.finished.emit(entries, default_values, sort_keys)
         except Exception as e:
@@ -212,6 +249,7 @@ class EnhancementsGeneratorWorker(QThread):
     """Worker thread for generating enhancements INI files via generate_enhancements_ini.py."""
 
     progress = pyqtSignal(str)
+    progress_pct = pyqtSignal(int, int, str)  # (completed, total, message)
     finished = pyqtSignal(bool)
     error = pyqtSignal(str)
 
@@ -250,7 +288,15 @@ class EnhancementsGeneratorWorker(QThread):
 
             cat_desc = ", ".join(sorted(self.categories)) if self.categories else "all"
             logger.info(f"Enhancements generation: base_ini={base_ini}, forge_dir={forge_dir}, categories={cat_desc}")
-            mod.main(base_ini, forge_dir, categories=self.categories)
+
+            # Bridge the script's ProgressSink callback into a Qt-safe signal.
+            # PyQt signal emits are thread-safe across QThread boundaries, so
+            # this is safe to call from lookup-pool workers.
+            def _on_progress(completed: int, total: int, message: str) -> None:
+                self.progress_pct.emit(completed, total, message)
+
+            mod.main(base_ini, forge_dir, categories=self.categories,
+                     progress_callback=_on_progress)
             logger.info("Enhancements generation worker: mod.main() completed successfully")
 
             self.finished.emit(True)
@@ -264,6 +310,7 @@ class P4kExtractWorker(QThread):
     """Worker thread for extracting global.ini from Data.p4k via unp4k.exe."""
 
     progress = pyqtSignal(str)   # status message
+    progress_pct = pyqtSignal(int, int, str)  # (completed, total, message)
     finished = pyqtSignal(bool)  # True = success
     error = pyqtSignal(str)      # error message (emitted before finished(False))
 
@@ -276,7 +323,11 @@ class P4kExtractWorker(QThread):
     def run(self):
         from src.utils.pak_extractor import extract_global_ini
         try:
-            extract_global_ini(self._p4k, self._out, self._exe, self.progress.emit)
+            extract_global_ini(
+                self._p4k, self._out, self._exe,
+                progress_callback=self.progress.emit,
+                progress_pct_callback=lambda c, t, m: self.progress_pct.emit(c, t, m),
+            )
             self.finished.emit(True)
         except Exception as e:
             logger.exception(f"P4K extraction failed: {e}")
@@ -288,6 +339,7 @@ class DataForgeExtractWorker(QThread):
     """Worker thread for extracting DataForge entity XMLs from Data.p4k."""
 
     progress = pyqtSignal(str)
+    progress_pct = pyqtSignal(int, int, str)  # (completed, total, message)
     finished = pyqtSignal(bool)
     error = pyqtSignal(str)
 
@@ -306,7 +358,8 @@ class DataForgeExtractWorker(QThread):
                 self._unp4k_exe,
                 self._unforge_exe,
                 self._cache_dir,
-                self.progress.emit,
+                progress_callback=self.progress.emit,
+                progress_pct_callback=lambda c, t, m: self.progress_pct.emit(c, t, m),
             )
             self.finished.emit(True)
         except Exception as e:
@@ -2207,6 +2260,7 @@ Shows the sync status for each configured source. "✓" means up to date.
         self._loader_worker.finished.connect(self._on_loading_finished)
         self._loader_worker.error.connect(self._on_loading_error)
         self._loader_worker.progress.connect(self._loading_progress.setLabelText)
+        self._loader_worker.progress_pct.connect(self._loading_progress.set_progress)
         self._loader_worker.start()
 
     @pyqtSlot(list, dict, list)
@@ -2299,6 +2353,7 @@ Shows the sync status for each configured source. "✓" means up to date.
         self._enhancements_worker.progress.connect(self.enhancements_tab.set_operation_progress)
         self._enhancements_worker.progress.connect(self.statusBar().showMessage)
         self._enhancements_worker.progress.connect(self._enhancements_progress_dialog.setLabelText)
+        self._enhancements_worker.progress_pct.connect(self._enhancements_progress_dialog.set_progress)
         self._enhancements_worker.error.connect(self._on_enhancements_generation_error)
         self._enhancements_worker.finished.connect(self._on_enhancements_generation_finished)
         self._enhancements_worker.start()
@@ -2342,8 +2397,16 @@ Shows the sync status for each configured source. "✓" means up to date.
         self.enhancements_tab.set_operation_running("Extracting DataForge from Data.p4k…")
         self.statusBar().showMessage("Extracting DataForge in background — this takes several minutes…")
 
+        self._forge_progress_dialog = AnimatedProgressDialog(
+            "Extracting DataForge from Data.p4k — this takes several minutes…",
+            parent=self,
+            title="DataForge Extraction",
+        )
+
         self._forge_worker.progress.connect(self.enhancements_tab.set_operation_progress)
         self._forge_worker.progress.connect(self.statusBar().showMessage)
+        self._forge_worker.progress.connect(self._forge_progress_dialog.setLabelText)
+        self._forge_worker.progress_pct.connect(self._forge_progress_dialog.set_progress)
         self._forge_worker.error.connect(self._on_dataforge_extract_error)
         self._forge_worker.finished.connect(self._on_dataforge_extract_finished)
         self._forge_worker.start()
@@ -2352,6 +2415,9 @@ Shows the sync status for each configured source. "✓" means up to date.
         logger.error(f"DataForge extraction error: {message}")
 
     def _on_dataforge_extract_finished(self, success: bool):
+        if getattr(self, "_forge_progress_dialog", None) is not None:
+            self._forge_progress_dialog.close()
+            self._forge_progress_dialog = None
         self._forge_worker.quit()
         self._forge_worker.wait()
         self._forge_worker = None
@@ -2378,6 +2444,7 @@ Shows the sync status for each configured source. "✓" means up to date.
         )
 
         self._p4k_worker.progress.connect(self._p4k_progress.setLabelText)
+        self._p4k_worker.progress_pct.connect(self._p4k_progress.set_progress)
         self._p4k_worker.error.connect(lambda err: QMessageBox.warning(self, "Extraction Error", err))
         self._p4k_worker.finished.connect(self._on_p4k_extract_finished)
         self._p4k_worker.start()

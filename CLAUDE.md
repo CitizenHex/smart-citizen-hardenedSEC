@@ -48,7 +48,7 @@ python scripts/extract_components.py [--stock path] [--base path] [--output path
 
 ## Testing Strategy
 
-**Unit Tests** (`tests/`): Cover data layer logic—INI parsing, merging, category extraction, P4K extraction. Run with `pytest tests/`. Aim for high coverage on parser, merger, and utility modules.
+**Unit Tests** (`tests/`): Split by domain — `test_core.py` (INI parsing/merging/category extraction), `test_missions.py` (mission rewards pipeline), `test_pak_extraction.py` (P4K/DataForge). Pytest config lives in `tests/pytest.ini` (sets `pythonpath = src`, registers markers: `unit`, `integration`, `slow`, `critical`, `regression`).
 
 **GUI Testing**: Manual. Run app (`python src/main.py`), load base file, edit a value, apply to game, restart to verify persistence. Use the Log Tab to watch for errors during load/merge/apply cycles.
 
@@ -83,7 +83,9 @@ Entry point: `src/main.py`. The app has two main layers:
 - `extract_components.py` — Diffs base.ini against stock vanilla to produce components.ini.
 - `gen_commodity_crafting.py` — Generates `commodity_crafting_enhancements.ini` with crafting blueprint usage data from DataForge XMLs.
 - `discord_notify.py` — GitHub Actions release webhook notifier.
-- `build/build_exe.py`, `build/build_all.bat`, `build/clean_cache_for_distribution.py` — Build pipeline; see `build/BUILD_INSTRUCTIONS.md`.
+- `build/build_exe.py`, `build/build_all.bat`, `build/clean_cache_for_distribution.py` — Build pipeline; see `scripts/build/BUILD_INSTRUCTIONS.md`.
+
+**PyInstaller specs**: `SmartCitizen.spec` at the repo root is the live spec used by the current build. The `SCLocalizationEditor-v*.spec` and `SmartCitizen-v0.9.*.spec` files are archival snapshots from prior releases — do not edit them for new builds.
 
 ## Critical Design Decisions
 
