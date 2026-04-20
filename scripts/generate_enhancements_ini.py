@@ -2462,11 +2462,18 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             logger.info(f"Loaded {len(reputation_lookup)} reputation reward definitions")
             _tick("Built reputation lookup")
 
-    # ── Process components ────────────────────────────────────────────────────
+    # ── Output-file generators (parallel wave) ────────────────────────────────
+    # Each closure captures the lookups it needs and returns its output dict(s).
+    # Internal sub-phases within a closure (e.g. the mission scan → blueprint
+    # pools → contractgen → title/desc augmentation → coverage report chain)
+    # stay serial because each step consumes the prior step's in-memory result.
+    # Across closures there is no shared mutable state — every output dict is
+    # owned by exactly one closure — so they run safely on independent threads.
     ships_scitem = records / "entities" / "scitem" / "ships"
-    out_components: dict[str, str] = {}
+    scitem_dir   = records / "entities" / "scitem"
 
-    if _want("component_descs"):
+    def _gen_components() -> dict[str, str]:
+        out: dict[str, str] = {}
         logger.info("Processing ship components…")
         _flush()
         for subdir, fn in [
@@ -2477,63 +2484,50 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         ]:
             logger.info(f"Processing {subdir}...")
             _flush()
-            out_components.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc, generate_name_tags=True))
-
-        # ── Process radar/sensors ─────────────────────────────────────────────
-        logger.info("Processing radar components…")
-        scitem_dir = records / "entities" / "scitem"
-        ships_scitem = scitem_dir / "ships"
+            out.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc, generate_name_tags=True))
         radar_dir = ships_scitem / "radar"
-
         if radar_dir.exists():
             logger.info(f"Processing radars from {radar_dir}…")
-            out_components.update(scan_entity_dir(radar_dir, enhancements_radar, loc=loc))
+            out.update(scan_entity_dir(radar_dir, enhancements_radar, loc=loc))
         else:
             logger.info("No radar directory found in cache")
-
-        # ── Propagate enhancements to sibling keys ───────────────────────────
-        # base.ini has two key patterns for some components:
-        #   item_DescTYPE_..._SCItem  (referenced by DataForge entity XMLs)
-        #   item_Desc_TYPE_...        (legacy key, same component, no _SCItem)
-        # Propagate stats from _SCItem keys to their non-SCItem siblings, and
-        # similarly for name labels (item_nameTYPE → item_Name_TYPE).
+        # Propagate stats from _SCItem keys to their non-SCItem siblings (base.ini
+        # carries both patterns: item_DescTYPE_..._SCItem and item_Desc_TYPE_...).
+        # Same treatment for name labels (item_nameTYPE → item_Name_TYPE).
         comp_types = ("COOL", "SHLD", "POWR", "QDRV")
         sibling_count = 0
-        for key, value in list(out_components.items()):
+        for key, value in list(out.items()):
             if not key.endswith("_SCItem"):
                 continue
-            base_key = key[:-len("_SCItem")]  # strip _SCItem
+            base_key = key[:-len("_SCItem")]
             for ct in comp_types:
-                # Desc key: item_DescTYPE_... → item_Desc_TYPE_...
                 desc_prefix = f"item_Desc{ct}_"
                 if base_key.startswith(desc_prefix):
                     sibling = f"item_Desc_{ct}_{base_key[len(desc_prefix):]}"
-                    if sibling not in out_components and sibling in loc:
-                        # Use sibling's own base text + the stats block from the augmented value
+                    if sibling not in out and sibling in loc:
                         sibling_base = loc[sibling]
                         stats_marker = ENHANCEMENT_SEPARATOR
                         if stats_marker in value:
                             stats_block = value[value.index(stats_marker):]
-                            out_components[sibling] = sibling_base + stats_block
+                            out[sibling] = sibling_base + stats_block
                         else:
-                            out_components[sibling] = value
+                            out[sibling] = value
                         sibling_count += 1
                     break
-                # Name key: item_nameTYPE_... → item_Name_TYPE_...
                 name_prefix = f"item_name{ct}_"
                 if base_key.startswith(name_prefix):
                     sibling = f"item_Name_{ct}_{base_key[len(name_prefix):]}"
-                    if sibling not in out_components and sibling in loc:
-                        out_components[sibling] = value
+                    if sibling not in out and sibling in loc:
+                        out[sibling] = value
                         sibling_count += 1
                     break
         if sibling_count:
             logger.info(f"Propagated enhancements to {sibling_count} sibling keys")
         _tick("Generated component enhancements")
+        return out
 
-    # ── Process missiles/rockets/bombs ────────────────────────────────────────
-    out_missiles: dict[str, str] = {}
-    if _want("missile_enhancements"):
+    def _gen_missiles() -> dict[str, str]:
+        out: dict[str, str] = {}
         logger.info("Processing missile/rocket/bomb enhancements…")
         weapons_dir = ships_scitem / "weapons"
         for missile_dir in [
@@ -2542,54 +2536,53 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         ]:
             if missile_dir.exists():
                 logger.info(f"Processing from {missile_dir}…")
-                out_missiles.update(scan_entity_dir(missile_dir, enhancements_missile, loc=loc))
+                out.update(scan_entity_dir(missile_dir, enhancements_missile, loc=loc))
         _tick("Generated missile enhancements")
+        return out
 
-    # ── Process ship weapons ──────────────────────────────────────────────────
-    out_ship_weapons: dict[str, str] = {}
-    if _want("ship_weapon_descs"):
+    def _gen_ship_weapons() -> dict[str, str]:
+        out: dict[str, str] = {}
         weapons_dir = ships_scitem / "weapons"
         if weapons_dir.exists():
-            out_ship_weapons = scan_entity_dir(
+            out = scan_entity_dir(
                 weapons_dir,
                 lambda root: enhancements_weapon(root, vehicle_ammo, loc),
                 loc=loc,
             )
-        logger.info(f"Finished ship weapons ({len(out_ship_weapons)} entries)")
+        logger.info(f"Finished ship weapons ({len(out)} entries)")
         _tick("Generated ship weapon descriptions")
+        return out
 
-    # ── Process FPS weapons ───────────────────────────────────────────────────
-    out_fps_weapons: dict[str, str] = {}
-    if _want("fps_weapon_descs"):
+    def _gen_fps_weapons() -> dict[str, str]:
+        out: dict[str, str] = {}
         fps_dir = records / "entities" / "scitem" / "weapons" / "fps_weapons"
         if fps_dir.exists():
-            out_fps_weapons = scan_entity_dir(
+            out = scan_entity_dir(
                 fps_dir,
                 lambda root: enhancements_weapon(root, fps_ammo, loc, mag_lookup),
                 loc=loc,
             )
-        logger.info(f"Finished FPS weapons ({len(out_fps_weapons)} entries)")
+        logger.info(f"Finished FPS weapons ({len(out)} entries)")
         _tick("Generated FPS weapon descriptions")
+        return out
 
-    # ── Process ships (DataForge spaceship entities + flight controllers) ──────
-    # controller_lookup + armor_lookup were built in parallel above (Group A).
-    out_ships: dict[str, str] = {}
-    if _want("ship_descs"):
+    def _gen_ships() -> dict[str, str]:
         spaceships_dir = records / "entities" / "spaceships"
-        out_ships = scan_spaceships(spaceships_dir, controller_lookup, loc, armor_lookup)
-        logger.info(f"Finished ships ({len(out_ships)} entries)")
+        out = scan_spaceships(spaceships_dir, controller_lookup, loc, armor_lookup)
+        logger.info(f"Finished ships ({len(out)} entries)")
         _tick("Generated ship descriptions")
+        return out
 
-    # ── Mission/contract processing ──────────────────────────────────────────
-    # reputation_lookup was built in parallel above (Group A).
-    out_missions: dict[str, str] = {}
-    if _want("mission_rewards"):
-        # Primary mission directories: missionbroker/pu_missions is the main source (uses _mission_loc_key)
+    def _gen_missions() -> dict[str, str]:
+        # Sequential chain: scan → bp pools → contractgen → title/desc
+        # augmentation → coverage report. Kept in one thread — each step
+        # consumes the prior step's in-memory result.
+        out: dict[str, str] = {}
         pu_missions_dir = records / "missionbroker" / "pu_missions"
         if pu_missions_dir.exists():
             logger.info(f"Processing {pu_missions_dir.name}…")
             _flush()
-            out_missions.update(scan_entity_dir(
+            out.update(scan_entity_dir(
                 pu_missions_dir,
                 lambda root: enhancements_mission(root, reputation_lookup),
                 loc=loc,
@@ -2598,7 +2591,6 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                 capture_all=True,
             ))
 
-        # Also check entity-based missions (use standard _loc_key)
         for mission_dir in [
             records / "entities" / "missions",
             records / "entities" / "contracts",
@@ -2607,7 +2599,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             if mission_dir.exists():
                 logger.info(f"Processing {mission_dir.name}…")
                 _flush()
-                out_missions.update(scan_entity_dir(
+                out.update(scan_entity_dir(
                     mission_dir,
                     lambda root: enhancements_mission(root, reputation_lookup),
                     loc=loc,
@@ -2615,13 +2607,10 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                     capture_all=True,
                 ))
 
-        logger.info(f"Finished missions scan ({len(out_missions)} entries)")
+        logger.info(f"Finished missions scan ({len(out)} entries)")
         _tick("Scanned missions")
 
-        # ── Augment mission titles with XP ──────────────────────────────────
-        mission_titles_augmented = 0
-
-        # Build blueprint pool lookup for mission rewards
+        # Blueprint pool lookup (needs entity_names from Group A)
         pool_dir = records / "crafting" / "blueprintrewards" / "blueprintmissionpools"
         bp_dir = records / "crafting" / "blueprints" / "crafting"
         blueprint_pools = _cached_lookup(
@@ -2630,7 +2619,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         )
         _tick("Built blueprint pool lookup")
 
-        # Process contract generator missions (can have multiple variants per title key)
+        # Contract generator missions (multiple variants per title key)
         contractgen_dir = records / "contracts" / "contractgenerator"
         contractgen_missions, mission_blueprints, mission_bp_chance, mission_items = scan_contract_generators(
             contractgen_dir, reputation_lookup, blueprint_pools, entity_names
@@ -2638,8 +2627,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         logger.info(f"Processed {len(contractgen_missions)} contract generator mission variants, {len(mission_blueprints)} with blueprints, {len(mission_items)} with items")
         _flush()
 
-        known_system_names = {"Stanton", "Pyro", "Nyx", "Desert", "ArcCorp", "Crusader"}
-
+        mission_titles_augmented = 0
         for title_key, variants in contractgen_missions.items():
             base_title = (loc or {}).get(title_key)
             if not base_title:
@@ -2656,7 +2644,6 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
 
             # Title: append [BP] tag if blueprints exist, then [XP] tag (skip if no XP data)
             has_blueprints = title_key in mission_blueprints
-            # Check if ALL or only SOME variants award blueprints
             _bp_variants = [v[8] for v in variants]  # v[8] = contract_has_bp
             _all_have_bp = has_blueprints and all(_bp_variants)
             augmented_title = base_title
@@ -2669,23 +2656,13 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                 augmented_title += f" <EM4>[{nonzero_xp[0]:,} XP]</EM4>"
             elif len(nonzero_xp) > 1:
                 augmented_title += f" <EM4>[{min(nonzero_xp):,}\u2013{max(nonzero_xp):,} XP]</EM4>"
-            out_missions[title_key] = augmented_title
+            out[title_key] = augmented_title
             mission_titles_augmented += 1
 
-            # Description: emit per unique desc_key so contracts that share a
-            # title but have different descs (e.g. FPS intro + standard killship
-            # bounty) each get their own stats block, aggregated only from the
-            # variants that actually use that desc.
-            #
-            # Conversely, skip desc_keys that a *different* title_key already
-            # wrote to this run. Some upstream contracts have broken
-            # desc_params that point at another mission's loc-key — e.g.
-            # Hockrow_FacilityDelve_P2M4-Stanton4_Repeat ("Updated Power Usage
-            # Data") references Hockrow_FacilityDelve_P2M1_Repeat_desc
-            # ("Updated Energy Anomaly Data"). Without this guard the later
-            # iteration clobbers the earlier one, and the shared desc ends up
-            # showing the wrong pool's blueprints for the mission that owns
-            # the loc-key.
+            # Description: emit per unique desc_key. Skip desc_keys that a
+            # *different* title_key already wrote this run (game-side data
+            # bug: some contracts have broken desc_params pointing at
+            # another mission's loc-key — e.g. P2M4 → P2M1_Repeat_desc).
             unique_desc_keys: list[str] = []
             for v in variants:
                 dk = v[3]
@@ -2693,7 +2670,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                     unique_desc_keys.append(dk)
 
             for desc_key in unique_desc_keys:
-                if desc_key in out_missions:
+                if desc_key in out:
                     logger.debug(
                         f"Skipping shared desc_key {desc_key!r} for title_key {title_key!r}: "
                         f"already written by a prior title_key (likely a game-side data bug)"
@@ -2702,7 +2679,6 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                 desc_variants = [v for v in variants if v[3] == desc_key]
                 base_desc = loc[desc_key]
 
-                # Collect flags / enemy counts from variants sharing this desc
                 all_flags: list[str] = []
                 max_enemies = 0
                 max_not_enemies = 0
@@ -2754,10 +2730,9 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                             line += f" (Failure: {fxp:,})"
                         details_lines.append(line)
 
-                # Build sections in order: base → POTENTIAL BLUEPRINTS → ITEM
-                # REWARDS → MISSION DETAILS. base_desc comes from loc (pristine
-                # base.ini), so no strip pass is needed — we assemble directly
-                # to avoid append_enhancements stripping freshly-added sections.
+                # Build sections: base → POTENTIAL BLUEPRINTS → ITEM REWARDS
+                # → MISSION DETAILS. base_desc comes from pristine loc, so no
+                # strip pass needed — assemble directly.
                 sections: list[str] = [base_desc]
 
                 if any_variant_has_bp and has_blueprints:
@@ -2789,19 +2764,12 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                     else:
                         sections.append("<EM4>* = only some mission variants reward blueprints</EM4>")
 
-                out_missions[desc_key] = "\\n\\n".join(sections)
+                out[desc_key] = "\\n\\n".join(sections)
 
-        # Process mission titles from the primary mission directory (pu_missions).
-        # Two passes:
-        #   1) Aggregate XP values across all pu_missions that share each title
-        #      key — needed for templated titles like "~mission(ReputationRank)
-        #      Rank - Direct ~mission(CargoGradeToken) Cargo Haul" where many
-        #      pu_missions reuse the same title loc-key at different XP tiers.
-        #   2) Apply the aggregate range as a title annotation when the title
-        #      doesn't already carry one from the contract-generator pass
-        #      (which can fail to extract XP for ContractResult_CalculatedReward
-        #      missions like Covalex Interstellar hauling).
-        pu_missions_dir = records / "missionbroker" / "pu_missions"
+        # Second pu_missions pass: aggregate XP values for titles the
+        # contractgen scan couldn't extract XP for (e.g. templated titles
+        # reusing one loc-key at many XP tiers, or ContractResult_CalculatedReward
+        # missions like Covalex Interstellar hauling).
         pu_title_xps: dict[str, list[int]] = {}
         if pu_missions_dir.exists():
             for xml_file in pu_missions_dir.rglob("*.xml"):
@@ -2825,8 +2793,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             base_title = (loc or {}).get(title_key)
             if not base_title:
                 continue
-            current = out_missions.get(title_key, base_title)
-            # Skip if the contractgen pass already applied an XP tag
+            current = out.get(title_key, base_title)
             if xp_tag_re.search(current):
                 continue
             unique_xp = sorted(set(xps))
@@ -2834,19 +2801,15 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                 current += f" <EM4>[{unique_xp[0]:,} XP]</EM4>"
             else:
                 current += f" <EM4>[{min(unique_xp):,}\u2013{max(unique_xp):,} XP]</EM4>"
-            out_missions[title_key] = current
+            out[title_key] = current
             mission_titles_augmented += 1
 
         logger.info(f"Augmented {mission_titles_augmented} mission titles with XP")
         _tick("Augmented mission titles with XP")
 
-        # ── Mission XP coverage report ────────────────────────────────────────
-        # Count title keys that were augmented with XP vs those with descriptions
-        # but no XP annotation (i.e. the stats generator found the mission but
-        # couldn't extract reputation data)
-        titles_with_xp = {k for k in out_missions if re.search(r'\[\d', out_missions[k])}
-        desc_keys = {k for k in out_missions if k not in titles_with_xp}
-        # Titles we know about (from pu_missions XMLs) but didn't augment
+        # Mission XP coverage report
+        titles_with_xp = {k for k in out if re.search(r'\[\d', out[k])}
+        desc_keys = {k for k in out if k not in titles_with_xp}
         titles_skipped_no_xp = 0
         titles_skipped_reasons: dict[str, list[str]] = {
             "no_rep_data": [],
@@ -2861,7 +2824,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                     if not title_attr.startswith("@") or not desc_attr.startswith("@"):
                         continue
                     title_key = title_attr.lstrip("@")
-                    if title_key in out_missions:
+                    if title_key in out:
                         continue  # Already augmented
                     if title_key in contractgen_missions:
                         continue  # Handled by contract generator
@@ -2882,21 +2845,65 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             if keys:
                 logger.info(f"  Skipped ({reason}): {len(keys)} — e.g. {', '.join(keys[:5])}")
         _flush()
+        return out
 
-    # ── Process crafting blueprints and augment commodities + journal ────────
-    out_commodities: dict[str, str] = {}
-    out_journal: dict[str, str] = {}
-    if _want("commodity_crafting") or _want("journal"):
+    def _gen_commodity_journal() -> tuple[dict[str, str], dict[str, str]]:
         logger.info("Processing crafting blueprints…")
         _flush()
-
         bp_dir = records / "crafting" / "blueprints" / "crafting"
-        # scitem_dir is defined in the components block; fall back to absolute
-        # path when components weren't requested.
-        scitem_dir_local = records / "entities" / "scitem"
-        carryables_dir = scitem_dir_local / "carryables"
-        out_commodities, out_journal = scan_crafting_blueprints(bp_dir, carryables_dir, entity_names, loc)
+        carryables_dir = scitem_dir / "carryables"
+        out_c, out_j = scan_crafting_blueprints(bp_dir, carryables_dir, entity_names, loc)
         _tick("Generated commodity & journal enhancements")
+        return out_c, out_j
+
+    # ── Submit enabled generators to a thread pool ────────────────────────────
+    gen_jobs: dict[str, Callable] = {}
+    if _want("component_descs"):
+        gen_jobs["components"] = _gen_components
+    if _want("missile_enhancements"):
+        gen_jobs["missiles"] = _gen_missiles
+    if _want("ship_weapon_descs"):
+        gen_jobs["ship_weapons"] = _gen_ship_weapons
+    if _want("fps_weapon_descs"):
+        gen_jobs["fps_weapons"] = _gen_fps_weapons
+    if _want("ship_descs"):
+        gen_jobs["ships"] = _gen_ships
+    if _want("mission_rewards"):
+        gen_jobs["missions"] = _gen_missions
+    if _want("commodity_crafting") or _want("journal"):
+        gen_jobs["commodity_journal"] = _gen_commodity_journal
+
+    out_components: dict[str, str] = {}
+    out_missiles: dict[str, str] = {}
+    out_ship_weapons: dict[str, str] = {}
+    out_fps_weapons: dict[str, str] = {}
+    out_ships: dict[str, str] = {}
+    out_missions: dict[str, str] = {}
+    out_commodities: dict[str, str] = {}
+    out_journal: dict[str, str] = {}
+
+    if gen_jobs:
+        logger.info(f"Running {len(gen_jobs)} output generators in parallel (workers={min(max_workers, len(gen_jobs))})…")
+        _flush()
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(gen_jobs)),
+                                thread_name_prefix="gen") as pool:
+            futs = {name: pool.submit(fn) for name, fn in gen_jobs.items()}
+            for name, fut in futs.items():
+                result = fut.result()
+                if name == "components":
+                    out_components = result
+                elif name == "missiles":
+                    out_missiles = result
+                elif name == "ship_weapons":
+                    out_ship_weapons = result
+                elif name == "fps_weapons":
+                    out_fps_weapons = result
+                elif name == "ships":
+                    out_ships = result
+                elif name == "missions":
+                    out_missions = result
+                elif name == "commodity_journal":
+                    out_commodities, out_journal = result
 
     # ── Write output ──────────────────────────────────────────────────────────
     logger.info("Writing output files…")

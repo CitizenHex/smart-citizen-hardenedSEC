@@ -187,7 +187,7 @@
 * [x] Jorrit Dossier P2M1/P2M4 share blueprint awards — game-side data bug (P2M4's contract references `P2M1_Repeat_desc`); first-writer-wins guard keeps P2M1's intended pool (Pool A, 11 items). Also extended contract-template fallback so `desc_key` resolves independently of `title_key`.
 
 ## 0.9.2
-* [x] parallelize enhancements generation + switch to determinate progress bars — ran independent lookup builds (ammo × 2, scitem, controller, armor, reputation) concurrently via a 6-way `ThreadPoolExecutor`, dropping the lookup phase to the time of its longest builder (scitem). Added `src/utils/progress_sink.py` (thread-safe `(completed, total, message)` sink), extended `AnimatedProgressDialog` with `set_progress()` for determinate mode with a two-tone chunk gradient, and plumbed per-phase ticks through the enhancements worker, file loader (3 phases), P4K extract (2 phases), and DataForge extract (3 phases: unp4k → unforge → cache). The original scope also called for fanning the 8 output generators across threads — deferred because the mission chain (scan → bp pools → contractgen → XP augmentation) has intertwined state; see 0.9.3 for that follow-up.
+* [x] parallelize enhancements generation + switch to determinate progress bars — ran independent lookup builds (ammo × 2, scitem, controller, armor, reputation) concurrently via a 6-way `ThreadPoolExecutor`, dropping the lookup phase to the time of its longest builder (scitem). Then wrapped the 7 output generators (components, missiles, ship weapons, FPS weapons, ships, mission chain, commodity/journal) as closures and fanned them across a second pool wave; the mission chain (scan → bp pools → contractgen → title/desc augmentation → coverage report) stays serial inside its one closure because its sub-phases share in-memory state. Added `src/utils/progress_sink.py` (thread-safe `(completed, total, message)` sink), extended `AnimatedProgressDialog` with `set_progress()` for determinate mode with a two-tone chunk gradient, and plumbed per-phase ticks through the enhancements worker, file loader (3 phases), P4K extract (2 phases), and DataForge extract (3 phases: unp4k → unforge → cache).
 * [ ] Bounty missions from the bounty hunter guild showing the mission details but not blueprints
 * [ ] Issue with P2M1/P2M4 blueprints not resolved
 * [ ] Regional blueprint awards are not showing properly for their region
@@ -197,7 +197,6 @@
 
 ## 0.9.3
 * [ ] performance optimization
-* [ ] parallelize the 8 output-file generators (deferred from 0.9.2) — wrap components, missiles, ship weapons, FPS weapons, ships, commodity/journal in a second `ThreadPoolExecutor` wave after the lookup phase; keep the mission chain (scan → bp pools → contractgen → XP augmentation) serial or carefully audit its shared state first.
 * [ ] cache streamlining
 * [ ] stability & bugfixes
 * [ ] end-to-end testing & version release
