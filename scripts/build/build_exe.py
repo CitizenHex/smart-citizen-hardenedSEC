@@ -56,6 +56,8 @@ exe_name = f"SmartCitizen-v{current_version}"
 assets_dir   = os.path.join(root_dir, 'assets')
 icon_path    = os.path.join(assets_dir, 'logo.ico')
 about_file   = os.path.join(root_dir, 'ABOUT.md')
+help_file    = os.path.join(root_dir, 'HELP.md')
+patches_dir  = os.path.join(root_dir, 'patches')
 enhancements_script = os.path.join(root_dir, 'scripts', 'generate_enhancements_ini.py')
 
 common_args = [
@@ -65,7 +67,9 @@ common_args = [
     '--icon', icon_path,
     '--add-data', f'{version_file}{os.pathsep}.',
     '--add-data', f'{about_file}{os.pathsep}.',
+    '--add-data', f'{help_file}{os.pathsep}.',
     '--add-data', f'{assets_dir}{os.pathsep}assets',
+    '--add-data', f'{patches_dir}{os.pathsep}patches',
     '--add-data', f'{enhancements_script}{os.pathsep}scripts',
     '--workpath', os.path.join(root_dir, 'build'),
     '--specpath', root_dir,
@@ -78,6 +82,14 @@ common_args = [
     '--hidden-import=xml',
     '--hidden-import=xml.etree',
     '--hidden-import=xml.etree.ElementTree',
+    # scripts/generate_enhancements_ini.py is loaded dynamically via
+    # importlib at runtime (see EnhancementsGeneratorWorker), so
+    # PyInstaller's static import graph can't see its dependencies.
+    # --collect-all is stronger than --hidden-import: it forces every
+    # submodule + data file into the bundle regardless of whether the
+    # module graph finds a reference. Earlier hidden-import flags alone
+    # silently no-op'd for concurrent.futures on PyInstaller 6 / Py 3.12.
+    '--collect-all=concurrent',
 ]
 
 # Build --onedir version only — feeds the Inno Setup installer. The portable

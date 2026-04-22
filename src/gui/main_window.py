@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QHeaderView, QStatusBar, QFrame, QStyledItemDelegate,
     QAbstractItemView, QMenu, QProgressDialog, QProgressBar, QTextBrowser,
     QTableView, QStackedLayout, QGraphicsOpacityEffect,
+    QDockWidget,
 )
 from PyQt6.QtGui import QColor, QFont, QCursor, QPixmap, QIcon
 from PyQt6.QtCore import QUrl
@@ -30,9 +31,10 @@ class AnimatedProgressDialog(QProgressDialog):
 
     Starts indeterminate (range 0-0, auto-animating). Call `set_progress(completed,
     total, message)` to switch to determinate; pass total=0 to drop back to
-    indeterminate for phases with an unknown extent. The status message appears
-    above the bar; the bar itself shows a percentage in determinate mode and
-    nothing in indeterminate mode.
+    indeterminate for phases with an unknown extent. The phase message shows
+    in the label above the bar. In determinate mode the bar displays the
+    percent-complete (default Qt ``%p%`` format); indeterminate mode hides
+    the bar text since there's no meaningful percentage to show.
     """
 
     def __init__(self, message: str, parent=None, title: str = "Processing"):
@@ -42,14 +44,18 @@ class AnimatedProgressDialog(QProgressDialog):
         self.setMinimumWidth(400)
         self._bar = self.findChild(QProgressBar)
         if self._bar is not None:
+            # Start indeterminate — bar text hidden until set_progress flips
+            # to determinate and a real percentage exists to display.
             self._bar.setTextVisible(False)
         self.show()
 
     def set_progress(self, completed: int, total: int, message: str = "") -> None:
         """Drive the bar from a ProgressSink. total=0 ⇒ indeterminate.
 
-        Determinate mode applies a two-tone gradient QSS; indeterminate
-        clears the QSS so Fusion's animated busy indicator still works.
+        Determinate mode applies a two-tone gradient QSS and shows ``%p%``
+        inside the bar. Indeterminate mode clears the QSS so Fusion's
+        animated busy indicator still works, and hides the bar text.
+        Phase messages go to the label above the bar in both modes.
         """
         if total <= 0:
             if self.maximum() != 0 or self.minimum() != 0:
@@ -62,6 +68,9 @@ class AnimatedProgressDialog(QProgressDialog):
                 self.setRange(0, total)
             self.setValue(min(completed, total))
             if self._bar is not None:
+                # Reset format to the Qt default so %p% resolves even if
+                # something upstream had set a custom format string.
+                self._bar.setFormat("%p%")
                 self._bar.setTextVisible(True)
                 from src.gui.theme import get_progress_groove_color, get_progress_chunk_color
                 chunk = QColor(get_progress_chunk_color())
@@ -112,6 +121,11 @@ def get_resource_path(relative_path):
         base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
     return os.path.join(base_path, relative_path)
+
+
+def _resolve_patches_dir() -> Path:
+    """Return the path to the bundled DataForge patches directory."""
+    return Path(get_resource_path("patches"))
 
 
 class FileLoaderWorker(QThread):
@@ -260,6 +274,7 @@ class EnhancementsGeneratorWorker(QThread):
     def run(self):
         import importlib.util
         import sys as sys_module
+        from src.utils.dataforge_patcher import apply_patches
         try:
             if getattr(sys, 'frozen', False):
                 script_path = Path(sys._MEIPASS) / 'scripts' / 'generate_enhancements_ini.py'
@@ -268,6 +283,26 @@ class EnhancementsGeneratorWorker(QThread):
 
             if not script_path.exists():
                 raise FileNotFoundError(f"Enhancements generator script not found: {script_path}")
+
+            base_ini  = AppSettings.get_cache_dir() / 'base.ini'
+            forge_dir = AppSettings.get_dataforge_cache_dir()
+
+            # Re-apply DataForge patches before generation. apply_patches is
+            # idempotent: already-patched files are a cheap no-op, so running
+            # this every regen picks up newly-added patches without forcing
+            # the user through a full re-extract. Bar stays indeterminate
+            # here — ``mod.main()`` below takes over with determinate ticks
+            # once its ProgressSink is wired up.
+            self.progress_pct.emit(0, 0, "Applying DataForge patches…")
+            self.progress.emit("Applying DataForge patches…")
+            patch_report = apply_patches(
+                _resolve_patches_dir(), forge_dir,
+                progress_callback=self.progress.emit,
+            )
+            logger.info(f"DataForge patches: {patch_report.summary_line()}")
+            if patch_report.errors:
+                for err in patch_report.errors:
+                    logger.warning(f"  patch error: {err}")
 
             self.progress.emit("Loading enhancements generator...")
 
@@ -282,9 +317,6 @@ class EnhancementsGeneratorWorker(QThread):
 
             self.progress.emit("Generating enhancements (may take a few minutes on first run)...")
             logger.info("Enhancements generation worker: calling mod.main()")
-
-            base_ini  = AppSettings.get_cache_dir() / 'base.ini'
-            forge_dir = AppSettings.get_dataforge_cache_dir()
 
             cat_desc = ", ".join(sorted(self.categories)) if self.categories else "all"
             logger.info(f"Enhancements generation: base_ini={base_ini}, forge_dir={forge_dir}, categories={cat_desc}")
@@ -352,6 +384,7 @@ class DataForgeExtractWorker(QThread):
 
     def run(self):
         from src.utils.pak_extractor import extract_dataforge
+        from src.utils.dataforge_patcher import apply_patches
         try:
             extract_dataforge(
                 self._p4k,
@@ -361,6 +394,26 @@ class DataForgeExtractWorker(QThread):
                 progress_callback=self.progress.emit,
                 progress_pct_callback=lambda c, t, m: self.progress_pct.emit(c, t, m),
             )
+            # Apply declarative patches over known CIG data bugs so downstream
+            # consumers (enhancement generator, future tooling) see corrected
+            # data. Patch failures are recorded in the report but don't block
+            # the pipeline.
+            #
+            # Flip the progress bar back to indeterminate (range 0-0, auto-
+            # animating) so the user can see we're still working — after
+            # extract_dataforge completes, the bar sits at its final 3/3
+            # "Done" determinate state, which would look like the dialog is
+            # about to close. The patches phase has no useful per-file
+            # progress, so indeterminate is the honest signal.
+            self.progress_pct.emit(0, 0, "Applying DataForge patches…")
+            self.progress.emit("Applying DataForge patches…")
+            patch_root = _resolve_patches_dir()
+            report = apply_patches(patch_root, self._cache_dir,
+                                   progress_callback=self.progress.emit)
+            logger.info(f"DataForge patches: {report.summary_line()}")
+            if report.errors:
+                for err in report.errors:
+                    logger.warning(f"  patch error: {err}")
             self.finished.emit(True)
         except Exception as e:
             logger.exception(f"DataForge extraction failed: {e}")
@@ -497,6 +550,15 @@ class MainWindow(QMainWindow):
         footer_layout = self.create_footer()
         main_layout.addLayout(footer_layout)
 
+        # Help side-panel. Created eagerly (before restore_window_state runs)
+        # so Qt's native saveState/restoreState can persist its open/closed
+        # width across sessions — a dock only gets remembered if it exists
+        # with a stable objectName at restoreState() time. Start hidden so
+        # first-launch users aren't surprised by a panel they didn't ask for;
+        # restoreState will reopen it if the user had it open last session.
+        self._ensure_help_dock()
+        self.help_dock.hide()
+
     def _on_tab_changed(self, new_index: int):
         """Revert unapplied enhancement checkbox changes when leaving the Enhancements tab."""
         if self._previous_tab_index == self._enhancements_tab_index and new_index != self._enhancements_tab_index:
@@ -547,12 +609,17 @@ class MainWindow(QMainWindow):
         self.clear_cache_btn.clicked.connect(self.clear_cache)
         button_layout.addWidget(self.clear_cache_btn)
 
-        button_layout.addStretch()
-
+        # Help — sits with the other toolbar buttons rather than floating
+        # right; uses the 'open' role so it shares the blue/cyan/gold
+        # information-action palette with Open Localization Dir.
         self.help_btn = QPushButton("Help")
-        self.help_btn.setMaximumWidth(70)
+        self.help_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
+        self.help_btn.setCheckable(True)
+        self.help_btn.setToolTip("Toggle the Help side-panel")
         self.help_btn.clicked.connect(self.show_help)
         button_layout.addWidget(self.help_btn)
+
+        button_layout.addStretch()
 
         layout.addLayout(button_layout)
 
@@ -1413,37 +1480,16 @@ class MainWindow(QMainWindow):
                 progress.setLabelText("Deleting DataForge directory...")
                 QApplication.processEvents()
 
-                # Use a more robust deletion that handles locked files
-                import stat
-                import time
-
-                def handle_remove_readonly(func, path, exc):
-                    """Error handler for rmtree to handle read-only files."""
-                    if not os.access(path, os.W_OK):
-                        os.chmod(path, stat.S_IWUSR | stat.S_IRUSR)
-                        func(path)
-                    else:
-                        raise
-
-                # Try to remove with readonly handler, retry a few times if locked
-                max_retries = 3
-                for attempt in range(max_retries):
-                    try:
-                        shutil.rmtree(dataforge_dir, onerror=handle_remove_readonly)
-                        deleted.append("dataforge/")
-                        logger.info("Deleted DataForge cache directory")
-                        break
-                    except Exception as retry_err:
-                        if attempt < max_retries - 1:
-                            # Wait a bit before retrying (might be OneDrive sync or antivirus scan)
-                            logger.warning(f"DataForge deletion attempt {attempt + 1} failed, retrying: {retry_err}")
-                            time.sleep(1)
-                        else:
-                            # Final attempt failed
-                            failed.append(f"dataforge/: {retry_err}")
-                            logger.error(f"Failed to delete DataForge cache after {max_retries} attempts: {retry_err}")
+                # Shared helper — retries with backoff, clears read-only bits,
+                # and outlasts OneDrive/Defender/indexer locks that commonly
+                # reject the first attempt with WinError 5.
+                from src.utils.pak_extractor import _robust_rmtree
+                _robust_rmtree(dataforge_dir)
+                deleted.append("dataforge/")
+                logger.info("Deleted DataForge cache directory")
             except Exception as e:
                 failed.append(f"dataforge/: {e}")
+                logger.error(f"Failed to delete DataForge cache: {e}")
                 logger.error(f"Failed to delete DataForge cache: {e}")
 
         progress.close()
@@ -1541,7 +1587,7 @@ class MainWindow(QMainWindow):
         )
 
     def refresh_action_buttons(self):
-        """Re-apply theme-dependent stylesheets on the 6 top action buttons
+        """Re-apply theme-dependent stylesheets on the toolbar action buttons
         and re-render the About tab HTML (whose palette-derived colors are
         baked in at render time). Called after a live theme swap.
         """
@@ -1554,8 +1600,11 @@ class MainWindow(QMainWindow):
         self.restore_backup_btn.setStyleSheet(f"background-color: {get_button_color('restore')}; color: {text}; {base}")
         self.clear_loc_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {text}; {base}")
         self.clear_cache_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {text}; {base}")
+        self.help_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {text}; {base}")
         if hasattr(self, "about_browser"):
             self._render_about_html()
+        if hasattr(self, "help_browser"):
+            self._render_help_html()
 
     def _handle_import_ini(self):
         """Handle Import INI button: get source, validate, resolve conflicts, merge."""
@@ -1777,110 +1826,96 @@ class MainWindow(QMainWindow):
             logger.error(f"Error restoring backup: {e}")
 
     @pyqtSlot()
+    def _ensure_help_dock(self) -> QDockWidget:
+        """Create the side-docked Help panel on first use and return it.
+
+        The panel is a QDockWidget docked to the right edge so users can keep
+        the guide open as a reference while editing. Users can drag it to the
+        left, undock it into a floating window, or close it via the title-bar
+        X. Qt restores its last state (position, width, visibility) on the
+        next launch because saveState/restoreState are already wired into
+        restore_window_state. An objectName is required for that mapping.
+        """
+        if getattr(self, "help_dock", None) is not None:
+            return self.help_dock
+
+        dock = QDockWidget("Help", self)
+        dock.setObjectName("helpDock")  # needed by restoreState
+        dock.setAllowedAreas(
+            Qt.DockWidgetArea.RightDockWidgetArea
+            | Qt.DockWidgetArea.LeftDockWidgetArea
+        )
+        dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetClosable
+            | QDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        )
+
+        self.help_browser = QTextBrowser(dock)
+        self.help_browser.setOpenExternalLinks(True)
+        dock.setWidget(self.help_browser)
+
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+        self.help_dock = dock
+
+        # Keep the Help button's checked state in sync if the user closes the
+        # dock via its title-bar X instead of the toolbar button.
+        dock.visibilityChanged.connect(self._on_help_dock_visibility_changed)
+
+        self._render_help_html()
+        return dock
+
+    def _render_help_html(self):
+        """(Re)render the Help panel's HTML using the current palette.
+
+        Mirrors _render_about_html — forces the browser's palette to the app
+        palette so its viewport/scrollbar chrome tracks theme swaps, then
+        reloads HELP.md (bundled via SmartCitizen.spec). Falls back to a
+        short stub if the file is missing so a misconfigured build still
+        shows something usable instead of a blank panel.
+        """
+        if not hasattr(self, "help_browser"):
+            return
+        from PyQt6.QtWidgets import QApplication
+        self.help_browser.setPalette(QApplication.palette())
+        try:
+            help_path = get_resource_path("HELP.md")
+            with open(help_path, "r", encoding="utf-8") as f:
+                help_markdown = f.read()
+            self.help_browser.setHtml(self.markdown_to_html(help_markdown))
+        except Exception as e:
+            logger.error(f"Error loading HELP.md: {e}", exc_info=True)
+            self.help_browser.setHtml(
+                "<h1>Help</h1><p>Help content could not be loaded. "
+                "See the About tab or the project README for usage details.</p>"
+            )
+
+    def _on_help_dock_visibility_changed(self, visible: bool):
+        """Keep the toolbar Help button's checked state in sync with the dock."""
+        if hasattr(self, "help_btn"):
+            # blockSignals so toggling the button here doesn't loop back into
+            # show_help and flip the dock visibility again.
+            was_blocked = self.help_btn.blockSignals(True)
+            try:
+                self.help_btn.setChecked(visible)
+            finally:
+                self.help_btn.blockSignals(was_blocked)
+
     def show_help(self):
-        """Show help dialog with usage instructions."""
-        from PyQt6.QtWidgets import QDialog
+        """Toggle the Help side-panel.
 
-        help_markdown = """# Smart Citizen - Quick Start Guide
-
-## First Time Setup
-On launch, the app automatically downloads the latest base localization file and mission contracts from GitHub. Your customizations from previous sessions are loaded automatically.
-
-## 1. Load Game File
-Click **Load Base File** to load strings from your configured sources. The installer pre-configures this path automatically.
-
-## 2. Edit Localization Strings
-- Double-click any **Custom Value** cell to edit text
-- The **Default Value** shows the original text from the base source file
-- The **Current Value** shows the merged value from all configured sources
-- The **Custom Value** column holds your personal edits
-- Changes are highlighted with a **Modified** status (green)
-- Your edits are saved automatically and persist between sessions
-
-## 3. Categories
-Filter strings by category:
-- **Ships** — Spaceship names and descriptions (vehicle_Name*, vehicle_Desc*)
-- **Ship Items** — Component names (shields, power plants, coolers, quantum drives, weapons, missiles, turrets)
-- **Missions** — Mission briefings, contract text, and reward descriptions
-- **Gear** — FPS weapons and personal equipment
-- **Commodities** — Trade goods and crafting materials
-- **Journal** — In-game journal entries
-- **Other** — Everything else
-
-## 4. Search & Filter
-- Use the **search box** to find strings by key or text content
-- Filter by **Category** to focus on one type
-- Filter by **Status** (Modified, Unmodified, New)
-- Check **Hide Unmodified** to see only your changes
-- Use the **per-column filter boxes** below each column header for fine-grained filtering
-- Click any **column header** to sort by that column
-
-## 5. Ship Favorites
-- Click the **star (★)** column on any Ship row to mark it as a favorite
-- Favorited ships get a prefix character prepended to their name, sorting them to the top of the in-game ship list
-- Configure the prefix character in the **Enhancements** tab
-
-## 6. Apply Changes to Game
-Click **Apply to Game** to write your edits to the game installation. A timestamped backup is saved automatically to your Documents folder before applying.
-
-## 7. Restore a Backup
-Click **Restore Backup** to revert to a previous version. The app keeps up to 5 automatic backups in Documents\\SC Localization Editor\\backups\\.
-
-## 8. Clear Localization
-Click **Clear Localization** to delete the custom global.ini from the game directory, reverting the game to its default (vanilla) text. Your saved overrides are not affected and can be re-applied at any time.
-
-## 9. Import INI
-Use **Import INI** in the Config tab to import an existing INI file into your overrides. A conflict resolution dialog lets you choose how to handle keys that already exist — keep current, use imported, append, prepend, or enter a custom value.
-
-## 10. After Game Updates
-When Star Citizen updates, your edits are preserved in your Documents folder. Simply reload the new base file and your customizations automatically re-apply.
-
-## Enhancements Tab
-- Enable stat overlays that append numerical stats (SCM speed, DPS, shield HP, cargo capacity, etc.) to ship, component, and weapon descriptions
-- Toggle individual enhancement categories on or off
-- Configure the ship favorites prefix character
-- Click **Generate Enhancements** to extract DataForge data from Data.p4k and build enhancement files
-
-## Config Tab
-- Configure data source paths and URLs
-- Set your Star Citizen installation path
-- Drag sources to reorder the merge hierarchy
-- Extract global.ini directly from Data.p4k
-
-## Log Tab
-View real-time application logs. Filter by log level, auto-scroll to latest entries, and export logs for troubleshooting.
-
-## Status Bar
-Shows the sync status for each configured source. "✓" means up to date.
-"""
-
-        # Create a custom dialog
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Help - Smart Citizen")
-        dialog.setGeometry(100, 100, 700, 600)
-
-        # Create layout
-        dialog_layout = QVBoxLayout(dialog)
-
-        # Create text browser
-        help_browser = QTextBrowser()
-        help_browser.setOpenExternalLinks(True)
-        help_html = self.markdown_to_html(help_markdown)
-        help_browser.setHtml(help_html)
-
-        dialog_layout.addWidget(help_browser)
-
-        # Add close button
-        close_btn = QPushButton("Close")
-        close_btn.setMaximumWidth(100)
-        close_btn.clicked.connect(dialog.accept)
-
-        button_layout = QHBoxLayout()
-        button_layout.addStretch()
-        button_layout.addWidget(close_btn)
-        dialog_layout.addLayout(button_layout)
-
-        dialog.exec()
+        Help content lives in HELP.md at the project root (bundled into the
+        PyInstaller onedir via SmartCitizen.spec). The first call creates the
+        dock lazily; subsequent calls flip visibility so users can keep the
+        guide open as a reference while editing without juggling a modal
+        dialog.
+        """
+        dock = self._ensure_help_dock()
+        if dock.isVisible():
+            dock.hide()
+        else:
+            dock.show()
+            dock.raise_()
 
     def keyPressEvent(self, event):
         """Handle keyboard shortcuts."""

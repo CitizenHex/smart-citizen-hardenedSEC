@@ -12,6 +12,10 @@ Developed by **Osiris DevWorks**, a one-man development studio dedicated to crea
 
 All Osiris DevWorks tools will be either **completely free** or have a **free tier**. We believe in creating value for gamers without paywalls or mandatory subscriptions.
 
+## Acknowledgements
+
+Thanks to the testers and contributors who helped shape Smart Citizen with their feedback: **Boogie Man**, **Perseuscz**, **Tichro**, **Flat Earth**, and **Lord Valium**.
+
 ## Key Features
 
 ### 🎯 Core Features
@@ -23,10 +27,10 @@ All Osiris DevWorks tools will be either **completely free** or have a **free ti
 - **Restore Backups**: Keep up to 5 backup versions — revert changes anytime with one click
 - **Import INI**: Import an existing INI file and resolve conflicts key-by-key with the built-in conflict dialog
 
-### 🔄 Auto-Update & Persistence
-- **P4K Extraction**: Extracts stock localization strings directly from your installed Data.p4k — always in sync with your game version
+### 🔄 Data Sourcing & Persistence
+- **Sourced from Data.p4k**: All stock localization and DataForge entity data is unpacked directly from your installed `Data.p4k` — no downloads, no community mirrors, always in sync with your actual game version
 - **Persistent Edits**: Your customizations are automatically saved and reloaded in every session
-- **Seamless Migration**: When Star Citizen updates, your saved edits automatically re-apply to the new base strings
+- **Seamless Migration**: When Star Citizen updates, re-extract from the patched `Data.p4k` — your saved edits re-apply to the new base strings automatically
 - **Clean UI**: High-performance table view with filters, in-line editing, keyboard shortcuts, and a modern interface
 
 ### 📊 Enhancements
@@ -37,23 +41,24 @@ All Osiris DevWorks tools will be either **completely free** or have a **free ti
 - **Selective Categories**: Enable or disable each enhancement category independently from the Enhancements tab
 
 ### 🎨 Themes
+- **SCLE (default)**: Deep-navy cyber theme inspired by Star Citizen's mobiGlas UI
 - **Light / Dark**: Classic UI themes
-- **Default**: Deep-navy cyber theme inspired by Star Citizen's mobiGlas UI
 - **ODW**: Osiris DevWorks signature theme — navy charcoal with antique gold
 
 ### 🛡️ Data Management
 - **Automatic Backups**: Timestamped backups created before applying changes to your game
 - **Registry Persistence**: All paths and preferences saved securely in Windows Registry
-- **Documents Storage**: Your custom edits stored in `Documents\SC Localization Editor\` for safe persistence across sessions
+- **Documents Storage**: Your custom edits stored in `Documents\Smart Citizen\` for safe persistence across sessions
 
 ## Quick Start
 
-1. **First Launch**: App auto-detects your Star Citizen installation and downloads the latest base localization file
-2. **Extract (Optional)**: Click "Extract from Data.p4k" in the Config tab to load stock game strings directly from your install
-3. **Edit Strings**: Use the search and filter tools, then double-click any Custom Value cell to customize text
-4. **Apply**: Click "Apply to Game" — your changes are saved and applied with an automatic backup
-5. **Enhancements (Optional)**: Open the Enhancements tab to enable stat overlays for ships, components, and weapons
-6. **Migrate**: After game updates, re-extract from Data.p4k — your edits reapply automatically
+1. **First Launch**: App auto-detects your Star Citizen installation (editable in the **Config** tab)
+2. **Extract**: Click **Extract from Data.p4k** in the Config tab to unpack stock localization + DataForge entity data from your installed game
+3. **Load**: Click **Load Base File** to load the extracted strings into the table
+4. **Edit Strings**: Use the search and filter tools, then double-click any Custom Value cell to customize text
+5. **Apply**: Click **Apply to Game** — your changes are saved and applied with an automatic backup
+6. **Enhancements (Optional)**: Open the Enhancements tab to enable stat overlays for ships, components, weapons, and mission rewards
+7. **After Game Updates**: Re-run Extract from Data.p4k — your edits reapply automatically
 
 ## Community & Support
 
@@ -67,11 +72,12 @@ Smart Citizen is completely free. If you find it valuable:
 
 ## Other Tools by Osiris DevWorks
 
+- **[Battlestations](https://battlestations.osiris-devworks.com/)** - Manage and share Star Citizen hangar battlestation builds
 - **[SC Profile Editor](https://github.com/Osiris-DevWorks/sc-profile-editor)** - Import, edit, and export Star Citizen control profiles
 - **[Extended AFK](https://github.com/Osiris-RK/extended-afk)** - AFK tool to prevent idle timeouts
 
 ## Built On
 
-Built with **PyQt6** and powered by the Star Citizen community's localization work.
+Built with **PyQt6** and inspired by the Star Citizen community's localization work.
 
 **GitHub**: https://github.com/Osiris-DevWorks/smart-citizen

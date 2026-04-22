@@ -1,0 +1,107 @@
+# Smart Citizen — Quick Start Guide
+
+## First Time Setup
+
+On launch, Smart Citizen reloads any customizations from your previous session and checks for your Star Citizen installation — the installer pre-fills this path, but you can change it in the **Config** tab. All stock localization and DataForge data is sourced **directly from your installed `Data.p4k`** (no downloads, no community mirrors), so extracting once is a required first step after install or after any game patch.
+
+## 1. Extract Base Localization from Data.p4k
+
+Open the **Config** tab and click **Extract from Data.p4k**. This unpacks stock `global.ini` plus the DataForge entity XMLs used by the enhancement generator — ships, components, weapons, missions, blueprints, etc.
+
+Then click **Load Base File** on the toolbar to load the extracted `base.ini` into the table.
+
+## 2. Edit Localization Strings
+
+- Double-click any **Custom Value** cell to edit text.
+- **Default Value** — original text from `Data.p4k`-extracted `base.ini`.
+- **Current Value** — the effective value before your override (base + any imported INI layers).
+- **Custom Value** — your personal edit. Saved automatically on every change and persisted to `Documents\Smart Citizen\user.ini`.
+- Edits are highlighted with a **Modified** status (green).
+
+## 3. Categories
+
+Use the **Category** filter to focus on one domain:
+
+- **Ships** — Ship names and descriptions (`vehicle_Name*`, `vehicle_Desc*`, plus Wikelo/Collector mods).
+- **Ship Items** — Shields, power plants, coolers, quantum drives, jump drives, ship weapons, missiles, bombs, turrets.
+- **Missions** — Mission briefings, contract text, reward descriptions.
+- **Gear** — FPS weapons, armor, helmets, suits, optics.
+- **Commodities** — Trade goods and crafting materials.
+- **Journal** — In-game journal / Galactapedia-style entries.
+- **Other** — Everything else.
+
+## 4. Search & Filter
+
+- Use the **search box** to find strings by key or text content.
+- Combine with **Category** and **Status** (Modified / Unmodified / New) filters.
+- Check **Hide Unmodified** to focus on your own edits only.
+- The **per-column filter boxes** under each header narrow further within the table.
+- Click any column header to sort by that column. Click the **★** header to sort favorites to the top.
+
+## 5. Ship Favorites
+
+- Click the **★** column on any Ship row to mark it as a favorite.
+- Favorited ships get a configurable prefix prepended to their name, sorting them to the top of the in-game ship list.
+- Change the prefix character in the **Enhancements** tab (default: `*`).
+
+## 6. Apply Changes to Game
+
+Click **Apply to Game** to write your edits to the game installation. A timestamped backup of the current `global.ini` is created in `Documents\Smart Citizen\backups\` before anything is overwritten.
+
+## 7. Restore a Backup
+
+Click **Restore Backup** to revert to a previous version. Smart Citizen keeps up to **5 automatic backups** — the oldest is pruned as new ones are created.
+
+## 8. Clear Localization
+
+Click **Clear Localization** to delete the custom `global.ini` from the game directory, reverting the game to its default (vanilla) text. Your saved overrides in `Documents\Smart Citizen\user.ini` are untouched and can be re-applied anytime.
+
+## 9. Import INI
+
+Use **Import INI** in the **Config** tab to fold an existing INI file into your overrides. A conflict-resolution dialog lets you decide, per key, whether to **keep current**, **use imported**, **append**, **prepend**, or provide a **custom** value.
+
+## 10. After Game Updates
+
+When Star Citizen updates, your edits are preserved in `Documents\Smart Citizen\user.ini`. Re-run **Extract from Data.p4k** to pull fresh stock strings from the patched game, then **Load Base File** — your customizations re-apply on top automatically.
+
+## Enhancements Tab
+
+- Toggle stat overlays that append numerical stats to descriptions — SCM speed, shield HP, DPS, cargo capacity, blueprint pools, mission XP, and more.
+- Enable or disable each enhancement category independently.
+- Configure the ship favorites prefix character.
+- Click **Generate Enhancements** to extract DataForge data from `Data.p4k` and rebuild the enhancement INI files. Declarative patches under `patches/` are re-applied idempotently on every regen so known CIG data bugs stay fixed without waiting for a game patch.
+
+## Config Tab
+
+- **Appearance** — pick the app theme (see below).
+- **Star Citizen Installation** — path to your LIVE directory; auto-detected at install time, editable here.
+- **Base Localization (P4K Extraction)** — click **Extract from Data.p4k** to unpack stock localization plus DataForge entity data directly from your installed game. This is the sole source for base strings and enhancement data.
+- **Import INI** — fold an existing INI file into your overrides via the conflict-resolution dialog.
+
+## Log Tab
+
+- Real-time application log.
+- Filter by log level, auto-scroll to latest entries, and **Export** the log for troubleshooting or bug reports.
+
+## Themes
+
+Pick a theme in the **Config tab → Appearance** section:
+
+- **Default** — SCLE, a deep-navy cyber theme inspired by Star Citizen's mobiGlas UI.
+- **Light / Dark** — classic UI themes.
+- **ODW** — Osiris DevWorks signature, navy charcoal with antique gold.
+
+## Status Bar
+
+Shows the count of loaded / modified entries and the state of any running background worker (extract, generate, apply).
+
+## Keyboard Shortcuts
+
+- **Ctrl+Shift+C** — Copy filtered rows to clipboard (key=value format).
+
+## Troubleshooting
+
+- **Nothing in the table** — Make sure `Load Base File` has completed, then check the **Log Tab** for parse errors.
+- **Enhancements empty or missing items** — Run **Generate Enhancements** from the Enhancements tab; it needs a DataForge cache (click **Extract from Data.p4k** first if you haven't).
+- **Apply to Game fails** — Confirm the Star Citizen install path in the **Config Tab** and that the game isn't running.
+- **Stale data after game update** — Re-run **Extract from Data.p4k**, then regenerate enhancements.

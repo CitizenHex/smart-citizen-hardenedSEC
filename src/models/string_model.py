@@ -35,6 +35,12 @@ class StringEntry:
         if key_lower.startswith("vehicle_name") or key_lower.startswith("vehicle_desc"):
             return "Ships"
 
+        # Wikelo ship mods (TheCollector_ShipMod_*_VehicleName, _VehicleDesc,
+        # _VehicleNameShort). Checked before mission-prefix fallthrough, which
+        # would otherwise route TheCollector_* into "Missions".
+        if key_lower.endswith(("_vehiclename", "_vehicledesc", "_vehiclenameshort")):
+            return "Ships"
+
         # item_Name* / item_Desc* keys — resolve in priority order
         fps_weapon_words = ["_rifle_", "_pistol_", "_smg_", "_shotgun_", "_sniper_", "_launcher_", "_lmg_", "_hmg_", "_knife_", "_multi_"]
         if key_lower.startswith("item_name") or key_lower.startswith("item_desc"):
