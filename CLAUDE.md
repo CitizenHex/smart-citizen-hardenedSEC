@@ -48,7 +48,7 @@ python scripts/extract_components.py [--stock path] [--base path] [--output path
 
 ## Testing Strategy
 
-**Unit Tests** (`tests/`): Split by domain — `test_core.py` (INI parsing/merging/category extraction), `test_missions.py` (mission rewards pipeline), `test_pak_extraction.py` (P4K/DataForge). Pytest config lives in `tests/pytest.ini` (sets `pythonpath = src`, registers markers: `unit`, `integration`, `slow`, `critical`, `regression`).
+**Unit Tests** (`tests/`): Split by domain — `test_core.py` (INI parsing/merging/category extraction), `test_missions.py` (mission rewards pipeline), `test_pak_extraction.py` (P4K/DataForge), `test_progress_sink.py` (thread-safe progress coalescing), `test_dataforge_patcher.py` (declarative XML patching). Pytest config lives in `tests/pytest.ini` (sets `pythonpath = src`, registers markers: `unit`, `integration`, `slow`, `critical`, `regression`).
 
 **GUI Testing**: Manual. Run app (`python src/main.py`), load base file, edit a value, apply to game, restart to verify persistence. Use the Log Tab to watch for errors during load/merge/apply cycles.
 
@@ -77,11 +77,14 @@ Entry point: `src/main.py`. The app has two main layers:
 - `user_cfg.py` — Manages Star Citizen's `user.cfg` file; ensures `g_language = english` is set in the LIVE directory.
 - `version.py` — Reads version string from `VERSION.TXT`, handling both normal and PyInstaller-frozen execution.
 - `perf.py` — `@timed` decorator for debug-level performance profiling. No-op when DEBUG logging disabled.
+- `progress_sink.py` — `ProgressSink` coalesces `advance()` calls from many worker threads into throttled `(completed, total, message)` callbacks. Used by the parallelized lookup builders and enhancement generators to drive determinate progress bars without flooding the Qt event loop.
+- `dataforge_patcher.py` — Applies declarative JSON patches from `patches/` to the DataForge XML cache immediately after extraction. Fixes upstream CIG data bugs (e.g. mission records pointing at wrong loc-keys) so downstream consumers see corrected data. Patches mirror the DataForge layout under `patches/<category>/.../<name>.patch.json`.
 
 **Scripts** (`scripts/`):
 - `generate_enhancements_ini.py` — Reads DataForge entity XMLs only (no external JSON) → outputs enhancement INI files to cache (ships, components, ship weapons, FPS weapons descriptions).
 - `extract_components.py` — Diffs base.ini against stock vanilla to produce components.ini.
 - `gen_commodity_crafting.py` — Generates `commodity_crafting_enhancements.ini` with crafting blueprint usage data from DataForge XMLs.
+- `compare_kraken_fixture.py` — Research/reporting tool: diffs the `kraken_4.7.ini` ground-truth fixture against our generated `mission_rewards_enhancements.ini` to validate blueprint list output. Read-only.
 - `discord_notify.py` — GitHub Actions release webhook notifier.
 - `build/build_exe.py`, `build/build_all.bat`, `build/clean_cache_for_distribution.py` — Build pipeline; see `scripts/build/BUILD_INSTRUCTIONS.md`.
 
@@ -101,8 +104,11 @@ All I/O-bound operations (file loads, network requests, P4K extraction) run in `
 ### Startup initialization
 On first run, the app initializes user data directories, validates Star Citizen install path, and may show a startup dialog to guide configuration. Subsequent runs check source freshness and auto-apply any pending DataForge cache updates.
 
-### DataForge extraction is a three-step pipeline
-The "Extract DataForge from P4K" button triggers: (1) unpack Data.p4k → entity XMLs via `pak_extractor.py`, (2) run `generate_enhancements_ini.py` to produce enhancement INI files from the XMLs, (3) reload all strings to refresh the table. All three steps run sequentially from a single button click.
+### DataForge extraction is a four-step pipeline
+The "Extract DataForge from P4K" button triggers: (1) unpack Data.p4k → entity XMLs via `pak_extractor.py`, (2) apply declarative patches from `patches/` via `dataforge_patcher.py` to fix upstream CIG data bugs, (3) run `generate_enhancements_ini.py` to produce enhancement INI files from the XMLs, (4) reload all strings to refresh the table. All steps run sequentially from a single button click. The patch step is idempotent and always runs on the extracted cache, even when extraction is skipped as fresh.
+
+### Parallel pipelines report progress via ProgressSink
+Lookup builders and enhancement output generators run in parallel worker threads (see `scripts/generate_enhancements_ini.py`). They share a single `ProgressSink` (`src/utils/progress_sink.py`) so the UI shows one determinate progress bar. Never call `QProgressBar.setValue()` directly from workers — go through the sink so updates are coalesced and throttled on the main thread.
 
 ### Merge hierarchy
 Sources merge in user-defined order (default: global → contracts → components → ships → commodities → gear → user). Later sources overwrite earlier ones. User overrides are always applied last and never lost during source updates.
@@ -123,6 +129,8 @@ Favorites prepend a configurable prefix (default `*`) to `custom_value`. The pre
 | Backups | `Documents\SC Localization Editor\backups\` (max 5, oldest auto-deleted) |
 | Game file | `{game_install_path}\LIVE\data\Localization\english\global.ini` |
 | P4K tools | `assets/unp4k/` (`unp4k.exe`, `unforge.exe`) |
+| DataForge patches | `patches/` (JSON files mirroring DataForge layout; applied post-extraction) |
+| Help/About content | `HELP.md`, `ABOUT.md` at repo root — rendered inside the in-app help panel |
 
 ## Common Modification Points
 
@@ -149,6 +157,8 @@ Favorites prepend a configurable prefix (default `*`) to `custom_value`. The pre
 | Manage Enhancements tab UI | `enhancements_tab.py` | `setup_ui()`, stats toggle, favorites config |
 | Change in-app logging | `log_tab.py` | `LogTab`, `_QtLogHandler` |
 | Change user.cfg behavior | `user_cfg.py` | `ensure_user_cfg_language()` |
+| Fix an upstream DataForge data bug | `patches/<category>/.../<name>.patch.json`, `dataforge_patcher.py` | `apply_patches()` |
+| Change parallel progress reporting | `progress_sink.py` | `ProgressSink.advance()` |
 
 ## Version & Release
 

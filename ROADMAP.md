@@ -210,12 +210,15 @@
 * [x] Guard against CIG system-sentinel loc-keys (`LOC_UNINITIALIZED`, `LOC_PLACEHOLDER`, `LOC_BADSTRING`, `LOC_BADTOKEN`, `LOC_DEBUG`, `LOC_EMPTY`, `LOC_INVALID`, `LOC_NOINNERTHOUGHT`) — previously, contracts or entities whose `Title`/`Description`/`vehicleDescription` attribute pointed at one of these (e.g. `citizensforprosperity_destroyitems` and `thecollector` both have contracts with `@LOC_UNINITIALIZED` set) caused our generator to write the full MISSION DETAILS / POTENTIAL BLUEPRINTS / ITEM REWARDS block *into the sentinel itself*. The game then rendered that content anywhere a reference failed to bind — most visibly, the Primary Objectives panel for hauling contracts whose item entity class lacked a loc-name ("Deliver 0/15 `<= UNINITIALIZED =>`" followed by a random unrelated mission's reward block). Added `_is_sentinel_loc_ref` + `_SENTINEL_LOC_KEYS`, routed every loc-key extractor (`_loc_key`, `_loc_name_key`, `_mission_loc_key`, `scan_spaceships`, the contract-generator Title/Description path, and the `pu_missions` XP-augmentation second pass) through it. Also moved `generate_enhancements_ini.py`'s `OUTPUT_DIR` from a module-level `Personal`-shell-folder constant to `base_ini_path.parent` so the CLI invocation writes output next to its input — it previously hard-coded the output at the Windows Documents path even when the user had moved their data off OneDrive via the new `USER_DATA_DIR` override.
 
 ## 0.9.3
-* [ ] Illegal mission need a death at asteroid base has [BP] in title but no BP list in description
-
-## 0.9.4
-* [ ] performance optimization
-* [ ] tooltips for buttons
+* [ ] Illegal mission "need a death at asteroid base" has [BP] in title but no BP list in description
+* [ ] tooltips for buttons and other UI elements
 * [ ] guided tutorial
-* [ ] cache streamlining
+* [ ] cache streamlining 
+* [ ] performance optimization
 * [ ] stability & bugfixes
 * [ ] end-to-end testing & version release
+* [ ] add known issues to Help section - better formatting for help section
+
+## 1.0.0 Production Release
+
+* [ ] Human read-through of all documentation for accuracy
