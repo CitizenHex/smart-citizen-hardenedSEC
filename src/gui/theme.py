@@ -146,6 +146,39 @@ def get_tagline_color() -> str:
     return _TAGLINE_COLORS.get(AppSettings.get_theme(), _TAGLINE_COLORS[DEFAULT_THEME])
 
 
+# Progress-bar colors — groove (unfilled track) and chunk (filled region).
+# Applied via QSS on AnimatedProgressDialog's QProgressBar, but ONLY while
+# the bar is in determinate mode. In indeterminate mode the QSS is cleared
+# so Fusion's animated busy indicator keeps working.
+_PROGRESS_GROOVE_COLORS = {
+    THEME_LIGHT: "#8A8A8A",
+    THEME_DARK:  "#3C3C3F",
+    THEME_SCLE:  "#152538",
+    THEME_ODW:   "#242938",
+}
+
+_PROGRESS_CHUNK_COLORS = {
+    THEME_LIGHT: "#1565C0",
+    THEME_DARK:  "#3B82F6",
+    THEME_SCLE:  "#4FD7E8",
+    THEME_ODW:   "#D4A017",
+}
+
+
+def get_progress_groove_color() -> str:
+    from src.utils.settings import AppSettings
+    return _PROGRESS_GROOVE_COLORS.get(AppSettings.get_theme(),
+                                       _PROGRESS_GROOVE_COLORS[DEFAULT_THEME])
+
+
+def get_progress_chunk_color() -> str:
+    from src.utils.settings import AppSettings
+    return _PROGRESS_CHUNK_COLORS.get(AppSettings.get_theme(),
+                                      _PROGRESS_CHUNK_COLORS[DEFAULT_THEME])
+
+
+
+
 def _light_palette() -> QPalette:
     """Return a palette matching the Fusion light defaults with adjusted placeholder."""
     p = QPalette()

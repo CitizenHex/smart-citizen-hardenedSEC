@@ -52,6 +52,51 @@ Filename: "{app}\SmartCitizen-v{#AppVer}.exe"; Description: "{cm:LaunchProgram,S
 [Code]
 var
   SCDirectoryPage: TInputDirWizardPage;
+  DataDirPage: TInputDirWizardPage;
+  DataDirPromptShown: Boolean;
+
+function IsDocsOnOneDrive(): Boolean;
+var
+  DocsPath: String;
+begin
+  { Read the invoking user's Documents shell-folder path. When Windows has
+    folder-redirected Documents into OneDrive (the default on most OneDrive
+    installs now), this string contains "\OneDrive\". Cache extraction +
+    50,000-file rmtree under an actively-synced OneDrive tree is 3-5x
+    slower and routinely fails with WinError 5 — worth warning the user
+    and offering a local-only alternative. }
+  Result := False;
+  if RegQueryStringValue(HKCU,
+    'SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders',
+    'Personal', DocsPath) then
+  begin
+    Result := (Pos('\OneDrive\', DocsPath) > 0) or
+              (Pos('\OneDrive/', DocsPath) > 0);
+  end;
+end;
+
+function HasDataDirOverride(): Boolean;
+var
+  Dummy: String;
+begin
+  { Respect existing user choice — if the override is already set in either
+    the new "Smart Citizen" node or the legacy "SC Localization Editor"
+    node, skip the prompt entirely. }
+  Result := RegQueryStringValue(HKCU,
+              'Software\Osiris DevWorks\Smart Citizen',
+              'user_data_dir', Dummy) or
+            RegQueryStringValue(HKCU,
+              'Software\Osiris DevWorks\SC Localization Editor',
+              'user_data_dir', Dummy);
+end;
+
+function SuggestLocalDataDir(): String;
+begin
+  { Build a sensible default pointing at the local (non-OneDrive) profile.
+    %USERPROFILE% is the real NTFS path; \Documents here is the junction
+    that Windows keeps even when the shell's Personal has been redirected. }
+  Result := ExpandConstant('{%USERPROFILE}\Documents\Smart Citizen');
+end;
 
 function GetUninstallString(): String;
 var
@@ -283,12 +328,59 @@ begin
     WizardForm.DirEdit.Text := ExpandConstant('{localappdata}\Osiris DevWorks\Smart Citizen');
   if Pos('SC Localization Editor', WizardForm.GroupEdit.Text) > 0 then
     WizardForm.GroupEdit.Text := 'Smart Citizen';
+
+  { OneDrive guard rail: when Documents is redirected to OneDrive, offer
+    to store Smart Citizen's cache + user.ini on a local path instead.
+    The page is *always* created (so ShouldSkipPage has something to
+    reference) but hidden when it doesn't apply. DataDirPromptShown
+    records whether it was actually exposed, so CurFinished only persists
+    a value the user was given the chance to see. }
+  DataDirPage := CreateInputDirPage(
+    SCDirectoryPage.ID,
+    'Smart Citizen Data Location',
+    'Your Documents folder is synced to OneDrive — pick where to store data.',
+    'Smart Citizen caches 2+ GB of extracted game data and stores your custom edits ' +
+    'under your Documents folder. OneDrive-synced Documents is known to cause problems:'
+    + #13#10 + #13#10 +
+    '  - DataForge extraction is 3-5x slower because OneDrive, Windows Defender,'
+    + #13#10 +
+    '    and the Search Indexer each intercept every one of the 50,000+ files'
+    + #13#10 +
+    '  - Cache rebuilds can fail with "Access is denied" errors when OneDrive holds'
+    + #13#10 +
+    '    a transient file lock'
+    + #13#10 +
+    '  - The 2+ GB cache uploads to your OneDrive cloud quota on every rebuild'
+    + #13#10 + #13#10 +
+    'We recommend a local (non-OneDrive) folder. Accept the suggestion below, browse ' +
+    'to a different location, or clear the field to keep the OneDrive default.',
+    False,
+    'Smart Citizen Data'
+  );
+  DataDirPage.Add('');
+  DataDirPage.Values[0] := SuggestLocalDataDir();
+  DataDirPromptShown := False;
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := False;
+  if (DataDirPage <> nil) and (PageID = DataDirPage.ID) then
+  begin
+    { Skip unless Documents is OneDrive-synced AND the user hasn't already
+      set an override from a prior launch. }
+    if IsDocsOnOneDrive() and not HasDataDirOverride() then
+      DataDirPromptShown := True
+    else
+      Result := True;
+  end;
 end;
 
 procedure CurFinished(LastStep: TSetupStep);
 var
   RegPath: String;
   FinalPath: String;
+  DataDir: String;
 begin
   if LastStep = ssPostInstall then
   begin
@@ -300,6 +392,28 @@ begin
       RegPath := 'Software\Osiris DevWorks\SC Localization Editor';
       RegWriteStringValue(HKCU, RegPath, 'sc_directory', FinalPath);
       Log('Saved sc_directory to registry: ' + FinalPath);
+    end;
+
+    { Persist the OneDrive-escape choice. Writes to the NEW (Smart Citizen)
+      node — 0.9.2+ reads user_data_dir from there. If a legacy install's
+      migration runs afterwards and the old node happens to carry its own
+      user_data_dir, that user's prior explicit choice wins (migration
+      overwrites). Otherwise this installer-written value survives. }
+    if DataDirPromptShown then
+    begin
+      DataDir := DataDirPage.Values[0];
+      if DataDir <> '' then
+      begin
+        RegWriteStringValue(HKCU,
+          'Software\Osiris DevWorks\Smart Citizen',
+          'user_data_dir', DataDir);
+        ForceDirectories(DataDir);
+        Log('Saved user_data_dir to registry: ' + DataDir);
+      end
+      else
+      begin
+        Log('User cleared data-dir override; keeping OneDrive default.');
+      end;
     end;
   end;
 end;

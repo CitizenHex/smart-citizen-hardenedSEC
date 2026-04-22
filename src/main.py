@@ -29,6 +29,13 @@ def main():
     """Application entry point."""
     logger.info(f"Starting Smart Citizen v{get_version()}")
 
+    # Move HKCU\Software\Osiris DevWorks\SC Localization Editor → Smart Citizen
+    # on first launch after 0.9.2 (idempotent via marker). Must run FIRST —
+    # every subsequent AppSettings call reads QSettings under the new node,
+    # so if the legacy settings haven't been copied over yet the app sees
+    # an empty registry and loses the user's saved paths / theme / etc.
+    AppSettings.migrate_registry_appname()
+
     # Rename Documents\SC Localization Editor\ → Documents\Smart Citizen\ on
     # first run after the 0.9.0 rebrand (idempotent). Must run before any
     # path-resolving setting is touched.

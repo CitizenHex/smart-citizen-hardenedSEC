@@ -1,0 +1,12 @@
+{
+  "target": "contracts/contractgenerator/mercenary_guild/hockrowagency/hockrowagency_facilitydelve.xml",
+  "description": "Fix P2M4_Repeat desc-key reference — CIG bug: contract points at P2M1_Repeat's desc loc-key instead of its own (observed in 4.7). Without this patch, P2M4_Repeat players see P2M1's Energy-Anomaly flavor text and our enhancement injects ASD2A blueprints; with this patch, P2M4_Repeat resolves to its own Power-Usage desc and picks up the correct ASD2D pool.",
+  "edits": [
+    {
+      "xpath": ".//Contract[@debugName='Hockrow_FacilityDelve_P2M4-Stanton4_Repeat']//ContractStringParam[@param='Description']",
+      "attribute": "value",
+      "expected": "@Hockrow_FacilityDelve_P2M1_Repeat_desc",
+      "set": "@Hockrow_FacilityDelve_P2M4_Repeat_desc"
+    }
+  ]
+}

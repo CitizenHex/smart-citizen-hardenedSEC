@@ -22,7 +22,9 @@ import pickle
 import re
 import sys
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -195,11 +197,44 @@ def _attr(root: ET.Element, tag: str, attr: str, default=None):
     return el.get(attr, default) if el is not None else default
 
 
+# CIG system-sentinel loc keys. When a ContractStringParam or entity
+# Localization reference points at one of these, the game resolves it at
+# runtime to a literal placeholder string (``<= UNINITIALIZED =>`` etc.)
+# that surfaces anywhere a reference fails to bind — objective panels,
+# inner-thoughts, tooltips. Augmenting these keys turns every such
+# placeholder surface into a POTENTIAL BLUEPRINTS / ITEM REWARDS block,
+# which is the bug we guard against in scan_contract_generators and
+# _loc_key. Keep this list synced with the ``LOC_*`` entries at the top
+# of base.ini.
+_SENTINEL_LOC_KEYS = frozenset({
+    "LOC_BADSTRING",
+    "LOC_BADTOKEN",
+    "LOC_DEBUG",
+    "LOC_EMPTY",
+    "LOC_INVALID",
+    "LOC_NOINNERTHOUGHT",
+    "LOC_PLACEHOLDER",
+    "LOC_UNINITIALIZED",
+})
+
+
+def _is_sentinel_loc_ref(ref: str) -> bool:
+    """Return True if *ref* (e.g. ``@LOC_UNINITIALIZED``) is a CIG sentinel.
+
+    Accepts the raw ``@Name`` form that ContractStringParam / Localization
+    attributes carry. Stripping the leading ``@`` before lookup keeps the
+    check identical to the contract-generator path's set check.
+    """
+    if not ref:
+        return True
+    return ref.lstrip("@") in _SENTINEL_LOC_KEYS
+
+
 def _loc_key(root: ET.Element) -> str | None:
     """Extract the item_Desc* localization key from the entity XML."""
     for el in root.iter("Localization"):
         desc = el.get("Description", "")
-        if desc.startswith("@") and "LOC_EMPTY" not in desc and "UNINITIALIZED" not in desc:
+        if desc.startswith("@") and not _is_sentinel_loc_ref(desc):
             return desc.lstrip("@")
     return None
 
@@ -208,7 +243,7 @@ def _loc_name_key(root: ET.Element) -> str | None:
     """Extract the item_Name* localization key from the entity XML."""
     for el in root.iter("Localization"):
         name = el.get("Name", "")
-        if name.startswith("@") and "LOC_EMPTY" not in name and "UNINITIALIZED" not in name:
+        if name.startswith("@") and not _is_sentinel_loc_ref(name):
             return name.lstrip("@")
     return None
 
@@ -223,7 +258,7 @@ _CLASS_ABBREV = {
 }
 
 
-def _component_name_tag(desc_value: str) -> str | None:
+def _component_name_tag(desc_value: str, root: ET.Element | None = None) -> str | None:
     """Extract [CLASS-S{size}-{grade}] tag from a component description string.
 
     Parses the structured header lines (Size: N, Grade: X, Class: Y) that appear
@@ -244,13 +279,57 @@ def _component_name_tag(desc_value: str) -> str | None:
     return f"[{abbrev}-S{size_m.group(1)}-{grade_m.group(1)}]"
 
 
+# CIG's internal trackingSignalType values → in-game community shorthand.
+_MISSILE_TRACKING_ABBREV = {
+    "CrossSection":   "CS",
+    "Electromagnetic": "EM",
+    "Infrared":       "IR",
+}
+
+
+def _missile_name_tag(desc_value: str, root: ET.Element | None = None) -> str | None:
+    """Extract [S{size}-{seeker}] tag for guided missiles (e.g. [S1-CS]).
+
+    Prefers the XML's ``trackingSignalType`` attribute (on ``<targetingParams>``)
+    over the loc-text "Tracking Signal: …" line so we stay correct even if a
+    description is edited or translated. Bombs (no guidance) fall through to a
+    plain [S{size}] tag.
+    """
+    import re
+    size_m = re.search(r"Size:\s*(\d+)", desc_value)
+    if not size_m:
+        return None
+    size = size_m.group(1)
+
+    seeker_abbrev = None
+    if root is not None:
+        for el in root.iter():
+            if el.tag.endswith("targetingParams") or el.tag.endswith("TargetingParams"):
+                raw = el.get("trackingSignalType")
+                if raw and raw in _MISSILE_TRACKING_ABBREV:
+                    seeker_abbrev = _MISSILE_TRACKING_ABBREV[raw]
+                    break
+    if seeker_abbrev is None:
+        m = re.search(r"Tracking Signal:\s*([A-Za-z ]+?)(?:\\n|\n|$)", desc_value)
+        if m:
+            normalized = m.group(1).replace(" ", "")
+            for raw, abbrev in _MISSILE_TRACKING_ABBREV.items():
+                if normalized.lower() == raw.lower():
+                    seeker_abbrev = abbrev
+                    break
+
+    if seeker_abbrev:
+        return f"[S{size}-{seeker_abbrev}]"
+    return f"[S{size}]"
+
+
 def _mission_loc_key(root: ET.Element) -> str | None:
     """Extract the mission description localization key from MissionBrokerEntry XML.
 
     Missions store the localization key in the 'description' attribute of the root element.
     """
     desc = root.get("description", "")
-    if desc.startswith("@") and "LOC_EMPTY" not in desc and "UNINITIALIZED" not in desc:
+    if desc.startswith("@") and not _is_sentinel_loc_ref(desc):
         return desc.lstrip("@")
     return None
 
@@ -1145,6 +1224,31 @@ def _build_template_lookup(templates_dir: Path) -> dict[str, tuple[str, str]]:
     return lookup
 
 
+def _variant_label_short(debug_name: str) -> str:
+    """Extract a short, human-readable variant label from a contract debugName.
+
+    Strips common family prefixes (Bounty Hunters Guild career / bounties /
+    elimination) so the region or distinguishing token becomes the label:
+      BountyHuntersGuild_Bounties_Nyx_Career     → Nyx
+      BountyHuntersGuild_Bounty_Stanton_Easy     → Stanton
+      BountyHuntersGuild_PAF_EliminateSpecific   → PAF
+      BountyHuntersGuild_FPS_Nyx                 → FPS
+    Falls back to the final underscore-separated token when no known family
+    prefix matches, preserving the previous behavior for unfamiliar contracts.
+    """
+    if not debug_name:
+        return ""
+    for prefix in (
+        "BountyHuntersGuild_Bounties_",
+        "BountyHuntersGuild_Bounty_",
+        "BountyHuntersGuild_",
+    ):
+        if debug_name.startswith(prefix):
+            tail = debug_name[len(prefix):]
+            return tail.split("_", 1)[0]
+    return debug_name.rsplit("_", 1)[-1]
+
+
 def scan_contract_generators(
     contractgen_dir: Path,
     reputation_lookup: dict[str, int] | None = None,
@@ -1155,7 +1259,8 @@ def scan_contract_generators(
 
     Returns tuple of:
         - missions: dict mapping title_key → [(system_name, success_xp, failure_xp, desc_key, flags, num_enemies, num_not_enemies), ...]
-        - mission_blueprints: dict mapping title_key → list of craftable item display names
+        - mission_blueprints: dict title_key → dict system_name → list of craftable item display names.
+          Multiple entries indicate per-region pools (e.g. Stanton vs Pyro Shubin HandMining). A single entry is rendered flat.
         - mission_items: dict mapping title_key → list of reward item display names
     Sorted by system name for consistent output.
     """
@@ -1167,7 +1272,9 @@ def scan_contract_generators(
     entity_names = entity_names or {}
     # Variant tuple: (system_name, success_xp, failure_xp, desc_key, flags, num_enemies, num_not_enemies)
     missions: dict[str, list[tuple[str, int, int, str, list[str], int, int]]] = {}
-    mission_blueprints: dict[str, list[str]] = {}
+    # Per-system pool items, so desc output can render regional sub-sections
+    # when a title_key has distinct pools for different systems.
+    mission_blueprints: dict[str, dict[str, list[str]]] = {}
     mission_bp_chance: dict[str, float] = {}
     mission_items: dict[str, list[str]] = {}
 
@@ -1189,19 +1296,42 @@ def scan_contract_generators(
                 (".//ContractGeneratorHandler_List", ".//Contract"),
             ]
 
+            known_systems = {"Stanton", "Pyro", "Nyx", "Desert", "ArcCorp", "Crusader"}
+            # Intra-system region markers used by Headhunters / CFP / etc.
+            # to partition contracts within a single system (different pools
+            # per region). Matches ``RegionA``, ``RegionB1``, etc.
+            _region_token_re = re.compile(r"^Region[A-Z][0-9]*$")
+
+            def _extract_system(name: str, fallback: str) -> str:
+                """Pick system token(s) from *name*, else *fallback*.
+
+                Splits on both ``_`` and ``/`` to handle dual-system contract
+                debugNames like ``Shubin_RG_Discovery_ShipMining_Nyx/Stanton_Stileron``
+                (tokens = ..., ``Nyx/Stanton``, ...). When an intra-system
+                ``Region<X>`` token follows the system, append it so pools
+                that differ within a single system (e.g. Pyro RegionA vs
+                RegionC Headhunters contracts) get separate labels.
+                """
+                if not name:
+                    return fallback
+                sys_token = None
+                region_token = None
+                for token in name.split("_"):
+                    sub = token.split("/")
+                    if sub and all(s in known_systems for s in sub):
+                        sys_token = token
+                        region_token = None  # reset — a later system wins
+                    elif sys_token and _region_token_re.match(token):
+                        region_token = token
+                if sys_token is None:
+                    return fallback
+                return f"{sys_token} {region_token}" if region_token else sys_token
+
             for handler_xpath, contract_xpath in handler_configs:
                 for handler in root.findall(handler_xpath):
                     debug_name = handler.get("debugName", "")
 
-                    # Try to extract a system name from debugName for labelling variants
-                    system_name = debug_name or "Unknown"
-                    known_systems = {"Stanton", "Pyro", "Nyx", "Desert", "ArcCorp", "Crusader"}
-                    if debug_name:
-                        parts = debug_name.split("_")
-                        for part in reversed(parts):
-                            if part in known_systems:
-                                system_name = part
-                                break
+                    handler_system_name = _extract_system(debug_name, debug_name or "Unknown")
 
                     # Extract handler-level flags from defaultAvailability
                     handler_flags = []
@@ -1221,6 +1351,13 @@ def scan_contract_generators(
 
                     for contract in contracts:
                         try:
+                            # Prefer the contract's own debugName when picking
+                            # a system token — one handler can host contracts
+                            # for multiple systems (Shubin Rank0 has Stanton &
+                            # Pyro Intro siblings) and the handler name carries
+                            # rank info, not region.
+                            contract_name = contract.get("debugName", "")
+                            system_name = _extract_system(contract_name, handler_system_name)
                             # Extract title and description keys
                             title_param = contract.find(".//ContractStringParam[@param='Title']")
                             desc_param = contract.find(".//ContractStringParam[@param='Description']")
@@ -1252,10 +1389,38 @@ def scan_contract_generators(
                                     if not desc_key:
                                         desc_key = tmpl_desc
 
+                            # Reject CIG's system-sentinel loc-keys — a few
+                            # contracts (e.g. citizensforprosperity_destroyitems,
+                            # thecollector) have ``Title`` or ``Description``
+                            # set to ``@LOC_UNINITIALIZED`` / ``@LOC_EMPTY`` /
+                            # ``@LOC_PLACEHOLDER``. These resolve at runtime
+                            # to literal strings like ``<= UNINITIALIZED =>``
+                            # that the game renders anywhere a reference fails
+                            # to bind. If we let them enter ``missions`` /
+                            # ``mission_blueprints``, the augmentation
+                            # machinery writes the full POTENTIAL BLUEPRINTS
+                            # / ITEM REWARDS / MISSION DETAILS block into
+                            # the sentinel itself, corrupting *every* UI
+                            # surface in-game that falls back to that
+                            # sentinel (most visibly, the Primary Objectives
+                            # panel for hauling contracts whose item entity
+                            # class has no loc-name).
+                            if title_key in _SENTINEL_LOC_KEYS:
+                                title_key = ""
+                            if desc_key in _SENTINEL_LOC_KEYS:
+                                desc_key = ""
+
                             if not title_key:
                                 continue
 
-                            # Extract blueprint pool UUID and drop chance if present
+                            # Extract blueprint pool UUID and drop chance if present.
+                            # Record the pool under the variant's system_name
+                            # so the main loop can emit per-region sub-sections
+                            # when a title_key spans multiple systems with
+                            # distinct pools (e.g. Shubin FPSMine Stanton vs
+                            # Pyro Intro both use
+                            # Shubin_Industrial_HandMining_Intro_Local_Desc_001
+                            # but award different pools).
                             contract_has_bp = False
                             contract_bp_chance = 0.0
                             contract_bp_variant = contract.get("debugName", "")
@@ -1264,8 +1429,10 @@ def scan_contract_generators(
                                 null_uuid = "00000000-0000-0000-0000-000000000000"
                                 if pool_uuid and pool_uuid != null_uuid and pool_uuid in blueprint_pools:
                                     contract_has_bp = True
-                                    if title_key not in mission_blueprints:
-                                        mission_blueprints[title_key] = blueprint_pools[pool_uuid]
+                                    pool_items = blueprint_pools[pool_uuid]
+                                    per_system = mission_blueprints.setdefault(title_key, {})
+                                    if system_name not in per_system:
+                                        per_system[system_name] = pool_items
                                     try:
                                         contract_bp_chance = float(bp_elem.get("chance", "1"))
                                     except (ValueError, TypeError):
@@ -1508,31 +1675,39 @@ def scan_crafting_blueprints(
         except ET.ParseError:
             pass
 
-    # Commodity internal name → (name_loc_key, desc_loc_key)
+    # Commodity internal name → list of (name_loc_key, desc_loc_key) pairs.
+    # Each pair is an in-game item that represents this commodity (refined
+    # product, raw ore, etc.). All matching pairs get the [CF] tag + BLUEPRINT
+    # DATA so the freight-elevator view tags both forms — the user complaint
+    # "Aluminum not getting [CF] tag when viewed in FE inventory" was caused
+    # by only tagging the _ore variant while the refined Aluminum carryable
+    # is what shows up in most FE-visible stacks.
     commodity_loc = {
-        "agricium": ("items_commodities_agricium", "items_commodities_agricium_desc"),
-        "aluminium": ("items_commodities_aluminum_ore", "items_commodities_aluminum_ore_desc"),
-        "aluminum": ("items_commodities_aluminum_ore", "items_commodities_aluminum_ore_desc"),
-        "aslarite": ("items_commodities_aslarite", "items_commodities_aslarite_desc"),
-        "beryl": ("items_commodities_beryl", "items_commodities_beryl_desc"),
-        "copper": ("items_commodities_copper", "items_commodities_copper_desc"),
-        "corundum": ("items_commodities_corundum", "items_commodities_corundum_desc"),
-        "gold": ("items_commodities_gold", "items_commodities_gold_desc"),
-        "hephaestanite": ("items_commodities_hephaestanite", "items_commodities_hephaestanite_desc"),
-        "iron": ("items_commodities_iron", "items_commodities_iron_desc"),
-        "laranite": ("items_commodities_laranite", "items_commodities_laranite_desc"),
-        "lindinium": ("items_commodities_lindinium", "items_commodities_lindinium_des"),
-        "ouratite": ("items_commodities_ouratite", "items_commodities_ouratite_desc"),
-        "quartz": ("items_commodities_quartz", "items_commodities_quartz_desc"),
-        "riccite": ("items_commodities_riccite", "items_commodities_riccite_des"),
-        "savrilium": ("items_commodities_savrilium", "items_commodities_savrilium_des"),
-        "silicon": ("items_commodities_silicon", "items_commodities_silicon_desc"),
-        "stileron": ("items_commodities_stileron", "items_commodities_stileron_des"),
-        "taranite": ("items_commodities_taranite", "items_commodities_taranite_desc"),
-        "tin": ("items_commodities_tin", "items_commodities_tin_desc"),
-        "titanium": ("items_commodities_titanium", "items_commodities_titanium_desc"),
-        "torite": ("items_commodities_torite", "items_commodities_torite_des"),
-        "tungsten": ("items_commodities_tungsten", "items_commodities_tungsten_desc"),
+        "agricium":     [("items_commodities_agricium", "items_commodities_agricium_desc")],
+        "aluminium":    [("items_commodities_aluminum", "items_commodities_aluminum_desc"),
+                         ("items_commodities_aluminum_ore", "items_commodities_aluminum_ore_desc")],
+        "aluminum":     [("items_commodities_aluminum", "items_commodities_aluminum_desc"),
+                         ("items_commodities_aluminum_ore", "items_commodities_aluminum_ore_desc")],
+        "aslarite":     [("items_commodities_aslarite", "items_commodities_aslarite_desc")],
+        "beryl":        [("items_commodities_beryl", "items_commodities_beryl_desc")],
+        "copper":       [("items_commodities_copper", "items_commodities_copper_desc")],
+        "corundum":     [("items_commodities_corundum", "items_commodities_corundum_desc")],
+        "gold":         [("items_commodities_gold", "items_commodities_gold_desc")],
+        "hephaestanite":[("items_commodities_hephaestanite", "items_commodities_hephaestanite_desc")],
+        "iron":         [("items_commodities_iron", "items_commodities_iron_desc")],
+        "laranite":     [("items_commodities_laranite", "items_commodities_laranite_desc")],
+        "lindinium":    [("items_commodities_lindinium", "items_commodities_lindinium_des")],
+        "ouratite":     [("items_commodities_ouratite", "items_commodities_ouratite_desc")],
+        "quartz":       [("items_commodities_quartz", "items_commodities_quartz_desc")],
+        "riccite":      [("items_commodities_riccite", "items_commodities_riccite_des")],
+        "savrilium":    [("items_commodities_savrilium", "items_commodities_savrilium_des")],
+        "silicon":      [("items_commodities_silicon", "items_commodities_silicon_desc")],
+        "stileron":     [("items_commodities_stileron", "items_commodities_stileron_des")],
+        "taranite":     [("items_commodities_taranite", "items_commodities_taranite_desc")],
+        "tin":          [("items_commodities_tin", "items_commodities_tin_desc")],
+        "titanium":     [("items_commodities_titanium", "items_commodities_titanium_desc")],
+        "torite":       [("items_commodities_torite", "items_commodities_torite_des")],
+        "tungsten":     [("items_commodities_tungsten", "items_commodities_tungsten_desc")],
     }
 
     # Build commodity output
@@ -1540,18 +1715,19 @@ def scan_crafting_blueprints(
     for commodity in sorted(commodity_items.keys()):
         if commodity not in commodity_loc:
             continue
-        name_key, desc_key = commodity_loc[commodity]
+        pairs = commodity_loc[commodity]
+        condensed = _condense_crafted_items(commodity_items[commodity])
+        bp_block = "\\n".join(f"- {line}" for line in condensed)
+        enhancements_block = f"<EM3>BLUEPRINT DATA</EM3>\\n{bp_block}"
 
-        base_name = loc.get(name_key, "")
-        if base_name:
-            out[name_key] = f"{base_name} <EM4>[CF]</EM4>"
+        for name_key, desc_key in pairs:
+            base_name = loc.get(name_key, "")
+            if base_name and name_key not in out:
+                out[name_key] = f"{base_name} <EM4>[CF]</EM4>"
 
-        base_desc = loc.get(desc_key, "")
-        if base_desc:
-            condensed = _condense_crafted_items(commodity_items[commodity])
-            bp_block = "\\n".join(f"- {line}" for line in condensed)
-            enhancements_block = f"<EM3>BLUEPRINT DATA</EM3>\\n{bp_block}"
-            out[desc_key] = f"{base_desc}\\n\\n{enhancements_block}"
+            base_desc = loc.get(desc_key, "")
+            if base_desc and desc_key not in out:
+                out[desc_key] = f"{base_desc}\\n\\n{enhancements_block}"
 
     logger.info(f"Crafting: {len(out)} commodity entries augmented from {len(commodity_items)} commodities")
 
@@ -2101,7 +2277,7 @@ def scan_spaceships(
             skipped += 1
             continue
         desc_attr = vpc.get("vehicleDescription", "")
-        if not desc_attr.startswith("@"):
+        if not desc_attr.startswith("@") or _is_sentinel_loc_ref(desc_attr):
             skipped += 1
             continue
         loc_key = desc_attr.lstrip("@")
@@ -2226,6 +2402,7 @@ def scan_entity_dir(
     loc: dict | None = None,
     loc_key_fn = None,
     generate_name_tags: bool = False,
+    name_tag_fn = None,
     separator: str = ENHANCEMENT_SEPARATOR,
     capture_all: bool = False,
 ) -> dict[str, str]:
@@ -2282,15 +2459,25 @@ def scan_entity_dir(
         else:
             missed += 1
 
-        # Generate item_Name* tag from description metadata (e.g., [MIL-S1-A])
+        # Generate item_Name* tag from description metadata (e.g., [MIL-S1-A]
+        # or [S1-CS] for missiles). Also tag the matching *_short loc key
+        # when base.ini carries one — the short name is what shows in
+        # compact UI lanes (turret slots, loadout summaries, hangar cargo),
+        # so the annotation is arguably more valuable there than on the
+        # full name.
         if generate_name_tags and loc:
             name_key = _loc_name_key(root)
             if name_key:
                 name_value = loc.get(name_key)
                 if name_value:
-                    tag = _component_name_tag(base_value)
+                    tagger = name_tag_fn or _component_name_tag
+                    tag = tagger(base_value, root)
                     if tag:
                         out[name_key] = f"{name_value} {tag}"
+                        short_key = f"{name_key}_short"
+                        short_value = loc.get(short_key)
+                        if short_value:
+                            out[short_key] = f"{short_value} {tag}"
 
     logger.info(f"{entity_dir.name}: {matched} matched, {missed} no enhancements, {skipped} no loc key")
     return out
@@ -2299,13 +2486,31 @@ def scan_entity_dir(
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main(base_ini_path: Path, forge_dir: Path | None = None,
-         categories: set[str] | None = None) -> None:
+         categories: set[str] | None = None,
+         progress_callback: Optional[Callable[[int, int, str], None]] = None,
+         max_workers: int = 6) -> None:
     import sys as sys_mod
+    # Deferred import — the script is loaded by both the app worker (where
+    # src.utils is on the path) and as a standalone CLI, so we swallow an
+    # ImportError and run without a sink if the module isn't reachable.
+    try:
+        from src.utils.progress_sink import ProgressSink
+        _sink = ProgressSink(callback=progress_callback)
+    except ImportError:
+        _sink = None
+
     def _flush():
         if sys_mod.stdout is not None:
             sys_mod.stdout.flush()
         if sys_mod.stderr is not None:
             sys_mod.stderr.flush()
+
+    def _tick(message: str) -> None:
+        """Mark a phase boundary: log, flush stdout, advance the progress sink."""
+        logger.info(f"CHECKPOINT: {message}")
+        _flush()
+        if _sink is not None:
+            _sink.advance(message=message)
 
     def _want(cat: str) -> bool:
         """Return True if *cat* should be generated (None means all)."""
@@ -2319,20 +2524,25 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
     if forge_dir is None:
         forge_dir = DEFAULT_FORGE_DIR
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    # Write output alongside the input base.ini. The module-level
+    # OUTPUT_DIR constant is only used as a last-ditch fallback — it's
+    # derived from the Windows "Personal" shell-folder key at import time
+    # and therefore doesn't honor the AppSettings.USER_DATA_DIR override
+    # (e.g. users who moved their data off a OneDrive-synced Documents).
+    # Keying off base_ini_path.parent makes this script self-consistent
+    # whether invoked from the CLI or from EnhancementsGeneratorWorker,
+    # and keeps the cache co-located with the source data it reads.
+    output_dir = base_ini_path.parent if base_ini_path.parent.exists() else OUTPUT_DIR
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Parse base.ini ─────────────────────────────────────────────────────────
-    logger.info(f"CHECKPOINT: Parsing base.ini: {base_ini_path}")
-    _flush()
     if not base_ini_path.exists():
         raise FileNotFoundError(f"base.ini not found at {base_ini_path}")
     loc = parse_ini(base_ini_path)
-    logger.info(f"CHECKPOINT: Loaded {len(loc):,} localization keys")
+    logger.info(f"Loaded {len(loc):,} localization keys")
     _flush()
 
     # ── Check DataForge cache ─────────────────────────────────────────────────
-    logger.info("CHECKPOINT: Checking DataForge cache...")
-    _flush()
     records = forge_dir / "raw" / "libs" / "foundry" / "records"
     if not forge_dir.exists() or not records.exists():
         raise FileNotFoundError(
@@ -2340,182 +2550,52 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             "Run 'Extract DataForge' in the app first (Enhancements tab)."
         )
 
-    # ── Build ammo lookups (needed by ship_weapon_descs / fps_weapon_descs) ──
+    # ── Estimate total phases for determinate progress ────────────────────────
+    # One tick per logical phase. The sink caps at total, so over-counting is
+    # safer than under-counting.
+    need_mag = _want("ship_weapon_descs") or _want("fps_weapon_descs")
+    need_names = _want("mission_rewards") or _want("commodity_crafting") or _want("journal")
+    need_ammo = _want("ship_weapon_descs") or _want("fps_weapon_descs")
+    phase_total = (
+        1  # base.ini parsed
+        + (1 if need_ammo else 0)
+        + (1 if need_mag or need_names else 0)
+        + (1 if _want("component_descs") else 0)
+        + (1 if _want("missile_enhancements") else 0)
+        + (1 if _want("ship_weapon_descs") else 0)
+        + (1 if _want("fps_weapon_descs") else 0)
+        + (2 if _want("ship_descs") else 0)  # controller+armor lookup, scan
+        + (4 if _want("mission_rewards") else 0)  # rep lookup, scan, bp pools, contractgen+XP
+        + (1 if _want("commodity_crafting") or _want("journal") else 0)
+        + 1  # write files
+    )
+    if _sink is not None:
+        _sink.set_total(phase_total)
+    _tick(f"Loaded base.ini ({len(loc):,} keys)")
+
+    # ── Parallel build of independent lookups (Group A) ───────────────────────
+    # vehicle_ammo, fps_ammo, scitem_lookups, controller_lookup, armor_lookup,
+    # and reputation_lookup have no cross-dependencies and are dominated by
+    # XML parse + file I/O. Builders are pure: each returns a dict that is
+    # never mutated again, so thread-safe by construction. _cached_lookup
+    # writes to per-name pickle files, so parallel cache writes don't collide.
     vehicle_ammo: dict = {}
     fps_ammo: dict = {}
     mag_lookup: dict = {}
-    if _want("ship_weapon_descs") or _want("fps_weapon_descs"):
-        logger.info("CHECKPOINT: Building ammo damage lookups…")
-        _flush()
-        vehicle_ammo = build_ammo_lookup(records / "ammoparams" / "vehicle")
-        fps_ammo     = build_ammo_lookup(records / "ammoparams" / "fps")
-        logger.info(f"CHECKPOINT: Vehicle ammo: {len(vehicle_ammo)} records, FPS ammo: {len(fps_ammo)} records")
-        _flush()
-
-    # ── Combined scitem walk (magazines + entity names, one pass) ─────────────
-    # Both mag_lookup and entity_names used to iterate the ~20k scitem XMLs
-    # independently. Merging into one pass saves ~30s per run.
-    mag_lookup: dict = {}
     entity_names: dict[str, str] = {}
-    need_mag = _want("ship_weapon_descs") or _want("fps_weapon_descs")
-    need_names = _want("mission_rewards") or _want("commodity_crafting")
-    if need_mag or need_names:
-        logger.info("CHECKPOINT: Building scitem lookups (magazines + entity names)…")
-        _flush()
-        mag_lookup, entity_names = _cached_lookup(
+    controller_lookup: dict = {}
+    armor_lookup: dict = {}
+    reputation_lookup: dict[str, int] = {}
+
+    def _build_scitem_pair():
+        return _cached_lookup(
             forge_dir, "scitem_lookups",
             lambda: build_scitem_lookups(records / "entities" / "scitem", loc),
         )
-        logger.info(
-            f"CHECKPOINT: Magazine lookup: {len(mag_lookup)} entries, "
-            f"Entity names: {len(entity_names)} entries"
-        )
-        _flush()
 
-    # ── Process components ────────────────────────────────────────────────────
-    ships_scitem = records / "entities" / "scitem" / "ships"
-    out_components: dict[str, str] = {}
-
-    if _want("component_descs"):
-        logger.info("CHECKPOINT: Processing ship components…")
-        _flush()
-        for subdir, fn in [
-            ("shieldgenerator", enhancements_shield),
-            ("cooler",          enhancements_cooler),
-            ("powerplant",      enhancements_powerplant),
-            ("quantumdrive",    enhancements_quantum_drive),
-        ]:
-            logger.info(f"CHECKPOINT: Processing {subdir}...")
-            _flush()
-            out_components.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc, generate_name_tags=True))
-
-        # ── Process radar/sensors ─────────────────────────────────────────────
-        logger.info("Processing radar components…")
-        scitem_dir = records / "entities" / "scitem"
-        ships_scitem = scitem_dir / "ships"
-        radar_dir = ships_scitem / "radar"
-
-        if radar_dir.exists():
-            logger.info(f"Processing radars from {radar_dir}…")
-            out_components.update(scan_entity_dir(radar_dir, enhancements_radar, loc=loc))
-        else:
-            logger.info("No radar directory found in cache")
-
-        # ── Propagate enhancements to sibling keys ───────────────────────────
-        # base.ini has two key patterns for some components:
-        #   item_DescTYPE_..._SCItem  (referenced by DataForge entity XMLs)
-        #   item_Desc_TYPE_...        (legacy key, same component, no _SCItem)
-        # Propagate stats from _SCItem keys to their non-SCItem siblings, and
-        # similarly for name labels (item_nameTYPE → item_Name_TYPE).
-        comp_types = ("COOL", "SHLD", "POWR", "QDRV")
-        sibling_count = 0
-        for key, value in list(out_components.items()):
-            if not key.endswith("_SCItem"):
-                continue
-            base_key = key[:-len("_SCItem")]  # strip _SCItem
-            for ct in comp_types:
-                # Desc key: item_DescTYPE_... → item_Desc_TYPE_...
-                desc_prefix = f"item_Desc{ct}_"
-                if base_key.startswith(desc_prefix):
-                    sibling = f"item_Desc_{ct}_{base_key[len(desc_prefix):]}"
-                    if sibling not in out_components and sibling in loc:
-                        # Use sibling's own base text + the stats block from the augmented value
-                        sibling_base = loc[sibling]
-                        stats_marker = ENHANCEMENT_SEPARATOR
-                        if stats_marker in value:
-                            stats_block = value[value.index(stats_marker):]
-                            out_components[sibling] = sibling_base + stats_block
-                        else:
-                            out_components[sibling] = value
-                        sibling_count += 1
-                    break
-                # Name key: item_nameTYPE_... → item_Name_TYPE_...
-                name_prefix = f"item_name{ct}_"
-                if base_key.startswith(name_prefix):
-                    sibling = f"item_Name_{ct}_{base_key[len(name_prefix):]}"
-                    if sibling not in out_components and sibling in loc:
-                        out_components[sibling] = value
-                        sibling_count += 1
-                    break
-        if sibling_count:
-            logger.info(f"Propagated enhancements to {sibling_count} sibling keys")
-
-    # ── Process missiles/rockets/bombs ────────────────────────────────────────
-    out_missiles: dict[str, str] = {}
-    if _want("missile_enhancements"):
-        logger.info("Processing missile/rocket/bomb enhancements…")
-        weapons_dir = ships_scitem / "weapons"
-        for missile_dir in [
-            weapons_dir / "missiles",
-            weapons_dir / "rocket_pods",
-        ]:
-            if missile_dir.exists():
-                logger.info(f"Processing from {missile_dir}…")
-                out_missiles.update(scan_entity_dir(missile_dir, enhancements_missile, loc=loc))
-
-    # ── Process ship weapons ──────────────────────────────────────────────────
-    out_ship_weapons: dict[str, str] = {}
-    if _want("ship_weapon_descs"):
-        logger.info("CHECKPOINT: Processing ship weapons…")
-        _flush()
-        weapons_dir = ships_scitem / "weapons"
-        if weapons_dir.exists():
-            out_ship_weapons = scan_entity_dir(
-                weapons_dir,
-                lambda root: enhancements_weapon(root, vehicle_ammo, loc),
-                loc=loc,
-            )
-        logger.info(f"CHECKPOINT: Finished ship weapons ({len(out_ship_weapons)} entries)")
-        _flush()
-
-    # ── Process FPS weapons ───────────────────────────────────────────────────
-    out_fps_weapons: dict[str, str] = {}
-    if _want("fps_weapon_descs"):
-        logger.info("CHECKPOINT: Processing FPS weapons…")
-        _flush()
-        fps_dir = records / "entities" / "scitem" / "weapons" / "fps_weapons"
-        if fps_dir.exists():
-            out_fps_weapons = scan_entity_dir(
-                fps_dir,
-                lambda root: enhancements_weapon(root, fps_ammo, loc, mag_lookup),
-                loc=loc,
-            )
-        logger.info(f"CHECKPOINT: Finished FPS weapons ({len(out_fps_weapons)} entries)")
-        _flush()
-
-    # ── Process ships (DataForge spaceship entities + flight controllers) ──────
-    out_ships: dict[str, str] = {}
-    if _want("ship_descs"):
-        logger.info("CHECKPOINT: Building flight controller lookup…")
-        _flush()
-        controller_dir = records / "entities" / "scitem" / "ships" / "controller"
-        controller_lookup = build_controller_lookup(controller_dir)
-        logger.info(f"CHECKPOINT: Controllers: {len(controller_lookup)} loaded")
-        _flush()
-
-        logger.info("CHECKPOINT: Building ship armor lookup…")
-        _flush()
-        armor_dir = records / "entities" / "scitem" / "ships" / "armor"
-        armor_lookup = build_armor_lookup(armor_dir)
-        logger.info(f"CHECKPOINT: Armors: {len(armor_lookup)} loaded")
-        _flush()
-
-        logger.info("CHECKPOINT: Processing ship descriptions…")
-        _flush()
-        spaceships_dir = records / "entities" / "spaceships"
-        out_ships = scan_spaceships(spaceships_dir, controller_lookup, loc, armor_lookup)
-        logger.info(f"CHECKPOINT: Finished ships ({len(out_ships)} entries)")
-        _flush()
-
-    # ── Mission/contract processing ──────────────────────────────────────────
-    out_missions: dict[str, str] = {}
-    if _want("mission_rewards"):
-        # ── Build reputation XP lookup ───────────────────────────────────────
-        logger.info("CHECKPOINT: Building reputation XP lookup…")
-        _flush()
+    def _build_reputation():
         rep_rewards_dir = records / "reputation" / "rewards" / "missionrewards_reputation"
-
-        def _build_reputation_lookup() -> dict[str, int]:
+        def _builder() -> dict[str, int]:
             out: dict[str, int] = {}
             if not rep_rewards_dir.exists():
                 return out
@@ -2532,21 +2612,221 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                 except ET.ParseError:
                     continue
             return out
+        return _cached_lookup(forge_dir, "reputation", _builder)
 
-        reputation_lookup = _cached_lookup(forge_dir, "reputation", _build_reputation_lookup)
-        logger.info(f"CHECKPOINT: Loaded {len(reputation_lookup)} reputation reward definitions")
+    lookup_jobs: dict[str, Callable] = {}
+    if need_ammo:
+        lookup_jobs["vehicle_ammo"] = lambda: build_ammo_lookup(records / "ammoparams" / "vehicle")
+        lookup_jobs["fps_ammo"]     = lambda: build_ammo_lookup(records / "ammoparams" / "fps")
+    if need_mag or need_names:
+        lookup_jobs["scitem"] = _build_scitem_pair
+    if _want("ship_descs"):
+        lookup_jobs["controller"] = lambda: build_controller_lookup(records / "entities" / "scitem" / "ships" / "controller")
+        lookup_jobs["armor"]      = lambda: build_armor_lookup(records / "entities" / "scitem" / "ships" / "armor")
+    if _want("mission_rewards"):
+        lookup_jobs["reputation"] = _build_reputation
+
+    if lookup_jobs:
+        logger.info(f"Building {len(lookup_jobs)} lookups in parallel (workers={min(max_workers, len(lookup_jobs))})…")
         _flush()
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(lookup_jobs)),
+                                thread_name_prefix="lookup") as pool:
+            futures = {name: pool.submit(fn) for name, fn in lookup_jobs.items()}
+            results = {name: fut.result() for name, fut in futures.items()}
 
-        # ── Process missions/contracts ────────────────────────────────────────
-        logger.info("CHECKPOINT: Processing mission/contract rewards…")
+        if "vehicle_ammo" in results:
+            vehicle_ammo = results["vehicle_ammo"]
+            fps_ammo     = results["fps_ammo"]
+            logger.info(f"Vehicle ammo: {len(vehicle_ammo)} records, FPS ammo: {len(fps_ammo)} records")
+            _tick("Built ammo lookups")
+        if "scitem" in results:
+            mag_lookup, entity_names = results["scitem"]
+            logger.info(
+                f"Magazine lookup: {len(mag_lookup)} entries, "
+                f"Entity names: {len(entity_names)} entries"
+            )
+            _tick("Built scitem lookups")
+        if "controller" in results:
+            controller_lookup = results["controller"]
+            armor_lookup      = results["armor"]
+            logger.info(f"Controllers: {len(controller_lookup)}, Armors: {len(armor_lookup)}")
+            _tick("Built ship controller + armor lookups")
+        if "reputation" in results:
+            reputation_lookup = results["reputation"]
+            logger.info(f"Loaded {len(reputation_lookup)} reputation reward definitions")
+            _tick("Built reputation lookup")
+
+    # ── Output-file generators (parallel wave) ────────────────────────────────
+    # Each closure captures the lookups it needs and returns its output dict(s).
+    # Internal sub-phases within a closure (e.g. the mission scan → blueprint
+    # pools → contractgen → title/desc augmentation → coverage report chain)
+    # stay serial because each step consumes the prior step's in-memory result.
+    # Across closures there is no shared mutable state — every output dict is
+    # owned by exactly one closure — so they run safely on independent threads.
+    ships_scitem = records / "entities" / "scitem" / "ships"
+    scitem_dir   = records / "entities" / "scitem"
+
+    def _gen_components() -> dict[str, str]:
+        out: dict[str, str] = {}
+        logger.info("Processing ship components…")
         _flush()
+        for subdir, fn in [
+            ("shieldgenerator", enhancements_shield),
+            ("cooler",          enhancements_cooler),
+            ("powerplant",      enhancements_powerplant),
+            ("quantumdrive",    enhancements_quantum_drive),
+        ]:
+            logger.info(f"Processing {subdir}...")
+            _flush()
+            out.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc, generate_name_tags=True))
+        radar_dir = ships_scitem / "radar"
+        if radar_dir.exists():
+            logger.info(f"Processing radars from {radar_dir}…")
+            out.update(scan_entity_dir(radar_dir, enhancements_radar, loc=loc))
+        else:
+            logger.info("No radar directory found in cache")
+        # Propagate stats from _SCItem keys to their non-SCItem siblings (base.ini
+        # carries both patterns: item_DescTYPE_..._SCItem and item_Desc_TYPE_...).
+        # Same treatment for name labels (item_nameTYPE → item_Name_TYPE).
+        comp_types = ("COOL", "SHLD", "POWR", "QDRV")
+        sibling_count = 0
+        for key, value in list(out.items()):
+            if not key.endswith("_SCItem"):
+                continue
+            base_key = key[:-len("_SCItem")]
+            for ct in comp_types:
+                desc_prefix = f"item_Desc{ct}_"
+                if base_key.startswith(desc_prefix):
+                    sibling = f"item_Desc_{ct}_{base_key[len(desc_prefix):]}"
+                    if sibling not in out and sibling in loc:
+                        sibling_base = loc[sibling]
+                        stats_marker = ENHANCEMENT_SEPARATOR
+                        if stats_marker in value:
+                            stats_block = value[value.index(stats_marker):]
+                            out[sibling] = sibling_base + stats_block
+                        else:
+                            out[sibling] = value
+                        sibling_count += 1
+                    break
+                name_prefix = f"item_name{ct}_"
+                if base_key.startswith(name_prefix):
+                    sibling = f"item_Name_{ct}_{base_key[len(name_prefix):]}"
+                    if sibling not in out and sibling in loc:
+                        out[sibling] = value
+                        sibling_count += 1
+                    break
 
-        # Primary mission directories: missionbroker/pu_missions is the main source (uses _mission_loc_key)
+        # Inverse propagation: some entities (e.g. SHLD_SECO_S01_HEX) reference
+        # the underscored loc keys (item_Name_SHLD_*, item_Desc_SHLD_*) in the
+        # XML, but base.ini *also* carries an unused legacy no-underscore pair
+        # (item_NameSHLD_*, item_DescSHLD_*) which then shows up in the user's
+        # category table with no annotations. Mirror the augmented underscore
+        # value onto the no-underscore sibling so the Hex shield (and any
+        # others in the same shape) stay consistent.
+        inv_sibling_count = 0
+        for key, value in list(out.items()):
+            for prefix_with, prefix_without in (
+                ("item_Desc_", "item_Desc"),
+                ("item_Name_", "item_Name"),
+            ):
+                if not key.startswith(prefix_with):
+                    continue
+                rest = key[len(prefix_with):]
+                if not rest or "_" not in rest:
+                    continue
+                head = rest.split("_", 1)[0]
+                if head not in comp_types:
+                    continue
+                legacy_sibling = prefix_without + rest
+                if legacy_sibling in out or legacy_sibling not in loc:
+                    continue
+                if prefix_with == "item_Desc_":
+                    legacy_base = loc[legacy_sibling]
+                    stats_marker = ENHANCEMENT_SEPARATOR
+                    if stats_marker in value:
+                        out[legacy_sibling] = legacy_base + value[value.index(stats_marker):]
+                    else:
+                        out[legacy_sibling] = value
+                else:  # item_Name_
+                    tag_match = re.search(r"\s(\[[A-Z0-9\-]+\])\s*$", value)
+                    if tag_match:
+                        out[legacy_sibling] = f"{loc[legacy_sibling]} {tag_match.group(1)}"
+                    else:
+                        out[legacy_sibling] = value
+                inv_sibling_count += 1
+                break
+
+        if sibling_count or inv_sibling_count:
+            logger.info(
+                f"Propagated enhancements to {sibling_count} _SCItem siblings "
+                f"and {inv_sibling_count} legacy no-underscore siblings"
+            )
+        _tick("Generated component enhancements")
+        return out
+
+    def _gen_missiles() -> dict[str, str]:
+        out: dict[str, str] = {}
+        logger.info("Processing missile/rocket/bomb enhancements…")
+        weapons_dir = ships_scitem / "weapons"
+        for missile_dir in [
+            weapons_dir / "missiles",
+            weapons_dir / "rocket_pods",
+        ]:
+            if missile_dir.exists():
+                logger.info(f"Processing from {missile_dir}…")
+                out.update(scan_entity_dir(
+                    missile_dir,
+                    enhancements_missile,
+                    loc=loc,
+                    generate_name_tags=True,
+                    name_tag_fn=_missile_name_tag,
+                ))
+        _tick("Generated missile enhancements")
+        return out
+
+    def _gen_ship_weapons() -> dict[str, str]:
+        out: dict[str, str] = {}
+        weapons_dir = ships_scitem / "weapons"
+        if weapons_dir.exists():
+            out = scan_entity_dir(
+                weapons_dir,
+                lambda root: enhancements_weapon(root, vehicle_ammo, loc),
+                loc=loc,
+            )
+        logger.info(f"Finished ship weapons ({len(out)} entries)")
+        _tick("Generated ship weapon descriptions")
+        return out
+
+    def _gen_fps_weapons() -> dict[str, str]:
+        out: dict[str, str] = {}
+        fps_dir = records / "entities" / "scitem" / "weapons" / "fps_weapons"
+        if fps_dir.exists():
+            out = scan_entity_dir(
+                fps_dir,
+                lambda root: enhancements_weapon(root, fps_ammo, loc, mag_lookup),
+                loc=loc,
+            )
+        logger.info(f"Finished FPS weapons ({len(out)} entries)")
+        _tick("Generated FPS weapon descriptions")
+        return out
+
+    def _gen_ships() -> dict[str, str]:
+        spaceships_dir = records / "entities" / "spaceships"
+        out = scan_spaceships(spaceships_dir, controller_lookup, loc, armor_lookup)
+        logger.info(f"Finished ships ({len(out)} entries)")
+        _tick("Generated ship descriptions")
+        return out
+
+    def _gen_missions() -> dict[str, str]:
+        # Sequential chain: scan → bp pools → contractgen → title/desc
+        # augmentation → coverage report. Kept in one thread — each step
+        # consumes the prior step's in-memory result.
+        out: dict[str, str] = {}
         pu_missions_dir = records / "missionbroker" / "pu_missions"
         if pu_missions_dir.exists():
-            logger.info(f"CHECKPOINT: Processing {pu_missions_dir.name}…")
+            logger.info(f"Processing {pu_missions_dir.name}…")
             _flush()
-            out_missions.update(scan_entity_dir(
+            out.update(scan_entity_dir(
                 pu_missions_dir,
                 lambda root: enhancements_mission(root, reputation_lookup),
                 loc=loc,
@@ -2555,16 +2835,15 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                 capture_all=True,
             ))
 
-        # Also check entity-based missions (use standard _loc_key)
         for mission_dir in [
             records / "entities" / "missions",
             records / "entities" / "contracts",
             records / "entities" / "jobterminal",
         ]:
             if mission_dir.exists():
-                logger.info(f"CHECKPOINT: Processing {mission_dir.name}…")
+                logger.info(f"Processing {mission_dir.name}…")
                 _flush()
-                out_missions.update(scan_entity_dir(
+                out.update(scan_entity_dir(
                     mission_dir,
                     lambda root: enhancements_mission(root, reputation_lookup),
                     loc=loc,
@@ -2572,37 +2851,27 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                     capture_all=True,
                 ))
 
-        logger.info(f"CHECKPOINT: Finished missions ({len(out_missions)} entries)")
-        _flush()
+        logger.info(f"Finished missions scan ({len(out)} entries)")
+        _tick("Scanned missions")
 
-        # ── Augment mission titles with XP ──────────────────────────────────
-        logger.info("CHECKPOINT: Augmenting mission titles with XP…")
-        _flush()
-        mission_titles_augmented = 0
-
-        # Build blueprint pool lookup for mission rewards
-        logger.info("CHECKPOINT: Building blueprint pool lookup…")
-        _flush()
+        # Blueprint pool lookup (needs entity_names from Group A)
         pool_dir = records / "crafting" / "blueprintrewards" / "blueprintmissionpools"
         bp_dir = records / "crafting" / "blueprints" / "crafting"
         blueprint_pools = _cached_lookup(
             forge_dir, "blueprint_pools",
             lambda: build_blueprint_pool_lookup(pool_dir, bp_dir, entity_names),
         )
-        _flush()
+        _tick("Built blueprint pool lookup")
 
-        # Process contract generator missions (can have multiple variants per title key)
-        logger.info("CHECKPOINT: Processing contract generator mission variants…")
-        _flush()
+        # Contract generator missions (multiple variants per title key)
         contractgen_dir = records / "contracts" / "contractgenerator"
         contractgen_missions, mission_blueprints, mission_bp_chance, mission_items = scan_contract_generators(
             contractgen_dir, reputation_lookup, blueprint_pools, entity_names
         )
-        logger.info(f"CHECKPOINT: Processed {len(contractgen_missions)} contract generator mission variants, {len(mission_blueprints)} with blueprints, {len(mission_items)} with items")
+        logger.info(f"Processed {len(contractgen_missions)} contract generator mission variants, {len(mission_blueprints)} with blueprints, {len(mission_items)} with items")
         _flush()
 
-        known_system_names = {"Stanton", "Pyro", "Nyx", "Desert", "ArcCorp", "Crusader"}
-
+        mission_titles_augmented = 0
         for title_key, variants in contractgen_missions.items():
             base_title = (loc or {}).get(title_key)
             if not base_title:
@@ -2617,38 +2886,49 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
 
             unique_xp = sorted(set(sxp for sxp, _ in seen_tiers))
 
-            # Title: append [BP] tag if blueprints exist, then [XP] tag (skip if no XP data)
+            # Title: [BP] when every variant awards a pool; [BP?] only when
+            # *every* desc_key bucket under this title has at least one
+            # BP-having variant (so every player, regardless of which desc
+            # they open, sees a POTENTIAL BLUEPRINTS section). Omit
+            # otherwise — an all-or-nothing mix across desc_keys would tag
+            # the shared title [BP?] while no-BP players see a desc with no
+            # BP section, which is what the BHG Stanton bounty bug was:
+            # bhg_bounty_title_gen_001 is shared by 7 Stanton bounties
+            # (desc_key bhg_bounty_desc_gen_001, no pool) and the single PAF
+            # elimination contract (desc_key bhg_bounty_desc_FPS_intro, has
+            # pool) — so [BP?] on the title misled Stanton players.
             has_blueprints = title_key in mission_blueprints
-            # Check if ALL or only SOME variants award blueprints
             _bp_variants = [v[8] for v in variants]  # v[8] = contract_has_bp
             _all_have_bp = has_blueprints and all(_bp_variants)
+
+            desc_bucket_has_bp: dict[str, bool] = {}
+            for v in variants:
+                dk = v[3]
+                if not dk:
+                    continue
+                desc_bucket_has_bp[dk] = desc_bucket_has_bp.get(dk, False) or v[8]
+            _every_desc_has_some_bp = (
+                has_blueprints
+                and bool(desc_bucket_has_bp)
+                and all(desc_bucket_has_bp.values())
+            )
             augmented_title = base_title
             if _all_have_bp:
                 augmented_title += " <EM4>[BP]</EM4>"
-            elif has_blueprints:
-                augmented_title += " <EM4>[BP*]</EM4>"  # Some variants only
+            elif _every_desc_has_some_bp:
+                augmented_title += " <EM4>[BP?]</EM4>"
             nonzero_xp = [x for x in unique_xp if x > 0]
             if len(nonzero_xp) == 1:
                 augmented_title += f" <EM4>[{nonzero_xp[0]:,} XP]</EM4>"
             elif len(nonzero_xp) > 1:
                 augmented_title += f" <EM4>[{min(nonzero_xp):,}\u2013{max(nonzero_xp):,} XP]</EM4>"
-            out_missions[title_key] = augmented_title
+            out[title_key] = augmented_title
             mission_titles_augmented += 1
 
-            # Description: emit per unique desc_key so contracts that share a
-            # title but have different descs (e.g. FPS intro + standard killship
-            # bounty) each get their own stats block, aggregated only from the
-            # variants that actually use that desc.
-            #
-            # Conversely, skip desc_keys that a *different* title_key already
-            # wrote to this run. Some upstream contracts have broken
-            # desc_params that point at another mission's loc-key — e.g.
-            # Hockrow_FacilityDelve_P2M4-Stanton4_Repeat ("Updated Power Usage
-            # Data") references Hockrow_FacilityDelve_P2M1_Repeat_desc
-            # ("Updated Energy Anomaly Data"). Without this guard the later
-            # iteration clobbers the earlier one, and the shared desc ends up
-            # showing the wrong pool's blueprints for the mission that owns
-            # the loc-key.
+            # Description: emit per unique desc_key. Skip desc_keys that a
+            # *different* title_key already wrote this run (game-side data
+            # bug: some contracts have broken desc_params pointing at
+            # another mission's loc-key — e.g. P2M4 → P2M1_Repeat_desc).
             unique_desc_keys: list[str] = []
             for v in variants:
                 dk = v[3]
@@ -2656,16 +2936,9 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                     unique_desc_keys.append(dk)
 
             for desc_key in unique_desc_keys:
-                if desc_key in out_missions:
-                    logger.debug(
-                        f"Skipping shared desc_key {desc_key!r} for title_key {title_key!r}: "
-                        f"already written by a prior title_key (likely a game-side data bug)"
-                    )
-                    continue
                 desc_variants = [v for v in variants if v[3] == desc_key]
                 base_desc = loc[desc_key]
 
-                # Collect flags / enemy counts from variants sharing this desc
                 all_flags: list[str] = []
                 max_enemies = 0
                 max_not_enemies = 0
@@ -2686,7 +2959,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                     if vhas_bp:
                         any_variant_has_bp = True
                         variant_bp_chance = max(variant_bp_chance, vbp_chance)
-                        short_name = vbp_variant.rsplit("_", 1)[-1] if vbp_variant else ""
+                        short_name = _variant_label_short(vbp_variant)
                         if short_name and short_name not in bp_variant_names:
                             bp_variant_names.append(short_name)
                     else:
@@ -2717,10 +2990,9 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                             line += f" (Failure: {fxp:,})"
                         details_lines.append(line)
 
-                # Build sections in order: base → POTENTIAL BLUEPRINTS → ITEM
-                # REWARDS → MISSION DETAILS. base_desc comes from loc (pristine
-                # base.ini), so no strip pass is needed — we assemble directly
-                # to avoid append_enhancements stripping freshly-added sections.
+                # Build sections: base → POTENTIAL BLUEPRINTS → ITEM REWARDS
+                # → MISSION DETAILS. base_desc comes from pristine loc, so no
+                # strip pass needed — assemble directly.
                 sections: list[str] = [base_desc]
 
                 if any_variant_has_bp and has_blueprints:
@@ -2731,8 +3003,52 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                         variant_note = ", ".join(bp_variant_names) if bp_variant_names else "select variants"
                         bp_header = f"<EM4>Blueprint Reward:</EM4> {chance_pct}% chance ({variant_note} only)"
                     details_lines.append(bp_header)
-                    bp_list = "\\n".join(f"- {name}" for name in mission_blueprints[title_key])
-                    sections.append(f"<EM3>POTENTIAL BLUEPRINTS</EM3>\\n{bp_list}")
+
+                    # Restrict rendered pools to the systems actually
+                    # represented among THIS desc_key's variants (a title may
+                    # have a wider per-system pool set than any one desc does).
+                    pools_by_system = mission_blueprints.get(title_key, {})
+                    desc_systems = {v[0] for v in desc_variants if v[8]}  # v[0]=system, v[8]=has_bp
+                    desc_pools = {
+                        s: items for s, items in pools_by_system.items()
+                        if s in desc_systems
+                    }
+                    if not desc_pools:
+                        # Fallback: no intersection (defensive — shouldn't
+                        # happen if any_variant_has_bp holds) — show whatever
+                        # pools this title has.
+                        desc_pools = pools_by_system
+                    # If distinct pools share identical item sets (same pool
+                    # UUID reused across systems), collapse to one section.
+                    unique_fps = {}
+                    for sys_name, items in desc_pools.items():
+                        fp = tuple(items)
+                        unique_fps.setdefault(fp, []).append(sys_name)
+
+                    bp_body_parts: list[str] = []
+                    if len(unique_fps) == 1:
+                        # One effective pool — render flat.
+                        items = list(next(iter(unique_fps)))
+                        bp_body_parts.append(
+                            "\\n".join(f"- {name}" for name in items)
+                        )
+                    else:
+                        # Multiple regional pools — one sub-section each,
+                        # sorted by system name for stable output.
+                        for fp, systems in sorted(
+                            unique_fps.items(), key=lambda kv: sorted(kv[1])
+                        ):
+                            label = ", ".join(sorted(systems))
+                            region_list = "\\n".join(
+                                f"- {name}" for name in fp
+                            )
+                            bp_body_parts.append(
+                                f"<EM4>[{label}]</EM4>\\n{region_list}"
+                            )
+                    sections.append(
+                        "<EM3>POTENTIAL BLUEPRINTS</EM3>\\n"
+                        + "\\n".join(bp_body_parts)
+                    )
 
                 if title_key in mission_items:
                     item_list = "\\n".join(f"- {name}" for name in mission_items[title_key])
@@ -2744,27 +3060,41 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
 
                 if any_variant_has_bp and has_blueprints and not all_variants_have_bp:
                     if bp_variant_names:
-                        quoted = ", ".join(f'"{n}"' for n in bp_variant_names)
+                        quoted = ", ".join(bp_variant_names)
                         if len(bp_variant_names) == 1:
-                            sections.append(f"<EM4>* = only the {quoted} mission variant awards blueprints</EM4>")
+                            sections.append(f"<EM4>? = only the {quoted} variant awards blueprints</EM4>")
                         else:
-                            sections.append(f"<EM4>* = only the {quoted} mission variants award blueprints</EM4>")
+                            sections.append(f"<EM4>? = only the {quoted} variants award blueprints</EM4>")
                     else:
-                        sections.append("<EM4>* = only some mission variants reward blueprints</EM4>")
+                        sections.append("<EM4>? = only some variants award blueprints</EM4>")
 
-                out_missions[desc_key] = "\\n\\n".join(sections)
+                new_text = "\\n\\n".join(sections)
+                new_has_bp = "<EM3>POTENTIAL BLUEPRINTS</EM3>" in new_text
+                existing = out.get(desc_key)
+                if existing is None:
+                    out[desc_key] = new_text
+                elif new_has_bp and "<EM3>POTENTIAL BLUEPRINTS</EM3>" not in existing:
+                    # Upgrade: an earlier title_key wrote this desc without a
+                    # blueprint section; overwrite with the version that has
+                    # one. Common when a desc loc-key is shared between a
+                    # titles-without-pool contract and a title-with-pool one
+                    # (e.g. bhg_bounty_desc_FPS_intro used by both
+                    # FPS_Stanton [no pool] and the PAF contract [has pool]).
+                    logger.debug(
+                        f"Upgrading desc_key {desc_key!r} — earlier title wrote "
+                        f"without blueprints, title_key {title_key!r} has them"
+                    )
+                    out[desc_key] = new_text
+                else:
+                    logger.debug(
+                        f"Skipping shared desc_key {desc_key!r} for title_key {title_key!r}: "
+                        f"already written by a prior title_key (likely a game-side data bug)"
+                    )
 
-        # Process mission titles from the primary mission directory (pu_missions).
-        # Two passes:
-        #   1) Aggregate XP values across all pu_missions that share each title
-        #      key — needed for templated titles like "~mission(ReputationRank)
-        #      Rank - Direct ~mission(CargoGradeToken) Cargo Haul" where many
-        #      pu_missions reuse the same title loc-key at different XP tiers.
-        #   2) Apply the aggregate range as a title annotation when the title
-        #      doesn't already carry one from the contract-generator pass
-        #      (which can fail to extract XP for ContractResult_CalculatedReward
-        #      missions like Covalex Interstellar hauling).
-        pu_missions_dir = records / "missionbroker" / "pu_missions"
+        # Second pu_missions pass: aggregate XP values for titles the
+        # contractgen scan couldn't extract XP for (e.g. templated titles
+        # reusing one loc-key at many XP tiers, or ContractResult_CalculatedReward
+        # missions like Covalex Interstellar hauling).
         pu_title_xps: dict[str, list[int]] = {}
         if pu_missions_dir.exists():
             for xml_file in pu_missions_dir.rglob("*.xml"):
@@ -2773,6 +3103,10 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                     title_attr = root.get("title", "")
                     desc_attr = root.get("description", "")
                     if not title_attr.startswith("@") or not desc_attr.startswith("@"):
+                        continue
+                    # Skip CIG sentinels — would otherwise append " [N XP]"
+                    # onto LOC_UNINITIALIZED / LOC_PLACEHOLDER.
+                    if _is_sentinel_loc_ref(title_attr) or _is_sentinel_loc_ref(desc_attr):
                         continue
                     title_key = title_attr.lstrip("@")
                     if not (loc or {}).get(title_key):
@@ -2788,8 +3122,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             base_title = (loc or {}).get(title_key)
             if not base_title:
                 continue
-            current = out_missions.get(title_key, base_title)
-            # Skip if the contractgen pass already applied an XP tag
+            current = out.get(title_key, base_title)
             if xp_tag_re.search(current):
                 continue
             unique_xp = sorted(set(xps))
@@ -2797,19 +3130,15 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                 current += f" <EM4>[{unique_xp[0]:,} XP]</EM4>"
             else:
                 current += f" <EM4>[{min(unique_xp):,}\u2013{max(unique_xp):,} XP]</EM4>"
-            out_missions[title_key] = current
+            out[title_key] = current
             mission_titles_augmented += 1
 
-        logger.info(f"CHECKPOINT: Augmented {mission_titles_augmented} mission titles with XP")
-        _flush()
+        logger.info(f"Augmented {mission_titles_augmented} mission titles with XP")
+        _tick("Augmented missions with XP + blueprint rewards")
 
-        # ── Mission XP coverage report ────────────────────────────────────────
-        # Count title keys that were augmented with XP vs those with descriptions
-        # but no XP annotation (i.e. the stats generator found the mission but
-        # couldn't extract reputation data)
-        titles_with_xp = {k for k in out_missions if re.search(r'\[\d', out_missions[k])}
-        desc_keys = {k for k in out_missions if k not in titles_with_xp}
-        # Titles we know about (from pu_missions XMLs) but didn't augment
+        # Mission XP coverage report
+        titles_with_xp = {k for k in out if re.search(r'\[\d', out[k])}
+        desc_keys = {k for k in out if k not in titles_with_xp}
         titles_skipped_no_xp = 0
         titles_skipped_reasons: dict[str, list[str]] = {
             "no_rep_data": [],
@@ -2824,7 +3153,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                     if not title_attr.startswith("@") or not desc_attr.startswith("@"):
                         continue
                     title_key = title_attr.lstrip("@")
-                    if title_key in out_missions:
+                    if title_key in out:
                         continue  # Already augmented
                     if title_key in contractgen_missions:
                         continue  # Handled by contract generator
@@ -2845,42 +3174,93 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             if keys:
                 logger.info(f"  Skipped ({reason}): {len(keys)} — e.g. {', '.join(keys[:5])}")
         _flush()
+        return out
 
-    # ── Process crafting blueprints and augment commodities + journal ────────
-    out_commodities: dict[str, str] = {}
-    out_journal: dict[str, str] = {}
-    if _want("commodity_crafting") or _want("journal"):
-        logger.info("CHECKPOINT: Processing crafting blueprints…")
+    def _gen_commodity_journal() -> tuple[dict[str, str], dict[str, str]]:
+        logger.info("Processing crafting blueprints…")
         _flush()
-
         bp_dir = records / "crafting" / "blueprints" / "crafting"
         carryables_dir = scitem_dir / "carryables"
-        out_commodities, out_journal = scan_crafting_blueprints(bp_dir, carryables_dir, entity_names, loc)
+        out_c, out_j = scan_crafting_blueprints(bp_dir, carryables_dir, entity_names, loc)
+        _tick("Generated commodity & journal enhancements")
+        return out_c, out_j
+
+    # ── Submit enabled generators to a thread pool ────────────────────────────
+    gen_jobs: dict[str, Callable] = {}
+    if _want("component_descs"):
+        gen_jobs["components"] = _gen_components
+    if _want("missile_enhancements"):
+        gen_jobs["missiles"] = _gen_missiles
+    if _want("ship_weapon_descs"):
+        gen_jobs["ship_weapons"] = _gen_ship_weapons
+    if _want("fps_weapon_descs"):
+        gen_jobs["fps_weapons"] = _gen_fps_weapons
+    if _want("ship_descs"):
+        gen_jobs["ships"] = _gen_ships
+    if _want("mission_rewards"):
+        gen_jobs["missions"] = _gen_missions
+    if _want("commodity_crafting") or _want("journal"):
+        gen_jobs["commodity_journal"] = _gen_commodity_journal
+
+    out_components: dict[str, str] = {}
+    out_missiles: dict[str, str] = {}
+    out_ship_weapons: dict[str, str] = {}
+    out_fps_weapons: dict[str, str] = {}
+    out_ships: dict[str, str] = {}
+    out_missions: dict[str, str] = {}
+    out_commodities: dict[str, str] = {}
+    out_journal: dict[str, str] = {}
+
+    if gen_jobs:
+        logger.info(f"Running {len(gen_jobs)} output generators in parallel (workers={min(max_workers, len(gen_jobs))})…")
+        _flush()
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(gen_jobs)),
+                                thread_name_prefix="gen") as pool:
+            futs = {name: pool.submit(fn) for name, fn in gen_jobs.items()}
+            for name, fut in futs.items():
+                result = fut.result()
+                if name == "components":
+                    out_components = result
+                elif name == "missiles":
+                    out_missiles = result
+                elif name == "ship_weapons":
+                    out_ship_weapons = result
+                elif name == "fps_weapons":
+                    out_fps_weapons = result
+                elif name == "ships":
+                    out_ships = result
+                elif name == "missions":
+                    out_missions = result
+                elif name == "commodity_journal":
+                    out_commodities, out_journal = result
 
     # ── Write output ──────────────────────────────────────────────────────────
-    logger.info("CHECKPOINT: Writing output files…")
+    logger.info("Writing output files…")
     _flush()
     if _want("ship_descs"):
-        write_ini(OUTPUT_DIR / "ships_desc_enhancements.ini",       out_ships)
+        write_ini(output_dir / "ships_desc_enhancements.ini",       out_ships)
     if _want("component_descs"):
-        write_ini(OUTPUT_DIR / "components_desc_enhancements.ini",  out_components)
+        write_ini(output_dir / "components_desc_enhancements.ini",  out_components)
     if _want("ship_weapon_descs"):
-        write_ini(OUTPUT_DIR / "ship_weapons_desc_enhancements.ini",out_ship_weapons)
+        write_ini(output_dir / "ship_weapons_desc_enhancements.ini",out_ship_weapons)
     if _want("fps_weapon_descs"):
-        write_ini(OUTPUT_DIR / "fps_weapons_desc_enhancements.ini", out_fps_weapons)
+        write_ini(output_dir / "fps_weapons_desc_enhancements.ini", out_fps_weapons)
     if _want("mission_rewards"):
-        write_ini(OUTPUT_DIR / "mission_rewards_enhancements.ini", out_missions)
+        write_ini(output_dir / "mission_rewards_enhancements.ini", out_missions)
     if _want("commodity_crafting"):
-        write_ini(OUTPUT_DIR / "commodity_crafting_enhancements.ini", out_commodities)
+        write_ini(output_dir / "commodity_crafting_enhancements.ini", out_commodities)
     if _want("journal"):
-        write_ini(OUTPUT_DIR / "journal_enhancements.ini", out_journal)
+        write_ini(output_dir / "journal_enhancements.ini", out_journal)
     if _want("missile_enhancements"):
-        write_ini(OUTPUT_DIR / "missile_enhancements.ini", out_missiles)
+        write_ini(output_dir / "missile_enhancements.ini", out_missiles)
 
     total = (len(out_ships) + len(out_components) + len(out_ship_weapons) +
              len(out_fps_weapons) + len(out_missions) + len(out_commodities) +
              len(out_journal) + len(out_missiles))
-    logger.info(f"Done — {total:,} total stat entries written to {OUTPUT_DIR}")
+    logger.info(f"Done — {total:,} total stat entries written to {output_dir}")
+    _tick("Wrote all output files")
+    if _sink is not None:
+        _sink.flush()
 
 
 if __name__ == "__main__":

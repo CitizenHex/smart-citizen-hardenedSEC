@@ -3,6 +3,7 @@ import gc
 import logging
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -12,6 +13,60 @@ from pathlib import Path
 from src.utils.perf import timed
 
 logger = logging.getLogger(__name__)
+
+
+def _robust_rmtree(path: Path, attempts: int = 6) -> None:
+    """Delete *path* recursively, surviving transient Windows locks.
+
+    On Windows — especially when the target lives under OneDrive — rmtree
+    often trips over three things:
+
+    1. Read-only attribute on files unp4k/unforge just wrote. Clearing the
+       bit via ``os.chmod(.., stat.S_IWRITE)`` lets the retry succeed.
+    2. A ghost handle from the just-exited ``unforge.exe`` child process
+       (or Windows Defender / Search Indexer / OneDrive client) that
+       releases a beat later. A short sleep-and-retry loop clears these.
+    3. A non-empty directory whose children are mid-delete. Re-walking the
+       tree on each attempt catches files added or unlocked between tries.
+
+    Silently succeeds if *path* doesn't exist. Raises the last error if
+    every attempt fails so callers can surface it to the user.
+    """
+    if not path.exists():
+        return
+
+    def _onexc(func, target, exc_info):
+        # Python 3.12 onexc callback: clear the read-only bit and retry the
+        # single failing file/dir. For other errors (e.g. lingering handle),
+        # propagate so the outer retry loop picks it up.
+        try:
+            os.chmod(target, stat.S_IWRITE)
+        except OSError:
+            pass
+        try:
+            func(target)
+        except OSError:
+            raise
+
+    last_err: Exception | None = None
+    for i in range(attempts):
+        try:
+            gc.collect()  # drop any lingering XML file handles we own
+            shutil.rmtree(path, onexc=_onexc)
+            return
+        except OSError as e:
+            last_err = e
+            # Exponential-ish backoff: 0.2, 0.4, 0.8, 1.5, 3.0 seconds. Total
+            # ceiling ~6s before we bail, enough to outlast most AV/indexer
+            # scans without hanging the UI forever.
+            delay = min(0.2 * (2 ** i), 3.0)
+            logger.warning(
+                f"rmtree {path} attempt {i + 1}/{attempts} failed ({e}); "
+                f"retrying in {delay:.1f}s"
+            )
+            time.sleep(delay)
+
+    raise last_err if last_err else OSError(f"Failed to remove {path}")
 
 # Path of global.ini inside the p4k archive (unp4k preserves directory structure)
 _GLOBAL_INI_RELATIVE = Path("data/Localization/english/global.ini")
@@ -36,6 +91,7 @@ def extract_global_ini(
     output_path: Path,
     unp4k_exe: Path,
     progress_callback=None,
+    progress_pct_callback=None,
 ) -> bool:
     """Extract global.ini from Data.p4k and save it to output_path.
 
@@ -61,9 +117,12 @@ def extract_global_ini(
     if not p4k_path.exists():
         raise FileNotFoundError(f"Data.p4k not found at: {p4k_path}")
 
+    TOTAL_PHASES = 2
     with tempfile.TemporaryDirectory() as tmp_dir:
         if progress_callback:
             progress_callback("Launching unp4k — this may take a minute...")
+        if progress_pct_callback:
+            progress_pct_callback(0, TOTAL_PHASES, "Launching unp4k…")
 
         logger.info(f"Running unp4k: {unp4k_exe} {p4k_path} global.ini (cwd={tmp_dir})")
         result = subprocess.run(
@@ -89,11 +148,15 @@ def extract_global_ini(
 
         if progress_callback:
             progress_callback("Copying extracted global.ini to cache...")
+        if progress_pct_callback:
+            progress_pct_callback(1, TOTAL_PHASES, "Copying extracted global.ini…")
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(str(extracted), str(output_path))
         logger.info(f"Extracted global.ini → {output_path}")
 
+    if progress_pct_callback:
+        progress_pct_callback(2, TOTAL_PHASES, "Done")
     return True
 
 
@@ -104,6 +167,7 @@ def extract_dataforge(
     unforge_exe: Path,
     dataforge_cache_dir: Path,
     progress_callback=None,
+    progress_pct_callback=None,
 ) -> bool:
     """Extract DataForge entity XMLs from Data.p4k and cache them.
 
@@ -135,12 +199,15 @@ def extract_dataforge(
     if not p4k_path.exists():
         raise FileNotFoundError(f"Data.p4k not found at: {p4k_path}")
 
+    TOTAL_PHASES = 3
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp = Path(tmp_dir)
 
         # ── Step 1: Extract Game2.dcb ─────────────────────────────────────────
         if progress_callback:
             progress_callback("Extracting Game2.dcb from Data.p4k…")
+        if progress_pct_callback:
+            progress_pct_callback(0, TOTAL_PHASES, "Extracting Game2.dcb from Data.p4k…")
         logger.info(f"Running unp4k to extract .dcb: {unp4k_exe} {p4k_path} .dcb")
         result = subprocess.run(
             [str(unp4k_exe), str(p4k_path), ".dcb"],
@@ -166,6 +233,8 @@ def extract_dataforge(
         # ── Step 2: Run unforge to produce entity XMLs ────────────────────────
         if progress_callback:
             progress_callback("Converting DataForge database — this takes several minutes…")
+        if progress_pct_callback:
+            progress_pct_callback(1, TOTAL_PHASES, "Converting DataForge database…")
         logger.info(f"Running unforge: {unforge_exe} {dcb_path}")
         result = subprocess.run(
             [str(unforge_exe), str(dcb_path)],
@@ -188,13 +257,19 @@ def extract_dataforge(
         # ── Step 3: Cache the full extraction ─────────────────────────────────
         if progress_callback:
             progress_callback("Caching entity files…")
+        if progress_pct_callback:
+            progress_pct_callback(2, TOTAL_PHASES, "Caching entity files…")
 
         # Ensure all file handles from extraction are released before copying
         gc.collect()
         time.sleep(0.1)
 
+        # Blow away any prior cache. Uses a retry loop because on Windows
+        # (particularly under OneDrive) a transient handle from the
+        # just-exited unforge.exe or from the OneDrive/Defender/indexer
+        # stack can reject the first few rmdir attempts with WinError 5.
         if dataforge_cache_dir.exists():
-            shutil.rmtree(dataforge_cache_dir)
+            _robust_rmtree(dataforge_cache_dir)
         dataforge_cache_dir.mkdir(parents=True, exist_ok=True)
 
         # Cache the complete extraction under raw/ — all entity types are
@@ -211,6 +286,8 @@ def extract_dataforge(
 
     # Ensure all file handles are released before returning
     gc.collect()
+    if progress_pct_callback:
+        progress_pct_callback(3, TOTAL_PHASES, "Done")
     return True
 
 
