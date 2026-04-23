@@ -1,8 +1,23 @@
 """Smart Citizen - Main entry point."""
 import ctypes
 import logging
+import os
 import sys
 from pathlib import Path
+
+# ── Force Qt to look for platform plugins in OUR bundled Qt6/plugins directory
+# ── BEFORE we import anything from PyQt6. The most common source of the
+# ── "No Qt platform plugin could be initialized" crash on user machines is a
+# ── pre-existing environment variable (QT_PLUGIN_PATH, QT_QPA_PLATFORM_PLUGIN_PATH)
+# ── from some other Qt app (IDE, another PyQt install, Anaconda, etc.) that
+# ── points at an incompatible Qt version. PyInstaller's runtime hook sets
+# ── these env vars but only if they're not already set — we override
+# ── unconditionally so the frozen build always uses its own plugins.
+if getattr(sys, "frozen", False):
+    _bundled_plugins = os.path.join(sys._MEIPASS, "PyQt6", "Qt6", "plugins")
+    if os.path.isdir(_bundled_plugins):
+        os.environ["QT_PLUGIN_PATH"] = _bundled_plugins
+        os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = os.path.join(_bundled_plugins, "platforms")
 
 from PyQt6.QtWidgets import QApplication
 
@@ -12,7 +27,6 @@ from src.utils.version import get_version
 from src.utils.settings import AppSettings
 
 # Setup logging — use --debug flag or LOG_LEVEL env var for perf timing output
-import os
 _log_level = logging.DEBUG if ('--debug' in sys.argv or os.environ.get('LOG_LEVEL', '').upper() == 'DEBUG') else logging.INFO
 logging.basicConfig(
     level=_log_level,
