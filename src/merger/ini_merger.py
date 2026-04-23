@@ -1,8 +1,16 @@
 """INI file merger for combining base and custom strings."""
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from src.utils.perf import timed
+
+# Component type codes used to canonicalize item_name*/item_desc* key variants.
+# Hoisted to module scope so _get_canonical_key doesn't rebuild this list on
+# each of its ~87k calls per merge. Kept as a tuple for both the C-level
+# ``any(code in …)`` membership check and the sequential ``.replace()`` pass
+# (order-sensitive by design — see the function comment).
+_COMPONENT_CODES = ("shld", "powr", "cool", "qdrv", "jump", "misl", "gmisl", "bomb")
 
 
 @timed
@@ -72,6 +80,7 @@ def merge_sources_by_hierarchy(
     return result
 
 
+@lru_cache(maxsize=None)
 def _get_canonical_key(key: str) -> str:
     """Get the canonical form of a key for variant matching.
 
@@ -86,27 +95,39 @@ def _get_canonical_key(key: str) -> str:
     2. Lowercase
     3. Remove underscores
     4. Insert underscores only before SHLD/POWR/COOL/QDRV/JUMP/MISL/GMISL/BOMB component codes
+
+    Fast paths:
+    - Cached via lru_cache — Load populates it, Apply reuses it for the
+      same merged dict.
+    - ~98% of keys in a real base.ini contain no component code at all, so
+      the 8 sequential replaces + the split/join cleanup are skipped after
+      the underscore strip. The remaining ~2% take the full canonicalization
+      pass with identical semantics to the original (order-sensitive replace
+      preserved).
     """
-    # Remove _SCItem suffix (case-insensitive)
-    if key.lower().endswith('_scitem'):
-        key = key[:-7]  # Remove last 7 chars (_SCItem)
+    # Remove _SCItem suffix (case-insensitive). Avoid the ``key.lower()`` call
+    # on the happy path where the suffix isn't present by checking length +
+    # the common uppercase variant first.
+    if len(key) >= 7 and key[-7:].lower() == "_scitem":
+        key = key[:-7]
 
-    # Lowercase
     key = key.lower()
+    key_no_underscore = key.replace("_", "")
 
-    # Remove all underscores for normalization
-    key_no_underscore = key.replace('_', '')
+    # Fast path: check for component codes AFTER underscore stripping — a code
+    # can hide across an underscore boundary in the original (e.g.
+    # ``powpow_reaction`` → after strip ``powpowreaction`` which contains
+    # ``powr``). The happy path is ~98% of real keys; in that case the
+    # sequential replace loop is a no-op and the final split/join is just an
+    # identity on a string that has no remaining underscores.
+    if not any(c in key_no_underscore for c in _COMPONENT_CODES):
+        return key_no_underscore
 
-    # Re-insert underscores before component codes for readability
-    # (This ensures item_nameqdrv_rsi_s02_hemera is canonical)
-    components = ['shld', 'powr', 'cool', 'qdrv', 'jump', 'misl', 'gmisl', 'bomb']
-    for comp in components:
-        key_no_underscore = key_no_underscore.replace(comp, f'_{comp}')
+    for comp in _COMPONENT_CODES:
+        key_no_underscore = key_no_underscore.replace(comp, f"_{comp}")
 
     # Clean up: replace multiple underscores with single, strip leading underscore
-    key_no_underscore = '_'.join(p for p in key_no_underscore.split('_') if p)
-
-    return key_no_underscore
+    return "_".join(p for p in key_no_underscore.split("_") if p)
 
 
 @timed

@@ -105,3 +105,18 @@ Shows the count of loaded / modified entries and the state of any running backgr
 - **Enhancements empty or missing items** — Run **Generate Enhancements** from the Enhancements tab; it needs a DataForge cache (click **Extract from Data.p4k** first if you haven't).
 - **Apply to Game fails** — Confirm the Star Citizen install path in the **Config Tab** and that the game isn't running.
 - **Stale data after game update** — Re-run **Extract from Data.p4k**, then regenerate enhancements.
+
+## Known Issues
+
+Some mission text anomalies originate in Star Citizen's own data (wrong loc-key references in CIG's contract records). The game reads contracts from its own `Data.p4k` at runtime, so Smart Citizen can't change which loc-key the game looks up — it can only edit the *text* under each loc-key. Where practical, we work around these by merging the intended content into the loc key the game actually reads.
+
+- **Jorrit Dossier — "Updated Power Usage Data" shows Energy Anomaly text** — CIG Issue Council [STARC-176797](https://issue-council.robertsspaceindustries.com/projects/STAR-CITIZEN/issues/STARC-176797). CIG's `Hockrow_FacilityDelve_P2M4-Stanton4_Repeat` contract points its `Description` parameter at `@Hockrow_FacilityDelve_P2M1_Repeat_desc` instead of its own `P2M4_Repeat_desc`, so in-game players see P2M1's Energy Anomaly flavor text for a mission titled "Power Usage Data". Smart Citizen works around this in two steps, both declared in `patches/contracts/contractgenerator/mercenary_guild/hockrowagency/hockrowagency_facilitydelve.patch.json`:
+  1. A DataForge XML edit so our enhancement generator attaches the correct P2M4 blueprint pool (Corbel Smolder, Geist Rogue/Whiteout) to `P2M4_Repeat_desc` instead of collapsing onto P2M1's.
+  2. A loc-string workaround that appends `P2M4_Repeat_desc`'s full content (its flavor text plus its own blueprint pool) onto `P2M1_Repeat_desc`, separated by a labeled divider. Because the game reads the bugged pointer and looks up `P2M1_Repeat_desc` for both contracts, the P2M4 contract now displays its intended content. P2M1 players see the P2M4 block as a labeled appendix after their own description — noisier, but both contracts now show the right blueprint pool and the right flavor text.
+
+  When CIG corrects STARC-176797, the whole patch file can be deleted and the next regenerate produces clean split descriptions again.
+
+## Feedback, Bugs & Feature Voting
+
+- **Report bugs, share custom configs, and vote on upcoming features** in the dedicated Smart Citizen Discord channel: [Osiris DevWorks Discord — #smart-citizen feedback & voting](https://discord.com/channels/1438175448420057323/1472394204347895890) (requires joining the Osiris DevWorks Discord server first — [invite](https://discord.gg/BNzRegKZ7k)). Feature prioritization is driven by reactions/votes in that channel, so the more demand a request has, the sooner it lands.
+- When reporting a bug, attach the log (Log Tab → **Export**) and mention the Star Citizen version you're on so we can tell stock issues from upstream changes.

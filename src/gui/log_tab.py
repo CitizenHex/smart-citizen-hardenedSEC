@@ -83,6 +83,7 @@ class LogTab(QWidget):
 
         toolbar.addWidget(QLabel("Min level:"))
         self._level_combo = QComboBox()
+        self._level_combo.setToolTip("Minimum severity to display. Entries below the selected level are hidden (DEBUG < INFO < WARNING < ERROR).")
         for level, name in [
             (logging.DEBUG,   "DEBUG"),
             (logging.INFO,    "INFO"),
@@ -97,6 +98,7 @@ class LogTab(QWidget):
         toolbar.addSpacing(16)
 
         self._autoscroll_cb = QCheckBox("Auto-scroll")
+        self._autoscroll_cb.setToolTip("Automatically scroll to the newest log entry as it arrives. Turn off to pin the view while inspecting older lines.")
         self._autoscroll_cb.setChecked(True)
         toolbar.addWidget(self._autoscroll_cb)
 

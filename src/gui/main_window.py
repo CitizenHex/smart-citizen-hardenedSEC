@@ -107,6 +107,7 @@ from src.gui.config_tab import ConfigTab
 from src.gui.theme import get_button_color, get_button_text_color, get_title_color, get_tagline_color, BRAND_FONT_FAMILY
 from src.gui.enhancements_tab import EnhancementsTab
 from src.gui.log_tab import LogTab
+from src.gui.coach_mark import CoachMarkStep, TutorialTour
 
 logger = logging.getLogger(__name__)
 
@@ -328,7 +329,8 @@ class EnhancementsGeneratorWorker(QThread):
                 self.progress_pct.emit(completed, total, message)
 
             mod.main(base_ini, forge_dir, categories=self.categories,
-                     progress_callback=_on_progress)
+                     progress_callback=_on_progress,
+                     patches_dir=_resolve_patches_dir())
             logger.info("Enhancements generation worker: mod.main() completed successfully")
 
             self.finished.emit(True)
@@ -519,32 +521,33 @@ class MainWindow(QMainWindow):
         main_layout.addLayout(toolbar_layout)
 
         # Tabs
-        tabs = QTabWidget()
-        tabs.addTab(self.create_strings_tab(), "String Editor")
+        self.tabs = QTabWidget()
+        self._strings_tab_index = self.tabs.addTab(self.create_strings_tab(), "String Editor")
 
         # Config tab
         self.config_tab = ConfigTab()
         self.config_tab.merge_requested.connect(self.perform_merge_and_reload)
         self.config_tab.p4k_extract_requested.connect(self._run_p4k_extraction)
         self.config_tab.import_ini_requested.connect(self._handle_import_ini)
-        tabs.addTab(self.config_tab, "Config")
+        self.config_tab.channel_changed.connect(self._on_channel_changed)
+        self._config_tab_index = self.tabs.addTab(self.config_tab, "Config")
 
         # Enhancements tab
         self.enhancements_tab = EnhancementsTab()
         self.enhancements_tab.merge_requested.connect(self.perform_merge_and_reload)
         self.enhancements_tab.enhancements_pipeline_requested.connect(self._run_enhancements_pipeline)
-        self._enhancements_tab_index = tabs.addTab(self.enhancements_tab, "Enhancements")
+        self._enhancements_tab_index = self.tabs.addTab(self.enhancements_tab, "Enhancements")
 
         self.log_tab = LogTab()
-        tabs.addTab(self.log_tab, "Log")
+        self.tabs.addTab(self.log_tab, "Log")
 
-        tabs.addTab(self.create_about_tab(), "About")
+        self.tabs.addTab(self.create_about_tab(), "About")
 
         # Revert unapplied enhancement checkbox changes when leaving the tab
-        tabs.currentChanged.connect(self._on_tab_changed)
-        self._previous_tab_index = tabs.currentIndex()
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+        self._previous_tab_index = self.tabs.currentIndex()
 
-        main_layout.addWidget(tabs)
+        main_layout.addWidget(self.tabs)
 
         # Footer
         footer_layout = self.create_footer()
@@ -558,6 +561,11 @@ class MainWindow(QMainWindow):
         # restoreState will reopen it if the user had it open last session.
         self._ensure_help_dock()
         self.help_dock.hide()
+
+        # Channel indicator on the right side of the status bar. Installed
+        # now so it's visible before any source loading kicks off — users
+        # who launch into an empty cache still see which channel they're on.
+        self._ensure_channel_indicator()
 
     def _on_tab_changed(self, new_index: int):
         """Revert unapplied enhancement checkbox changes when leaving the Enhancements tab."""
@@ -575,6 +583,7 @@ class MainWindow(QMainWindow):
         # Blue group — read / navigate
         self.load_btn = QPushButton("Load Base File")
         self.load_btn.setStyleSheet(f"background-color: {get_button_color('load')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
+        self.load_btn.setToolTip("Load cached base.ini into the table, merged with any enhancement files and your user.ini overrides. Requires Extract from Data.p4k to have been run at least once.")
         self.load_btn.clicked.connect(self.load_files)
         button_layout.addWidget(self.load_btn)
 
@@ -587,12 +596,14 @@ class MainWindow(QMainWindow):
         # Green — commit
         self.apply_btn = QPushButton("Apply to Game")
         self.apply_btn.setStyleSheet(f"background-color: {get_button_color('apply')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
+        self.apply_btn.setToolTip("Write the merged table contents to the game's global.ini. A timestamped backup of the current global.ini is created first.")
         self.apply_btn.clicked.connect(self.apply_to_game)
         button_layout.addWidget(self.apply_btn)
 
         # Red-orange — rollback
         self.restore_backup_btn = QPushButton("Restore Backup")
         self.restore_backup_btn.setStyleSheet(f"background-color: {get_button_color('restore')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
+        self.restore_backup_btn.setToolTip("Restore a previous global.ini from Documents\\Smart Citizen\\backups\\. Up to 5 timestamped backups are kept; the oldest is pruned when a new one is created.")
         self.restore_backup_btn.clicked.connect(self.restore_backup)
         button_layout.addWidget(self.restore_backup_btn)
 
@@ -619,6 +630,14 @@ class MainWindow(QMainWindow):
         self.help_btn.clicked.connect(self.show_help)
         button_layout.addWidget(self.help_btn)
 
+        # Tutorial — shares the 'open' blue/cyan/gold info-action role with
+        # Help so the two read as a pair. Always restartable on demand.
+        self.tutorial_btn = QPushButton("Tutorial")
+        self.tutorial_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
+        self.tutorial_btn.setToolTip("Start the guided tour of Smart Citizen's workflow — runs automatically on first launch; click here anytime to replay.")
+        self.tutorial_btn.clicked.connect(self._start_tutorial)
+        button_layout.addWidget(self.tutorial_btn)
+
         button_layout.addStretch()
 
         layout.addLayout(button_layout)
@@ -629,6 +648,7 @@ class MainWindow(QMainWindow):
         filter_layout.addWidget(QLabel("Category:"))
         self.category_combo = QComboBox()
         self.category_combo.setMinimumWidth(200)
+        self.category_combo.setToolTip("Filter rows by domain (Ships, Ship Items, Missions, Gear, Commodities, Journal, Other). Categories are derived from the loc-key prefix.")
         self.category_combo.currentTextChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.category_combo)
 
@@ -636,14 +656,17 @@ class MainWindow(QMainWindow):
         self.status_combo = QComboBox()
         self.status_combo.addItems(["All", "Modified", "Unmodified", "New"])
         self.status_combo.setMaximumWidth(120)
+        self.status_combo.setToolTip("Filter by modification status. Modified = you've set a Custom Value; New = key exists only in enhancements/user.ini, not in the base file; Unmodified = default text only.")
         self.status_combo.currentTextChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.status_combo)
 
         self.hide_unmodified_check = QCheckBox("Hide Unmodified")
+        self.hide_unmodified_check.setToolTip("Show only rows where you've set a Custom Value. Same as the Status filter's Modified option but togglable on its own.")
         self.hide_unmodified_check.stateChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.hide_unmodified_check)
 
         self.favorites_only_check = QCheckBox("★ Favorites Only")
+        self.favorites_only_check.setToolTip("Show only rows you've starred as favorites. Favorites get a configurable prefix prepended to their name so they sort to the top of the in-game list.")
         self.favorites_only_check.stateChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.favorites_only_check)
 
@@ -655,6 +678,7 @@ class MainWindow(QMainWindow):
 
         self.clear_filters_btn = QPushButton("Clear Filters")
         self.clear_filters_btn.setMaximumWidth(100)
+        self.clear_filters_btn.setToolTip("Reset every filter (category, status, search, per-column boxes, checkboxes) so the full table is shown.")
         self.clear_filters_btn.clicked.connect(self.clear_filters)
         filter_layout.addWidget(self.clear_filters_btn)
 
@@ -764,8 +788,24 @@ class MainWindow(QMainWindow):
             self.osiris_button.mousePressEvent = self.open_discord_link
             footer_layout.addWidget(self.osiris_button)
 
-        # Stretch to push donation buttons to the right
+        # Stretch to push the right-side cluster (Feedback link + donations)
         footer_layout.addStretch()
+
+        # Feedback link — points at the dedicated Smart Citizen channel in the
+        # Osiris DevWorks Discord. Rendered as an HTML <a> inside a QLabel so
+        # Qt picks up the palette Link role automatically and recolors on
+        # theme swap without us tracking it ourselves.
+        self.feedback_label = QLabel(
+            '<a href="https://discord.com/channels/1438175448420057323/1472394204347895890">Feedback, Bugs, &amp; Feature Voting</a>'
+        )
+        self.feedback_label.setOpenExternalLinks(True)
+        self.feedback_label.setToolTip(
+            "Open the Smart Citizen Discord channel for feedback, bug reports, and voting on "
+            "upcoming features (requires joining the Osiris DevWorks Discord)."
+        )
+        self.feedback_label.setStyleSheet("font-size: 12px; margin-right: 14px;")
+        self.feedback_label.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        footer_layout.addWidget(self.feedback_label)
 
         # Donation label — role=secondary lets the app-level QSS re-color on
         # theme swap without us having to track individual labels.
@@ -1082,19 +1122,9 @@ class MainWindow(QMainWindow):
             global_path = legacy_path
             logger.info(f"Loading legacy base_global_path: {legacy_path}")
         else:
-            # Try to load from game directory if configured
-            game_path = AppSettings.get_game_install_path()
-            if game_path:
-                logger.info(f"Game path from registry/settings: {game_path}")
-                # Handle both full SC path and LIVE directory path
-                game_path_obj = Path(game_path)
-                if game_path_obj.name == "LIVE":
-                    # Path is already the LIVE directory
-                    game_global = game_path_obj / "data/Localization/english/global.ini"
-                else:
-                    # Path is the SC root directory
-                    game_global = game_path_obj / "LIVE/data/Localization/english/global.ini"
-
+            # Try to load from the active channel's game directory if configured
+            game_global = AppSettings.get_global_ini_path()
+            if game_global.parent.parent.parent.parent != Path():  # non-empty path
                 logger.info(f"Looking for global.ini at: {game_global}")
                 if game_global.exists():
                     global_path = game_global
@@ -1138,16 +1168,11 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Warning", "Please load a file first")
             return
 
-        game_path = AppSettings.get_game_install_path()
-        if not game_path:
+        if not AppSettings.get_game_install_path():
             QMessageBox.warning(self, "Warning", "Please configure game install path in Config tab")
             return
 
-        game_path_obj = Path(game_path)
-        if game_path_obj.name == "LIVE":
-            target_path = game_path_obj / "data/Localization/english/global.ini"
-        else:
-            target_path = game_path_obj / "LIVE/data/Localization/english/global.ini"
+        target_path = AppSettings.get_global_ini_path()
 
         try:
             import shutil
@@ -1244,8 +1269,17 @@ class MainWindow(QMainWindow):
             from src.merger.ini_merger import merge_ini_files
             merge_ini_files(str(base_file), merged_dict, str(target_path))
 
-            # Validate written file against stock base
-            validation_msg = self._validate_applied_file(target_path)
+            # Validate written file against stock base. Pass the already-parsed
+            # base.ini key set so validation skips a redundant 87k-line parse.
+            # sources_dict["global"] holds the parsed base.ini from
+            # load_sources_from_settings() above; fall back to on-disk read if
+            # the global source wasn't loaded (e.g. missing cache).
+            stock_keys_hint = (
+                set(sources_dict["global"].keys())
+                if AppSettings.SOURCE_GLOBAL in sources_dict
+                else None
+            )
+            validation_msg = self._validate_applied_file(target_path, stock_keys=stock_keys_hint)
 
             if validation_msg:
                 # Delete the bad file and restore the backup we just made
@@ -1303,7 +1337,11 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", f"Failed to apply to game: {e}")
             logger.error(f"Error applying to game: {e}")
 
-    def _validate_applied_file(self, written_path: Path) -> str:
+    def _validate_applied_file(
+        self,
+        written_path: Path,
+        stock_keys: set[str] | None = None,
+    ) -> str:
         """Validate the written global.ini against the stock base.ini.
 
         Checks that every key in base.ini is present in the written file.
@@ -1312,6 +1350,11 @@ class MainWindow(QMainWindow):
 
         Args:
             written_path: Path to the global.ini just written to the game directory.
+            stock_keys: Optional pre-parsed set of base.ini keys. If provided,
+                skips a redundant ~87k-line parse — apply_to_game already has
+                base.ini in memory via load_sources_from_settings(). The
+                written-file parse remains (independent verification against
+                a merger bug).
 
         Returns:
             Empty string if validation passed, or a human-readable warning message
@@ -1319,16 +1362,21 @@ class MainWindow(QMainWindow):
         """
         from src.parser.ini_parser import parse_ini_file
 
-        stock_path = AppSettings.get_cache_dir() / "base.ini"
-        if not stock_path.exists():
-            logger.warning("Validation skipped: base.ini not found in cache")
-            return ""
+        if stock_keys is None:
+            stock_path = AppSettings.get_cache_dir() / "base.ini"
+            if not stock_path.exists():
+                logger.warning("Validation skipped: base.ini not found in cache")
+                return ""
+            try:
+                stock_keys = set(parse_ini_file(stock_path).keys())
+            except Exception as e:
+                logger.warning(f"Validation error reading stock base.ini: {e}")
+                return ""
 
         try:
-            stock_keys = set(parse_ini_file(stock_path).keys())
             written_keys = set(parse_ini_file(written_path).keys())
         except Exception as e:
-            logger.warning(f"Validation error reading files: {e}")
+            logger.warning(f"Validation error reading written file: {e}")
             return ""
 
         missing = stock_keys - written_keys
@@ -1366,18 +1414,13 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def clear_localization(self):
-        """Delete global.ini from the game's localization directory, reverting to vanilla text."""
-        game_path = AppSettings.get_game_install_path()
-        if not game_path:
+        """Delete global.ini from the active channel's localization directory, reverting to vanilla text."""
+        if not AppSettings.get_game_install_path():
             QMessageBox.warning(self, "Warning", "Please configure game install path in Config tab")
             return
 
-        game_path_obj = Path(game_path)
-        if game_path_obj.name == "LIVE":
-            loc_dir = game_path_obj / "data/Localization/english"
-        else:
-            loc_dir = game_path_obj / "LIVE/data/Localization/english"
-        global_ini = loc_dir / "global.ini"
+        global_ini = AppSettings.get_global_ini_path()
+        loc_dir = global_ini.parent
 
         if not global_ini.exists():
             QMessageBox.information(self, "Nothing to Clear",
@@ -1510,17 +1553,12 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def open_localization_dir(self):
-        """Open the game's localization directory in Windows Explorer."""
-        game_path = AppSettings.get_game_install_path()
-        if not game_path:
+        """Open the active channel's localization directory in Windows Explorer."""
+        if not AppSettings.get_game_install_path():
             QMessageBox.warning(self, "Warning", "Please configure game install path in Config tab")
             return
 
-        game_path_obj = Path(game_path)
-        if game_path_obj.name.upper() == "LIVE":
-            loc_dir = game_path_obj / "data/Localization/english"
-        else:
-            loc_dir = game_path_obj / "LIVE/data/Localization/english"
+        loc_dir = AppSettings.get_global_ini_path().parent
 
         if not loc_dir.exists():
             QMessageBox.warning(
@@ -1795,11 +1833,7 @@ class MainWindow(QMainWindow):
         try:
             import shutil
 
-            game_path_obj = Path(game_path)
-            if game_path_obj.name == "LIVE":
-                target_path = game_path_obj / "data/Localization/english/global.ini"
-            else:
-                target_path = game_path_obj / "LIVE/data/Localization/english/global.ini"
+            target_path = AppSettings.get_global_ini_path()
             backup_file_path = Path(backup_file)
 
             # Restore the backup
@@ -1917,6 +1951,127 @@ class MainWindow(QMainWindow):
             dock.show()
             dock.raise_()
 
+    # ── Guided tour (coach-marks) ─────────────────────────────────────────────
+
+    def _tutorial_step_wiring(self) -> dict[str, dict]:
+        """Map each tutorial step id to its widget-targeting logic.
+
+        Kept in code — not in JSON — because target and pre_action are
+        closures over `self`/QWidget references that can't be serialized.
+        The user-editable copy (title / description / order / inclusion)
+        lives in ``assets/tutorial.json`` and is keyed by these ids.
+
+        Each value is a dict with:
+            target:     Callable[[], QWidget | None]
+            pre_action: Optional[Callable[[], None]]
+        """
+        def _switch_to(tab_index: int):
+            def _action():
+                if hasattr(self, "tabs"):
+                    self.tabs.setCurrentIndex(tab_index)
+            return _action
+
+        strings_tab = getattr(self, "_strings_tab_index", 0)
+        config_tab = getattr(self, "_config_tab_index", 1)
+        enh_tab = getattr(self, "_enhancements_tab_index", 2)
+
+        return {
+            "welcome":      {"target": lambda: None,                                            "pre_action": None},
+            "extract":      {"target": lambda: self.config_tab._extract_btn,                    "pre_action": _switch_to(config_tab)},
+            "load":         {"target": lambda: self.load_btn,                                   "pre_action": _switch_to(strings_tab)},
+            "edit":         {"target": lambda: self.table,                                      "pre_action": _switch_to(strings_tab)},
+            "apply":        {"target": lambda: self.apply_btn,                                  "pre_action": None},
+            "enhancements": {"target": lambda: self.enhancements_tab._generate_enhancements_btn, "pre_action": _switch_to(enh_tab)},
+            "help":         {"target": lambda: self.help_btn,                                   "pre_action": _switch_to(strings_tab)},
+        }
+
+    def _build_tutorial_steps(self) -> list[CoachMarkStep]:
+        """Assemble the tour by combining ``assets/tutorial.json`` (content)
+        with ``_tutorial_step_wiring()`` (targets).
+
+        Order and inclusion are driven by the JSON — reorder or remove entries
+        there to change the tour without touching code. Entries whose ``id``
+        has no matching wiring are skipped with a warning (so a typo in the
+        JSON surfaces in the Log Tab rather than crashing the tour).
+        """
+        import json
+
+        wiring = self._tutorial_step_wiring()
+
+        try:
+            tutorial_path = Path(get_resource_path("assets/tutorial.json"))
+            with tutorial_path.open("r", encoding="utf-8") as f:
+                payload = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            logger.error(f"Could not load assets/tutorial.json: {e} — tour disabled")
+            return []
+
+        raw_steps = payload.get("steps", [])
+        steps: list[CoachMarkStep] = []
+        for raw in raw_steps:
+            step_id = raw.get("id")
+            if not step_id:
+                logger.warning(f"Tutorial step missing 'id'; skipped: {raw!r}")
+                continue
+            w = wiring.get(step_id)
+            if w is None:
+                logger.warning(
+                    f"Tutorial step id {step_id!r} has no wiring entry in "
+                    f"_tutorial_step_wiring(); skipped"
+                )
+                continue
+            title = raw.get("title", "")
+            description = raw.get("description", "")
+            if not title or not description:
+                logger.warning(f"Tutorial step {step_id!r} missing title/description; skipped")
+                continue
+            steps.append(CoachMarkStep(
+                target=w["target"],
+                title=title,
+                description=description,
+                pre_action=w.get("pre_action"),
+                preferred_side=raw.get("preferred_side", "auto"),
+            ))
+
+        return steps
+
+    def _start_tutorial(self) -> None:
+        """Launch the guided tour. Safe to call repeatedly; a running tour is ignored."""
+        if getattr(self, "_tutorial_tour", None) is not None and self._tutorial_tour.is_running():
+            return
+        self._tutorial_tour = TutorialTour(self, self._build_tutorial_steps())
+        self._tutorial_tour.finished.connect(self._on_tutorial_finished)
+        self._tutorial_tour.start()
+
+    def _on_tutorial_finished(self, completed: bool) -> None:
+        """Record completion on Finish; skip doesn't burn the flag so the user
+        still sees the tour on their next launch if they hit Skip by accident."""
+        if completed:
+            AppSettings.set_tutorial_completed_version(get_version())
+        self._tutorial_tour = None
+
+    def _maybe_start_first_run_tutorial(self) -> None:
+        """Auto-start the tour on first launch of a version whose tour wasn't seen.
+
+        Matching on version (not a boolean) means we can re-trigger the tour
+        in a future release if we add meaningful steps worth showing again.
+        Hooked from showEvent so widgets have geometry; a short QTimer delay
+        lets the restore-window-state pass finish before we compute spotlight
+        rectangles.
+        """
+        if getattr(self, "_tutorial_first_run_checked", False):
+            return
+        self._tutorial_first_run_checked = True
+        last_seen = AppSettings.get_tutorial_completed_version()
+        current = get_version()
+        if last_seen == current:
+            return
+        QTimer.singleShot(400, self._start_tutorial)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._maybe_start_first_run_tutorial()
+
     def keyPressEvent(self, event):
         """Handle keyboard shortcuts."""
         if event.key() == Qt.Key.Key_C and event.modifiers() == Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier:
@@ -1973,6 +2128,71 @@ class MainWindow(QMainWindow):
         )
         return any(w is not None and w.isRunning() for w in workers)
 
+    def _ensure_channel_indicator(self) -> None:
+        """Install a permanent right-side status-bar widget showing the active channel.
+
+        Lazily created on first call so it survives statusBar().showMessage()
+        churn (transient messages on the left don't displace permanent
+        widgets). The label's text is refreshed by :meth:`_refresh_channel_indicator`
+        whenever the channel changes.
+        """
+        if getattr(self, "_channel_indicator", None) is not None:
+            return
+        from PyQt6.QtWidgets import QLabel as _QLabel
+        self._channel_indicator = _QLabel()
+        self._channel_indicator.setStyleSheet("font-size: 11px; font-weight: bold; padding: 0 8px;")
+        self.statusBar().addPermanentWidget(self._channel_indicator)
+        self._refresh_channel_indicator()
+
+    def _refresh_channel_indicator(self) -> None:
+        """Update the status-bar channel label to reflect AppSettings.get_active_channel()."""
+        if getattr(self, "_channel_indicator", None) is None:
+            return
+        self._channel_indicator.setText(f"Channel: {AppSettings.get_active_channel()}")
+
+    @pyqtSlot(str)
+    def _on_channel_changed(self, channel: str) -> None:
+        """Handle a channel switch from the Config tab.
+
+        Re-runs the merge + reload against the new channel's data: the
+        path helpers are already channel-aware, so calling
+        :meth:`perform_merge_and_reload` picks up the new cache, user.ini,
+        and enhancement INIs automatically. Also refreshes the status-bar
+        indicator, the Config tab's P4K status dot, and the Enhancements
+        tab's DataForge freshness label so the user sees an immediate
+        consistent view across the whole UI.
+        """
+        logger.info(f"MainWindow reacting to channel change → {channel}")
+
+        # Re-point the stored file-path sources at the new channel's folders.
+        # The path helpers themselves (get_cache_dir, get_user_ini_path) are
+        # already channel-aware and resolve per-call — but the loader reads
+        # the stored path from the registry, so we have to mirror the
+        # new values into those entries the same way main() does on startup.
+        # Skip any source currently set to a URL to preserve custom remote
+        # configs.
+        for source_name, canonical in (
+            (AppSettings.SOURCE_GLOBAL, str(AppSettings.get_cache_dir() / "base.ini")),
+            (AppSettings.SOURCE_USER, str(AppSettings.get_user_ini_path())),
+        ):
+            stored = AppSettings.get_source_path(source_name)
+            if stored.startswith("http://") or stored.startswith("https://"):
+                continue
+            if stored != canonical:
+                AppSettings.set_source_path(source_name, canonical)
+                logger.info(
+                    f"Re-synced {source_name} source path for channel {channel}: "
+                    f"{stored or '(unset)'} → {canonical}"
+                )
+
+        self._refresh_channel_indicator()
+        self.config_tab._refresh_p4k_status()
+        if hasattr(self, "enhancements_tab"):
+            self.enhancements_tab.refresh_forge_status()
+        # Tell the user via statusBar so the reload isn't silent.
+        self.statusBar().showMessage(f"Switched to {channel} — reloading sources…")
+        self.perform_merge_and_reload()
+
     def _update_status_bar(self):
         """Compose sync status from all configured sources plus entry counts and game version.
 
@@ -1995,13 +2215,24 @@ class MainWindow(QMainWindow):
                 entry_info += f" | {modified_count} overrides"
             parts.append(entry_info)
 
-        # Add game version if available
+        # Add game version + channel suffix. Reading build_manifest.id goes
+        # through get_game_install_path(), which is channel-aware post-0.9.3
+        # — so when the user switches channels this already re-reads from
+        # the new channel's manifest file. We tag the version with the
+        # channel name (e.g. "SC v4.7.176-PTU") so the status bar version
+        # is unambiguous even before the right-side channel indicator lands
+        # in the user's eye.
         game_version = AppSettings.get_game_version()
+        active_channel = AppSettings.get_active_channel()
         if game_version:
-            # Extract major version (e.g., "4.7.176" from "4.7.176.58286")
             version_parts = game_version.split(".")
             short_version = ".".join(version_parts[:3]) if len(version_parts) >= 3 else game_version
-            parts.append(f"SC v{short_version}")
+            parts.append(f"SC v{short_version}-{active_channel}")
+        elif AppSettings.get_channel_install_path():
+            # Channel selected but no manifest (folder missing / not installed);
+            # surface the channel name so the user can see which one is active
+            # and why the version's blank.
+            parts.append(f"SC {active_channel} (manifest missing)")
 
         if parts:
             self.statusBar().showMessage("  |  ".join(parts))
@@ -2088,6 +2319,14 @@ class MainWindow(QMainWindow):
         if p4k_extraction_started:
             return
 
+        # Base.ini is fine. Separately check the DataForge XML cache, which
+        # has its own freshness stamp (`.p4k_mtime`) and can be stale even
+        # when base.ini is current — e.g. the last DataForge extract was
+        # against an older Data.p4k, or the user patched the game since.
+        # Prompt but don't defer file loading: stale DataForge only affects
+        # enhancement regeneration, not the base strings in the table.
+        self._maybe_prompt_dataforge_refresh()
+
         # Don't check enhancements during startup - defer until after file loading completes
         # to avoid concurrent I/O contention between file loader and enhancements generator
         self._check_enhancements_after_loading = True
@@ -2136,6 +2375,59 @@ class MainWindow(QMainWindow):
             self._run_p4k_extraction()
             return True
         return False
+
+    def _maybe_prompt_dataforge_refresh(self) -> None:
+        """Prompt to re-extract DataForge if its cache is stale vs. Data.p4k.
+
+        Called during startup after base.ini passes its freshness check.
+        A stale DataForge cache doesn't block the base-string workflow — the
+        table loads fine — but it means the next enhancements regeneration
+        will run against old entity data, so stats/missions/blueprints will
+        drift from what the current game build actually ships. Users who
+        notice the passive ``DataForge: cache outdated`` label on the
+        Enhancements tab want to act on it; surfacing a Yes/No dialog on
+        startup consolidates the prompt into the same flow as the base.ini
+        prompt above.
+
+        Silent no-op when the cache is fresh, when unp4k or Data.p4k is
+        missing (no signal to act on), when a DataForge or enhancements
+        worker is already running (don't stack prompts), or when the cache
+        has no stamp file yet (that's the "never extracted" case — the
+        existing ``_check_enhancements_freshness`` prompt handles it via a
+        category-selection dialog after the first load).
+
+        Does NOT defer file loading — unlike the base.ini case, loading
+        the table doesn't depend on DataForge. The extract runs in the
+        background and chains into enhancements generation on completion.
+        """
+        from src.utils.pak_extractor import dataforge_cache_is_fresh
+
+        if self._forge_worker is not None or self._enhancements_worker is not None:
+            return
+        p4k_path = AppSettings.get_p4k_path()
+        unp4k_exe = AppSettings.get_unp4k_exe_path()
+        unforge_exe = AppSettings.get_unforge_exe_path()
+        if not p4k_path.exists() or not unp4k_exe.exists() or not unforge_exe.exists():
+            return
+        forge_dir = AppSettings.get_dataforge_cache_dir()
+        if not (forge_dir / ".p4k_mtime").exists():
+            # Never extracted — handled later by _check_enhancements_freshness,
+            # which shows a richer category-selection dialog.
+            return
+        if dataforge_cache_is_fresh(p4k_path, forge_dir):
+            return
+
+        reply = QMessageBox.question(
+            self, "DataForge Cache Outdated",
+            "Your DataForge entity cache is older than the current Data.p4k.\n\n"
+            "Re-extract DataForge and regenerate enhancements now?\n\n"
+            "This takes 5–10 minutes and runs in the background — you can keep "
+            "editing strings while it works. Skip for now if you'd rather not wait; "
+            "you can always trigger this from the Enhancements tab.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._run_dataforge_extraction()
 
     def _check_enhancements_freshness(self):
         """If enabled enhancement files are missing, prompt to generate them.
@@ -2827,7 +3119,7 @@ class MainWindow(QMainWindow):
                     in_list = False
                 header_text = line[2:].strip()
                 anchor_id = self.create_anchor_id(header_text)
-                html += f"<h1 id='{anchor_id}'>{header_text}</h1>"
+                html += f"<h1 id='{anchor_id}'>{self._convert_markdown_inline(header_text)}</h1>"
                 prev_blank = False
             elif line.startswith('## '):
                 if in_list:
@@ -2835,7 +3127,7 @@ class MainWindow(QMainWindow):
                     in_list = False
                 header_text = line[3:].strip()
                 anchor_id = self.create_anchor_id(header_text)
-                html += f"<h2 id='{anchor_id}'>{header_text}</h2>"
+                html += f"<h2 id='{anchor_id}'>{self._convert_markdown_inline(header_text)}</h2>"
                 prev_blank = False
             elif line.startswith('### '):
                 if in_list:
@@ -2843,7 +3135,7 @@ class MainWindow(QMainWindow):
                     in_list = False
                 header_text = line[4:].strip()
                 anchor_id = self.create_anchor_id(header_text)
-                html += f"<h3 id='{anchor_id}'>{header_text}</h3>"
+                html += f"<h3 id='{anchor_id}'>{self._convert_markdown_inline(header_text)}</h3>"
                 prev_blank = False
             # Lists
             elif line.strip().startswith('- ') or line.strip().startswith('* '):
@@ -2854,8 +3146,7 @@ class MainWindow(QMainWindow):
                     in_list = True
                     list_type = 'ul'
                 list_text = line.strip()[2:].strip()
-                # Convert markdown links in list items
-                list_text = self._convert_markdown_links(list_text)
+                list_text = self._convert_markdown_inline(list_text)
                 html += f"<li>{list_text}</li>"
                 prev_blank = False
             elif line.strip() and line[0].isdigit() and '. ' in line:
@@ -2868,8 +3159,7 @@ class MainWindow(QMainWindow):
                 list_text = line.strip()
                 # Remove number and period
                 list_text = list_text[list_text.index('. ') + 2:].strip()
-                # Convert markdown links in list items
-                list_text = self._convert_markdown_links(list_text)
+                list_text = self._convert_markdown_inline(list_text)
                 html += f"<li>{list_text}</li>"
                 prev_blank = False
             # Empty lines (skip consecutive blank lines)
@@ -2887,9 +3177,7 @@ class MainWindow(QMainWindow):
                 if in_list:
                     html += f"</{list_type}>"
                     in_list = False
-                # Convert markdown links and bold
-                line = self._convert_markdown_links(line)
-                line = line.replace("**", "<strong>").replace("__", "<strong>")
+                line = self._convert_markdown_inline(line)
                 html += f"<p>{line}</p>"
                 prev_blank = False
 
@@ -2909,3 +3197,46 @@ class MainWindow(QMainWindow):
         pattern = r'\[([^\]]+)\]\(([^\)]+)\)'
         replacement = r'<a href="\2">\1</a>'
         return re.sub(pattern, replacement, text)
+
+    def _convert_markdown_inline(self, text: str) -> str:
+        """Apply inline Markdown (code, links, bold, italic) to a single line.
+
+        Order matters: inline ``code`` is stashed first so ``**`` or ``_``
+        inside a code span stay literal, then links / bold / italic run over
+        the remaining text. Bold runs before italic so a ``**`` pair isn't
+        mis-parsed as two ``*italic*`` brackets.
+        """
+        import re
+        from html import escape
+
+        # 1. Stash inline code spans behind opaque placeholders so bold/italic
+        #    regexes can't touch their content (e.g. `vehicle_Name*` shouldn't
+        #    become vehicle_Name<em>).
+        code_spans: list[str] = []
+
+        def _stash(match):
+            code_spans.append(match.group(1))
+            return f"\x00CODE{len(code_spans) - 1}\x00"
+
+        text = re.sub(r"`([^`]+)`", _stash, text)
+
+        # 2. Links — do before bold/italic so '_' inside URLs doesn't get
+        #    chewed.
+        text = self._convert_markdown_links(text)
+
+        # 3. Bold: **...** and __...__.
+        text = re.sub(r"\*\*([^*]+?)\*\*", r"<strong>\1</strong>", text)
+        text = re.sub(r"__([^_]+?)__", r"<strong>\1</strong>", text)
+
+        # 4. Italic: *...* (only; '_' is too common in loc-keys/identifiers
+        #    to italicize safely without a proper tokenizer). Require no '*'
+        #    on either side of the pair so we don't steal halves of a '**'
+        #    bold run that happened to not match step 3.
+        text = re.sub(r"(?<!\*)\*(?!\*)([^*\n]+?)\*(?!\*)", r"<em>\1</em>", text)
+
+        # 5. Restore code spans — escape the content so any stray angle
+        #    brackets inside a backtick span render as literal text.
+        for i, content in enumerate(code_spans):
+            text = text.replace(f"\x00CODE{i}\x00", f"<code>{escape(content)}</code>")
+
+        return text

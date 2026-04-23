@@ -72,7 +72,7 @@ Entry point: `src/main.py`. The app has two main layers:
 - `ini_merger.py` — Merge engine: `merge_sources_by_hierarchy(sources_dict, hierarchy, user_overrides)`. Sources merge sequentially; user overrides always win.
 - `settings.py` — `AppSettings` class wrapping QSettings (Windows Registry). All user data stored in `Documents\SC Localization Editor\`. Critical: Registry is the single source of truth for all paths and preferences. Also owns canonical paths (`get_user_data_dir()`, `get_cache_dir()`, `get_user_ini_path()`, `get_backups_dir()`) and handles automatic migration of legacy `overrides.ini` → `user.ini` and `AppData\Roaming\...` → `Documents\...`.
 - `updater.py` — GitHub API version checks + download workers for each source.
-- `pak_extractor.py` — P4K extraction pipeline: `unp4k.exe` (extracts Game2.dcb) → `unforge.exe` (converts to entity XMLs).
+- `pak_extractor.py` — P4K extraction pipeline: `unp4k.exe` (extracts Game2.dcb) → `unforge.exe` (converts to entity XMLs). After unforge writes the full DataForge tree to a temp dir, `_copy_filtered_records()` copies only the subtrees in `DATAFORGE_KEEP_SUBPATHS` (the ones the generator actually reads) to the persistent cache — halves cache file count and cuts copy/rmtree wall time. Adding a new read path in the generator requires adding it to `DATAFORGE_KEEP_SUBPATHS`; `tests/test_pak_extraction.py::TestDataForgeKeepList` locks the contract.
 - `user_ini_manager.py` — Saves user-modified entries to `user.ini` (plain `key=value`, no sections) via `save_user_ini(entries, path)`; coordinates with `ImportConflictDialog` when importing external INIs.
 - `user_cfg.py` — Manages Star Citizen's `user.cfg` file; ensures `g_language = english` is set in the LIVE directory.
 - `version.py` — Reads version string from `VERSION.TXT`, handling both normal and PyInstaller-frozen execution.
@@ -120,14 +120,15 @@ Favorites prepend a configurable prefix (default `*`) to `custom_value`. The pre
 
 | What | Where |
 |------|-------|
-| Settings | Windows Registry: `HKEY_CURRENT_USER\Software\Osiris DevWorks\SC Localization Editor` |
-| User data root | `Documents\SC Localization Editor\` (resolved via registry for OneDrive support) |
-| User overrides | `Documents\SC Localization Editor\user.ini` (legacy name: `overrides.ini`, auto-migrated) |
-| Cached sources | `Documents\SC Localization Editor\cache\` (`base.ini`, `contracts.ini`, `ships.ini`, etc.) |
-| DataForge cache | `Documents\SC Localization Editor\cache\dataforge\` (entity XMLs from Data.p4k) |
-| Enhancement INIs | `Documents\SC Localization Editor\cache\` (`ships_desc_enhancements.ini`, `components_desc_enhancements.ini`, `ship_weapons_desc_enhancements.ini`, `fps_weapons_desc_enhancements.ini`, `mission_rewards_enhancements.ini`, `commodity_crafting_enhancements.ini`) |
-| Backups | `Documents\SC Localization Editor\backups\` (max 5, oldest auto-deleted) |
-| Game file | `{game_install_path}\LIVE\data\Localization\english\global.ini` |
+| Settings | Windows Registry: `HKEY_CURRENT_USER\Software\Osiris DevWorks\Smart Citizen` |
+| User data root | `Documents\Smart Citizen\` (resolved via registry for OneDrive support) |
+| **Per-channel data** | `Documents\Smart Citizen\{LIVE|PTU|EPTU|TECH-PREVIEW}\` — 0.9.3+ nests user.ini / cache / backups / dataforge under the active channel so each SC channel is isolated. Migrator: `AppSettings.migrate_game_path_to_channel_layout()`. |
+| User overrides | `Documents\Smart Citizen\{active_channel}\user.ini` (legacy `overrides.ini`, auto-migrated) |
+| Cached sources | `Documents\Smart Citizen\{active_channel}\cache\` (`base.ini`, `contracts.ini`, etc.) |
+| DataForge cache | `Documents\Smart Citizen\{active_channel}\cache\dataforge\` (entity XMLs from Data.p4k) |
+| Enhancement INIs | `Documents\Smart Citizen\{active_channel}\cache\` (`ships_desc_enhancements.ini`, `components_desc_enhancements.ini`, `ship_weapons_desc_enhancements.ini`, `fps_weapons_desc_enhancements.ini`, `mission_rewards_enhancements.ini`, `commodity_crafting_enhancements.ini`) |
+| Backups | `Documents\Smart Citizen\{active_channel}\backups\` (max 5, oldest auto-deleted) |
+| Game file | `{sc_install_root}\{active_channel}\data\Localization\english\global.ini` — resolved via `AppSettings.get_global_ini_path()` |
 | P4K tools | `assets/unp4k/` (`unp4k.exe`, `unforge.exe`) |
 | DataForge patches | `patches/` (JSON files mirroring DataForge layout; applied post-extraction) |
 | Help/About content | `HELP.md`, `ABOUT.md` at repo root — rendered inside the in-app help panel |

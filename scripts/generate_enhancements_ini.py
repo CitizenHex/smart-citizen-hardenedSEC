@@ -2488,7 +2488,8 @@ def scan_entity_dir(
 def main(base_ini_path: Path, forge_dir: Path | None = None,
          categories: set[str] | None = None,
          progress_callback: Optional[Callable[[int, int, str], None]] = None,
-         max_workers: int = 6) -> None:
+         max_workers: int = 6,
+         patches_dir: Path | None = None) -> None:
     import sys as sys_mod
     # Deferred import — the script is loaded by both the app worker (where
     # src.utils is on the path) and as a standalone CLI, so we swallow an
@@ -3233,6 +3234,33 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                     out_missions = result
                 elif name == "commodity_journal":
                     out_commodities, out_journal = result
+
+    # ── Apply loc-string workarounds for CIG data bugs ────────────────────────
+    # XML patches we ran before this script realigned the enhancement
+    # generator's bookkeeping, but the game reads contract Title/Description
+    # pointers directly from Data.p4k at runtime — so a CIG bug where a
+    # contract's Description points at the wrong loc key still misroutes the
+    # in-game display. Appending the intended desc's content onto the loc key
+    # the game actually reads works around that.
+    if patches_dir is not None:
+        try:
+            from src.utils.dataforge_patcher import (
+                load_locstring_workarounds,
+                apply_locstring_workarounds,
+            )
+            workarounds = load_locstring_workarounds(patches_dir)
+            if workarounds:
+                total_applied = 0
+                for out_dict in (out_missions, out_components, out_ship_weapons,
+                                 out_fps_weapons, out_ships, out_missiles,
+                                 out_commodities, out_journal):
+                    total_applied += apply_locstring_workarounds(out_dict, workarounds)
+                logger.info(
+                    f"Loc-string workarounds: {total_applied}/{len(workarounds)} applied"
+                )
+                _flush()
+        except ImportError:
+            logger.debug("src.utils.dataforge_patcher unavailable; skipping workarounds")
 
     # ── Write output ──────────────────────────────────────────────────────────
     logger.info("Writing output files…")

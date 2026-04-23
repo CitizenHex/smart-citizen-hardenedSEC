@@ -29,6 +29,32 @@ class AppSettings:
     # Settings keys - Enhancements
     ENHANCEMENTS_ENABLED = "enhancements_enabled"
 
+    # Settings keys - Tutorial
+    # Stores the app version string ("0.9.3") that last marked the guided tour
+    # as completed, so a future release can re-trigger it if the tour gains
+    # new steps worth showing again. Empty string means "never shown".
+    TUTORIAL_COMPLETED_VERSION = "tutorial_completed_version"
+
+    # Settings keys - Star Citizen channel selection
+    # Star Citizen ships multiple channels (LIVE/PTU/EPTU/TECH-PREVIEW) under
+    # a common install root, each with its own Data.p4k. We store the root
+    # directory + the active channel name separately so the rest of the app
+    # can resolve channel-specific paths from a single source of truth.
+    # Legacy installs with ``GAME_INSTALL_PATH = {root}\LIVE`` are migrated
+    # by ``migrate_game_path_to_channel_layout`` on first launch.
+    SC_INSTALL_ROOT = "sc_install_root"
+    ACTIVE_CHANNEL = "active_channel"
+    CHANNEL_LAYOUT_MIGRATED = "_channel_layout_migrated"  # one-shot marker
+
+    # Channel names are the folder names Star Citizen uses under its install
+    # root. Order here drives the combo box order in the Config tab.
+    CHANNEL_LIVE = "LIVE"
+    CHANNEL_PTU = "PTU"
+    CHANNEL_EPTU = "EPTU"
+    CHANNEL_TECH_PREVIEW = "TECH-PREVIEW"
+    AVAILABLE_CHANNELS = (CHANNEL_LIVE, CHANNEL_PTU, CHANNEL_EPTU, CHANNEL_TECH_PREVIEW)
+    DEFAULT_CHANNEL = CHANNEL_LIVE
+
     # Enhancements cache filenames (written by generate_enhancements_ini.py into cache dir)
     ENHANCEMENTS_FILES = {
         "ship_descs":          "ships_desc_enhancements.ini",
@@ -151,6 +177,17 @@ class AppSettings:
         AppSettings.settings().setValue(AppSettings.FAVORITE_PREFIX, prefix)
 
     @staticmethod
+    def get_tutorial_completed_version() -> str:
+        """App version string that last completed the guided tour, or '' if never."""
+        return AppSettings.settings().value(AppSettings.TUTORIAL_COMPLETED_VERSION, "")
+
+    @staticmethod
+    def set_tutorial_completed_version(version: str) -> None:
+        """Record that the guided tour was completed for *version*."""
+        AppSettings.settings().setValue(AppSettings.TUTORIAL_COMPLETED_VERSION, version)
+        AppSettings.settings().sync()
+
+    @staticmethod
     def get_base_global_path() -> str:
         """Get legacy base global path (for backward compatibility).
 
@@ -188,29 +225,41 @@ class AppSettings:
 
     @staticmethod
     def get_game_install_path() -> str:
-        """Get Star Citizen install path from registry (installer) or QSettings."""
-        # First, check if installer set the SC directory in registry. Mirror it
-        # into QSettings on first read so the app is self-sufficient if the
-        # installer key is later cleared (e.g. clean reinstall, registry cleanup).
+        """Return the install path of the **active channel**.
+
+        Post 0.9.3 this resolves as ``{sc_install_root}\\{active_channel}``.
+        Kept under the old name so existing callers (which assume "the"
+        game install path means the active channel) still work; there's no
+        semantic change for pre-channel-aware code paths that always
+        operated on LIVE.
+
+        Falls back to the legacy ``GAME_INSTALL_PATH`` stored value, and
+        then to the installer-written registry key, for users whose
+        settings haven't been through :meth:`migrate_game_path_to_channel_layout`
+        yet (should be a vanishingly small window — the migrator runs at
+        ``main()`` startup).
+        """
+        root = AppSettings.settings().value(AppSettings.SC_INSTALL_ROOT, "")
+        if root:
+            return str(Path(root) / AppSettings.get_active_channel())
+
+        # Legacy path stored under the old key.
+        saved = AppSettings.settings().value(AppSettings.GAME_INSTALL_PATH, "")
+        if saved:
+            return saved
+
+        # Installer-written registry key (older flow).
         try:
             reg_path = r'Software\Osiris DevWorks\SC Localization Editor'
             registry_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path)
             sc_directory, _ = winreg.QueryValueEx(registry_key, 'sc_directory')
             winreg.CloseKey(registry_key)
             if sc_directory:
-                saved = AppSettings.settings().value(AppSettings.GAME_INSTALL_PATH, "")
-                if saved != sc_directory:
-                    AppSettings.settings().setValue(AppSettings.GAME_INSTALL_PATH, sc_directory)
+                AppSettings.settings().setValue(AppSettings.GAME_INSTALL_PATH, sc_directory)
                 return sc_directory
         except (WindowsError, OSError):
             pass
 
-        # Fall back to QSettings
-        saved = AppSettings.settings().value(AppSettings.GAME_INSTALL_PATH, "")
-        if saved:
-            return saved
-
-        # Auto-detect from common install locations
         for candidate in [
             r"C:\Program Files\Roberts Space Industries\StarCitizen\LIVE",
             r"C:\Program Files (x86)\Roberts Space Industries\StarCitizen\LIVE",
@@ -643,6 +692,154 @@ class AppSettings:
                 logger.warning(f"Could not rename data folder {old_dir}: {e}")
 
     @staticmethod
+    def migrate_game_path_to_channel_layout() -> None:
+        r"""One-shot migration to the 0.9.3 channel-aware layout.
+
+        Two orthogonal bits of migration happen here; both are idempotent
+        and short-circuited by a single marker (:data:`CHANNEL_LAYOUT_MIGRATED`)
+        so every subsequent launch no-ops cheaply.
+
+        **Registry side:** if ``GAME_INSTALL_PATH`` is set but ``SC_INSTALL_ROOT``
+        isn't, split the stored path on a trailing ``\{CHANNEL}`` suffix and
+        record the parent as ``SC_INSTALL_ROOT``. ``ACTIVE_CHANNEL`` is set
+        to the stripped channel name (``LIVE`` when the stored path has no
+        recognizable channel suffix — matches pre-0.9.3 behavior).
+
+        **Filesystem side:** if ``Documents\Smart Citizen\`` contains the
+        old flat layout (``base.ini`` / ``cache\`` / ``backups\`` / ``user.ini``)
+        and no ``LIVE\`` (or other channel) subfolder exists, move those
+        entries into a new ``LIVE\`` subfolder so every path helper starts
+        resolving channel-scoped. Skips anything that looks like a channel
+        directory, the migration marker, and the registry mirror files,
+        leaving unrelated files untouched.
+
+        Failures during the filesystem move are logged but not raised — the
+        app degrades to "user re-runs Extract" at worst rather than
+        crashing at startup.
+        """
+        settings = AppSettings.settings()
+        if settings.value(AppSettings.CHANNEL_LAYOUT_MIGRATED, False, type=bool):
+            return
+
+        # --- Registry: split GAME_INSTALL_PATH into SC_INSTALL_ROOT + ACTIVE_CHANNEL
+        if not settings.value(AppSettings.SC_INSTALL_ROOT, ""):
+            legacy = settings.value(AppSettings.GAME_INSTALL_PATH, "")
+            if legacy:
+                legacy_path = Path(legacy)
+                tail = legacy_path.name.upper()
+                channels_upper = {c.upper(): c for c in AppSettings.AVAILABLE_CHANNELS}
+                if tail in channels_upper:
+                    settings.setValue(AppSettings.SC_INSTALL_ROOT, str(legacy_path.parent))
+                    settings.setValue(AppSettings.ACTIVE_CHANNEL, channels_upper[tail])
+                    logger.info(
+                        f"Migrated GAME_INSTALL_PATH {legacy!r} → "
+                        f"SC_INSTALL_ROOT={legacy_path.parent}, "
+                        f"ACTIVE_CHANNEL={channels_upper[tail]}"
+                    )
+                else:
+                    settings.setValue(AppSettings.SC_INSTALL_ROOT, legacy)
+                    settings.setValue(AppSettings.ACTIVE_CHANNEL, AppSettings.DEFAULT_CHANNEL)
+                    logger.info(
+                        f"Migrated GAME_INSTALL_PATH {legacy!r} (no channel suffix) → "
+                        f"SC_INSTALL_ROOT={legacy}, ACTIVE_CHANNEL={AppSettings.DEFAULT_CHANNEL}"
+                    )
+
+        if not settings.value(AppSettings.ACTIVE_CHANNEL, ""):
+            settings.setValue(AppSettings.ACTIVE_CHANNEL, AppSettings.DEFAULT_CHANNEL)
+
+        # --- Filesystem: move flat layout into a {active_channel}/ subfolder
+        root = AppSettings.get_user_data_dir()
+        channels_upper = {c.upper() for c in AppSettings.AVAILABLE_CHANNELS}
+
+        # Whether a channel subfolder has any *real* content (files or nested
+        # dirs) vs. just being an empty shell auto-created by a path helper's
+        # ``mkdir(exist_ok=True)`` — the latter shouldn't block migration.
+        def _has_content(p: Path) -> bool:
+            try:
+                for sub in p.rglob("*"):
+                    if sub.is_file():
+                        return True
+            except OSError:
+                return False
+            return False
+
+        populated_channel_dirs = [
+            p for p in (root.iterdir() if root.exists() else [])
+            if p.is_dir() and p.name.upper() in channels_upper and _has_content(p)
+        ]
+
+        if populated_channel_dirs:
+            logger.info(
+                f"Populated channel subfolders already present under {root}: "
+                f"{[p.name for p in populated_channel_dirs]}; skipping filesystem migration"
+            )
+        else:
+            target_channel = settings.value(AppSettings.ACTIVE_CHANNEL, AppSettings.DEFAULT_CHANNEL)
+            target_dir = root / target_channel
+            moved = []
+            skipped = []
+            try:
+                target_dir.mkdir(parents=True, exist_ok=True)
+                for entry in list(root.iterdir()):
+                    if entry == target_dir:
+                        continue
+                    # Skip anything that matches another channel name — either
+                    # a populated sibling channel dir (bail above caught that)
+                    # or an empty shell for a different channel (we leave
+                    # alone; the current active channel is the only migration
+                    # target).
+                    if entry.is_dir() and entry.name.upper() in channels_upper:
+                        skipped.append(entry.name)
+                        continue
+                    try:
+                        # If the target already has an entry of the same name
+                        # (e.g. empty ``LIVE\cache\`` auto-created by a path
+                        # helper before the migrator ran), merge by moving
+                        # the flat entry's contents into the existing target
+                        # and then removing the now-empty flat dir.
+                        dest = target_dir / entry.name
+                        if dest.exists():
+                            if entry.is_dir() and dest.is_dir():
+                                for child in list(entry.iterdir()):
+                                    try:
+                                        child.rename(dest / child.name)
+                                    except OSError as move_err:
+                                        logger.warning(
+                                            f"Could not merge {child} into {dest}: {move_err}"
+                                        )
+                                try:
+                                    entry.rmdir()  # now empty
+                                except OSError:
+                                    pass
+                                moved.append(f"{entry.name}/* → {dest}")
+                                continue
+                            # File-vs-file or mismatched-type collision —
+                            # skip with a warning; user keeps both copies.
+                            logger.warning(
+                                f"Migration skipped {entry} — target {dest} already exists"
+                            )
+                            skipped.append(entry.name)
+                            continue
+                        entry.rename(dest)
+                        moved.append(entry.name)
+                    except OSError as move_err:
+                        logger.warning(
+                            f"Could not move {entry} into {target_dir}: {move_err}"
+                        )
+                if moved:
+                    logger.info(
+                        f"Migrated flat user-data layout into {target_dir}: "
+                        f"moved {moved}"
+                    )
+                if skipped:
+                    logger.debug(f"Skipped (already channel dirs or collisions): {skipped}")
+            except OSError as e:
+                logger.warning(f"Channel-layout filesystem migration failed: {e}")
+
+        settings.setValue(AppSettings.CHANNEL_LAYOUT_MIGRATED, True)
+        settings.sync()
+
+    @staticmethod
     def get_user_data_dir() -> Path:
         r"""Get the user data directory.
 
@@ -687,49 +884,163 @@ class AppSettings:
             AppSettings.settings().setValue(AppSettings.USER_DATA_DIR, str(path))
         AppSettings.settings().sync()
 
+    # ── Channel selection API ────────────────────────────────────────────────
+
+    @staticmethod
+    def get_active_channel() -> str:
+        r"""Return the active Star Citizen channel (LIVE/PTU/EPTU/TECH-PREVIEW).
+
+        Falls back to :data:`DEFAULT_CHANNEL` when unset or unrecognized —
+        safer than raising, since path helpers downstream depend on this and
+        a bad value would break every subsequent call.
+        """
+        value = AppSettings.settings().value(AppSettings.ACTIVE_CHANNEL, AppSettings.DEFAULT_CHANNEL)
+        if value in AppSettings.AVAILABLE_CHANNELS:
+            return value
+        logger.warning(
+            f"Unknown active_channel {value!r}; defaulting to {AppSettings.DEFAULT_CHANNEL}"
+        )
+        return AppSettings.DEFAULT_CHANNEL
+
+    @staticmethod
+    def set_active_channel(channel: str) -> None:
+        """Persist the active channel name. Must be a member of AVAILABLE_CHANNELS."""
+        if channel not in AppSettings.AVAILABLE_CHANNELS:
+            raise ValueError(
+                f"Unknown channel {channel!r}; expected one of {AppSettings.AVAILABLE_CHANNELS}"
+            )
+        AppSettings.settings().setValue(AppSettings.ACTIVE_CHANNEL, channel)
+        AppSettings.settings().sync()
+
+    @staticmethod
+    def get_sc_install_root() -> str:
+        r"""Return the Star Citizen install root (parent of the channel folders).
+
+        This is the directory containing ``LIVE\``, ``PTU\``, etc. Resolution
+        order mirrors :meth:`get_game_install_path`:
+          1. QSettings value for :data:`SC_INSTALL_ROOT`
+          2. Derived from legacy ``GAME_INSTALL_PATH`` (strip trailing
+             ``\LIVE`` if present)
+          3. Auto-detected from the common RSI install locations
+
+        Returns an empty string when nothing resolves — the Config tab shows
+        a placeholder in that case.
+        """
+        saved = AppSettings.settings().value(AppSettings.SC_INSTALL_ROOT, "")
+        if saved:
+            return saved
+
+        # Derive from the legacy per-channel path if it's set.
+        legacy = AppSettings.settings().value(AppSettings.GAME_INSTALL_PATH, "")
+        if legacy:
+            legacy_path = Path(legacy)
+            if legacy_path.name.upper() in (c.upper() for c in AppSettings.AVAILABLE_CHANNELS):
+                return str(legacy_path.parent)
+            return legacy  # assume it was already a root
+
+        for candidate in [
+            r"C:\Program Files\Roberts Space Industries\StarCitizen",
+            r"C:\Program Files (x86)\Roberts Space Industries\StarCitizen",
+        ]:
+            if Path(candidate).exists():
+                return candidate
+        return ""
+
+    @staticmethod
+    def set_sc_install_root(path: str) -> None:
+        """Persist the SC install root. Callers should pass the directory
+        that contains ``LIVE\\``, ``PTU\\``, etc., not a specific channel."""
+        AppSettings.settings().setValue(AppSettings.SC_INSTALL_ROOT, path)
+
+    @staticmethod
+    def get_available_channels() -> list[str]:
+        """Return channels for which ``{root}\\{channel}\\Data.p4k`` exists.
+
+        Used by the Config tab to grey-out channel combo entries the user
+        can't actually switch to. When the root isn't configured yet we
+        return all channels so the combo isn't empty — the user can still
+        pick one before the path is set.
+        """
+        root = AppSettings.get_sc_install_root()
+        if not root:
+            return list(AppSettings.AVAILABLE_CHANNELS)
+        root_path = Path(root)
+        return [
+            channel for channel in AppSettings.AVAILABLE_CHANNELS
+            if (root_path / channel / "Data.p4k").exists()
+        ]
+
+    @staticmethod
+    def get_channel_install_path() -> str:
+        r"""Return ``{sc_install_root}\{active_channel}``.
+
+        This is the "game install path" for whichever channel is currently
+        active — equivalent to what :meth:`get_game_install_path` returned
+        before the channel layout landed.
+        """
+        root = AppSettings.get_sc_install_root()
+        if not root:
+            return ""
+        return str(Path(root) / AppSettings.get_active_channel())
+
+    @staticmethod
+    def get_channel_data_dir() -> Path:
+        r"""Return ``{user_data_dir}\{active_channel}\`` (created if needed).
+
+        All per-channel user data (cache, backups, user.ini, DataForge
+        extraction) lives under this. :meth:`get_user_data_dir` stays the
+        root holding every channel's subfolder.
+        """
+        channel_dir = AppSettings.get_user_data_dir() / AppSettings.get_active_channel()
+        channel_dir.mkdir(parents=True, exist_ok=True)
+        return channel_dir
+
+    # ── Channel-scoped cache/backup/user.ini paths ──────────────────────────
+    # These all used to nest directly under get_user_data_dir(); now they
+    # nest under the active channel's subfolder. That makes every downstream
+    # caller channel-aware automatically.
+
     @staticmethod
     def get_cache_dir() -> Path:
-        r"""Get canonical cache directory in Documents\Smart Citizen\cache\.
-
-        Returns:
-            Path to Documents\Smart Citizen\cache\ (created if needed)
-        """
-        cache_dir = AppSettings.get_user_data_dir() / "cache"
+        r"""Get the active channel's cache directory (``…\{channel}\cache\``)."""
+        cache_dir = AppSettings.get_channel_data_dir() / "cache"
         cache_dir.mkdir(parents=True, exist_ok=True)
         return cache_dir
 
     @staticmethod
     def get_user_ini_path() -> Path:
-        r"""Get canonical path for user.ini in Documents\Smart Citizen\.
+        r"""Get the active channel's ``user.ini`` path.
 
-        Migrates from overrides.ini → user.ini on first call if needed.
+        Each channel has its own user.ini — PTU and LIVE can have entirely
+        different loc-key sets, so sharing edits across channels would
+        require merging logic we don't want to maintain.
 
-        Returns:
-            Path to Documents\Smart Citizen\user.ini
+        Migrates from ``overrides.ini`` → ``user.ini`` on first call if
+        needed, within the active channel's folder.
         """
-        data_dir = AppSettings.get_user_data_dir()
+        data_dir = AppSettings.get_channel_data_dir()
         user_ini = data_dir / "user.ini"
         old_overrides = data_dir / "overrides.ini"
 
-        # Migrate: rename overrides.ini → user.ini if needed
         if old_overrides.exists() and not user_ini.exists():
             try:
                 old_overrides.rename(user_ini)
                 logger.info(f"Migrated {old_overrides} → {user_ini}")
             except OSError as e:
                 logger.warning(f"Failed to migrate overrides.ini → user.ini: {e}")
-                return old_overrides  # fall back to old name
+                return old_overrides
 
         return user_ini
 
     @staticmethod
     def get_backups_dir() -> Path:
-        r"""Get canonical backups directory in Documents\Smart Citizen\backups\.
+        r"""Get the active channel's backups directory (``…\{channel}\backups\``).
 
-        Returns:
-            Path to Documents\Smart Citizen\backups\ (created if needed)
+        Backups are per-channel because each channel's global.ini has its
+        own stock baseline — restoring a LIVE backup into PTU would mix
+        stock strings from different game builds.
         """
-        backups_dir = AppSettings.get_user_data_dir() / "backups"
+        backups_dir = AppSettings.get_channel_data_dir() / "backups"
         backups_dir.mkdir(parents=True, exist_ok=True)
         return backups_dir
 
@@ -812,15 +1123,46 @@ class AppSettings:
 
     @staticmethod
     def get_p4k_path() -> Path:
-        """Return path to Data.p4k based on configured game install path.
+        """Return path to Data.p4k for the active channel.
 
-        Handles both the SC root directory and the LIVE subdirectory, since the
-        stored path may point to either depending on how it was configured.
+        Resolves via :meth:`get_channel_install_path` which already nests the
+        channel under the SC install root. Falls back to the legacy
+        single-channel logic (where ``get_game_install_path()`` may have
+        returned either the root or the channel dir) for users whose
+        migration hasn't run yet — harmless on migrated installs since the
+        active-channel branch wins above.
         """
+        channel_path = AppSettings.get_channel_install_path()
+        if channel_path:
+            return Path(channel_path) / "Data.p4k"
+
         game_path = Path(AppSettings.get_game_install_path())
-        if game_path.name.upper() == "LIVE":
-            return game_path / 'Data.p4k'
-        return game_path / 'LIVE' / 'Data.p4k'
+        if game_path.name.upper() in {c.upper() for c in AppSettings.AVAILABLE_CHANNELS}:
+            return game_path / "Data.p4k"
+        return game_path / AppSettings.get_active_channel() / "Data.p4k"
+
+    @staticmethod
+    def get_global_ini_path() -> Path:
+        r"""Return the active channel's applied ``global.ini`` location.
+
+        Equivalent to ``{sc_install_root}\{active_channel}\data\Localization\english\global.ini``
+        — the file "Apply to Game" writes and "Clear Localization" deletes.
+        Callers should use this instead of reconstructing the path from
+        :meth:`get_game_install_path`, which the pre-0.9.3 code did with
+        scattered ``if name == "LIVE"`` branches that don't cover the new
+        channels.
+        """
+        channel_path = AppSettings.get_channel_install_path()
+        if channel_path:
+            return Path(channel_path) / "data" / "Localization" / "english" / "global.ini"
+
+        game_path = Path(AppSettings.get_game_install_path())
+        if game_path.name.upper() in {c.upper() for c in AppSettings.AVAILABLE_CHANNELS}:
+            return game_path / "data" / "Localization" / "english" / "global.ini"
+        return (
+            game_path / AppSettings.get_active_channel()
+            / "data" / "Localization" / "english" / "global.ini"
+        )
 
     @staticmethod
     def ensure_user_ini_file() -> None:

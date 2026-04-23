@@ -206,6 +206,7 @@ class EnhancementsTab(QWidget):
         prefix_row.addWidget(QLabel("Sort prefix:"))
 
         self.favorite_prefix_combo = QComboBox()
+        self.favorite_prefix_combo.setToolTip("Character prepended to favorited ship names so they sort to the top of the in-game ship list. Click Apply Prefix after changing to update all existing favorites.")
         self.favorite_prefix_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToContents
         )

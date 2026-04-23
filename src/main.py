@@ -47,11 +47,36 @@ def main():
     # Migrate global source from any remote URL to local P4K cache path (v0.6.0+)
     AppSettings.migrate_global_to_p4k_local()
 
+    # Split the pre-0.9.3 single-channel layout into channel-aware directories
+    # (registry: GAME_INSTALL_PATH → SC_INSTALL_ROOT + ACTIVE_CHANNEL;
+    # filesystem: Documents\Smart Citizen\{base.ini,cache,backups,user.ini,...}
+    # → Documents\Smart Citizen\LIVE\{...}). One-shot, marker-gated.
+    AppSettings.migrate_game_path_to_channel_layout()
+
     # Move user data files from old AppData location to Documents (idempotent)
     AppSettings.migrate_data_to_documents()
 
     # Always keep user source path in sync with canonical user.ini location
     AppSettings.set_source_path(AppSettings.SOURCE_USER, str(AppSettings.get_user_ini_path()))
+
+    # Keep the global source path pointing at the active channel's cached
+    # base.ini — the channel migrator moved the file into
+    # {user_data}\{channel}\cache\ but the stored path in the registry
+    # kept pointing at the pre-migration flat location, so the loader
+    # would read a file that no longer exists. Do this every startup (not
+    # just once post-migration) so channel switches also refresh the
+    # path. Skip the rewrite if the current value is a URL — we don't
+    # want to clobber a user who's configured a custom remote global
+    # source.
+    _global_stored = AppSettings.get_source_path(AppSettings.SOURCE_GLOBAL)
+    if not (_global_stored.startswith("http://") or _global_stored.startswith("https://")):
+        _canonical_global = str(AppSettings.get_cache_dir() / "base.ini")
+        if _global_stored != _canonical_global:
+            AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, _canonical_global)
+            logger.info(
+                f"Re-synced SOURCE_GLOBAL path to active channel cache: "
+                f"{_global_stored or '(unset)'} → {_canonical_global}"
+            )
 
     # Ensure user.ini exists (create empty if first run)
     AppSettings.ensure_user_ini_file()

@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 from PyQt6.QtGui import QColor, QFontDatabase, QPalette
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QProxyStyle, QStyle
 
 logger = logging.getLogger(__name__)
 
@@ -311,21 +311,60 @@ def _app_stylesheet_for(theme: str) -> str:
     return f'QLabel[role="secondary"] {{ color: {secondary}; }}'
 
 
+# Qt default tooltip wake-up delay is ~700ms, which feels twitchy on densely
+# labeled toolbars — the tip pops up while the cursor is just passing over a
+# button on its way somewhere else. We bump the cold delay so the tooltip
+# only appears on a deliberate hover, and we zero out the "fall asleep"
+# window so every tooltip is a cold wake-up rather than Qt's default where
+# the *second* tooltip (and any shown within ~2s of the last) pops instantly.
+_TOOLTIP_WAKE_UP_DELAY_MS = 800
+_TOOLTIP_FALL_ASLEEP_DELAY_MS = 0
+
+
+class _SmartCitizenProxyStyle(QProxyStyle):
+    """Fusion style with a longer, consistent tooltip wake-up delay.
+
+    Qt exposes tooltip timing only via the :class:`QStyle` ``SH_ToolTip_*``
+    style hints — there's no per-widget setter and no QSS knob — so the only
+    clean way to shift it app-wide is to wrap the base style and override
+    ``styleHint`` for those values. Overrides both ``SH_ToolTip_WakeUpDelay``
+    (cold hover delay) and ``SH_ToolTip_FallAsleepDelay`` (duration of the
+    "awake" window during which subsequent tooltips would otherwise pop
+    instantly). Zeroing the fall-asleep delay collapses the awake window so
+    every tooltip always waits the full cold delay — matching the "give me
+    a moment to pause before popping" intent of a longer wake-up.
+    """
+
+    def styleHint(self, hint, option=None, widget=None, returnData=None):
+        if hint == QStyle.StyleHint.SH_ToolTip_WakeUpDelay:
+            return _TOOLTIP_WAKE_UP_DELAY_MS
+        if hint == QStyle.StyleHint.SH_ToolTip_FallAsleepDelay:
+            return _TOOLTIP_FALL_ASLEEP_DELAY_MS
+        return super().styleHint(hint, option, widget, returnData)
+
+
 def apply_theme(app: QApplication, theme: str) -> None:
     """Apply the named theme to the application.
 
-    Forces Fusion style on the first call so palette changes render
-    consistently regardless of the OS theme. Re-calling setStyle on a live
-    app can crash Qt 6 during widget re-polish, so subsequent calls only
-    swap the palette.
+    Forces Fusion style (wrapped in a proxy that lengthens the tooltip
+    wake-up delay) on the first call so palette changes render consistently
+    regardless of the OS theme. Re-calling setStyle on a live app can crash
+    Qt 6 during widget re-polish, so subsequent calls only swap the palette.
     """
     if theme not in AVAILABLE_THEMES:
         logger.warning(f"Unknown theme {theme!r}; using {DEFAULT_THEME}")
         theme = DEFAULT_THEME
 
-    current_style = app.style().objectName() if app.style() else ""
-    if current_style.lower() != "fusion":
-        app.setStyle("Fusion")
+    # "Already applied?" check: PyQt slices QProxyStyle back to QCommonStyle
+    # when you call app.style(), so isinstance() can't see our subclass.
+    # But the style hint value itself survives the slicing, so we probe it
+    # directly — our proxy overrides SH_ToolTip_WakeUpDelay to our chosen
+    # constant, and no stock style produces exactly that number.
+    current_delay = app.style().styleHint(QStyle.StyleHint.SH_ToolTip_WakeUpDelay)
+    if current_delay != _TOOLTIP_WAKE_UP_DELAY_MS:
+        # QProxyStyle(str) resolves the base style by name, so this still
+        # gives us the Fusion look — just with our tooltip-delay override.
+        app.setStyle(_SmartCitizenProxyStyle("Fusion"))
     app.setPalette(_palette_for(theme))
     app.setStyleSheet(_app_stylesheet_for(theme))
     logger.info(f"Applied theme: {theme}")
