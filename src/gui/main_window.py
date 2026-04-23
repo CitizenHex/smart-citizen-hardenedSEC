@@ -2190,6 +2190,16 @@ class MainWindow(QMainWindow):
         if hasattr(self, "enhancements_tab"):
             self.enhancements_tab.refresh_forge_status()
 
+        # Reset the "already prompted once" flag so the category-selection
+        # dialog fires again for this channel's (potentially different) set
+        # of missing enhancement files. Without this reset,
+        # _check_enhancements_freshness silently runs _run_enhancements_pipeline
+        # with the prior session's selections — e.g. after switching to a
+        # freshly-extracted PTU where all enhancement INIs are missing,
+        # the user sees enhancements regenerate with no confirmation.
+        # Each channel deserves its own "which enhancements?" prompt.
+        self._enhancements_prompted_on_startup = False
+
         # If the new channel has never been extracted, base.ini won't exist
         # and perform_merge_and_reload() would fail silently with an empty
         # result. Run the same freshness prompt the startup path uses —
