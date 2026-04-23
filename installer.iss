@@ -314,12 +314,15 @@ begin
   DefaultPath := '';
 
   { 0.9.3+: the app stores the SC install root (parent of LIVE/PTU/...) in
-    sc_install_root and the active channel in active_channel. Stitch them
-    back into a channel-specific path for the installer prompt. }
+    sc_install_root. Always default the installer's prompt to the LIVE
+    subfolder — the page title says "Star Citizen LIVE Directory" and
+    users consistently expect LIVE to be offered regardless of which
+    channel the app is currently pointed at. The active_channel value is
+    ignored here on purpose; the app-side channel switcher handles
+    per-channel paths at runtime. }
   if RegQueryStringValue(HKCU, NewRegPath, 'sc_install_root', SCRoot) and (SCRoot <> '') then
   begin
-    if not RegQueryStringValue(HKCU, NewRegPath, 'active_channel', ActiveChannel) or (ActiveChannel = '') then
-      ActiveChannel := 'LIVE';
+    ActiveChannel := 'LIVE';
     DefaultPath := SCRoot + '\' + ActiveChannel;
   end;
 
@@ -342,6 +345,19 @@ begin
     else
       DefaultPath := 'C:\Program Files\Roberts Space Industries\StarCitizen';
   end;
+
+  { Normalize the prompt default to the LIVE subfolder: if the resolved
+    path ends in \PTU, \EPTU, or \TECH-PREVIEW (because the app persisted
+    game_install_path as the channel-suffixed path while the friend was
+    on a non-LIVE channel), swap the suffix for \LIVE. The page is
+    specifically asking for the LIVE directory; offering a non-LIVE one
+    as the default confuses users whose main SC install is LIVE. }
+  if LowerCase(ExtractFileName(DefaultPath)) = 'ptu' then
+    DefaultPath := ExtractFilePath(DefaultPath) + 'LIVE'
+  else if LowerCase(ExtractFileName(DefaultPath)) = 'eptu' then
+    DefaultPath := ExtractFilePath(DefaultPath) + 'LIVE'
+  else if LowerCase(ExtractFileName(DefaultPath)) = 'tech-preview' then
+    DefaultPath := ExtractFilePath(DefaultPath) + 'LIVE';
 
   SCDirectoryPage := CreateInputDirPage(
     wpSelectTasks,
