@@ -4,37 +4,37 @@
     {
       "id": "welcome",
       "title": "Welcome to Smart Citizen",
-      "description": "This quick tour covers the core workflow: extract base text from your game, load it, customize strings, and apply the result back to Star Citizen. You can skip anytime — the Tutorial button brings this back.",
+      "description": "This quick tour covers the core workflow of customizing strings and applying the result back to Star Citizen. Many of these steps happen automatically, but can be done manually as well. You can skip anytime. The Tutorial button reruns this tutorial.",
       "preferred_side": "auto"
     },
     {
       "id": "extract",
       "title": "1. Extract from Data.p4k",
-      "description": "Everything starts here. Clicking Extract unpacks your installed game's stock localization plus the DataForge entity data used to enhance ship, weapon, and mission descriptions. Re-run this after each game patch.",
+      "description": "Clicking Extract unpacks your installed game's stock localization file. You should be prompted to run this if your current file becomes stale due to a patch, but if not, you can always run it manually.",
       "preferred_side": "above"
     },
     {
       "id": "load",
       "title": "2. Load Base File",
-      "description": "After extraction, Load Base File reads the cached base.ini into the table, merged with any enhancement files and your saved user.ini overrides.",
+      "description": "Load Base File reads the cached base.ini into the table, merged with any enhancement files and your saved user.ini overrides.",
       "preferred_side": "below"
     },
     {
       "id": "edit",
       "title": "3. Edit strings",
-      "description": "Each row is one localization key. Double-click a cell in the Custom Value column to edit — your change is saved to Documents\\Smart Citizen\\user.ini on every keystroke. Use the filter row above to narrow by category, status, or free text. The ★ column marks ships as favorites so they sort to the top of the in-game list.",
+      "description": "Each row is one localization record. Double-click a cell in the Custom Value column to edit — your change are autosaved. Use the filter row above to narrow down your results. The ★ column marks ships as favorites so they sort to the top of the ASOP.",
       "preferred_side": "auto"
     },
     {
       "id": "apply",
       "title": "4. Apply to Game",
-      "description": "When you're ready, Apply writes the merged result to the game's global.ini. A timestamped backup of the current global.ini is created first (up to 5 are kept, restorable from Restore Backup).",
+      "description": "Apply writes the merged result to the game's global.ini. A timestamped backup of the current global.ini is created first (up to 5 are kept, restorable from Restore Backup).",
       "preferred_side": "below"
     },
     {
       "id": "enhancements",
       "title": "5. Enhancements",
-      "description": "Optional but recommended: the Enhancements tab toggles stat overlays for ships, components, weapons, and mission rewards. Generate Enhancements runs the pipeline that produces those overlays from your extracted data.",
+      "description": "Optional but recommended: the Enhancements tab toggles stat overlays for ships, components, weapons, and mission blueprints and rewards. Generate Enhancements runs the pipeline that produces those overlays from your extracted data.",
       "preferred_side": "above"
     },
     {
