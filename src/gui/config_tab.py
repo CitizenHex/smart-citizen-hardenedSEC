@@ -21,6 +21,10 @@ class ConfigTab(QWidget):
     merge_requested = pyqtSignal()
     p4k_extract_requested = pyqtSignal()
     import_ini_requested = pyqtSignal()
+    # Emitted after the user picks a new channel in the combo AND the choice
+    # has already been persisted via AppSettings.set_active_channel(). Main
+    # window listens and triggers a reload against the new channel's data.
+    channel_changed = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -52,6 +56,7 @@ class ConfigTab(QWidget):
         appearance_layout.addWidget(theme_label)
 
         self.theme_combo = QComboBox()
+        self.theme_combo.setToolTip("Switch the app theme. Takes effect immediately across the main window, toolbar, tabs, and Help panel.")
         self.theme_combo.addItem("Default", THEME_SCLE)
         self.theme_combo.addItem("Light", THEME_LIGHT)
         self.theme_combo.addItem("Dark", THEME_DARK)
@@ -70,16 +75,26 @@ class ConfigTab(QWidget):
         game_group = QGroupBox("Star Citizen Installation")
         game_layout = QVBoxLayout(game_group)
 
-        game_desc = QLabel("Path to Star Citizen LIVE directory")
+        game_desc = QLabel(
+            "Path to your Star Citizen install root (the directory containing "
+            "LIVE, PTU, EPTU, TECH-PREVIEW)."
+        )
         game_desc.setProperty("role", "secondary")
         game_desc.setStyleSheet("font-size: 11px; margin-bottom: 5px;")
+        game_desc.setWordWrap(True)
         game_layout.addWidget(game_desc)
 
         game_input_layout = QHBoxLayout()
         self.game_path_input = QLineEdit()
-        self.game_path_input.setText(AppSettings.get_game_install_path())
+        self.game_path_input.setText(AppSettings.get_sc_install_root())
         self.game_path_input.setPlaceholderText(
-            r"C:\Program Files\Roberts Space Industries\StarCitizen\LIVE"
+            r"C:\Program Files\Roberts Space Industries\StarCitizen"
+        )
+        self.game_path_input.setToolTip(
+            "Star Citizen install root — the directory that contains LIVE/, "
+            "PTU/, EPTU/, and/or TECH-PREVIEW/. Auto-detected at install time; "
+            "edit if your game lives elsewhere. The 'Channel' dropdown below "
+            "picks which one the app reads and writes."
         )
         self.game_path_input.editingFinished.connect(self._save_game_path)
         game_input_layout.addWidget(self.game_path_input)
@@ -89,6 +104,34 @@ class ConfigTab(QWidget):
         game_browse_btn.clicked.connect(self._browse_game_path)
         game_input_layout.addWidget(game_browse_btn)
         game_layout.addLayout(game_input_layout)
+
+        # ── Channel selector (LIVE / PTU / EPTU / TECH-PREVIEW) ─────────────
+        channel_row = QHBoxLayout()
+        channel_label = QLabel("Channel:")
+        channel_label.setStyleSheet("font-size: 11px;")
+        channel_row.addWidget(channel_label)
+
+        self.channel_combo = QComboBox()
+        self.channel_combo.setMaximumWidth(180)
+        self.channel_combo.setToolTip(
+            "Star Citizen channel to read Data.p4k from and write global.ini to. "
+            "Channels with no Data.p4k under the install root are disabled. "
+            "Switching channels immediately reloads strings against the new channel's data."
+        )
+        channel_row.addWidget(self.channel_combo)
+
+        self._channel_hint_label = QLabel()
+        self._channel_hint_label.setProperty("role", "secondary")
+        self._channel_hint_label.setStyleSheet("font-size: 10px;")
+        channel_row.addWidget(self._channel_hint_label)
+        channel_row.addStretch()
+        game_layout.addLayout(channel_row)
+
+        self._populate_channel_combo()
+        # Wire AFTER populate so the initial setCurrentIndex inside
+        # _populate_channel_combo doesn't emit a phantom change signal.
+        self.channel_combo.currentIndexChanged.connect(self._on_channel_changed)
+
         layout.addWidget(game_group)
 
         # ── P4K Extraction ───────────────────────────────────────────────────
@@ -115,10 +158,10 @@ class ConfigTab(QWidget):
         p4k_status_row.addWidget(self._p4k_status_label)
         p4k_status_row.addStretch()
 
-        extract_btn = QPushButton("Extract from Data.p4k")
-        extract_btn.setMaximumWidth(180)
-        extract_btn.clicked.connect(self.p4k_extract_requested.emit)
-        p4k_status_row.addWidget(extract_btn)
+        self._extract_btn = QPushButton("Extract from Data.p4k")
+        self._extract_btn.setMaximumWidth(180)
+        self._extract_btn.clicked.connect(self.p4k_extract_requested.emit)
+        p4k_status_row.addWidget(self._extract_btn)
 
         p4k_layout.addLayout(p4k_status_row)
         layout.addWidget(p4k_group)
@@ -184,20 +227,106 @@ class ConfigTab(QWidget):
     # ── Game path ────────────────────────────────────────────────────────────
 
     def _save_game_path(self):
-        """Save game path when editing finishes."""
-        game_path = self.game_path_input.text()
+        """Save the SC install root when editing finishes, and refresh the
+        channel combo so per-channel enable/disable reflects the new root."""
+        game_path = self.game_path_input.text().strip()
         if game_path and not Path(game_path).exists():
-            logger.warning(f"Game path does not exist: {game_path}")
-        else:
-            AppSettings.set_game_install_path(game_path)
+            logger.warning(f"SC install root does not exist: {game_path}")
+            return
+        AppSettings.set_sc_install_root(game_path)
+        # Keep the legacy GAME_INSTALL_PATH in sync for any caller that still
+        # reads it — e.g. unsynchronized callers during an in-progress upgrade.
+        AppSettings.set_game_install_path(
+            AppSettings.get_channel_install_path() if game_path else ""
+        )
+        self._populate_channel_combo()
+        self._refresh_p4k_status()
 
     def _browse_game_path(self):
         path = QFileDialog.getExistingDirectory(
-            self, "Select Star Citizen Installation Path"
+            self, "Select Star Citizen Installation Root"
         )
         if path:
             self.game_path_input.setText(path)
             self._save_game_path()
+
+    # ── Channel selector ─────────────────────────────────────────────────────
+
+    def _populate_channel_combo(self):
+        """Rebuild the channel combo, marking channels without a Data.p4k
+        under the configured root as disabled.
+
+        Signals are blocked while we mutate so an index change triggered by
+        ``setCurrentIndex`` doesn't fire our ``currentIndexChanged`` slot,
+        which would double-fire the channel-change reload logic.
+        """
+        if not hasattr(self, "channel_combo"):
+            return
+        blocker = self.channel_combo.blockSignals(True)
+        try:
+            self.channel_combo.clear()
+            root = AppSettings.get_sc_install_root()
+            active = AppSettings.get_active_channel()
+            available_lookup = set(AppSettings.get_available_channels()) if root else set()
+            active_index = 0
+            for i, channel in enumerate(AppSettings.AVAILABLE_CHANNELS):
+                self.channel_combo.addItem(channel, userData=channel)
+                is_available = channel in available_lookup
+                # Qt combo-item disable: set Qt.ItemFlag.NoItemFlags on the
+                # item via the model, then a tooltip explains why.
+                item = self.channel_combo.model().item(i)
+                if item is not None and not is_available and root:
+                    from PyQt6.QtCore import Qt
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+                    item.setToolTip(
+                        f"{channel} isn't installed — no Data.p4k at "
+                        f"{Path(root) / channel / 'Data.p4k'}"
+                    )
+                if channel == active:
+                    active_index = i
+            self.channel_combo.setCurrentIndex(active_index)
+
+            # If the stored active channel is unavailable, surface that with
+            # a hint label so the user knows why things might not work.
+            if root and active not in available_lookup:
+                self._channel_hint_label.setText(
+                    f"⚠ {active} isn't installed under this root — pick another channel"
+                )
+                self._channel_hint_label.setStyleSheet("font-size: 10px; color: #ff9800;")
+            else:
+                self._channel_hint_label.setText("")
+        finally:
+            self.channel_combo.blockSignals(blocker)
+
+    def _on_channel_changed(self, index: int):
+        """Persist the new active channel and notify the main window."""
+        if index < 0:
+            return
+        channel = self.channel_combo.itemData(index)
+        if not channel or channel == AppSettings.get_active_channel():
+            return
+        # Reject selection of disabled (not-installed) items defensively —
+        # Qt normally prevents this, but some desktop environments can
+        # still produce a currentIndexChanged here if the model's item
+        # flags were bypassed.
+        item = self.channel_combo.model().item(index)
+        if item is not None:
+            from PyQt6.QtCore import Qt
+            if not (item.flags() & Qt.ItemFlag.ItemIsEnabled):
+                QMessageBox.warning(
+                    self, "Channel Not Installed",
+                    f"{channel} isn't installed under the current root. "
+                    "Install it via the RSI Launcher or pick a different channel."
+                )
+                # Revert the combo to the active channel.
+                self._populate_channel_combo()
+                return
+        logger.info(f"Active channel switching: {AppSettings.get_active_channel()} → {channel}")
+        AppSettings.set_active_channel(channel)
+        # Keep the legacy key in sync for any pre-migration caller.
+        AppSettings.set_game_install_path(AppSettings.get_channel_install_path())
+        self._refresh_p4k_status()
+        self.channel_changed.emit(channel)
 
     # ── P4K status ───────────────────────────────────────────────────────────
 

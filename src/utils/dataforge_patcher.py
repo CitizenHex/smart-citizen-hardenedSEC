@@ -34,6 +34,14 @@ becomes a no-op instead of blindly overwriting the corrected value).
 
 Patches are idempotent: if the target already holds ``set``, the edit is
 skipped cleanly and not counted as a mismatch.
+
+A patch file may also declare a ``locstring_workarounds`` list. Each entry
+appends one loc key's value onto another — useful when CIG's bug is in a
+contract's Description *pointer* (so the game looks up the wrong loc key at
+runtime) and our XML edit only realigns the enhancement-generator's
+bookkeeping. Merging the intended desc onto the loc key the game actually
+reads makes the in-game display correct. See :class:`LocstringWorkaround`
+and :func:`apply_locstring_workarounds`.
 """
 from __future__ import annotations
 
@@ -64,6 +72,31 @@ class PatchReport:
             f"skipped-mismatch {self.edits_skipped_mismatch} / no-match {self.edits_no_match} "
             f"across {self.files_rewritten}/{self.patches_seen} patch files"
         )
+
+
+@dataclass
+class LocstringWorkaround:
+    """Append one loc-string's value onto another's.
+
+    The XML edits in this module fix our local DataForge cache so the
+    enhancement generator attaches the right blueprint/XP/reward data to the
+    right desc key. They do NOT change what the game reads at runtime: Star
+    Citizen resolves contract references against its own ``Data.p4k``, which
+    still contains the bugged Title/Description pointer. A locstring
+    workaround sidesteps that by merging the *intended* desc's content into
+    the loc key the game actually looks up, so an in-game contract whose
+    Description param points at the wrong key still displays the correct
+    content.
+
+    Loses nothing when the upstream bug is fixed — delete the workaround
+    declaration (or the whole patch file) and the next regenerate produces
+    clean split descs again.
+    """
+    target: str                # loc key whose value gets the append
+    append_from: str           # loc key whose value is appended onto target
+    separator: str = ""        # text inserted between target and appended
+    description: str = ""      # for logs
+    patch_source: str = ""     # source .patch.json filename, for logs
 
 
 # DataForge XMLs live under {cache}/raw/libs/foundry/records/... — patch
@@ -209,3 +242,81 @@ def _apply_edit(root: ET.Element, edit: dict, patch_name: str) -> str:
     if mismatch:
         return "mismatch"
     return "no_match"
+
+
+def load_locstring_workarounds(patch_root: Path) -> list[LocstringWorkaround]:
+    """Scan ``*.patch.json`` files for ``locstring_workarounds`` declarations.
+
+    Returns every valid workaround across all patch files, in file-sorted
+    order. Malformed entries are logged and skipped; missing ``patches/``
+    directory returns an empty list.
+    """
+    out: list[LocstringWorkaround] = []
+    if not patch_root.exists():
+        return out
+    for patch_file in sorted(patch_root.rglob("*.patch.json")):
+        try:
+            with patch_file.open(encoding="utf-8") as f:
+                patch = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Could not parse {patch_file.name}: {e}")
+            continue
+        for entry in patch.get("locstring_workarounds", []):
+            target = entry.get("target")
+            append_from = entry.get("append_from")
+            if not target or not append_from:
+                logger.warning(
+                    f"[{patch_file.name}] locstring workaround missing target/append_from: {entry}"
+                )
+                continue
+            out.append(LocstringWorkaround(
+                target=target,
+                append_from=append_from,
+                separator=entry.get("separator", ""),
+                description=entry.get("description", ""),
+                patch_source=patch_file.name,
+            ))
+    return out
+
+
+def apply_locstring_workarounds(
+    entries: dict[str, str],
+    workarounds: list[LocstringWorkaround],
+) -> int:
+    """Apply each workaround to *entries* in place. Returns count applied.
+
+    Silently skips (with debug/warning logs) when:
+    - ``target`` is not in *entries* — this workaround belongs to a
+      different output dict; a caller trying every dict is fine.
+    - ``append_from`` is not in *entries* — likewise, probably a different
+      output dict. Logged at debug.
+    - The target value already ends with ``separator + append_from_value``
+      (idempotent; safe to re-run).
+    """
+    applied = 0
+    for w in workarounds:
+        if w.target not in entries:
+            logger.debug(
+                f"[{w.patch_source}] locstring workaround target {w.target!r} not in dict; skipping"
+            )
+            continue
+        if w.append_from not in entries:
+            logger.debug(
+                f"[{w.patch_source}] locstring workaround source {w.append_from!r} not in dict; skipping"
+            )
+            continue
+        from_text = entries[w.append_from]
+        target_text = entries[w.target]
+        suffix = w.separator + from_text
+        if target_text.endswith(suffix):
+            logger.debug(
+                f"[{w.patch_source}] locstring workaround already applied to {w.target!r}"
+            )
+            continue
+        entries[w.target] = target_text + suffix
+        applied += 1
+        logger.info(
+            f"[{w.patch_source}] appended {w.append_from!r} onto {w.target!r} "
+            f"({len(from_text):,} chars)"
+        )
+    return applied

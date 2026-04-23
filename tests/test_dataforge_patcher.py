@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from utils.dataforge_patcher import apply_patches
+from utils.dataforge_patcher import (
+    LocstringWorkaround,
+    apply_locstring_workarounds,
+    apply_patches,
+    load_locstring_workarounds,
+)
 
 
 def _records_root(tmp_path: Path) -> Path:
@@ -181,3 +186,98 @@ def test_malformed_patch_recorded_as_error(tmp_path: Path):
 
     assert report.patches_seen == 1
     assert report.errors  # at least one error recorded
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Loc-string workarounds
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_load_workarounds_from_patch_json(tmp_path: Path):
+    patches = tmp_path / "patches"
+    _write_patch(patches, "hockrow.patch.json", {
+        "target": "dummy.xml",
+        "edits": [_P2M4_EDIT],
+        "locstring_workarounds": [
+            {
+                "description": "merge P2M4 onto P2M1",
+                "target": "Hockrow_FacilityDelve_P2M1_Repeat_desc",
+                "append_from": "Hockrow_FacilityDelve_P2M4_Repeat_desc",
+                "separator": "\\n\\n<EM3>sep</EM3>\\n",
+            }
+        ],
+    })
+
+    ws = load_locstring_workarounds(patches)
+
+    assert len(ws) == 1
+    assert ws[0].target == "Hockrow_FacilityDelve_P2M1_Repeat_desc"
+    assert ws[0].append_from == "Hockrow_FacilityDelve_P2M4_Repeat_desc"
+    assert ws[0].separator == "\\n\\n<EM3>sep</EM3>\\n"
+    assert ws[0].patch_source == "hockrow.patch.json"
+
+
+def test_load_workarounds_skips_malformed(tmp_path: Path):
+    patches = tmp_path / "patches"
+    _write_patch(patches, "a.patch.json", {
+        "target": "x.xml",
+        "edits": [],
+        "locstring_workarounds": [
+            {"target": "k1", "append_from": "k2"},        # valid
+            {"target": "k3"},                              # missing append_from
+            {"append_from": "k4"},                         # missing target
+        ],
+    })
+
+    ws = load_locstring_workarounds(patches)
+
+    assert len(ws) == 1
+    assert ws[0].target == "k1"
+
+
+def test_load_workarounds_missing_dir_returns_empty(tmp_path: Path):
+    assert load_locstring_workarounds(tmp_path / "nope") == []
+
+
+def test_apply_workaround_appends_content():
+    entries = {
+        "P2M1_desc": "Energy anomaly flavor text. POTENTIAL BLUEPRINTS\\n- A\\n- B",
+        "P2M4_desc": "Power usage flavor text. POTENTIAL BLUEPRINTS\\n- C\\n- D",
+    }
+    ws = [LocstringWorkaround(target="P2M1_desc", append_from="P2M4_desc", separator="||SEP||")]
+
+    applied = apply_locstring_workarounds(entries, ws)
+
+    assert applied == 1
+    assert entries["P2M1_desc"].endswith("||SEP||Power usage flavor text. POTENTIAL BLUEPRINTS\\n- C\\n- D")
+    # Source key is unchanged
+    assert entries["P2M4_desc"] == "Power usage flavor text. POTENTIAL BLUEPRINTS\\n- C\\n- D"
+
+
+def test_apply_workaround_is_idempotent():
+    entries = {"a": "alpha", "b": "beta"}
+    ws = [LocstringWorkaround(target="a", append_from="b", separator="|")]
+
+    first = apply_locstring_workarounds(entries, ws)
+    second = apply_locstring_workarounds(entries, ws)
+
+    assert first == 1
+    assert second == 0  # second run sees target already ends with "|beta"
+    assert entries["a"] == "alpha|beta"
+
+
+def test_apply_workaround_skips_when_keys_absent():
+    # Neither target nor source present — no-op; meant for a different dict.
+    entries = {"unrelated": "x"}
+    ws = [LocstringWorkaround(target="a", append_from="b")]
+
+    assert apply_locstring_workarounds(entries, ws) == 0
+    assert entries == {"unrelated": "x"}
+
+
+def test_apply_workaround_skips_when_source_missing():
+    entries = {"a": "alpha"}  # target present, source missing
+    ws = [LocstringWorkaround(target="a", append_from="b")]
+
+    assert apply_locstring_workarounds(entries, ws) == 0
+    assert entries["a"] == "alpha"

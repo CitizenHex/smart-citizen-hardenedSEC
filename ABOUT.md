@@ -64,6 +64,7 @@ Thanks to the testers and contributors who helped shape Smart Citizen with their
 
 ### Join Us
 - 💬 [Discord Community](https://discord.gg/BNzRegKZ7k) - Get support, share configs, request features
+- 🐛 [Smart Citizen Feedback, Bugs, & Feature Voting](https://discord.com/channels/1438175448420057323/1472394204347895890) - Dedicated channel for bug reports, feedback, and voting on upcoming features (join the server first via the invite above)
 
 ### Support This Project
 Smart Citizen is completely free. If you find it valuable:

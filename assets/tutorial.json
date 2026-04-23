@@ -1,0 +1,47 @@
+{
+  "_comment": "Editable step content for the guided tour. Each step's 'id' must match a wiring entry in MainWindow._tutorial_step_wiring() (that map owns the target widget + tab-switch action; this file owns the user-facing copy). Reorder this array to change tour order; remove an entry to skip it; add a new id here + a matching wiring entry to add a step. Allowed preferred_side values: above, below, left, right, auto.",
+  "steps": [
+    {
+      "id": "welcome",
+      "title": "Welcome to Smart Citizen",
+      "description": "This quick tour covers the core workflow: extract base text from your game, load it, customize strings, and apply the result back to Star Citizen. You can skip anytime — the Tutorial button brings this back.",
+      "preferred_side": "auto"
+    },
+    {
+      "id": "extract",
+      "title": "1. Extract from Data.p4k",
+      "description": "Everything starts here. Clicking Extract unpacks your installed game's stock localization plus the DataForge entity data used to enhance ship, weapon, and mission descriptions. Re-run this after each game patch.",
+      "preferred_side": "above"
+    },
+    {
+      "id": "load",
+      "title": "2. Load Base File",
+      "description": "After extraction, Load Base File reads the cached base.ini into the table, merged with any enhancement files and your saved user.ini overrides.",
+      "preferred_side": "below"
+    },
+    {
+      "id": "edit",
+      "title": "3. Edit strings",
+      "description": "Each row is one localization key. Double-click a cell in the Custom Value column to edit — your change is saved to Documents\\Smart Citizen\\user.ini on every keystroke. Use the filter row above to narrow by category, status, or free text. The ★ column marks ships as favorites so they sort to the top of the in-game list.",
+      "preferred_side": "auto"
+    },
+    {
+      "id": "apply",
+      "title": "4. Apply to Game",
+      "description": "When you're ready, Apply writes the merged result to the game's global.ini. A timestamped backup of the current global.ini is created first (up to 5 are kept, restorable from Restore Backup).",
+      "preferred_side": "below"
+    },
+    {
+      "id": "enhancements",
+      "title": "5. Enhancements",
+      "description": "Optional but recommended: the Enhancements tab toggles stat overlays for ships, components, weapons, and mission rewards. Generate Enhancements runs the pipeline that produces those overlays from your extracted data.",
+      "preferred_side": "above"
+    },
+    {
+      "id": "help",
+      "title": "6. Help & feedback",
+      "description": "The Help button opens a side-panel with the full guide, a Known Issues list, and a feedback link to the Smart Citizen Discord channel. That's everything you need to get started — good luck, citizen.",
+      "preferred_side": "below"
+    }
+  ]
+}

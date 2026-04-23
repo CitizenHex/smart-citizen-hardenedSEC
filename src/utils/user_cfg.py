@@ -10,29 +10,29 @@ logger = logging.getLogger(__name__)
 def ensure_user_cfg_language() -> bool:
     """Ensure Star Citizen's user.cfg has g_language = english setting.
 
-    Checks if user.cfg exists in the LIVE directory. If it doesn't exist,
-    creates it with the language setting. If it exists, ensures the language
-    setting is present (adds it if missing, leaves other settings untouched).
+    Writes to the **active channel's** ``user.cfg`` — whichever of
+    LIVE/PTU/EPTU/TECH-PREVIEW is currently selected. Creates the file if
+    absent, or adds the language line if present but missing the setting,
+    leaving other settings untouched.
 
     Returns:
-        True if successful, False if the game install path is not configured
-        or inaccessible.
+        True if successful, False if the channel's install dir isn't
+        accessible (channel not installed, path misconfigured, etc.).
     """
-    game_path = AppSettings.get_game_install_path()
-    if not game_path:
+    channel_path = AppSettings.get_game_install_path()
+    if not channel_path:
         logger.warning("Game install path not configured — skipping user.cfg setup")
         return False
 
-    game_path_obj = Path(game_path)
-    if game_path_obj.name == "LIVE":
-        live_dir = game_path_obj
-    else:
-        live_dir = game_path_obj / "LIVE"
-    if not live_dir.exists():
-        logger.warning(f"LIVE directory not found at {live_dir} — skipping user.cfg setup")
+    channel_dir = Path(channel_path)
+    if not channel_dir.exists():
+        logger.warning(
+            f"{AppSettings.get_active_channel()} directory not found at {channel_dir} "
+            f"— skipping user.cfg setup"
+        )
         return False
 
-    user_cfg_path = live_dir / "user.cfg"
+    user_cfg_path = channel_dir / "user.cfg"
 
     # Language setting we want to ensure
     language_line = "g_language = english"
