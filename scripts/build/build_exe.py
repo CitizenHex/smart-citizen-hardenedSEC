@@ -79,6 +79,21 @@ common_args = [
     '--hidden-import=src.merger',
     '--hidden-import=src.models',
     '--hidden-import=src.utils',
+    # Modules that are only referenced from files PyInstaller loads as *data*
+    # (not as code) need to be listed explicitly, or they silently miss the
+    # bundle. scripts/generate_enhancements_ini.py is added via --add-data
+    # and therefore never parsed for imports — its
+    # `from src.utils.progress_sink import ProgressSink` then hits the
+    # `except ImportError: _sink = None` branch in the frozen build, and
+    # Generate Enhancements runs with an indeterminate progress bar the
+    # whole time even though the determinate plumbing works in dev. We
+    # pre-empted `--collect-submodules=src.utils` as a broader fix but it
+    # didn't pick up progress_sink (pyinstaller's module-graph walk still
+    # needs some in-graph reference to the package to expand it on our
+    # src/ layout). Explicit hidden-import for the two script-only helpers
+    # is the robust fix.
+    '--hidden-import=src.utils.progress_sink',
+    '--hidden-import=src.utils.dataforge_patcher',
     '--hidden-import=xml',
     '--hidden-import=xml.etree',
     '--hidden-import=xml.etree.ElementTree',
