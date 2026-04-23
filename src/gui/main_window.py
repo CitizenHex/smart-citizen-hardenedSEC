@@ -2189,7 +2189,24 @@ class MainWindow(QMainWindow):
         self.config_tab._refresh_p4k_status()
         if hasattr(self, "enhancements_tab"):
             self.enhancements_tab.refresh_forge_status()
-        # Tell the user via statusBar so the reload isn't silent.
+
+        # If the new channel has never been extracted, base.ini won't exist
+        # and perform_merge_and_reload() would fail silently with an empty
+        # result. Run the same freshness prompt the startup path uses —
+        # prompts "Extract from Data.p4k now?" when base.ini is missing or
+        # stale. Returns True if extraction was started, in which case the
+        # finished handler will trigger the reload itself (don't double-run).
+        if self._check_p4k_freshness():
+            self.statusBar().showMessage(
+                f"Switched to {channel} — extracting Data.p4k…"
+            )
+            return
+
+        # base.ini is present and fresh for the new channel. Check whether
+        # the channel's DataForge cache is stale relative to its p4k and
+        # offer to re-extract if so (background — doesn't block reload).
+        self._maybe_prompt_dataforge_refresh()
+
         self.statusBar().showMessage(f"Switched to {channel} — reloading sources…")
         self.perform_merge_and_reload()
 

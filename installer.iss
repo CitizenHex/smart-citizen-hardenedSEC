@@ -289,24 +289,59 @@ end;
 
 procedure InitializeWizard();
 var
+  NewRegPath: String;
+  LegacyRegPath: String;
   DefaultPath: String;
-  RegPath: String;
   SavedPath: String;
+  SCRoot: String;
+  ActiveChannel: String;
 begin
-  RegPath := 'Software\Osiris DevWorks\SC Localization Editor';
+  { Registry path resolution order:
+      1. NEW "Smart Citizen" node (post-0.9.2 rebrand) — every app launch
+         writes here, and the one-shot migrate_registry_appname() in the
+         app's main() deletes the legacy subtree after copying values over.
+         That means any sc_directory we wrote to the legacy node on a
+         previous installer run was subsequently wiped by the app. Writing
+         and reading from the NEW node is the fix.
+      2. LEGACY "SC Localization Editor" node — kept as a read-side
+         fallback so users who upgrade from a version earlier than 0.9.2
+         (and therefore have no NEW node yet) still get their path
+         prefilled on the first reinstall. The installer's CurFinished
+         writes to the NEW node regardless, so subsequent reinstalls
+         resolve via path 1. }
+  NewRegPath := 'Software\Osiris DevWorks\Smart Citizen';
+  LegacyRegPath := 'Software\Osiris DevWorks\SC Localization Editor';
   DefaultPath := '';
 
-  { Prefer previously saved SC directory (installer key, then Config tab QSettings key) }
-  if RegQueryStringValue(HKCU, RegPath, 'sc_directory', SavedPath) and (SavedPath <> '') then
-    DefaultPath := SavedPath
-  else if RegQueryStringValue(HKCU, RegPath, 'game_install_path', SavedPath) and (SavedPath <> '') then
-    DefaultPath := SavedPath
-  else if DirExists('C:\Program Files\Roberts Space Industries\StarCitizen\LIVE') then
-    DefaultPath := 'C:\Program Files\Roberts Space Industries\StarCitizen\LIVE'
-  else if DirExists('C:\Program Files (x86)\Roberts Space Industries\StarCitizen\LIVE') then
-    DefaultPath := 'C:\Program Files (x86)\Roberts Space Industries\StarCitizen\LIVE'
-  else
-    DefaultPath := 'C:\Program Files\Roberts Space Industries\StarCitizen';
+  { 0.9.3+: the app stores the SC install root (parent of LIVE/PTU/...) in
+    sc_install_root and the active channel in active_channel. Stitch them
+    back into a channel-specific path for the installer prompt. }
+  if RegQueryStringValue(HKCU, NewRegPath, 'sc_install_root', SCRoot) and (SCRoot <> '') then
+  begin
+    if not RegQueryStringValue(HKCU, NewRegPath, 'active_channel', ActiveChannel) or (ActiveChannel = '') then
+      ActiveChannel := 'LIVE';
+    DefaultPath := SCRoot + '\' + ActiveChannel;
+  end;
+
+  { Fall back to previously saved sc_directory / game_install_path in the
+    NEW node, then the LEGACY node. }
+  if DefaultPath = '' then
+  begin
+    if RegQueryStringValue(HKCU, NewRegPath, 'sc_directory', SavedPath) and (SavedPath <> '') then
+      DefaultPath := SavedPath
+    else if RegQueryStringValue(HKCU, NewRegPath, 'game_install_path', SavedPath) and (SavedPath <> '') then
+      DefaultPath := SavedPath
+    else if RegQueryStringValue(HKCU, LegacyRegPath, 'sc_directory', SavedPath) and (SavedPath <> '') then
+      DefaultPath := SavedPath
+    else if RegQueryStringValue(HKCU, LegacyRegPath, 'game_install_path', SavedPath) and (SavedPath <> '') then
+      DefaultPath := SavedPath
+    else if DirExists('C:\Program Files\Roberts Space Industries\StarCitizen\LIVE') then
+      DefaultPath := 'C:\Program Files\Roberts Space Industries\StarCitizen\LIVE'
+    else if DirExists('C:\Program Files (x86)\Roberts Space Industries\StarCitizen\LIVE') then
+      DefaultPath := 'C:\Program Files (x86)\Roberts Space Industries\StarCitizen\LIVE'
+    else
+      DefaultPath := 'C:\Program Files\Roberts Space Industries\StarCitizen';
+  end;
 
   SCDirectoryPage := CreateInputDirPage(
     wpSelectTasks,
@@ -389,9 +424,21 @@ begin
     FinalPath := SCDirectoryPage.Values[0];
     if FinalPath <> '' then
     begin
-      RegPath := 'Software\Osiris DevWorks\SC Localization Editor';
+      { Write to the NEW ("Smart Citizen") node so the value survives
+        the app's migrate_registry_appname() — which deletes the legacy
+        subtree after copying values across. Prior installer revs wrote
+        only to the legacy node and lost sc_directory on the next app
+        launch, so reinstalls couldn't pre-fill the path. Writing to the
+        legacy node ALSO (as a compat fallback for very old app versions
+        that don't understand the new node yet) is cheap and keeps
+        downgrade paths working. }
+      RegPath := 'Software\Osiris DevWorks\Smart Citizen';
       RegWriteStringValue(HKCU, RegPath, 'sc_directory', FinalPath);
-      Log('Saved sc_directory to registry: ' + FinalPath);
+      RegWriteStringValue(HKCU, RegPath, 'game_install_path', FinalPath);
+      RegWriteStringValue(HKCU,
+        'Software\Osiris DevWorks\SC Localization Editor',
+        'sc_directory', FinalPath);
+      Log('Saved sc_directory to registry (Smart Citizen + legacy nodes): ' + FinalPath);
     end;
 
     { Persist the OneDrive-escape choice. Writes to the NEW (Smart Citizen)

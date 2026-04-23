@@ -327,18 +327,52 @@ def extract_dataforge(
             timeout=1800,   # 30 minutes max
             **_get_subprocess_kwargs()
         )
+        # Always log unforge's output at INFO (truncated). A zero-length
+        # stdout + sub-second runtime is typically a silent failure — e.g.
+        # missing .NET runtime, the user's AV quarantining a temp file, or
+        # unforge choking on a new DCB schema. Without this log the
+        # downstream "libs/ directory was not created" error gives no clue
+        # what went wrong.
+        _stdout = (result.stdout or "").strip()
+        _stderr = (result.stderr or "").strip()
+        if _stdout:
+            logger.info(f"unforge stdout ({len(_stdout)} bytes, truncated): {_stdout[:2000]}")
+        if _stderr:
+            logger.info(f"unforge stderr ({len(_stderr)} bytes, truncated): {_stderr[:2000]}")
         if result.returncode != 0:
-            raise RuntimeError(f"unforge.exe failed (code {result.returncode}):\n{result.stderr or result.stdout}")
+            raise RuntimeError(f"unforge.exe failed (code {result.returncode}):\n{_stderr or _stdout or '(no output)'}")
 
         # Explicit cleanup: ensure subprocess is fully released
         del result
         gc.collect()
         time.sleep(0.1)  # Brief pause for file system to release locks
 
-        # unforge writes entity XMLs into a libs/ subdirectory next to the dcb file.
+        # unforge writes entity XMLs into a libs/ subdirectory next to the
+        # dcb file. When it's missing we surface whatever we captured from
+        # unforge's stdout/stderr in the exception so the user (and the Log
+        # Tab) can see what went wrong.
         libs_dir = dcb_path.parent
         if not (libs_dir / "libs").exists():
-            raise FileNotFoundError("unforge ran but libs/ directory was not created — unexpected output structure.")
+            diagnostic = ""
+            if _stdout or _stderr:
+                diagnostic = (
+                    f"\n\nunforge stdout:\n{_stdout[:1500] or '(empty)'}"
+                    f"\n\nunforge stderr:\n{_stderr[:1500] or '(empty)'}"
+                )
+            else:
+                # Nothing on either stream and no libs/ — classic "missing
+                # .NET runtime" signature on Windows. unforge is a .NET
+                # executable and quietly exits 0 when the CLR fails to load.
+                diagnostic = (
+                    "\n\nNo output from unforge and no libs/ directory produced. "
+                    "This typically means .NET Framework 4.x isn't installed or "
+                    "is blocked by antivirus. Install the latest .NET Framework "
+                    "runtime from Microsoft and try again."
+                )
+            raise FileNotFoundError(
+                "unforge ran but libs/ directory was not created — unexpected output structure."
+                + diagnostic
+            )
 
         # ── Step 3: Cache the full extraction ─────────────────────────────────
         if progress_callback:
