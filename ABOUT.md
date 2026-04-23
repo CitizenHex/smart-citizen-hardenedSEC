@@ -14,7 +14,17 @@ All Osiris DevWorks tools will be either **completely free** or have a **free ti
 
 ## Acknowledgements
 
-Thanks to the testers and contributors who helped shape Smart Citizen with their feedback: **Boogie Man**, **Perseuscz**, **Tichro**, **Flat Earth**, and **Lord Valium**.
+Thanks to the testers and contributors who helped shape Smart Citizen with their feedback:
+
+- **Boogie Man**
+- **Perseuscz**
+- **Tichro**
+- **Flat Earth**
+- **Lord Valium**
+
+Smart Citizen also bundles upstream tooling from:
+
+- [**dolkensp/unp4k**](https://github.com/dolkensp/unp4k) — `unp4k.exe` and `unforge.exe`, used to unpack `Data.p4k` and convert DataForge to XML
 
 ## Key Features
 

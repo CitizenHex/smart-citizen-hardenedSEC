@@ -187,6 +187,7 @@ StarCitizen/
 - [ExoAE](https://github.com/ExoAE/ScCompLangPack) - Original ScCompLangPack concept and merge logic
 - [MrKraken](https://github.com/MrKraken/StarStrings) - ASOP terminal enhancements, workflow improvements, and mission contract localization strings
 - [BeltaKoda](https://github.com/BeltaKoda/ScCompLangPackRemix) - Community language pack remix (base file source for auto-update)
+- [dolkensp/unp4k](https://github.com/dolkensp/unp4k) - Bundled `unp4k.exe` / `unforge.exe` used to unpack Data.p4k and convert DataForge to XML
 - Star Citizen Community - Localization support and testing
 
 ## License

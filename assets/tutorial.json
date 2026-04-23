@@ -4,7 +4,7 @@
     {
       "id": "welcome",
       "title": "Welcome to Smart Citizen",
-      "description": "This quick tour covers the core workflow of customizing strings and applying the result back to Star Citizen. Many of these steps happen automatically, but can be done manually as well. You can skip anytime. The Tutorial button reruns this tutorial.",
+      "description": "This quick tour covers the core workflow of customizing strings and applying the result back to Star Citizen. Many of these steps run automatically, but can be done manually if needed. You can skip anytime.",
       "preferred_side": "auto"
     },
     {
