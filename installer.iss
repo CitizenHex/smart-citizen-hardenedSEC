@@ -115,6 +115,25 @@ begin
   Result := (GetUninstallString() <> '');
 end;
 
+procedure ClearStaleUninstallEntry();
+var
+  sRegPath: String;
+begin
+  { Remove zombie registry entries that point at a non-existent unins000.exe.
+    Background: when a user's previous install lived under a non-default path
+    (e.g. Documents\Smart Citizen\) and the folder was manually deleted or
+    moved without running the uninstaller, Windows keeps the Uninstall
+    registry entry — and "Installed Apps" on Win10/11 then shows the app
+    with an Uninstall button that fails ("Windows cannot find …\unins000.exe").
+    Left alone, the entry also blocks our GetUninstallString() / IsUpgrade()
+    flow from doing the right thing. Clearing both HKLM and HKCU variants
+    is safe: the install about to run will recreate the entry cleanly. }
+  sRegPath := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#emit SetupSetting("AppId")}_is1';
+  RegDeleteKeyIncludingSubkeys(HKLM, sRegPath);
+  RegDeleteKeyIncludingSubkeys(HKCU, sRegPath);
+  Log('Cleared stale uninstall registry entry (unins000.exe was missing)');
+end;
+
 function UnInstallOldVersion(): Integer;
 var
   sUnInstallString: String;
@@ -123,20 +142,40 @@ begin
   { Return Values:
     1 - uninstall string is empty
     2 - error executing the UnInstallString
-    3 - successfully executed the UnInstallString }
+    3 - successfully executed the UnInstallString
+    4 - uninstall string found but the unins000.exe doesn't exist (zombie
+        entry from a manual folder deletion) — cleared the registry entry
+        so the new install can register fresh. }
 
   Result := 0;
 
   { get the uninstall string of the old app }
   sUnInstallString := GetUninstallString();
-  if sUnInstallString <> '' then begin
-    sUnInstallString := RemoveQuotes(sUnInstallString);
-    if Exec(sUnInstallString, '/SILENT /NORESTART /SUPPRESSMSGBOXES','', SW_HIDE, ewWaitUntilTerminated, iResultCode) then
-      Result := 3
-    else
-      Result := 2;
-  end else
+  if sUnInstallString = '' then begin
     Result := 1;
+    Exit;
+  end;
+
+  sUnInstallString := RemoveQuotes(sUnInstallString);
+
+  { Zombie-entry guard: if the recorded unins000.exe isn't on disk, running
+    Exec() against it would fail silently and leave the registry entry
+    dangling forever (plus Windows' "Installed Apps" would keep offering a
+    broken Uninstall button). Nuke the registry entry and let the new
+    install write a fresh one. Addresses the
+      "Windows cannot find …\unins000.exe"
+    error users report after a partial/manual removal of a custom-path
+    install. }
+  if not FileExists(sUnInstallString) then begin
+    ClearStaleUninstallEntry();
+    Result := 4;
+    Exit;
+  end;
+
+  if Exec(sUnInstallString, '/SILENT /NORESTART /SUPPRESSMSGBOXES','', SW_HIDE, ewWaitUntilTerminated, iResultCode) then
+    Result := 3
+  else
+    Result := 2;
 end;
 
 function GetDocumentsBase(): String;
@@ -252,6 +291,7 @@ function InitializeSetup(): Boolean;
 var
   ResultCode: Integer;
   UninstallString: String;
+  UninstallExe: String;
   ButtonPressed: Integer;
 begin
   Result := True;
@@ -260,6 +300,19 @@ begin
   UninstallString := GetUninstallString();
   if UninstallString <> '' then
   begin
+    { Zombie-entry guard: if the uninstall string points at a file that's
+      no longer on disk, the prior "upgrade?" dialog would offer choices
+      that would all fail (Exec against a missing unins000.exe is a silent
+      no-op, leaving the dangling registry entry in place forever). Clear
+      the stale entry and continue as a fresh install — skipping the
+      dialog entirely since there's nothing real to upgrade from. }
+    UninstallExe := RemoveQuotes(UninstallString);
+    if not FileExists(UninstallExe) then
+    begin
+      ClearStaleUninstallEntry();
+      Exit;  { Result is already True — proceed with fresh install }
+    end;
+
     { Show custom dialog with three options }
     ButtonPressed := MsgBox('A previous version of this application is already installed.' + #13#10 + #13#10 +
                             'Choose an option:' + #13#10 +
