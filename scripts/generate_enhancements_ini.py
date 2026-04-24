@@ -185,9 +185,11 @@ def _find(root: ET.Element, tag: str) -> ET.Element | None:
 
 
 def _find_by_type(root: ET.Element, type_name: str) -> ET.Element | None:
-    """Find first element with __type attribute matching type_name (DataForge inline structs)."""
+    """Find first element matching *type_name* by either ``__type`` attribute
+    (old DataForge format) or element tag (newer unforge builds emit the type
+    as the tag itself and drop ``__type``)."""
     for el in root.iter():
-        if el.get("__type") == type_name:
+        if el.get("__type") == type_name or el.tag == type_name:
             return el
     return None
 
@@ -1156,7 +1158,7 @@ def build_blueprint_pool_lookup(
             if not ref:
                 continue
             for elem in root.iter():
-                if elem.get("__polymorphicType") == "CraftingProcess_Creation":
+                if _poly_type(elem) == "CraftingProcess_Creation":
                     bp_entity[ref] = elem.get("entityClass", "")
                     break
         except ET.ParseError:
@@ -1543,13 +1545,47 @@ def _resolve_resource_uuids(bp_dir: Path) -> set[str]:
         try:
             root = ET.parse(xml_file).getroot()
             for elem in root.iter():
-                if elem.get("__polymorphicType") == "CraftingCost_Resource":
+                if _poly_type(elem) == "CraftingCost_Resource":
                     r = elem.get("resource", "")
                     if r and r != "00000000-0000-0000-0000-000000000000":
                         uuids.add(r)
         except ET.ParseError:
             pass
     return uuids
+
+
+def _poly_type(elem: ET.Element) -> str:
+    """Return the effective polymorphic type of a DataForge element.
+
+    Historically CIG/unforge emitted elements like
+    ``<CraftingProcess_Base __polymorphicType="CraftingProcess_Creation" ... />``
+    and the generator filtered on the attribute. Newer unforge builds drop
+    ``__type``/``__polymorphicType`` entirely and emit the concrete type as
+    the element tag itself
+    (``<CraftingProcess_Creation ... />``), which silently zeros out every
+    attribute-based filter. Returning ``__polymorphicType or elem.tag`` makes
+    every call site compatible with both formats without branching.
+    """
+    return elem.get("__polymorphicType") or elem.tag
+
+
+def _normalize_commodity_name(raw: str) -> str:
+    """Strip ore_/raw-style prefixes and suffixes to get the canonical commodity stem.
+
+    CIG has multiple carryable variants per commodity — refined (``commodity_metal_iron``),
+    raw ore (``commodity_metal_ore_iron`` or ``commodity_mineral_hephaestanite_raw``),
+    processed, etc. — and the regex used to extract the stem sometimes captures the
+    variant prefix/suffix. Normalize everything back to the commodity root so the
+    downstream loc-key lookup finds a match.
+    """
+    n = raw.lower()
+    for prefix in ("ore_", "raw_", "processed_", "refined_"):
+        if n.startswith(prefix):
+            n = n[len(prefix):]
+    for suffix in ("_ore", "_raw", "_processed", "_refined"):
+        if n.endswith(suffix):
+            n = n[: -len(suffix)]
+    return n
 
 
 def _build_uuid_to_commodity(uuids: set[str], carryables_dir: Path) -> dict[str, str]:
@@ -1566,12 +1602,44 @@ def _build_uuid_to_commodity(uuids: set[str], carryables_dir: Path) -> dict[str,
             fname = xml_file.stem
             m = re.search(r"commodity_(?:metal|mineral|minerals|nonmetal|gas)_(\w+?)(?:_[a-d])?$", fname)
             if m:
-                commodity = m.group(1).lower()
+                commodity = _normalize_commodity_name(m.group(1))
                 for uid in matched_uuids:
                     uuid_names[uid] = commodity
         except Exception:
             pass
     return uuid_names
+
+
+def _discover_commodity_loc_pairs(internal_name: str, loc: dict[str, str]) -> list[tuple[str, str]]:
+    """Find every (name_key, desc_key) pair in *loc* for a given commodity stem.
+
+    Scans loc case-insensitively for ``items_commodities_<name>*`` keys and pairs
+    each name-style key (refined, _ore, _raw, etc.) with its matching desc key.
+    CIG's loc typos mean descs may end in either ``_desc`` or ``_des`` — both are
+    accepted. Returning every matching variant means a refined and a raw form
+    both get the [CF] tag + BLUEPRINT DATA block.
+    """
+    prefix = f"items_commodities_{internal_name.lower()}"
+    name_keys: list[str] = []
+    desc_by_base: dict[str, str] = {}  # lowercase name stem -> actual desc key
+
+    for key in loc:
+        klow = key.lower()
+        if not klow.startswith(prefix):
+            continue
+        if klow.endswith("_desc"):
+            desc_by_base[klow[:-5]] = key
+        elif klow.endswith("_des"):
+            desc_by_base.setdefault(klow[:-4], key)
+        else:
+            name_keys.append(key)
+
+    pairs: list[tuple[str, str]] = []
+    for name_key in name_keys:
+        desc_key = desc_by_base.get(name_key.lower())
+        if desc_key:
+            pairs.append((name_key, desc_key))
+    return pairs
 
 
 def _condense_crafted_items(items_list: list[tuple[str, str]]) -> list[str]:
@@ -1659,14 +1727,14 @@ def scan_crafting_blueprints(
             item_name = xml_file.stem.replace("bp_craft_", "")
             # Try to resolve display name from entity reference
             for elem in root.iter():
-                if elem.get("__polymorphicType") == "CraftingProcess_Creation":
+                if _poly_type(elem) == "CraftingProcess_Creation":
                     entity_ref = elem.get("entityClass", "")
                     if entity_ref in entity_names:
                         item_name = entity_names[entity_ref]
                     break
             materials: set[str] = set()
             for elem in root.iter():
-                if elem.get("__polymorphicType") == "CraftingCost_Resource":
+                if _poly_type(elem) == "CraftingCost_Resource":
                     r = elem.get("resource", "")
                     if r in uuid_names:
                         materials.add(uuid_names[r])
@@ -1675,47 +1743,29 @@ def scan_crafting_blueprints(
         except ET.ParseError:
             pass
 
-    # Commodity internal name → list of (name_loc_key, desc_loc_key) pairs.
-    # Each pair is an in-game item that represents this commodity (refined
-    # product, raw ore, etc.). All matching pairs get the [CF] tag + BLUEPRINT
-    # DATA so the freight-elevator view tags both forms — the user complaint
-    # "Aluminum not getting [CF] tag when viewed in FE inventory" was caused
-    # by only tagging the _ore variant while the refined Aluminum carryable
-    # is what shows up in most FE-visible stacks.
-    commodity_loc = {
-        "agricium":     [("items_commodities_agricium", "items_commodities_agricium_desc")],
-        "aluminium":    [("items_commodities_aluminum", "items_commodities_aluminum_desc"),
-                         ("items_commodities_aluminum_ore", "items_commodities_aluminum_ore_desc")],
-        "aluminum":     [("items_commodities_aluminum", "items_commodities_aluminum_desc"),
-                         ("items_commodities_aluminum_ore", "items_commodities_aluminum_ore_desc")],
-        "aslarite":     [("items_commodities_aslarite", "items_commodities_aslarite_desc")],
-        "beryl":        [("items_commodities_beryl", "items_commodities_beryl_desc")],
-        "copper":       [("items_commodities_copper", "items_commodities_copper_desc")],
-        "corundum":     [("items_commodities_corundum", "items_commodities_corundum_desc")],
-        "gold":         [("items_commodities_gold", "items_commodities_gold_desc")],
-        "hephaestanite":[("items_commodities_hephaestanite", "items_commodities_hephaestanite_desc")],
-        "iron":         [("items_commodities_iron", "items_commodities_iron_desc")],
-        "laranite":     [("items_commodities_laranite", "items_commodities_laranite_desc")],
-        "lindinium":    [("items_commodities_lindinium", "items_commodities_lindinium_des")],
-        "ouratite":     [("items_commodities_ouratite", "items_commodities_ouratite_desc")],
-        "quartz":       [("items_commodities_quartz", "items_commodities_quartz_desc")],
-        "riccite":      [("items_commodities_riccite", "items_commodities_riccite_des")],
-        "savrilium":    [("items_commodities_savrilium", "items_commodities_savrilium_des")],
-        "silicon":      [("items_commodities_silicon", "items_commodities_silicon_desc")],
-        "stileron":     [("items_commodities_stileron", "items_commodities_stileron_des")],
-        "taranite":     [("items_commodities_taranite", "items_commodities_taranite_desc")],
-        "tin":          [("items_commodities_tin", "items_commodities_tin_desc")],
-        "titanium":     [("items_commodities_titanium", "items_commodities_titanium_desc")],
-        "torite":       [("items_commodities_torite", "items_commodities_torite_des")],
-        "tungsten":     [("items_commodities_tungsten", "items_commodities_tungsten_desc")],
-    }
+    # Sanity-check that the localization dict actually carries commodity keys.
+    # Hitting 0 here almost always means base.ini is stale (missing modern
+    # commodity strings) — surfacing that in the log beats silently writing an
+    # empty enhancements file.
+    loc_commodity_key_count = sum(
+        1 for k in loc if k.lower().startswith("items_commodities_")
+    )
+    logger.info(
+        f"Crafting: {len(commodity_items)} commodities discovered from blueprints; "
+        f"{loc_commodity_key_count} items_commodities_* keys in loc"
+    )
 
-    # Build commodity output
+    # Build commodity output via dynamic loc discovery — no hardcoded key map.
+    # Each commodity stem (iron, hephaestanite, …) pulls every matching loc
+    # variant (refined, _ore, _raw, etc.) so the freight-elevator view tags
+    # every form the player might see.
     out: dict[str, str] = {}
+    skipped_no_loc: list[str] = []
     for commodity in sorted(commodity_items.keys()):
-        if commodity not in commodity_loc:
+        pairs = _discover_commodity_loc_pairs(commodity, loc)
+        if not pairs:
+            skipped_no_loc.append(commodity)
             continue
-        pairs = commodity_loc[commodity]
         condensed = _condense_crafted_items(commodity_items[commodity])
         bp_block = "\\n".join(f"- {line}" for line in condensed)
         enhancements_block = f"<EM3>BLUEPRINT DATA</EM3>\\n{bp_block}"
@@ -1729,6 +1779,11 @@ def scan_crafting_blueprints(
             if base_desc and desc_key not in out:
                 out[desc_key] = f"{base_desc}\\n\\n{enhancements_block}"
 
+    if skipped_no_loc:
+        logger.warning(
+            f"Crafting: {len(skipped_no_loc)} commodities had no matching loc keys "
+            f"(first few: {', '.join(skipped_no_loc[:8])})"
+        )
     logger.info(f"Crafting: {len(out)} commodity entries augmented from {len(commodity_items)} commodities")
 
     # Build journal output (separate dict for independent toggling)
@@ -1781,7 +1836,7 @@ def enhancements_weapon(root: ET.Element, ammo_lookup: dict[str, ET.Element],
     # Weight (mass from physics controller)
     weight = None
     for elem in root.iter():
-        pt = elem.get("__polymorphicType", "")
+        pt = _poly_type(elem)
         if "RigidPhysics" in pt or "StaticPhysics" in pt:
             mass_val = elem.get("Mass")
             if mass_val:
@@ -1794,7 +1849,7 @@ def enhancements_weapon(root: ET.Element, ammo_lookup: dict[str, ET.Element],
     # Pellet count (shotguns fire multiple pellets per shot)
     pellet_count = 1
     for elem in root.iter():
-        if "SProjectileLauncher" in (elem.get("__polymorphicType", "") + elem.tag):
+        if "SProjectileLauncher" in _poly_type(elem):
             try:
                 pc = int(elem.get("pelletCount", "1"))
                 if pc > 1:
@@ -1854,21 +1909,21 @@ def enhancements_weapon(root: ET.Element, ammo_lookup: dict[str, ET.Element],
                 tag = elem.tag
                 if tag == "damageDropMinDistance":
                     for d in elem:
-                        if d.get("__polymorphicType") == "DamageInfo" or "DamageInfo" in d.tag:
+                        if _poly_type(d) == "DamageInfo" or "DamageInfo" in d.tag:
                             try:
                                 dmg_drop_min_dist = float(d.get("DamagePhysical", 0)) + float(d.get("DamageEnergy", 0))
                             except ValueError:
                                 pass
                 elif tag == "damageDropPerMeter":
                     for d in elem:
-                        if d.get("__polymorphicType") == "DamageInfo" or "DamageInfo" in d.tag:
+                        if _poly_type(d) == "DamageInfo" or "DamageInfo" in d.tag:
                             try:
                                 dmg_drop_per_m = float(d.get("DamagePhysical", 0)) + float(d.get("DamageEnergy", 0))
                             except ValueError:
                                 pass
                 elif tag == "damageDropMinDamage":
                     for d in elem:
-                        if d.get("__polymorphicType") == "DamageInfo" or "DamageInfo" in d.tag:
+                        if _poly_type(d) == "DamageInfo" or "DamageInfo" in d.tag:
                             try:
                                 dmg_drop_min = float(d.get("DamagePhysical", 0)) + float(d.get("DamageEnergy", 0))
                             except ValueError:
@@ -2369,7 +2424,7 @@ def build_scitem_lookups(
         found_name = ref == ""  # skip name lookup entirely if no __ref
 
         for elem in root.iter():
-            if not found_mag and elem.get("__polymorphicType") == "SAmmoContainerComponentParams":
+            if not found_mag and _poly_type(elem) == "SAmmoContainerComponentParams":
                 ammo_ref = elem.get("ammoParamsRecord", "")
                 max_ammo = elem.get("maxAmmoCount", "")
                 if ammo_ref and ammo_ref != null_uuid:
