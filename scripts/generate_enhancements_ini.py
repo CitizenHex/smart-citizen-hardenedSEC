@@ -2887,36 +2887,45 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
 
             unique_xp = sorted(set(sxp for sxp, _ in seen_tiers))
 
-            # Title: [BP] when every variant awards a pool; [BP?] only when
-            # *every* desc_key bucket under this title has at least one
-            # BP-having variant (so every player, regardless of which desc
-            # they open, sees a POTENTIAL BLUEPRINTS section). Omit
-            # otherwise — an all-or-nothing mix across desc_keys would tag
-            # the shared title [BP?] while no-BP players see a desc with no
-            # BP section, which is what the BHG Stanton bounty bug was:
-            # bhg_bounty_title_gen_001 is shared by 7 Stanton bounties
-            # (desc_key bhg_bounty_desc_gen_001, no pool) and the single PAF
-            # elimination contract (desc_key bhg_bounty_desc_FPS_intro, has
-            # pool) — so [BP?] on the title misled Stanton players.
+            # Title: [BP] when every variant awards a pool; [BP?] when at
+            # least one variant does AND no single no-BP desc-key bucket
+            # represents a majority (>50%) of variants. The majority check
+            # suppresses BHG-style data where a lone BP variant drowns in
+            # no-BP siblings (bhg_bounty_title_gen_001: 7 of 8 variants
+            # share one no-BP desc_key — 87.5% — so tagging would mislead
+            # that majority). Matches kraken_4.7.ini's [BP]* convention
+            # and the missions_4.7.177.csv ground truth, which tag even
+            # 50/50 splits like vaughn_assassination_FPS_UGF_legal_title_001
+            # (legal_desc_001: 1 no-BP variant, legal_boss_desc_001: 1 BP
+            # variant — 50% no-BP bucket, not a majority, so tagged).
             has_blueprints = title_key in mission_blueprints
             _bp_variants = [v[8] for v in variants]  # v[8] = contract_has_bp
             _all_have_bp = has_blueprints and all(_bp_variants)
 
             desc_bucket_has_bp: dict[str, bool] = {}
+            desc_bucket_count: dict[str, int] = {}
             for v in variants:
                 dk = v[3]
                 if not dk:
                     continue
                 desc_bucket_has_bp[dk] = desc_bucket_has_bp.get(dk, False) or v[8]
-            _every_desc_has_some_bp = (
+                desc_bucket_count[dk] = desc_bucket_count.get(dk, 0) + 1
+            _total_bucketed = sum(desc_bucket_count.values())
+            _any_variant_has_bp = any(_bp_variants)
+            _has_dominant_no_bp_bucket = _total_bucketed > 0 and any(
+                not desc_bucket_has_bp[dk]
+                and desc_bucket_count[dk] / _total_bucketed > 0.5
+                for dk in desc_bucket_has_bp
+            )
+            _bp_partial = (
                 has_blueprints
-                and bool(desc_bucket_has_bp)
-                and all(desc_bucket_has_bp.values())
+                and _any_variant_has_bp
+                and not _has_dominant_no_bp_bucket
             )
             augmented_title = base_title
             if _all_have_bp:
                 augmented_title += " <EM4>[BP]</EM4>"
-            elif _every_desc_has_some_bp:
+            elif _bp_partial:
                 augmented_title += " <EM4>[BP?]</EM4>"
             nonzero_xp = [x for x in unique_xp if x > 0]
             if len(nonzero_xp) == 1:
