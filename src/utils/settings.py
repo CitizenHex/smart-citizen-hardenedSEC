@@ -35,6 +35,13 @@ class AppSettings:
     # new steps worth showing again. Empty string means "never shown".
     TUTORIAL_COMPLETED_VERSION = "tutorial_completed_version"
 
+    # Settings keys - App self-update check
+    # Unix epoch of the last successful GitHub Releases check; the auto-check
+    # on startup uses this to throttle itself to once per 6h (staying well
+    # under GitHub's 60-req/hr unauthenticated rate limit). Manual checks
+    # from the Config tab bypass the throttle.
+    LAST_UPDATE_CHECK_EPOCH = "last_update_check_epoch"
+
     # Settings keys - Star Citizen channel selection
     # Star Citizen ships multiple channels (LIVE/PTU/EPTU/TECH-PREVIEW) under
     # a common install root, each with its own Data.p4k. We store the root
@@ -185,6 +192,21 @@ class AppSettings:
     def set_tutorial_completed_version(version: str) -> None:
         """Record that the guided tour was completed for *version*."""
         AppSettings.settings().setValue(AppSettings.TUTORIAL_COMPLETED_VERSION, version)
+        AppSettings.settings().sync()
+
+    @staticmethod
+    def get_last_update_check_epoch() -> int:
+        """Unix epoch of the last successful app-update check (0 if never)."""
+        raw = AppSettings.settings().value(AppSettings.LAST_UPDATE_CHECK_EPOCH, 0)
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def set_last_update_check_epoch(epoch: int) -> None:
+        """Persist the timestamp of the most recent app-update check."""
+        AppSettings.settings().setValue(AppSettings.LAST_UPDATE_CHECK_EPOCH, int(epoch))
         AppSettings.settings().sync()
 
     @staticmethod

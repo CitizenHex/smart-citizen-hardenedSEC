@@ -103,6 +103,7 @@ from src.utils.settings import AppSettings
 from src.merger.ini_merger import merge_sources_by_hierarchy
 from src.utils.version import get_version
 from src.utils.perf import timed
+from src.utils.app_updater import AppUpdateCheckWorker
 from src.gui.config_tab import ConfigTab
 from src.gui.theme import get_button_color, get_button_text_color, get_title_color, get_tagline_color, BRAND_FONT_FAMILY
 from src.gui.enhancements_tab import EnhancementsTab
@@ -127,6 +128,56 @@ def get_resource_path(relative_path):
 def _resolve_patches_dir() -> Path:
     """Return the path to the bundled DataForge patches directory."""
     return Path(get_resource_path("patches"))
+
+
+# Preview-pane token translation — turns the raw loc-string format the game
+# reads into styled HTML that mirrors the in-game feel. Patterns:
+#   \n              → line break
+#   <EM3>X</EM3>    → block-level heading (section dividers)
+#   <EM4>X</EM4>    → inline emphasis (stats / tag values)
+#   ~mission(Foo)   → greyed placeholder [Foo] (game substitutes at runtime)
+# Escape first, then substitute against the escaped tags so raw text
+# containing < or & can't break rendering.
+import html as _html_mod
+import re as _re_mod
+
+_EM3_RE = _re_mod.compile(r"&lt;EM3&gt;(.*?)&lt;/EM3&gt;", _re_mod.DOTALL)
+_EM4_RE = _re_mod.compile(r"&lt;EM4&gt;(.*?)&lt;/EM4&gt;", _re_mod.DOTALL)
+_MISSION_TOKEN_RE = _re_mod.compile(r"~mission\(([^|)]+)(?:\|[^)]*)?\)")
+
+
+def _render_preview_html(key: str, raw: str) -> str:
+    """Render *raw* loc-string value as styled HTML for the preview pane."""
+    if not raw:
+        body = "<em style='color:#888;'>(empty)</em>"
+    else:
+        escaped = _html_mod.escape(raw)
+        # Literal backslash-n in the INI → actual line break. Handle the
+        # escape sequence as two characters, not a Python newline — the
+        # parser reads lines verbatim.
+        escaped = escaped.replace("\\n", "<br>")
+        escaped = _EM3_RE.sub(
+            r'<span style="text-decoration:underline;">\1</span>',
+            escaped,
+        )
+        escaped = _EM4_RE.sub(
+            r'<span style="font-weight:bold;color:#4a9eff;">\1</span>',
+            escaped,
+        )
+        escaped = _MISSION_TOKEN_RE.sub(
+            r'<span style="color:#888;font-style:italic;">[\1]</span>',
+            escaped,
+        )
+        body = escaped
+
+    return (
+        '<div style="font-family:Segoe UI,sans-serif;font-size:10pt;line-height:1.45;">'
+        f'<div style="color:#888;font-size:8pt;margin-bottom:8px;'
+        f'font-family:Consolas,monospace;">{_html_mod.escape(key)}</div>'
+        "<br>"
+        f"{body}"
+        "</div>"
+    )
 
 
 class FileLoaderWorker(QThread):
@@ -480,6 +531,10 @@ class MainWindow(QMainWindow):
         self._startup_progress: Optional[AnimatedProgressDialog] = None
         self._loading_progress: Optional[QProgressDialog] = None
 
+        # App self-update check
+        self._update_check_worker: Optional[AppUpdateCheckWorker] = None
+        self._latest_release_url: Optional[str] = None
+
         # Build UI
         self.setup_ui()
         self.restore_window_state()
@@ -490,6 +545,7 @@ class MainWindow(QMainWindow):
         # Defer startup loading until after the window is shown.
         # QTimer.singleShot(0) fires on the next event loop iteration, after show().
         QTimer.singleShot(0, self._start_startup_sync)
+        QTimer.singleShot(0, self._maybe_auto_check_app_updates)
 
         # Ensure user.cfg has language setting
         from src.utils.user_cfg import ensure_user_cfg_language
@@ -516,9 +572,30 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.tagline_label)
         self._apply_branding_styles()
 
-        # Toolbar
+        # Toolbar on the left; rendered-preview pane on the right. The
+        # preview renders the currently-selected row's effective value
+        # (custom override if present, else the merged baseline) with the
+        # game's EM3/EM4/~mission(...) tokens translated into styled HTML
+        # so mission and journal blocks read like in-game text instead of
+        # wall-of-tag. Stays wired across all tabs — it just reflects the
+        # last row you selected in the String Editor.
         toolbar_layout = self.create_toolbar()
-        main_layout.addLayout(toolbar_layout)
+
+        self.preview_pane = QTextBrowser()
+        self.preview_pane.setReadOnly(True)
+        self.preview_pane.setOpenExternalLinks(False)
+        self.preview_pane.setPlaceholderText(
+            "Select a row to preview its rendered text."
+        )
+        self.preview_pane.setMinimumWidth(320)
+        self.preview_pane.setMaximumHeight(200)
+
+        toolbar_row = QHBoxLayout()
+        toolbar_row.setSpacing(12)
+        toolbar_row.setContentsMargins(0, 0, 12, 0)
+        toolbar_row.addLayout(toolbar_layout, stretch=3)
+        toolbar_row.addWidget(self.preview_pane, stretch=1)
+        main_layout.addLayout(toolbar_row)
 
         # Tabs
         self.tabs = QTabWidget()
@@ -530,6 +607,7 @@ class MainWindow(QMainWindow):
         self.config_tab.p4k_extract_requested.connect(self._run_p4k_extraction)
         self.config_tab.import_ini_requested.connect(self._handle_import_ini)
         self.config_tab.channel_changed.connect(self._on_channel_changed)
+        self.config_tab.check_updates_requested.connect(self._on_check_updates_clicked)
         self._config_tab_index = self.tabs.addTab(self.config_tab, "Config")
 
         # Enhancements tab
@@ -561,6 +639,13 @@ class MainWindow(QMainWindow):
         # restoreState will reopen it if the user had it open last session.
         self._ensure_help_dock()
         self.help_dock.hide()
+
+        # App-version indicator sits immediately next to the SC-version
+        # text in the status bar message area. Added BEFORE the channel
+        # indicator so it lands leftmost in the permanent-widget zone
+        # (QStatusBar lays these out left-to-right in addition order, with
+        # the first-added sitting closest to the message text).
+        self._ensure_app_version_indicator()
 
         # Channel indicator on the right side of the status bar. Installed
         # now so it's visible before any source loading kicks off — users
@@ -755,7 +840,8 @@ class MainWindow(QMainWindow):
             self.osiris_button.setFixedSize(base_pixmap.size())
 
             self.osiris_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-            self.osiris_button.mousePressEvent = self.open_discord_link
+            self.osiris_button.setToolTip("Open the Osiris DevWorks GitHub organization")
+            self.osiris_button.mousePressEvent = self.open_osiris_github
             footer_layout.addWidget(self.osiris_button)
 
             # Poll every 300ms and toggle the pulse to match worker state.
@@ -785,34 +871,35 @@ class MainWindow(QMainWindow):
             self._eye_glow = None
             self._eye_fadeout = None
             self.osiris_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-            self.osiris_button.mousePressEvent = self.open_discord_link
+            self.osiris_button.setToolTip("Open the Osiris DevWorks GitHub organization")
+            self.osiris_button.mousePressEvent = self.open_osiris_github
             footer_layout.addWidget(self.osiris_button)
 
-        # Stretch to push the right-side cluster (Feedback link + donations)
-        footer_layout.addStretch()
-
-        # Feedback link — points at the dedicated Smart Citizen channel in the
-        # Osiris DevWorks Discord. Rendered as an HTML <a> inside a QLabel so
-        # Qt picks up the palette Link role automatically and recolors on
-        # theme swap without us tracking it ourselves.
-        self.feedback_label = QLabel(
-            '<a href="https://discord.com/channels/1438175448420057323/1472394204347895890">Feedback, Bugs, &amp; Feature Voting</a>'
-        )
-        self.feedback_label.setOpenExternalLinks(True)
+        # Feedback button — sits immediately to the right of the Osiris logo.
+        # Image link to the dedicated Smart Citizen channel in the Osiris
+        # DevWorks Discord; falls back to a styled text label if the asset
+        # is missing.
+        footer_layout.addSpacing(10)
+        self.feedback_label = QLabel()
+        discord_image_path = get_resource_path(os.path.join("assets", "discord.png"))
+        if os.path.exists(discord_image_path):
+            discord_pixmap = QPixmap(discord_image_path)
+            if discord_pixmap.height() > 40:
+                discord_pixmap = discord_pixmap.scaledToHeight(40, Qt.TransformationMode.SmoothTransformation)
+            self.feedback_label.setPixmap(discord_pixmap)
+        else:
+            self.feedback_label.setText("Feedback, Bugs, & Feature Voting")
+            self.feedback_label.setStyleSheet("font-size: 12px;")
         self.feedback_label.setToolTip(
             "Open the Smart Citizen Discord channel for feedback, bug reports, and voting on "
             "upcoming features (requires joining the Osiris DevWorks Discord)."
         )
-        self.feedback_label.setStyleSheet("font-size: 12px; margin-right: 14px;")
         self.feedback_label.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.feedback_label.mousePressEvent = self.open_feedback_link
         footer_layout.addWidget(self.feedback_label)
 
-        # Donation label — role=secondary lets the app-level QSS re-color on
-        # theme swap without us having to track individual labels.
-        donation_label = QLabel("Support this project:")
-        donation_label.setProperty("role", "secondary")
-        donation_label.setStyleSheet("font-size: 12px; margin-right: 5px;")
-        footer_layout.addWidget(donation_label)
+        # Stretch to push the donation cluster to the right.
+        footer_layout.addStretch()
 
         # PayPal button (right side)
         self.paypal_button = QLabel()
@@ -883,10 +970,14 @@ class MainWindow(QMainWindow):
 
         return footer_layout
 
-    def open_discord_link(self, event):
-        """Open Discord invite link in browser."""
-        discord_url = "https://discord.gg/BNzRegKZ7k"
-        QDesktopServices.openUrl(QUrl(discord_url))
+    def open_osiris_github(self, event):
+        """Open the Osiris DevWorks GitHub organization in browser."""
+        QDesktopServices.openUrl(QUrl("https://github.com/Osiris-DevWorks"))
+
+    def open_feedback_link(self, event):
+        """Open the dedicated Smart Citizen feedback channel in browser."""
+        feedback_url = "https://discord.com/channels/1438175448420057323/1472394204347895890"
+        QDesktopServices.openUrl(QUrl(feedback_url))
 
     def open_paypal_donation(self, event):
         """Open PayPal donation link in browser."""
@@ -897,6 +988,130 @@ class MainWindow(QMainWindow):
         """Open Venmo donation link in browser."""
         venmo_url = "https://venmo.com/u/Amr-Abouelleil"
         QDesktopServices.openUrl(QUrl(venmo_url))
+
+    # ── App self-update ─────────────────────────────────────────────────────
+
+    # Auto-check runs on startup but only every 6h to stay under GitHub's
+    # 60-req/hr unauthenticated rate limit.
+    _UPDATE_CHECK_MIN_INTERVAL_SECONDS = 6 * 60 * 60
+
+    def _maybe_auto_check_app_updates(self) -> None:
+        """Kick off an app-update check iff the throttle window has elapsed."""
+        import time
+        last = AppSettings.get_last_update_check_epoch()
+        now = int(time.time())
+        if last and now - last < self._UPDATE_CHECK_MIN_INTERVAL_SECONDS:
+            logger.debug(
+                f"Skipping auto update check (last ran {now - last}s ago, "
+                f"throttle {self._UPDATE_CHECK_MIN_INTERVAL_SECONDS}s)"
+            )
+            return
+        self._run_app_update_check(force_dialog=False)
+
+    def _on_check_updates_clicked(self) -> None:
+        """Handle the Config tab's 'Check for Updates' button."""
+        self._run_app_update_check(force_dialog=True)
+
+    def _run_app_update_check(self, force_dialog: bool) -> None:
+        """Spawn a single ``AppUpdateCheckWorker`` — no-op if one is running."""
+        if self._update_check_worker is not None:
+            logger.debug("Update check already in flight; ignoring new request")
+            return
+
+        worker = AppUpdateCheckWorker(self)
+        self._update_check_worker = worker
+        self._force_update_dialog = force_dialog
+
+        worker.update_available.connect(self._on_update_available)
+        worker.up_to_date.connect(self._on_update_up_to_date)
+        worker.check_error.connect(self._on_update_check_error)
+        worker.finished.connect(self._on_update_check_finished)
+
+        self.config_tab.set_check_updates_enabled(False)
+        self.config_tab.set_update_status("Checking…")
+        worker.start()
+
+    @pyqtSlot(str, str, str)
+    def _on_update_available(self, latest: str, url: str, body: str) -> None:
+        current = get_version()
+        self._latest_release_url = url
+        self._app_version_indicator.setText(f"v{current} · update available")
+        self._app_version_indicator.setStyleSheet(
+            "font-size: 11px; padding: 0 8px; color: #c9a961; font-weight: bold;"
+        )
+        self._app_version_indicator.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._app_version_indicator.setToolTip(f"Open release page for v{latest}")
+        self.config_tab.set_update_status(f"v{latest} available")
+
+        # Truncate long release bodies for the dialog so the modal doesn't
+        # stretch off-screen. Users get the full notes on the release page.
+        excerpt = body.strip()
+        if len(excerpt) > 600:
+            excerpt = excerpt[:600].rstrip() + "…"
+
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Information)
+        msg.setWindowTitle("Smart Citizen — Update Available")
+        text = f"A new version is available: v{latest}\nYou are on v{current}."
+        if excerpt:
+            text += f"\n\n—\n{excerpt}"
+        msg.setText(text)
+        open_btn = msg.addButton("Open Release Page", QMessageBox.ButtonRole.AcceptRole)
+        msg.addButton("Later", QMessageBox.ButtonRole.RejectRole)
+        msg.setDefaultButton(open_btn)
+        msg.exec()
+        if msg.clickedButton() is open_btn:
+            QDesktopServices.openUrl(QUrl(url))
+
+    @pyqtSlot(str)
+    def _on_update_up_to_date(self, current: str) -> None:
+        self._latest_release_url = None
+        self._app_version_indicator.setText(f"v{current} · up to date")
+        self._app_version_indicator.setStyleSheet("font-size: 11px; padding: 0 8px;")
+        self._app_version_indicator.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+        self._app_version_indicator.setToolTip("")
+        self.config_tab.set_update_status(f"Up to date (v{current})")
+        if getattr(self, "_force_update_dialog", False):
+            QMessageBox.information(
+                self,
+                "Smart Citizen — Up to Date",
+                f"You are on the latest version (v{current}).",
+            )
+
+    @pyqtSlot(str)
+    def _on_update_check_error(self, message: str) -> None:
+        self._latest_release_url = None
+        current = get_version()
+        self._app_version_indicator.setText(f"v{current} · check failed")
+        self._app_version_indicator.setStyleSheet("font-size: 11px; padding: 0 8px;")
+        self._app_version_indicator.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+        self._app_version_indicator.setToolTip(message)
+        self.config_tab.set_update_status("Check failed")
+        logger.warning(f"App update check error: {message}")
+        if getattr(self, "_force_update_dialog", False):
+            QMessageBox.warning(
+                self,
+                "Smart Citizen — Update Check Failed",
+                f"Could not check for updates:\n\n{message}",
+            )
+
+    @pyqtSlot()
+    def _on_update_check_finished(self) -> None:
+        import time
+        AppSettings.set_last_update_check_epoch(int(time.time()))
+        worker = self._update_check_worker
+        if worker is not None:
+            worker.quit()
+            worker.wait()
+            worker.deleteLater()
+            self._update_check_worker = None
+        self._force_update_dialog = False
+        self.config_tab.set_check_updates_enabled(True)
+
+    def _on_version_label_clicked(self, _event) -> None:
+        """Footer version label click — opens the release page when available."""
+        if self._latest_release_url:
+            QDesktopServices.openUrl(QUrl(self._latest_release_url))
 
     def create_strings_tab(self) -> QWidget:
         """Create strings table tab."""
@@ -942,6 +1157,12 @@ class MainWindow(QMainWindow):
         self.table.clicked.connect(self._on_cell_clicked)
 
         layout.addWidget(self.table)
+
+        # Hook selection after the model is attached so selectionModel() exists.
+        # Drives the top-right preview pane created in setup_ui().
+        self.table.selectionModel().currentRowChanged.connect(
+            self._on_preview_row_changed
+        )
 
         # Status label
         self.table_status_label = QLabel("No data loaded")
@@ -2144,6 +2365,25 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self._channel_indicator)
         self._refresh_channel_indicator()
 
+    def _ensure_app_version_indicator(self) -> None:
+        """Install a permanent status-bar widget for the app version + update state.
+
+        Sits immediately next to the SC version text (added before the
+        channel indicator so it lands leftmost in the permanent zone). Text
+        starts as plain ``v{version}`` and is suffixed with the check result
+        ("up to date" / "update available" / "check failed") once the
+        app-update worker reports back. Becomes clickable when an update is
+        available — the click opens the release page.
+        """
+        if getattr(self, "_app_version_indicator", None) is not None:
+            return
+        from PyQt6.QtWidgets import QLabel as _QLabel
+        self._app_version_indicator = _QLabel(f"v{get_version()}")
+        self._app_version_indicator.setStyleSheet("font-size: 11px; padding: 0 8px;")
+        self._app_version_indicator.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+        self._app_version_indicator.mousePressEvent = self._on_version_label_clicked
+        self.statusBar().addPermanentWidget(self._app_version_indicator)
+
     def _refresh_channel_indicator(self) -> None:
         """Update the status-bar channel label to reflect AppSettings.get_active_channel()."""
         if getattr(self, "_channel_indicator", None) is None:
@@ -2914,6 +3154,19 @@ class MainWindow(QMainWindow):
     def _entry_index_for_row(self, row: int) -> int:
         """Map a visual table row to an index into self.entries."""
         return self._model.entry_index_for_row(row)
+
+    def _on_preview_row_changed(self, current: QModelIndex, _previous: QModelIndex) -> None:
+        """Refresh the preview pane when the selected row changes."""
+        if not current.isValid() or not self.entries:
+            self.preview_pane.clear()
+            return
+        try:
+            entry = self.entries[self._entry_index_for_row(current.row())]
+        except (IndexError, AttributeError):
+            self.preview_pane.clear()
+            return
+        raw = entry.custom_value or entry.original_value or ""
+        self.preview_pane.setHtml(_render_preview_html(entry.key, raw))
 
     @pyqtSlot()
     def apply_filters(self):
