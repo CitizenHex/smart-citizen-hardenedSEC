@@ -15,10 +15,21 @@ Then click **Load Base File** on the toolbar to load the extracted `base.ini` in
 - Double-click any **Custom Value** cell to edit text.
 - **Default Value** — original text from `Data.p4k`-extracted `base.ini`.
 - **Current Value** — the effective value before your override (base + any imported INI layers).
-- **Custom Value** — your personal edit. Saved automatically on every change and persisted to `Documents\Smart Citizen\user.ini`.
+- **Custom Value** — your personal edit. Saved automatically on every change and persisted to `Documents\Smart Citizen\<channel>\user.ini` (each Star Citizen channel — LIVE, PTU, EPTU, TECH-PREVIEW — has its own isolated overrides).
 - Edits are highlighted with a **Modified** status (green).
 
-## 3. Categories
+## 3. Preview Pane
+
+The **preview pane** in the top-right shows the rendered text of whatever row is currently selected. The game's loc-string tokens are translated into styled HTML so you see roughly how your string will read in-game:
+
+- `\n` → line break
+- `<EM3>...</EM3>` → underlined section heading
+- `<EM4>...</EM4>` → bold blue inline emphasis (typically stat values)
+- `~mission(Name)` → greyed `[Name]` placeholder (the game substitutes the actual value at runtime)
+
+The pane stays visible across all tabs and reflects the last row you selected in the **String Editor** — useful for checking how a long mission description or journal entry will format before you apply.
+
+## 4. Categories
 
 Use the **Category** filter to focus on one domain:
 
@@ -30,7 +41,7 @@ Use the **Category** filter to focus on one domain:
 - **Journal** — In-game journal / Galactapedia-style entries.
 - **Other** — Everything else.
 
-## 4. Search & Filter
+## 5. Search & Filter
 
 - Use the **search box** to find strings by key or text content.
 - Combine with **Category** and **Status** (Modified / Unmodified / New) filters.
@@ -38,31 +49,31 @@ Use the **Category** filter to focus on one domain:
 - The **per-column filter boxes** under each header narrow further within the table.
 - Click any column header to sort by that column. Click the **★** header to sort favorites to the top.
 
-## 5. Ship Favorites
+## 6. Ship Favorites
 
 - Click the **★** column on any Ship row to mark it as a favorite.
 - Favorited ships get a configurable prefix prepended to their name, sorting them to the top of the in-game ship list.
 - Change the prefix character in the **Enhancements** tab (default: `*`).
 
-## 6. Apply Changes to Game
+## 7. Apply Changes to Game
 
-Click **Apply to Game** to write your edits to the game installation. A timestamped backup of the current `global.ini` is created in `Documents\Smart Citizen\backups\` before anything is overwritten.
+Click **Apply to Game** to write your edits to the game installation. A timestamped backup of the current `global.ini` is created in `Documents\Smart Citizen\<channel>\backups\` before anything is overwritten.
 
-## 7. Restore a Backup
+## 8. Restore a Backup
 
 Click **Restore Backup** to revert to a previous version. Smart Citizen keeps up to **5 automatic backups** — the oldest is pruned as new ones are created.
 
-## 8. Clear Localization
+## 9. Clear Localization
 
-Click **Clear Localization** to delete the custom `global.ini` from the game directory, reverting the game to its default (vanilla) text. Your saved overrides in `Documents\Smart Citizen\user.ini` are untouched and can be re-applied anytime.
+Click **Clear Localization** to delete the custom `global.ini` from the game directory, reverting the game to its default (vanilla) text. Your saved overrides in `Documents\Smart Citizen\<channel>\user.ini` are untouched and can be re-applied anytime.
 
-## 9. Import INI
+## 10. Import INI
 
 Use **Import INI** in the **Config** tab to fold an existing INI file into your overrides. A conflict-resolution dialog lets you decide, per key, whether to **keep current**, **use imported**, **append**, **prepend**, or provide a **custom** value.
 
-## 10. After Game Updates
+## 11. After Game Updates
 
-When Star Citizen updates, your edits are preserved in `Documents\Smart Citizen\user.ini`. Re-run **Extract from Data.p4k** to pull fresh stock strings from the patched game, then **Load Base File** — your customizations re-apply on top automatically.
+When Star Citizen updates, your edits are preserved in `Documents\Smart Citizen\<channel>\user.ini`. Re-run **Extract from Data.p4k** to pull fresh stock strings from the patched game, then **Load Base File** — your customizations re-apply on top automatically.
 
 ## Enhancements Tab
 
@@ -94,6 +105,10 @@ Pick a theme in the **Config tab → Appearance** section:
 ## Status Bar
 
 Shows the count of loaded / modified entries and the state of any running background worker (extract, generate, apply).
+
+## Guided Tour
+
+Click the **Tutorial** button on the toolbar at any time to replay the guided tour — a step-by-step walkthrough of the core workflow with on-screen callouts pointing at each control. The tour also runs automatically the first time you launch a new version, so a fresh install never lands cold. Hit **Skip** any time to dismiss it.
 
 ## Keyboard Shortcuts
 

@@ -227,11 +227,27 @@
 * [x] Consolidated Feedback, Bug Reports, and Feature Request Voting into a single Discord channel (`https://discord.com/channels/1438175448420057323/1472394204347895890`). Platform evaluation first: Canny.io's free tier caps at 25 tracked users (too tight for a free publicly-distributed Windows app) and its API requires Pro+ (~$80/mo), GitHub Issues/Discussions works but fragments the community between Discord (where users already are) and GitHub and requires a GitHub account to vote, in-app OAuth submit/vote is a friction spike disproportionate to the feature's value. Settled on a single Discord channel because voting is handled natively via Discord reactions/polls, users are already in the server for support, and the maintenance cost is zero. Surfaced in three places with matching copy: the footer link (`self.feedback_label` in `main_window.py`, renamed from "Feedback" to "Feedback, Bugs, & Feature Voting", tooltip expanded to mention voting), HELP.md (section heading renamed, bullet now calls out "vote on upcoming features" and notes prioritization is driven by reactions/votes), and ABOUT.md Community & Support block (bullet renamed to match). Server-invite fallback link (`https://discord.gg/BNzRegKZ7k`) preserved in HELP/ABOUT for users not yet in the Osiris DevWorks Discord.
 
 # 0.9.4 RC2
-* [ ] Fix mission tagging broken in 0.9.3 
-* [ ] Redirect ODW logo to link to the Smart Citizen release page
-* [ ] Have a new "Discord" button that goes to the discord
-* [ ] Have an update checker 
+* [x] Fix mission tagging broken in 0.9.3 
+* [x] Redirect ODW logo to link to the Smart Citizen release page
+* [x] Have a new "Discord" button that goes to the discord
+* [x] Have an update checker 
 
 ## 1.0.0 Production Release
 
-* [ ] Human read-through of all documentation for accuracy
+* [x] Wider or dynamically sized preview window
+* [x] Remove overheat temperatures for FPS weapons
+* [x] Change Range label for FPS weapons to "Absolute Range"
+* [x] Filter out "<= PLACEHOLDER =>" text from all items (example: Fire Modes: Repair / Tractor / Salvage / Healing / <= PLACEHOLDER =>)
+* [x] Replace [SCLE] tagging in journal with [SmC] which stands for Smart Citizen
+* [x] Can we get radar range data?
+* [x] EM/IR stats for shield generators?
+* [x] Energy and physical damage absorption percentage for shield generators?
+* [x] Alpha damage stat for weapons
+* [x] Min and max range for missiles
+* [x] min and max arming distance for missiles
+* [x] change missile annotations to just show [EM/IR/CS] and not the size prefix for these tags
+* [x] Final Enhancement data review
+* [X] Human read-through of all documentation for accuracy
+* [x] Ensure proper cleanup on uninstall (only user.ini and backups are saved per channel when uninstalling)
+
+

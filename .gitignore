@@ -66,3 +66,6 @@ data/contracts_version.txt
 
 # Stats JSON source cache (downloaded by generate_stats_ini.py, ~109 MB)
 **/stats_cache/
+
+# Local DataForge extraction scratch (Game2.dcb + unforge output, ~300 MB)
+/Data/

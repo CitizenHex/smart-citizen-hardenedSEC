@@ -105,7 +105,7 @@ DATAFORGE_KEEP_SUBPATHS: tuple[str, ...] = (
     "entities/jobterminal",
     "contracts/contractgenerator",
     "contracts/contracttemplates",
-    "crafting/blueprintrewards/blueprintmissionpools",
+    "crafting/blueprintrewards",
     "crafting/blueprints/crafting",
     "missionbroker/pu_missions",
     "ammoparams/vehicle",

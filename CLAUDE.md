@@ -6,9 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Smart Citizen (formerly SC Localization Editor) is a Windows-only PyQt6 GUI application for customizing Star Citizen localization strings. Tagline: *Smarter Strings for Star Citizen*. Users configure multiple data sources (Global, Contracts, Components, Ships, Commodities, Gear, User) with a drag-and-drop merge hierarchy, edit strings in a table, and apply changes to their game installation with automatic backup management.
 
-**Rebrand status**: As of 0.9.0, user-facing strings and build artifacts reference "Smart Citizen" / `smart-citizen` repo. Storage paths (registry under `Osiris DevWorks\SC Localization Editor`, `Documents\SC Localization Editor\`) are preserved with automatic migration — see the migration code in `AppSettings`.
+**Rebrand status**: As of 0.9.0, user-facing strings, registry path (`Osiris DevWorks\Smart Citizen`), and the user data root (`Documents\Smart Citizen\`) all use the new name. `AppSettings` still contains one-shot migrators for the legacy `Osiris DevWorks\SC Localization Editor` registry tree and `Documents\SC Localization Editor\` directory; do not remove them while users on pre-0.9 builds may still upgrade.
 
-**Current Version**: Read from `VERSION.TXT` (single source of truth).
+**Current Version**: Read from `VERSION.TXT` (single source of truth). Project is at 1.0 as of this writing.
 
 ## Quick Commands
 
@@ -48,7 +48,7 @@ python scripts/extract_components.py [--stock path] [--base path] [--output path
 
 ## Testing Strategy
 
-**Unit Tests** (`tests/`): Split by domain — `test_core.py` (INI parsing/merging/category extraction), `test_missions.py` (mission rewards pipeline), `test_pak_extraction.py` (P4K/DataForge), `test_progress_sink.py` (thread-safe progress coalescing), `test_dataforge_patcher.py` (declarative XML patching). Pytest config lives in `tests/pytest.ini` (sets `pythonpath = src`, registers markers: `unit`, `integration`, `slow`, `critical`, `regression`).
+**Unit Tests** (`tests/`): Split by domain — `test_core.py` (INI parsing/merging/category extraction), `test_missions.py` (mission rewards pipeline), `test_pak_extraction.py` (P4K/DataForge), `test_progress_sink.py` (thread-safe progress coalescing), `test_dataforge_patcher.py` (declarative XML patching), `test_app_updater.py` (GitHub Releases version-check worker), `test_channel_layout.py` (per-channel directory migration). Pytest config lives in `tests/pytest.ini` (sets `pythonpath = src`, registers markers: `unit`, `integration`, `slow`, `critical`, `regression`).
 
 **GUI Testing**: Manual. Run app (`python src/main.py`), load base file, edit a value, apply to game, restart to verify persistence. Use the Log Tab to watch for errors during load/merge/apply cycles.
 
@@ -65,13 +65,15 @@ Entry point: `src/main.py`. The app has two main layers:
 - `string_table_model.py` — `QAbstractTableModel` backing the strings `QTableView`. Replaces the old `QTableWidget.populate_table()` approach; renders visible rows on demand and sorts in Python (via `sort()` override) rather than per-comparison `lessThan()`. Column index constants (`COL_CATEGORY`, `COL_KEY`, `COL_DEFAULT`, `COL_CURRENT`, `COL_STAR`, `COL_CUSTOM`, `COL_STATUS`) live here.
 - `import_dialog.py` — `ImportConflictDialog` for resolving conflicts when importing INI files into user overrides. Allows per-key resolution strategies (keep current, use imported, append, prepend, or custom).
 - `theme.py` — Palette swap on `QApplication` + branded font loading (`load_application_fonts()` registers the Hyperspace Race OTF from `assets/fonts/`). Theme-aware widgets rely on palette `WindowText`/`Text` roles; dim/secondary labels mark themselves with `setProperty("role", "secondary")` and the app-level QSS rule installed by `apply_theme()` recolors them on live theme swap. Progress-bar contrast is controlled via the palette's `Highlight` role (Fusion's native chunk color) — do not add `QProgressBar::chunk` QSS, it switches Qt to a styled path that stops animating in indeterminate mode.
+- `coach_mark.py` — `CoachMarkOverlay` + `TutorialTour` for the in-app guided tour. Self-contained: the main window builds a list of `CoachMarkStep` records (target widget, title, description, optional pre-action) and calls `tour.start()`. Overlay dims the window, spotlights the target, and floats a callout with Back / Next / Skip; emits `finished(completed: bool)` when done.
 
 **Data layer** (`src/models/`, `src/parser/`, `src/merger/`, `src/utils/`):
 - `string_model.py` — `StringEntry` dataclass with category extraction from key prefixes.
 - `ini_parser.py` — Line-by-line INI parsing (splits on first `=`), source loading via `load_sources_from_settings()`, and `load_overrides(target_path)` for reading `user.ini` back as a `dict[str, str]`.
 - `ini_merger.py` — Merge engine: `merge_sources_by_hierarchy(sources_dict, hierarchy, user_overrides)`. Sources merge sequentially; user overrides always win.
-- `settings.py` — `AppSettings` class wrapping QSettings (Windows Registry). All user data stored in `Documents\SC Localization Editor\`. Critical: Registry is the single source of truth for all paths and preferences. Also owns canonical paths (`get_user_data_dir()`, `get_cache_dir()`, `get_user_ini_path()`, `get_backups_dir()`) and handles automatic migration of legacy `overrides.ini` → `user.ini` and `AppData\Roaming\...` → `Documents\...`.
-- `updater.py` — GitHub API version checks + download workers for each source.
+- `settings.py` — `AppSettings` class wrapping QSettings (Windows Registry). All user data stored under `Documents\Smart Citizen\{active_channel}\`. Critical: Registry is the single source of truth for all paths and preferences. Also owns canonical paths (`get_user_data_dir()`, `get_cache_dir()`, `get_user_ini_path()`, `get_backups_dir()`) and handles automatic migrations: legacy `overrides.ini` → `user.ini`, `AppData\Roaming\...` → `Documents\...`, and the 0.9.3+ flat layout → per-channel layout (`migrate_game_path_to_channel_layout()`).
+- `updater.py` — Per-source GitHub downloads. Drives the auto-update workers that refresh each cached source INI (`base.ini`, `contracts.ini`, etc.) from its configured GitHub URL.
+- `app_updater.py` — *Separate* from `updater.py`. Polls `GET /repos/Osiris-DevWorks/smart-citizen/releases/latest` and compares `tag_name` to the local `VERSION.TXT` to surface a "new installer available" prompt. Runs on a `QThread`; `MainWindow` caps auto-checks to once per 6 hours via a registry timestamp to stay under GitHub's 60-req/hr unauthenticated limit.
 - `pak_extractor.py` — P4K extraction pipeline: `unp4k.exe` (extracts Game2.dcb) → `unforge.exe` (converts to entity XMLs). After unforge writes the full DataForge tree to a temp dir, `_copy_filtered_records()` copies only the subtrees in `DATAFORGE_KEEP_SUBPATHS` (the ones the generator actually reads) to the persistent cache — halves cache file count and cuts copy/rmtree wall time. Adding a new read path in the generator requires adding it to `DATAFORGE_KEEP_SUBPATHS`; `tests/test_pak_extraction.py::TestDataForgeKeepList` locks the contract.
 - `user_ini_manager.py` — Saves user-modified entries to `user.ini` (plain `key=value`, no sections) via `save_user_ini(entries, path)`; coordinates with `ImportConflictDialog` when importing external INIs.
 - `user_cfg.py` — Manages Star Citizen's `user.cfg` file; ensures `g_language = english` is set in the LIVE directory.
@@ -85,6 +87,7 @@ Entry point: `src/main.py`. The app has two main layers:
 - `extract_components.py` — Diffs base.ini against stock vanilla to produce components.ini.
 - `gen_commodity_crafting.py` — Generates `commodity_crafting_enhancements.ini` with crafting blueprint usage data from DataForge XMLs.
 - `compare_kraken_fixture.py` — Research/reporting tool: diffs the `kraken_4.7.ini` ground-truth fixture against our generated `mission_rewards_enhancements.ini` to validate blueprint list output. Read-only.
+- `diff_bp_kraken.py`, `diff_bp_annotations.py`, `diff_bp_csv_fixture.py` — Read-only diagnostic scripts validating `[BP]` / `[BP?]` blueprint annotations on mission rewards. Each compares our `mission_rewards_enhancements.ini` output against a different ground-truth source (kraken fixture, an applied LIVE `global.ini`, and the `missions_4.7.177.csv` per-variant fixture, respectively). Use these when blueprint tags regress.
 - `discord_notify.py` — GitHub Actions release webhook notifier.
 - `build/build_exe.py`, `build/build_all.bat`, `build/clean_cache_for_distribution.py` — Build pipeline; see `scripts/build/BUILD_INSTRUCTIONS.md`.
 
@@ -175,12 +178,12 @@ Discord notification is automatic via GitHub Actions (`scripts/discord_notify.py
 
 ## Debugging
 
-- **Registry**: `regedit` → `HKEY_CURRENT_USER\Software\Osiris DevWorks\SC Localization Editor`
-- **User data path**: If `Documents` is redirected (OneDrive), Registry stores the resolved path; delete the value to reset and auto-detect on next run.
+- **Registry**: `regedit` → `HKEY_CURRENT_USER\Software\Osiris DevWorks\Smart Citizen` (live tree). Pre-0.9 installs leave a parallel `Osiris DevWorks\SC Localization Editor` tree that the in-app migrator drains on next launch.
+- **User data path**: If `Documents` is redirected (OneDrive), Registry stores the resolved path under `UserDataDir`; delete that value to reset and auto-detect on next run.
 - **Threading hangs**: Check `worker.quit()` + `worker.wait()` are called in finished slots. Use Log Tab to watch for blockages.
 - **File encoding**: Parser expects UTF-8; BOM or other encodings fail silently. Ensure cache files are UTF-8 no-BOM.
 - **GitHub API rate limit**: Unauthenticated, 60 requests/hour per IP. Check updater logs if auto-update stalls.
-- **Overrides not loading**: Verify `Documents\SC Localization Editor\user.ini` exists with `key=value` format (no sections). If only the legacy `overrides.ini` is present, `AppSettings.get_user_ini_path()` auto-renames it on first access.
+- **Overrides not loading**: Verify `Documents\Smart Citizen\{active_channel}\user.ini` exists with `key=value` format (no sections). If you find a legacy `Documents\SC Localization Editor\overrides.ini`, both the rename (`overrides.ini` → `user.ini`) and the channel-nesting migration are handled lazily by `AppSettings` — launching the app once should drain them.
 - **Performance**: Use `@timed` decorator on slow functions and check elapsed times in DEBUG logs.
 - **Test isolation**: Each test should not depend on Registry state; mock `AppSettings` or use conftest fixtures.
 

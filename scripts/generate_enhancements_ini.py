@@ -232,6 +232,27 @@ def _is_sentinel_loc_ref(ref: str) -> bool:
     return ref.lstrip("@") in _SENTINEL_LOC_KEYS
 
 
+# Resolved-text counterparts of the sentinel loc-keys above. When a
+# `@LOC_PLACEHOLDER` reference makes it past _is_sentinel_loc_ref (e.g. via
+# an attribute that doesn't go through that gate) and gets resolved by
+# `loc.get`, we still want to drop the resulting `<= PLACEHOLDER =>`
+# string before it appears in a stats list.
+_PLACEHOLDER_TEXTS = frozenset({
+    "<= PLACEHOLDER =>",
+    "<= UNINITIALIZED =>",
+    "<= BADSTRING =>",
+    "<= BADTOKEN =>",
+    "<= DEBUG =>",
+    "<= EMPTY =>",
+    "<= INVALID =>",
+    "<= NOINNERTHOUGHT =>",
+})
+
+
+def _is_placeholder_text(s: str) -> bool:
+    return s.strip() in _PLACEHOLDER_TEXTS
+
+
 def _loc_key(root: ET.Element) -> str | None:
     """Extract the item_Desc* localization key from the entity XML."""
     for el in root.iter("Localization"):
@@ -320,8 +341,12 @@ def _missile_name_tag(desc_value: str, root: ET.Element | None = None) -> str | 
                     seeker_abbrev = abbrev
                     break
 
+    # Guided missiles get just the seeker abbreviation ([CS]/[EM]/[IR]) so
+    # the tag stays compact in-game — the size is already encoded in the
+    # missile's display name. Bombs (no seeker) keep [S{size}] since that's
+    # the only differentiator they have.
     if seeker_abbrev:
-        return f"[S{size}-{seeker_abbrev}]"
+        return f"[{seeker_abbrev}]"
     return f"[S{size}]"
 
 
@@ -421,13 +446,18 @@ def _fire_modes(root: ET.Element, loc: dict | None = None) -> list[str]:
             raw_name = (el.get("name") or "").strip()
             label = _FIRE_MODE_LABELS.get(raw_name.lower())
             if not label:
-                # Try localized name, stripping brackets
+                # Try localized name, stripping brackets. Skip CIG sentinel
+                # loc-keys (e.g. @LOC_PLACEHOLDER) — they resolve to literal
+                # ``<= PLACEHOLDER =>`` strings that should not surface in
+                # the in-game stats list.
                 loc_key = el.get("localisedName", "")
+                if _is_sentinel_loc_ref(loc_key):
+                    continue
                 if loc_key.startswith("@") and loc is not None:
                     label = (loc.get(loc_key[1:]) or raw_name or "").strip("[] ")
                 else:
                     label = raw_name or loc_key.strip("[] ")
-            if label and label not in names:
+            if label and not _is_placeholder_text(label) and label not in names:
                 names.append(label)
     return names
 
@@ -502,6 +532,33 @@ def enhancements_shield(root: ET.Element) -> str:
     damaged = el.get("DamagedRegenDelay")
     pwr     = _find_resource(root, "Power")
     comp_hp = _attr(root, "SHealthComponentParams", "Health")
+    em_sig  = _attr(root, "EMSignature", "nominalSignature")
+    ir_sig  = _attr(root, "IRSignature", "nominalSignature")
+
+    # ShieldResistance is a 6-entry array under SCItemShieldGeneratorParams.
+    # Order is inferred from the standard SC damage-type ordering used elsewhere
+    # in the codebase (Phys, Energy, Distortion, Thermal, Bio, Stun) — index 0
+    # consistently shows mild positive resistance (~0–25%) and index 1 shows
+    # negative values (vulnerability), which matches SC's "energy shreds
+    # shields, physical penetrates partially" mechanic. Each entry has Max/Min
+    # spanning the power-allocation range (no power → full power). We expose
+    # the two players actually engage with: physical and energy.
+    resist_entries = list(el.findall("ShieldResistance/SShieldResistance"))
+
+    def _resist_pct(idx: int) -> str | None:
+        if idx >= len(resist_entries):
+            return None
+        e = resist_entries[idx]
+        try:
+            mn = float(e.get("Min", "0")) * 100
+            mx = float(e.get("Max", "0")) * 100
+        except (TypeError, ValueError):
+            return None
+        if mn == 0 and mx == 0:
+            return None
+        # Lower bound first for readability ("−77% – −26%" reads top-down).
+        lo, hi = (mn, mx) if mn <= mx else (mx, mn)
+        return f"{lo:+.0f}% – {hi:+.0f}%"
 
     lines = []
     if hp is not None or regen is not None:
@@ -511,6 +568,21 @@ def enhancements_shield(root: ET.Element) -> str:
     if damaged is not None: delays.append(f"Damaged Delay: {_fmt(damaged, 's', 1)}")
     if delays:
         lines.append("  |  ".join(delays))
+
+    phys_resist = _resist_pct(0)
+    energy_resist = _resist_pct(1)
+    if phys_resist or energy_resist:
+        parts = []
+        if phys_resist: parts.append(f"Phys: {phys_resist}")
+        if energy_resist: parts.append(f"Energy: {energy_resist}")
+        lines.append("Resist:  " + "  |  ".join(parts))
+
+    if em_sig is not None or ir_sig is not None:
+        parts = []
+        if em_sig is not None: parts.append(f"EM: {_fmt(em_sig)}")
+        if ir_sig is not None: parts.append(f"IR: {_fmt(ir_sig)}")
+        lines.append("Signatures:  " + "  |  ".join(parts))
+
     if pwr is not None:
         lines.append(f"Power Draw: {_fmt(pwr, ' PU/s')}")
     if comp_hp is not None:
@@ -657,6 +729,65 @@ def enhancements_missile(root: ET.Element) -> str:
             except Exception:
                 pass
 
+        # Lock range (min / max) — actual attribute names on <targetingParams>
+        # are `lockRangeMin` / `lockRangeMax` (in meters), not the speculative
+        # `minLockRange` / `maxLockRange` the loop above tries. Pull them
+        # directly so this stat actually shows up.
+        lock_min = _attr(root, "targetingParams", "lockRangeMin")
+        lock_max = _attr(root, "targetingParams", "lockRangeMax")
+        try:
+            lmn = float(lock_min) if lock_min else None
+        except (ValueError, TypeError):
+            lmn = None
+        try:
+            lmx = float(lock_max) if lock_max else None
+        except (ValueError, TypeError):
+            lmx = None
+
+        def _fmt_range_m(v: float) -> str:
+            return f"{v / 1000:,.1f} km" if v >= 1000 else f"{v:,.0f} m"
+
+        if lmn is not None and lmn > 0 and lmx is not None and lmx > 0:
+            lines.append(f"Lock Range: {_fmt_range_m(lmn)} – {_fmt_range_m(lmx)}")
+        elif lmn is not None and lmn > 0:
+            lines.append(f"Min Lock Range: {_fmt_range_m(lmn)}")
+        elif lmx is not None and lmx > 0:
+            lines.append(f"Max Lock Range: {_fmt_range_m(lmx)}")
+
+        # Arming — `armTime` (seconds before warhead arms) and
+        # `explosionSafetyDistance` (meters within which the missile won't
+        # detonate, near-launcher safety) live on <SCItemMissileParams>.
+        # Practical min arming distance ≈ armTime × cruise speed; surface
+        # both raw values plus the computed distance so players can compare
+        # missiles meaningfully.
+        arm_time = _attr(root, "SCItemMissileParams", "armTime")
+        safety_dist = _attr(root, "SCItemMissileParams", "explosionSafetyDistance")
+        cruise_speed = _attr(root, "GCSParams", "linearSpeed")
+
+        try:
+            arm_t = float(arm_time) if arm_time else None
+        except (ValueError, TypeError):
+            arm_t = None
+        try:
+            safety = float(safety_dist) if safety_dist else None
+        except (ValueError, TypeError):
+            safety = None
+        try:
+            speed = float(cruise_speed) if cruise_speed else None
+        except (ValueError, TypeError):
+            speed = None
+
+        arm_parts = []
+        if arm_t and arm_t > 0:
+            arm_parts.append(f"Arm Time: {arm_t:.1f}s")
+        if arm_t and arm_t > 0 and speed and speed > 0:
+            arm_dist = arm_t * speed
+            arm_parts.append(f"Arm Dist: {_fmt_range_m(arm_dist)}")
+        if safety and safety > 0:
+            arm_parts.append(f"Min Detonate: {safety:,.0f} m")
+        if arm_parts:
+            lines.append("  |  ".join(arm_parts))
+
         # Damage (inherited from base weapon/ammo structure)
         damage_info = _find(root, "DamageInfo")
         if damage_info is not None:
@@ -727,77 +858,74 @@ def enhancements_missile(root: ET.Element) -> str:
 def enhancements_radar(root: ET.Element) -> str:
     """Extract radar/sensor stats.
 
-    Note: Detection range is stored in shared parameter definitions (referenced by UUID)
-    which are not included in the extracted XML, so we extract available stats like
-    sensitivity and signature detection capabilities instead.
+    Detection range itself isn't stored as a flat value — the shared params
+    record (`radarsystem/vehicleradarsystemsharedparams.xml`) sets both
+    maxPassiveDistance and maxActiveDistance to 0 (unlimited) and leaves
+    actual range to a runtime sensitivity × signature × atmospheric
+    formula. We surface the per-radar values that ARE meaningful and
+    intuitive: aim-assist target acquisition range, ping cooldown, what
+    detection modes the radar permits, and the standard power/health pair.
+    Abstract sensitivity/piercing scalars are intentionally dropped — they
+    require knowing CIG's internal math to interpret.
     """
     lines = []
 
-    try:
-        # Radar sensitivity for different signature types
-        sensitivity_values = []
-        for el in root.iter("SCItemRadarSignatureDetection"):
+    # Aim-assist auto-target acquisition range (meters). Varies per radar
+    # 585–3588m; useful proxy for "how far this radar can lock targets for
+    # gimbal aim assist" even though it's not pure detection range.
+    for el in root.iter("aimAssist"):
+        min_dist = el.get("distanceMinAssignment")
+        max_dist = el.get("distanceMaxAssignment")
+        try:
+            min_v = float(min_dist) if min_dist else None
+            max_v = float(max_dist) if max_dist else None
+        except (TypeError, ValueError):
+            min_v = max_v = None
+        if min_v is not None and max_v is not None and max_v > 0:
+            lines.append(f"Aim Assist Range: {min_v:,.0f}–{max_v:,.0f} m")
+        break
+
+    # Ping cooldown (seconds between active radar pings).
+    for el in root.iter("pingProperties"):
+        cd = el.get("cooldownTime")
+        if cd:
             try:
-                sensitivity = el.get("sensitivity")
-                if sensitivity:
-                    try:
-                        sens_val = float(sensitivity)
-                        sensitivity_values.append(sens_val)
-                    except (ValueError, TypeError):
-                        pass
-            except Exception:
+                cd_v = float(cd)
+                lines.append(f"Ping Cooldown: {cd_v:.1f}s")
+            except (TypeError, ValueError):
                 pass
+        break
 
-        if sensitivity_values:
-            avg_sensitivity = sum(sensitivity_values) / len(sensitivity_values)
-            lines.append(f"Avg Sensitivity: {avg_sensitivity:.2f}")
+    # Passive/Active detection capability (which kinds of scanning the
+    # radar supports — orthogonal to range, but useful for stealth-vs-
+    # combat ship loadout decisions).
+    passive_capable = False
+    active_capable = False
+    for el in root.iter("SCItemRadarSignatureDetection"):
+        if el.get("permitPassiveDetection") == "1":
+            passive_capable = True
+        if el.get("permitActiveDetection") == "1":
+            active_capable = True
 
-        # Piercing capability (ability to detect through interference/jamming)
-        piercing_values = []
-        for el in root.iter("SCItemRadarSignatureDetection"):
-            try:
-                piercing = el.get("piercing")
-                if piercing:
-                    try:
-                        pierce_val = float(piercing)
-                        piercing_values.append(pierce_val)
-                    except (ValueError, TypeError):
-                        pass
-            except Exception:
-                pass
+    modes = []
+    if passive_capable:
+        modes.append("Passive")
+    if active_capable:
+        modes.append("Active")
+    if modes:
+        lines.append(f"Detection Mode: {' / '.join(modes)}")
 
-        if piercing_values:
-            max_piercing = max(piercing_values)
-            lines.append(f"Max Piercing: {max_piercing:.2f}")
+    # Power consumption.
+    pwr = _find_resource(root, "Power")
+    if pwr is not None:
+        lines.append(f"Power Draw: {_fmt(pwr, ' PU/s')}")
 
-        # Passive/Active detection capability
-        passive_capable = False
-        active_capable = False
-        for el in root.iter("SCItemRadarSignatureDetection"):
-            if el.get("permitPassiveDetection") == "1":
-                passive_capable = True
-            if el.get("permitActiveDetection") == "1":
-                active_capable = True
+    # Component health.
+    comp_hp = _attr(root, "SHealthComponentParams", "Health")
+    if comp_hp is not None:
+        lines.append(f"Component HP: {_fmt(comp_hp)}")
 
-        modes = []
-        if passive_capable:
-            modes.append("Passive")
-        if active_capable:
-            modes.append("Active")
-        if modes:
-            lines.append(f"Detection Mode: {' / '.join(modes)}")
-
-        # Power consumption for radar/sensors
-        pwr = _find_resource(root, "Power")
-        if pwr is not None:
-            lines.append(f"Power Draw: {_fmt(pwr, ' PU/s')}")
-
-        # Component health
-        comp_hp = _attr(root, "SHealthComponentParams", "Health")
-        if comp_hp is not None:
-            lines.append(f"Component HP: {_fmt(comp_hp)}")
-    except Exception:
-        pass
+    return "\\n".join(lines) if lines else ""
 
     return "\\n".join(lines) if lines else ""
 
@@ -1794,7 +1922,7 @@ def scan_crafting_blueprints(
     base_content = loc.get(journal_content_key, "")
 
     if base_title and base_content:
-        out_journal[journal_title_key] = f"{base_title} <EM4>[SCLE]</EM4>"
+        out_journal[journal_title_key] = f"{base_title} <EM4>[SmC]</EM4>"
 
         mineral_crafting: dict[str, str] = {}
         for internal_name, items in commodity_items.items():
@@ -1957,7 +2085,7 @@ def enhancements_weapon(root: ET.Element, ammo_lookup: dict[str, ET.Element],
         elif breakdown and len(breakdown) > 1:
             type_str = " (" + " / ".join(f"{lbl}: {v:.1f}" for lbl, v in breakdown.items()) + ")"
         pellet_str = f" x{pellet_count}" if pellet_count > 1 else ""
-        dmg_part = f"Dmg/Shot: {_fmt(total_dmg, '', 1)}{pellet_str}{type_str}"
+        dmg_part = f"Alpha Dmg: {_fmt(total_dmg, '', 1)}{pellet_str}{type_str}"
         dps_part = f"DPS: {_fmt(dps, '', 1)}" if dps else ""
         lines.append("  |  ".join(p for p in [dmg_part, dps_part] if p))
 
@@ -1974,10 +2102,16 @@ def enhancements_weapon(root: ET.Element, ammo_lookup: dict[str, ET.Element],
             speed_f = float(proj_speed)
             lifetime_f = float(proj_lifetime)
             rng_m = speed_f * lifetime_f
+            # FPS weapons get "Absolute Range" (clearer in-context — these
+            # values are the projectile despawn distance, not effective
+            # range); ship weapons keep "Range" since the field has been
+            # stable there for releases. magazine_lookup is the FPS
+            # discriminator — only the FPS callsite passes it.
+            range_label = "Absolute Range" if magazine_lookup is not None else "Range"
             if rng_m >= 1000:
-                lines.append(f"Velocity: {_fmt(proj_speed, ' m/s')}  |  Range: {rng_m / 1000:,.1f} km")
+                lines.append(f"Velocity: {_fmt(proj_speed, ' m/s')}  |  {range_label}: {rng_m / 1000:,.1f} km")
             else:
-                lines.append(f"Velocity: {_fmt(proj_speed, ' m/s')}  |  Range: {rng_m:,.0f} m")
+                lines.append(f"Velocity: {_fmt(proj_speed, ' m/s')}  |  {range_label}: {rng_m:,.0f} m")
         except (TypeError, ValueError):
             pass
 
@@ -1999,7 +2133,10 @@ def enhancements_weapon(root: ET.Element, ammo_lookup: dict[str, ET.Element],
         if em_sig is not None: parts.append(f"EM: {_fmt(em_sig)}")
         if ir_sig is not None: parts.append(f"IR: {_fmt(ir_sig)}")
         lines.append("Signatures:  " + "  |  ".join(parts))
-    if overheat is not None:
+    # Overheat temp is meaningful for ship weapons but not surfaced in-game
+    # for FPS weapons; skip it on the FPS path (magazine_lookup is the FPS
+    # discriminator — only the FPS callsite passes it).
+    if overheat is not None and magazine_lookup is None:
         try:
             if float(overheat) < _OVERHEAT_PLACEHOLDER:
                 lines.append(f"Overheat Temp: {_fmt(overheat, 'K')}")

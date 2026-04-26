@@ -216,17 +216,53 @@ begin
   end;
 end;
 
+procedure CleanPerChannelCaches(UserDataDir: String);
+var
+  Channels: array[0..3] of String;
+  i: Integer;
+  CachePath: String;
+begin
+  { Per-channel layout (0.9.3+): each Star Citizen channel has its own
+    user data subtree at Documents\Smart Citizen\<channel>\. Only \cache
+    is disposable — \backups (the user's global.ini safety net) and
+    user.ini (their customizations) must survive both install and
+    uninstall, so we delete \cache per channel and leave the rest alone. }
+  Channels[0] := 'LIVE';
+  Channels[1] := 'PTU';
+  Channels[2] := 'EPTU';
+  Channels[3] := 'TECH-PREVIEW';
+  for i := 0 to 3 do
+  begin
+    CachePath := UserDataDir + '\' + Channels[i] + '\cache';
+    if DirExists(CachePath) then
+    begin
+      Log('Deleting per-channel cache: ' + CachePath);
+      DelTree(CachePath, True, True, True);
+    end;
+  end;
+end;
+
 procedure CleanCachedData();
 var
-  UserDataDir: String;
+  UserDataDir, LegacyCache: String;
 begin
   UserDataDir := GetDocumentsDir();
   if DirExists(UserDataDir) then
   begin
     Log('Cleaning cached data from: ' + UserDataDir);
-    { Only \cache is deleted. \backups (user's global.ini safety net) and
-      user.ini (their customizations) must survive install AND uninstall. }
-    DelTree(UserDataDir + '\cache', True, True, True);
+    { Current layout — delete \cache under each channel subtree. }
+    CleanPerChannelCaches(UserDataDir);
+    { Defensive: pre-0.9.3 flat layout kept cache at \Smart Citizen\cache\.
+      The channel migrator runs at app launch and should have moved this
+      already, but if a user is upgrading from a state where the migrator
+      never ran (e.g. they uninstalled before first launching 0.9.3+),
+      mop it up here. }
+    LegacyCache := UserDataDir + '\cache';
+    if DirExists(LegacyCache) then
+    begin
+      Log('Deleting legacy flat-layout cache: ' + LegacyCache);
+      DelTree(LegacyCache, True, True, True);
+    end;
   end;
 end;
 
@@ -270,20 +306,14 @@ begin
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
-var
-  UserDataDir: String;
 begin
   if CurUninstallStep = usUninstall then
   begin
-    UserDataDir := GetDocumentsDir();
-    if DirExists(UserDataDir) then
-    begin
-      Log('Cleaning cached data during uninstall: ' + UserDataDir);
-      { Only \cache is deleted. \backups (user's global.ini safety net) and
-        user.ini (their customizations) must survive uninstall — a user
-        reinstalling later should find their backups intact. }
-      DelTree(UserDataDir + '\cache', True, True, True);
-    end;
+    { Same cleanup contract as install/upgrade: per-channel \cache gets
+      nuked, \backups + user.ini survive so a reinstall picks up where
+      the user left off. }
+    Log('Cleaning cached data during uninstall');
+    CleanCachedData();
   end;
 end;
 

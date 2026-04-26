@@ -587,13 +587,13 @@ class MainWindow(QMainWindow):
         self.preview_pane.setPlaceholderText(
             "Select a row to preview its rendered text."
         )
-        self.preview_pane.setMinimumWidth(320)
+        self.preview_pane.setMinimumWidth(420)
         self.preview_pane.setMaximumHeight(200)
 
         toolbar_row = QHBoxLayout()
         toolbar_row.setSpacing(12)
         toolbar_row.setContentsMargins(0, 0, 12, 0)
-        toolbar_row.addLayout(toolbar_layout, stretch=3)
+        toolbar_row.addLayout(toolbar_layout, stretch=2)
         toolbar_row.addWidget(self.preview_pane, stretch=1)
         main_layout.addLayout(toolbar_row)
 
@@ -2201,6 +2201,7 @@ class MainWindow(QMainWindow):
             "extract":      {"target": lambda: self.config_tab._extract_btn,                    "pre_action": _switch_to(config_tab)},
             "load":         {"target": lambda: self.load_btn,                                   "pre_action": _switch_to(strings_tab)},
             "edit":         {"target": lambda: self.table,                                      "pre_action": _switch_to(strings_tab)},
+            "preview":      {"target": lambda: self.preview_pane,                               "pre_action": _switch_to(strings_tab)},
             "apply":        {"target": lambda: self.apply_btn,                                  "pre_action": None},
             "enhancements": {"target": lambda: self.enhancements_tab._generate_enhancements_btn, "pre_action": _switch_to(enh_tab)},
             "help":         {"target": lambda: self.help_btn,                                   "pre_action": _switch_to(strings_tab)},
