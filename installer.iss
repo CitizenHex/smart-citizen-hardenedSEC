@@ -190,7 +190,7 @@ end;
 
 function GetDocumentsDir(): String;
 var
-  Override: String;
+  OverridePath: String;
 begin
   { Match the app's resolution order (AppSettings.get_user_data_dir):
       1. user_data_dir registry override — set when the user picked a
@@ -198,12 +198,12 @@ begin
          in-app data dir setting. If the app is storing cache here, the
          uninstaller MUST clean here too — otherwise stale 2GB+ caches
          survive uninstall.
-      2. {userdocs}\Smart Citizen — the default. }
+      2. userdocs \Smart Citizen — the default. }
   if RegQueryStringValue(HKCU,
     'Software\Osiris DevWorks\Smart Citizen',
-    'user_data_dir', Override) and (Override <> '') then
+    'user_data_dir', OverridePath) and (OverridePath <> '') then
   begin
-    Result := Override;
+    Result := OverridePath;
     Exit;
   end;
   Result := GetDocumentsBase() + '\Smart Citizen';
