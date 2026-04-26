@@ -542,10 +542,12 @@ class MainWindow(QMainWindow):
         # Ensure cache directory exists
         AppSettings.get_cache_dir()
 
-        # Defer startup loading until after the window is shown.
-        # QTimer.singleShot(0) fires on the next event loop iteration, after show().
-        QTimer.singleShot(0, self._start_startup_sync)
-        QTimer.singleShot(0, self._maybe_auto_check_app_updates)
+        # Startup tasks (source sync + app-update check) are NOT kicked off
+        # here on purpose. They get scheduled by _maybe_start_first_run_tutorial
+        # so that, on a first-run launch where the guided tour is about to
+        # appear, their modal prompts (P4K extraction, "new version available",
+        # enhancements pipeline) don't pop over the coach-mark overlay and
+        # break the tour. See _start_post_tutorial_tasks.
 
         # Ensure user.cfg has language setting
         from src.utils.user_cfg import ensure_user_cfg_language
@@ -2261,9 +2263,17 @@ class MainWindow(QMainWindow):
         """Launch the guided tour. Safe to call repeatedly; a running tour is ignored."""
         if getattr(self, "_tutorial_tour", None) is not None and self._tutorial_tour.is_running():
             return
-        self._tutorial_tour = TutorialTour(self, self._build_tutorial_steps())
-        self._tutorial_tour.finished.connect(self._on_tutorial_finished)
-        self._tutorial_tour.start()
+        try:
+            self._tutorial_tour = TutorialTour(self, self._build_tutorial_steps())
+            self._tutorial_tour.finished.connect(self._on_tutorial_finished)
+            self._tutorial_tour.start()
+        except Exception:
+            # Don't let a broken tour strand the deferred startup tasks —
+            # users without sources synced / update checks would never see
+            # P4K prompts or the new-version notice.
+            logger.exception("Tutorial failed to launch; running deferred startup tasks anyway")
+            self._tutorial_tour = None
+            self._start_post_tutorial_tasks()
 
     def _on_tutorial_finished(self, completed: bool) -> None:
         """Record completion on Finish; skip doesn't burn the flag so the user
@@ -2271,6 +2281,24 @@ class MainWindow(QMainWindow):
         if completed:
             AppSettings.set_tutorial_completed_version(get_version())
         self._tutorial_tour = None
+        # Now that the user is past (or has skipped) the tour, fire the
+        # deferred startup tasks. Their modal prompts would otherwise pop
+        # over the coach-mark overlay and break first-run.
+        self._start_post_tutorial_tasks()
+
+    def _start_post_tutorial_tasks(self) -> None:
+        """Fire the deferred startup tasks (source sync + app-update check) once.
+
+        Held back until the guided tour finishes so its modal prompts (P4K
+        extraction, app-update dialog, enhancements pipeline) don't pop over
+        the coach-mark overlay during first-run. Idempotent — safe to call
+        from multiple paths (no-tutorial branch, tour-finished, tour-skipped).
+        """
+        if getattr(self, "_post_tutorial_tasks_started", False):
+            return
+        self._post_tutorial_tasks_started = True
+        self._start_startup_sync()
+        self._maybe_auto_check_app_updates()
 
     def _maybe_start_first_run_tutorial(self) -> None:
         """Auto-start the tour on first launch of a version whose tour wasn't seen.
@@ -2280,6 +2308,11 @@ class MainWindow(QMainWindow):
         Hooked from showEvent so widgets have geometry; a short QTimer delay
         lets the restore-window-state pass finish before we compute spotlight
         rectangles.
+
+        Also responsible for kicking off the deferred startup tasks (source
+        sync + app-update check). On a first-run launch the tour starts and
+        those tasks are held back until ``_on_tutorial_finished``; otherwise
+        they fire here on the next event-loop tick.
         """
         if getattr(self, "_tutorial_first_run_checked", False):
             return
@@ -2287,6 +2320,7 @@ class MainWindow(QMainWindow):
         last_seen = AppSettings.get_tutorial_completed_version()
         current = get_version()
         if last_seen == current:
+            QTimer.singleShot(0, self._start_post_tutorial_tasks)
             return
         QTimer.singleShot(400, self._start_tutorial)
 
