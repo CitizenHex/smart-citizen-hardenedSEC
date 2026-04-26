@@ -1,7 +1,7 @@
 """Diff the cached base.ini between two Star Citizen channels.
 
 Smart Citizen extracts each channel's stock localization (LIVE / PTU / EPTU /
-TECH-PREVIEW) into ``Documents\\Smart Citizen\\<channel>\\cache\\base.ini``.
+HOTFIX / TECH-PREVIEW) into ``Documents\\Smart Citizen\\<channel>\\cache\\base.ini``.
 This tool diffs two of those files and reports added / removed / changed loc
 keys, both as a category-bucket summary and (optionally) as a full
 machine-readable list.

@@ -11,9 +11,9 @@ def ensure_user_cfg_language() -> bool:
     """Ensure Star Citizen's user.cfg has g_language = english setting.
 
     Writes to the **active channel's** ``user.cfg`` — whichever of
-    LIVE/PTU/EPTU/TECH-PREVIEW is currently selected. Creates the file if
-    absent, or adds the language line if present but missing the setting,
-    leaving other settings untouched.
+    LIVE/PTU/EPTU/HOTFIX/TECH-PREVIEW is currently selected. Creates the
+    file if absent, or adds the language line if present but missing the
+    setting, leaving other settings untouched.
 
     Returns:
         True if successful, False if the channel's install dir isn't

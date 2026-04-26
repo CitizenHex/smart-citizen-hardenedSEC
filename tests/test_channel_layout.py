@@ -75,9 +75,9 @@ def fake_user_data_dir(tmp_path, monkeypatch):
 
 
 class TestChannelConstants:
-    def test_four_channels_defined(self):
+    def test_channels_defined(self):
         assert set(AppSettings.AVAILABLE_CHANNELS) == {
-            "LIVE", "PTU", "EPTU", "TECH-PREVIEW"
+            "LIVE", "PTU", "EPTU", "HOTFIX", "TECH-PREVIEW"
         }
 
     def test_default_is_live(self):

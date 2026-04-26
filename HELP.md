@@ -15,7 +15,7 @@ Then click **Load Base File** on the toolbar to load the extracted `base.ini` in
 - Double-click any **Custom Value** cell to edit text.
 - **Default Value** — original text from `Data.p4k`-extracted `base.ini`.
 - **Current Value** — the effective value before your override (base + any imported INI layers).
-- **Custom Value** — your personal edit. Saved automatically on every change and persisted to `Documents\Smart Citizen\<channel>\user.ini` (each Star Citizen channel — LIVE, PTU, EPTU, TECH-PREVIEW — has its own isolated overrides).
+- **Custom Value** — your personal edit. Saved automatically on every change and persisted to `Documents\Smart Citizen\<channel>\user.ini` (each Star Citizen channel — LIVE, PTU, EPTU, HOTFIX, TECH-PREVIEW — has its own isolated overrides).
 - Edits are highlighted with a **Modified** status (green).
 
 ## 3. Preview Pane

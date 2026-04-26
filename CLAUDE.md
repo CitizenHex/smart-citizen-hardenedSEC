@@ -125,7 +125,7 @@ Favorites prepend a configurable prefix (default `*`) to `custom_value`. The pre
 |------|-------|
 | Settings | Windows Registry: `HKEY_CURRENT_USER\Software\Osiris DevWorks\Smart Citizen` |
 | User data root | `Documents\Smart Citizen\` (resolved via registry for OneDrive support) |
-| **Per-channel data** | `Documents\Smart Citizen\{LIVE|PTU|EPTU|TECH-PREVIEW}\` — 0.9.3+ nests user.ini / cache / backups / dataforge under the active channel so each SC channel is isolated. Migrator: `AppSettings.migrate_game_path_to_channel_layout()`. |
+| **Per-channel data** | `Documents\Smart Citizen\{LIVE|PTU|EPTU|HOTFIX|TECH-PREVIEW}\` — 0.9.3+ nests user.ini / cache / backups / dataforge under the active channel so each SC channel is isolated. Migrator: `AppSettings.migrate_game_path_to_channel_layout()`. |
 | User overrides | `Documents\Smart Citizen\{active_channel}\user.ini` (legacy `overrides.ini`, auto-migrated) |
 | Cached sources | `Documents\Smart Citizen\{active_channel}\cache\` (`base.ini`, `contracts.ini`, etc.) |
 | DataForge cache | `Documents\Smart Citizen\{active_channel}\cache\dataforge\` (entity XMLs from Data.p4k) |

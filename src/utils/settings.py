@@ -43,10 +43,10 @@ class AppSettings:
     LAST_UPDATE_CHECK_EPOCH = "last_update_check_epoch"
 
     # Settings keys - Star Citizen channel selection
-    # Star Citizen ships multiple channels (LIVE/PTU/EPTU/TECH-PREVIEW) under
-    # a common install root, each with its own Data.p4k. We store the root
-    # directory + the active channel name separately so the rest of the app
-    # can resolve channel-specific paths from a single source of truth.
+    # Star Citizen ships multiple channels (LIVE/PTU/EPTU/HOTFIX/TECH-PREVIEW)
+    # under a common install root, each with its own Data.p4k. We store the
+    # root directory + the active channel name separately so the rest of the
+    # app can resolve channel-specific paths from a single source of truth.
     # Legacy installs with ``GAME_INSTALL_PATH = {root}\LIVE`` are migrated
     # by ``migrate_game_path_to_channel_layout`` on first launch.
     SC_INSTALL_ROOT = "sc_install_root"
@@ -58,8 +58,15 @@ class AppSettings:
     CHANNEL_LIVE = "LIVE"
     CHANNEL_PTU = "PTU"
     CHANNEL_EPTU = "EPTU"
+    CHANNEL_HOTFIX = "HOTFIX"
     CHANNEL_TECH_PREVIEW = "TECH-PREVIEW"
-    AVAILABLE_CHANNELS = (CHANNEL_LIVE, CHANNEL_PTU, CHANNEL_EPTU, CHANNEL_TECH_PREVIEW)
+    AVAILABLE_CHANNELS = (
+        CHANNEL_LIVE,
+        CHANNEL_PTU,
+        CHANNEL_EPTU,
+        CHANNEL_HOTFIX,
+        CHANNEL_TECH_PREVIEW,
+    )
     DEFAULT_CHANNEL = CHANNEL_LIVE
 
     # Enhancements cache filenames (written by generate_enhancements_ini.py into cache dir)
@@ -976,7 +983,7 @@ class AppSettings:
 
     @staticmethod
     def get_active_channel() -> str:
-        r"""Return the active Star Citizen channel (LIVE/PTU/EPTU/TECH-PREVIEW).
+        r"""Return the active Star Citizen channel (LIVE/PTU/EPTU/HOTFIX/TECH-PREVIEW).
 
         Falls back to :data:`DEFAULT_CHANNEL` when unset or unrecognized —
         safer than raising, since path helpers downstream depend on this and

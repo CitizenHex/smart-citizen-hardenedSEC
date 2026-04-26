@@ -81,7 +81,7 @@ class ConfigTab(QWidget):
 
         game_desc = QLabel(
             "Path to your Star Citizen install root (the directory containing "
-            "LIVE, PTU, EPTU, TECH-PREVIEW)."
+            "LIVE, PTU, EPTU, HOTFIX, TECH-PREVIEW)."
         )
         game_desc.setProperty("role", "secondary")
         game_desc.setStyleSheet("font-size: 11px; margin-bottom: 5px;")
@@ -96,9 +96,9 @@ class ConfigTab(QWidget):
         )
         self.game_path_input.setToolTip(
             "Star Citizen install root — the directory that contains LIVE/, "
-            "PTU/, EPTU/, and/or TECH-PREVIEW/. Auto-detected at install time; "
-            "edit if your game lives elsewhere. The 'Channel' dropdown below "
-            "picks which one the app reads and writes."
+            "PTU/, EPTU/, HOTFIX/, and/or TECH-PREVIEW/. Auto-detected at "
+            "install time; edit if your game lives elsewhere. The 'Channel' "
+            "dropdown below picks which one the app reads and writes."
         )
         self.game_path_input.editingFinished.connect(self._save_game_path)
         game_input_layout.addWidget(self.game_path_input)
@@ -109,7 +109,7 @@ class ConfigTab(QWidget):
         game_input_layout.addWidget(game_browse_btn)
         game_layout.addLayout(game_input_layout)
 
-        # ── Channel selector (LIVE / PTU / EPTU / TECH-PREVIEW) ─────────────
+        # ── Channel selector (LIVE / PTU / EPTU / HOTFIX / TECH-PREVIEW) ───
         channel_row = QHBoxLayout()
         channel_label = QLabel("Channel:")
         channel_label.setStyleSheet("font-size: 11px;")

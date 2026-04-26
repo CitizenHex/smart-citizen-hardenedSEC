@@ -9,7 +9,7 @@ A Windows desktop app for customizing Star Citizen's localization strings. Layer
 
 ## Features
 
-- **Multi-Channel Star Citizen Support**: LIVE / PTU / EPTU / TECH-PREVIEW each get their own isolated workspace — independent `user.ini`, cache, backups, DataForge extraction, and enhancement INIs. Switch channels from the Config tab without restarting.
+- **Multi-Channel Star Citizen Support**: LIVE / PTU / EPTU / HOTFIX / TECH-PREVIEW each get their own isolated workspace — independent `user.ini`, cache, backups, DataForge extraction, and enhancement INIs. Switch channels from the Config tab without restarting.
 - **Multi-Source Merge System**: Configurable sources (stock, contracts, components, ships, commodities, gear, user) merge in a drag-and-drop priority order, with user overrides always applied last so your edits never get overwritten.
 - **Sourced from Data.p4k**: All stock localization and DataForge entity data is extracted directly from your installed game — no community mirrors, no version drift, no network required after install.
 - **Inline Editing & Live Preview**: Double-click any cell in the *Custom Value* column to edit. A preview pane next to the toolbar renders the selected string with the game's loc-tokens (line breaks, EM3/EM4 emphasis, mission placeholders) translated to styled HTML so you see roughly how it will appear in-game.
@@ -85,7 +85,7 @@ All settings are stored in Windows Registry under:
 
 The Config tab lets you set:
 - **Star Citizen install path** (the SC root folder containing `LIVE/`, `PTU/`, etc. — auto-detected at install time)
-- **Active channel** (LIVE / PTU / EPTU / TECH-PREVIEW)
+- **Active channel** (LIVE / PTU / EPTU / HOTFIX / TECH-PREVIEW)
 - **Theme**
 - **Data sources**: enable/disable, drag-drop merge priority
 - **Import INI**: fold an external `.ini` into your overrides
@@ -94,7 +94,7 @@ The Enhancements tab lets you toggle each enhancement category (ship stats, weap
 
 ### Data Storage
 
-All per-user data lives under `Documents\Smart Citizen\<channel>\`, where `<channel>` is one of `LIVE`, `PTU`, `EPTU`, `TECH-PREVIEW`:
+All per-user data lives under `Documents\Smart Citizen\<channel>\`, where `<channel>` is one of `LIVE`, `PTU`, `EPTU`, `HOTFIX`, `TECH-PREVIEW`:
 
 - **Your edits**: `user.ini`
 - **Cached sources & extracted DataForge**: `cache\` (`base.ini`, `cache\dataforge\`, and the generated `*_enhancements.ini` files)
@@ -158,7 +158,7 @@ For a deeper guide to architecture and conventions, see `CLAUDE.md` at the repo 
 After applying localization, the relevant path inside your Star Citizen install looks like:
 ```
 StarCitizen/
-└── LIVE/                    (or PTU/, EPTU/, TECH-PREVIEW/)
+└── LIVE/                    (or PTU/, EPTU/, HOTFIX/, TECH-PREVIEW/)
     ├── user.cfg
     └── data/
         └── Localization/
