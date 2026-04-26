@@ -454,60 +454,126 @@ class AppSettings:
         key = f"{AppSettings.SOURCE_AUTO_UPDATE_PREFIX}/{source_name}"
         AppSettings.settings().setValue(key, enabled)
 
+    # One-shot marker for migrate_remove_retired_url_sources(). Stored in the
+    # registry so the prune runs exactly once per user, then gets out of the
+    # way on subsequent launches.
+    RETIRED_URL_SOURCES_PRUNED = "_retired_url_sources_pruned"
+
+    # Sources that were retired in 0.7.0 when the app moved to local Data.p4k
+    # extraction + locally-generated *_enhancements.ini files. New installs
+    # don't get them; existing installs with these sources still in their
+    # registry get them pruned by migrate_remove_retired_url_sources().
+    RETIRED_URL_SOURCE_NAMES = (
+        SOURCE_CONTRACTS,
+        SOURCE_COMPONENTS,
+        SOURCE_SHIPS,
+        SOURCE_COMMODITIES,
+    )
+
     @staticmethod
     def migrate_legacy_settings() -> None:
-        """Migrate old settings keys to new data source format.
+        """Initialize default sources for a fresh install.
 
-        Called on first run with new version. Preserves old settings while
-        populating new ones for backward compatibility.
+        Despite the name, this is the "set defaults if no settings exist"
+        function — it short-circuits if the global source has already been
+        registered. It seeds only the two sources the app actually uses:
+
+          * ``global`` — locally-cached ``base.ini`` from Data.p4k extraction
+          * ``user``   — per-channel ``user.ini`` (created lazily on first edit)
+
+        The ``enhancements`` source is dynamically injected by
+        :func:`load_sources_from_settings` based on which enhancement
+        categories the user has enabled — it doesn't need a registry entry.
+
+        The 0.x defaults registered four extra URL-based sources
+        (contracts/components/ships/commodities) pointing at a ``data/``
+        folder that was retired in 0.7.0. Those are no longer registered for
+        new installs, and existing installs are cleaned up by
+        :func:`migrate_remove_retired_url_sources`.
         """
         settings = AppSettings.settings()
 
-        # Check if migration has already been done (look for contracts as the latest addition)
-        if settings.value(f"{AppSettings.DATA_SOURCES_PREFIX}/{AppSettings.SOURCE_CONTRACTS}/path"):
-            return  # Already migrated
+        # Idempotence: check the global source registration as the marker.
+        # (Pre-1.0 the marker was the contracts source — that key may still
+        # exist on upgraders but the dedicated retired-source migrator below
+        # will remove it on the same launch.)
+        if settings.value(f"{AppSettings.DATA_SOURCES_PREFIX}/{AppSettings.SOURCE_GLOBAL}/path"):
+            return
 
-        # Global: point to local cached base.ini (populated by P4K extraction).
-        # No remote URL — users extract from their own Data.p4k.
+        # Global: locally-cached base.ini, populated by P4K extraction.
         global_local_path = str(AppSettings.get_cache_dir() / 'base.ini')
         AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, global_local_path)
         AppSettings.set_source_enabled(AppSettings.SOURCE_GLOBAL, True)
         AppSettings.set_source_auto_update(AppSettings.SOURCE_GLOBAL, False)
 
-        # Contracts: OsirisDevworks-hosted
-        contracts_url = "https://raw.githubusercontent.com/Osiris-DevWorks/smart-citizen/main/data/contracts.ini"
-        AppSettings.set_source_path(AppSettings.SOURCE_CONTRACTS, contracts_url)
-        AppSettings.set_source_enabled(AppSettings.SOURCE_CONTRACTS, True)
-        AppSettings.set_source_auto_update(AppSettings.SOURCE_CONTRACTS, True)
-
-        # Components: OsirisDevworks-hosted
-        components_url = "https://raw.githubusercontent.com/Osiris-DevWorks/smart-citizen/main/data/components.ini"
-        AppSettings.set_source_path(AppSettings.SOURCE_COMPONENTS, components_url)
-        AppSettings.set_source_enabled(AppSettings.SOURCE_COMPONENTS, True)
-        AppSettings.set_source_auto_update(AppSettings.SOURCE_COMPONENTS, True)
-
-        # Ships: OsirisDevworks-hosted
-        ships_url = "https://raw.githubusercontent.com/Osiris-DevWorks/smart-citizen/main/data/ships.ini"
-        AppSettings.set_source_path(AppSettings.SOURCE_SHIPS, ships_url)
-        AppSettings.set_source_enabled(AppSettings.SOURCE_SHIPS, True)
-        AppSettings.set_source_auto_update(AppSettings.SOURCE_SHIPS, True)
-
-        # Commodities: OsirisDevworks-hosted
-        commodities_url = "https://raw.githubusercontent.com/Osiris-DevWorks/smart-citizen/main/data/commodities.ini"
-        AppSettings.set_source_path(AppSettings.SOURCE_COMMODITIES, commodities_url)
-        AppSettings.set_source_enabled(AppSettings.SOURCE_COMMODITIES, True)
-        AppSettings.set_source_auto_update(AppSettings.SOURCE_COMMODITIES, True)
-
-        # User source: set to user.ini path
+        # User: per-channel user.ini.
         user_path = str(AppSettings.get_user_ini_path())
         AppSettings.set_source_path(AppSettings.SOURCE_USER, user_path)
 
-        # Default hierarchy: global → components → contracts → commodities → user
+        # Default hierarchy: global → user. The enhancements source is
+        # auto-inserted between them at load time when its files exist.
         AppSettings.set_merge_hierarchy(
-            [AppSettings.SOURCE_GLOBAL, AppSettings.SOURCE_COMPONENTS,
-             AppSettings.SOURCE_CONTRACTS, AppSettings.SOURCE_COMMODITIES,
-             AppSettings.SOURCE_USER]
+            [AppSettings.SOURCE_GLOBAL, AppSettings.SOURCE_USER]
         )
+
+    @staticmethod
+    def migrate_remove_retired_url_sources() -> bool:
+        """One-shot prune of the four URL-based sources retired in 0.7.0.
+
+        Pre-1.0 ``migrate_legacy_settings()`` registered ``contracts``,
+        ``components``, ``ships``, and ``commodities`` pointing at a
+        ``data/<name>.ini`` folder in the GitHub repo. That folder was
+        retired in 0.7.0 when the app switched to local Data.p4k extraction
+        + locally-generated ``*_enhancements.ini``, so those URLs have been
+        404-ing silently for ~10 versions and produce zero-key rows in the
+        Merge Preview.
+
+        For each retired source name:
+          * if its registered path is a URL (the original default state),
+            delete the source's registry entries and remove it from the
+            merge hierarchy;
+          * if its path is a local file (rare — user manually re-pointed
+            it at their own INI), leave it alone.
+
+        Marker-gated via :data:`RETIRED_URL_SOURCES_PRUNED` so this runs
+        exactly once per user.
+
+        Returns:
+            True if any source was actually removed, False if the migration
+            had already run or there was nothing to clean up.
+        """
+        settings = AppSettings.settings()
+        if settings.value(AppSettings.RETIRED_URL_SOURCES_PRUNED, False, type=bool):
+            return False
+
+        removed: list[str] = []
+        for source_name in AppSettings.RETIRED_URL_SOURCE_NAMES:
+            path = AppSettings.get_source_path(source_name)
+            if not path:
+                continue
+            if not (path.startswith('http://') or path.startswith('https://')):
+                logger.info(
+                    f"Skipping retired-source prune for {source_name}: "
+                    f"path is local ({path}), not a URL — preserving user override"
+                )
+                continue
+            # Nuke every key under data_sources/<name>/...
+            settings.remove(f"{AppSettings.DATA_SOURCES_PREFIX}/{source_name}")
+            removed.append(source_name)
+
+        if removed:
+            hierarchy = AppSettings.get_merge_hierarchy()
+            new_hierarchy = [s for s in hierarchy if s not in removed]
+            if new_hierarchy != hierarchy:
+                AppSettings.set_merge_hierarchy(new_hierarchy)
+            logger.info(
+                f"Pruned retired URL-based sources: {removed} — "
+                f"these defunct defaults from pre-0.7.0 produce no data and "
+                f"have been removed from the merge hierarchy"
+            )
+
+        settings.setValue(AppSettings.RETIRED_URL_SOURCES_PRUNED, True)
+        return bool(removed)
 
     @staticmethod
     def migrate_global_to_p4k_local() -> bool:

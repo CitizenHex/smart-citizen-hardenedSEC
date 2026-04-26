@@ -58,6 +58,13 @@ def main():
     # Migrate legacy settings to new data source format
     AppSettings.migrate_legacy_settings()
 
+    # One-shot prune of the four URL-based sources (contracts/components/
+    # ships/commodities) retired in 0.7.0 when the app switched to local
+    # Data.p4k extraction. They've been silently 404-ing for ~10 versions
+    # and produced zero-key rows in the Merge Preview. Marker-gated so it
+    # runs exactly once per user.
+    AppSettings.migrate_remove_retired_url_sources()
+
     # Migrate global source from any remote URL to local P4K cache path (v0.6.0+)
     AppSettings.migrate_global_to_p4k_local()
 
