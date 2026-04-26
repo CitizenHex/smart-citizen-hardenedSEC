@@ -21,6 +21,7 @@ Thanks to the testers and contributors who helped shape Smart Citizen with their
 - **Tichro**
 - **Flat Earth**
 - **Lord Valium**
+- **Zero**
 
 Smart Citizen also bundles upstream tooling from:
 
@@ -51,7 +52,7 @@ Smart Citizen also bundles upstream tooling from:
 - **Selective Categories**: Enable or disable each enhancement category independently from the Enhancements tab
 
 ### 🎨 Themes
-- **SCLE (default)**: Deep-navy cyber theme inspired by Star Citizen's mobiGlas UI
+- **Default**: Deep-navy cyber theme inspired by Star Citizen's mobiGlas UI
 - **Light / Dark**: Classic UI themes
 - **ODW**: Osiris DevWorks signature theme — navy charcoal with antique gold
 
