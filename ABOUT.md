@@ -47,7 +47,7 @@ Smart Citizen also bundles upstream tooling from:
 - **Ship Stats**: SCM speed, hydrogen fuel, quantum fuel, cargo capacity, and weapon loadouts appended to ship descriptions
 - **Component Stats**: Shield HP, power draw, cooling rate, and other stats for ship components
 - **Weapon Stats**: DPS, fire rate, range, and damage stats for ship weapons and FPS weapons
-- **Mission Rewards**: Payment amounts appended to mission descriptions
+- **Mission Annotations**: `[BP]` / `[BP?]` blueprint reward tags on titles, plus structured *MISSION DETAILS*, *POTENTIAL BLUEPRINTS*, and *ITEM REWARDS* blocks in descriptions
 - **Selective Categories**: Enable or disable each enhancement category independently from the Enhancements tab
 
 ### 🎨 Themes

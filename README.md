@@ -2,39 +2,42 @@
 
 *Smarter Strings for Star Citizen*
 
-A PyQt6 GUI application for managing Star Citizen localization string customizations.
+A Windows desktop app for customizing Star Citizen's localization strings. Layer auto-generated stat and crafting enhancements on top of stock text, edit any in-game string in a sortable filterable table, and apply the result to your game install with a single click and an automatic backup.
 
 > [!NOTE]
-> This project is forked from [ExoAE's ScCompLangPack](https://github.com/ExoAE/ScCompLangPack) and built upon the merge concepts from [MrKraken's ASOP terminal enhancements](https://www.youtube.com/@MrKraken). In this application, we've created an intuitive desktop GUI to make localization customization more user-friendly.
+> This project was originally inspired by [ExoAE's ScCompLangPack](https://github.com/ExoAE/ScCompLangPack) and the merge concepts from [MrKraken's ASOP terminal enhancements](https://www.youtube.com/@MrKraken). Smart Citizen evolved into a standalone desktop app sourcing its data directly from your installed `Data.p4k`.
 
 ## Features
 
-- **Multi-Source Data System**: Configure multiple data sources (Global, Contracts, Components, Ships, Commodities, Gear) with drag-and-drop merge hierarchy
-- **Auto-Update**: Automatically checks GitHub for the latest localization files from community repos
-- **Load & Edit**: Load and merge sources, then customize strings in an intuitive table view
-- **Persistent Edits**: Your customizations are saved to `overrides.ini` and automatically re-applied
-- **Seamless Migration**: When Star Citizen updates, your edits are automatically re-applied to new base files
-- **Search & Filter**: Filter by search text, category (Ships, Ship Items, Gear, Commodities, Missions, Other), or modification status
-- **Ship Favorites**: Mark ships as favorites with a configurable prefix; filter to show favorites only
-- **Stats Enhancements**: Auto-generated ship, component, and weapon stat descriptions via DataForge extraction
-- **P4K Extraction**: Extract and convert game data from Data.p4k for stats generation
-- **Apply to Game**: Writes merged localization file directly to your installation
-- **Backup & Restore**: Automatic timestamped backups with easy one-click restore (max 5)
-- **Clear Localization**: Revert to vanilla game text while preserving your saved edits
-- **Settings Persistence**: All paths and preferences saved in Windows Registry
+- **Multi-Channel Star Citizen Support**: LIVE / PTU / EPTU / TECH-PREVIEW each get their own isolated workspace — independent `user.ini`, cache, backups, DataForge extraction, and enhancement INIs. Switch channels from the Config tab without restarting.
+- **Multi-Source Merge System**: Configurable sources (stock, contracts, components, ships, commodities, gear, user) merge in a drag-and-drop priority order, with user overrides always applied last so your edits never get overwritten.
+- **Sourced from Data.p4k**: All stock localization and DataForge entity data is extracted directly from your installed game — no community mirrors, no version drift, no network required after install.
+- **Inline Editing & Live Preview**: Double-click any cell in the *Custom Value* column to edit. A preview pane next to the toolbar renders the selected string with the game's loc-tokens (line breaks, EM3/EM4 emphasis, mission placeholders) translated to styled HTML so you see roughly how it will appear in-game.
+- **Persistent Edits**: Your customizations are saved to `user.ini` per channel and automatically re-applied across game updates.
+- **Auto-Generated Enhancements**: Stat overlays for ships, ship components, ship weapons, FPS weapons, missions (with `[BP]`/`[BP?]` blueprint reward tags + structured detail blocks), journal entries, and commodity crafting cross-references — all togglable per category in the Enhancements tab.
+- **Declarative CIG Data-Bug Patches**: A patch system applies fixes to known DataForge bugs at extraction time so the in-game text reads correctly without waiting on CIG.
+- **Search & Filter**: Free-text search, category filter (Ships, Ship Items, Missions, Gear, Commodities, Journal, Other), modified/unmodified status, plus per-column filter rows under every header.
+- **Ship Favorites**: Star a ship to prepend a configurable prefix (default `*`) so your favorites sort to the top of the in-game ASOP terminal.
+- **Apply to Game**: Writes the merged result to your `global.ini`, takes a timestamped backup first, and validates the output against the stock key set — auto-rolls back on any mismatch.
+- **Backup & Restore**: Up to 5 automatic backups per channel, oldest auto-pruned. One-click restore from any of them.
+- **Clear Localization**: Revert your game to vanilla text without losing your saved overrides.
+- **Guided Tutorial**: A coach-mark tour walks new users through the workflow on first launch of each version. Replayable any time from the Tutorial button.
+- **In-App Log Viewer**: Real-time application log with level filter, auto-scroll, and an Export button for bug reports.
+- **Auto-Update Notifier**: Smart Citizen checks GitHub Releases every 6 hours and surfaces a non-blocking notification when a newer installer is available.
+- **Themes**: Four built-in themes — SCLE (default deep-navy mobiGlas), Light, Dark, and ODW (Osiris DevWorks signature).
 
 ## Quick Start
 
 ### Using the Release
 Grab the latest release here: [Smart Citizen Releases](https://github.com/Osiris-DevWorks/smart-citizen/releases)
 
-Just download the **-Setup.exe** installer and run it. The app will auto-detect your Star Citizen installation.
+Download the **`SmartCitizen-{VERSION}-Setup.exe`** installer and run it. The app auto-detects your Star Citizen installation.
 
 ### For Developers
 
 **Prerequisites**:
 - Python 3.9+ (recommended 3.10+)
-- Windows 10/11 (application uses Windows Registry for settings)
+- Windows 10/11 (the app uses Windows Registry and is Win32-only)
 
 **Installation**:
 
@@ -57,27 +60,22 @@ Just download the **-Setup.exe** installer and run it. The app will auto-detect 
 ## Usage
 
 ### First Run
-1. The app creates `Documents\SC Localization Editor\` for user data (cache, backups, overrides)
-2. Pre-configured sources (Global, Contracts from MrKraken; Ships, Commodities, Gear from Osiris-DevWorks) are auto-downloaded
-3. Sources are merged in hierarchy order and displayed in the table
+1. The app creates `Documents\Smart Citizen\<channel>\` (one subdir per Star Citizen channel) for user data — cache, backups, `user.ini`.
+2. Open the Config tab and click **Extract from Data.p4k** to unpack stock localization plus DataForge entity data from your installed game.
+3. Click **Load Base File** on the toolbar — sources merge by hierarchy and the strings load into the table.
+4. The guided tutorial auto-runs the first time you launch a new version, walking you through the rest.
 
 ### Standard Workflow
-1. **Configure Sources** (optional): Use the Config tab to add/edit sources and drag-drop to set merge priority
-2. **Find & Customize**:
-   - Use the **Search** box to find strings (searches key and value)
-   - Use **Category** filter (Ships, Ship Items, Gear, Commodities, Missions, Other)
-   - Double-click the **Custom Value** column to edit
-3. **Apply Changes**: Click **"Apply to Game"**
-   - Your customizations are saved to `overrides.ini`
-   - The game file is updated with all your edits merged in
-   - A timestamped backup is created automatically
-4. **Restore** (if needed): Click **"Restore Backup"** to revert to a previous version
+1. **Find & Edit**:
+   - Use the **Search** box to find strings, the **Category** filter to narrow by domain (Ships, Ship Items, Missions, Gear, Commodities, Journal, Other), and per-column filter boxes for fine-grained narrowing.
+   - Double-click the **Custom Value** column to edit. The preview pane shows the rendered result.
+2. **Apply Changes**: Click **Apply to Game**. Your edits are persisted to `user.ini`, the merged file is written to your game's `global.ini`, and a timestamped backup is created automatically.
+3. **Restore** (if needed): Click **Restore Backup** to revert to a previous version.
 
 ### After Star Citizen Updates
-1. Obtain the new base file (the app can auto-download from GitHub)
-2. Your saved customizations automatically re-apply (shown as "Modified" in green)
-3. Click **"Apply to Game"** — done! Your game has all new keys + your custom edits
-4. If the game update includes a new Data.p4k, use the Config tab to re-extract DataForge data for updated stats
+1. Re-run **Extract from Data.p4k** in the Config tab to pull fresh stock strings and DataForge entity data from the patched game.
+2. **Load Base File** — your customizations re-apply on top automatically.
+3. Click **Apply to Game** to push the updated merge into the new build.
 
 ## Configuration
 
@@ -86,84 +84,81 @@ All settings are stored in Windows Registry under:
 - **Application**: Smart Citizen
 
 The Config tab lets you set:
-- **Data sources**: Path/URL, enable/disable, auto-update per source
-- **Merge hierarchy**: Drag-and-drop source priority order
-- **Star Citizen install path**: Where to apply your customizations
-- **Stats toggle**: Enable/disable auto-generated stat descriptions
-- **DataForge extraction**: Extract entity data from game's Data.p4k
+- **Star Citizen install path** (the SC root folder containing `LIVE/`, `PTU/`, etc. — auto-detected at install time)
+- **Active channel** (LIVE / PTU / EPTU / TECH-PREVIEW)
+- **Theme**
+- **Data sources**: enable/disable, drag-drop merge priority
+- **Import INI**: fold an external `.ini` into your overrides
+
+The Enhancements tab lets you toggle each enhancement category (ship stats, weapon stats, mission tags, etc.) and configure the ship favorite prefix character.
 
 ### Data Storage
-- **Your edits**: `Documents\SC Localization Editor\overrides.ini`
-- **Cached sources**: `Documents\SC Localization Editor\cache\` (base.ini, contracts.ini, ships.ini, etc.)
-- **DataForge cache**: `Documents\SC Localization Editor\cache\dataforge\` (entity XMLs)
-- **Stats data**: `Documents\SC Localization Editor\cache\` (ships_desc_stats.ini, components_desc_stats.ini, etc.)
-- **Backups**: `Documents\SC Localization Editor\backups\` (max 5, oldest auto-deleted)
+
+All per-user data lives under `Documents\Smart Citizen\<channel>\`, where `<channel>` is one of `LIVE`, `PTU`, `EPTU`, `TECH-PREVIEW`:
+
+- **Your edits**: `user.ini`
+- **Cached sources & extracted DataForge**: `cache\` (`base.ini`, `cache\dataforge\`, and the generated `*_enhancements.ini` files)
+- **Backups**: `backups\` (max 5, oldest auto-deleted)
+
+Each channel is fully isolated — you can run a different customization set on PTU than on LIVE without one bleeding into the other.
 
 ## Building & Release
 
-### Development Build
+### Development Run
 ```bash
 python src/main.py
 ```
 
 ### Create Executable
 ```bash
-cd scripts/build
-python build_exe.py
+python scripts/build/build_exe.py
 ```
-This creates `dist/SmartCitizen-v{VERSION}.exe` using PyInstaller, where VERSION comes from `VERSION.TXT`.
+This creates a PyInstaller onedir at `dist/SmartCitizen-v{VERSION}\` containing `SmartCitizen-v{VERSION}.exe`. VERSION comes from `VERSION.TXT`.
 
 ### Create Installer (Windows)
-Requires [Inno Setup](https://jrsoftware.org/isdl.php):
+Requires [Inno Setup 6](https://jrsoftware.org/isdl.php):
 ```bash
-cd scripts/build
-build_all.bat
+powershell -NoProfile -Command "& 'C:\Users\<you>\AppData\Local\Programs\Inno Setup 6\ISCC.exe' installer.iss"
 ```
 
-The build script:
-1. Cleans old builds
-2. Builds the executable with PyInstaller
-3. Compiles the installer with Inno Setup (if installed)
-
 Outputs:
-- `dist/SmartCitizen-v{VERSION}\SmartCitizen-v{VERSION}.exe` - Standalone executable (onedir)
-- `dist/SmartCitizen-v{VERSION}-Setup.exe` - Installer
+- `dist/SmartCitizen-v{VERSION}\` — Standalone executable (onedir, distributed via the installer)
+- `dist/SmartCitizen-{VERSION}-Setup.exe` — Installer (this is what users download)
+
+The installer preserves user data — `user.ini` and `backups/` survive both upgrades and uninstalls; only the regeneratable cache is removed on uninstall.
 
 ## Project Structure
 
 ```
 src/
-├── main.py                 # Application entry point
-├── gui/
-│   ├── main_window.py      # Main UI window with threading
-│   └── config_tab.py       # Settings panel
-├── models/
-│   └── string_model.py     # StringEntry dataclass
-├── parser/
-│   └── ini_parser.py       # INI file parsing & source loading
-├── merger/
-│   └── ini_merger.py       # Merge engine
-└── utils/
-    ├── settings.py         # Windows Registry settings management
-    ├── version.py          # Version reader from VERSION.TXT
-    ├── updater.py          # GitHub API check + download/extract
-    ├── pak_extractor.py    # P4K extraction + DataForge conversion
-    └── overrides_manager.py # Overrides persistence
+├── main.py                       # Application entry point
+├── gui/                          # PyQt6 widgets and dialogs
+├── models/                       # StringEntry dataclass, category extraction
+├── parser/                       # INI parsing + source loading
+├── merger/                       # Source merge engine
+└── utils/                        # Settings, paths, P4K extraction, patcher,
+                                  # version, updater, app_updater, progress sink
 
 scripts/
-├── generate_stats_ini.py   # DataForge XML → stats INI files
-├── extract_components.py   # base.ini delta extraction vs stock vanilla
-└── build/
-    ├── build_exe.py        # PyInstaller build script
-    └── build_all.bat       # Build exe + installer
+├── generate_enhancements_ini.py  # DataForge XML → enhancement INI files
+├── extract_components.py         # base.ini delta extraction
+├── gen_commodity_crafting.py     # Commodity crafting cross-reference INI
+├── diff_*.py                     # Diagnostic / research tools
+└── build/                        # PyInstaller build script + helpers
+
+patches/                          # Declarative DataForge patches (JSON)
+tests/                            # pytest suite
+assets/                           # Bundled resources (unp4k, fonts, icon, tutorial)
 ```
+
+For a deeper guide to architecture and conventions, see `CLAUDE.md` at the repo root.
 
 ## Game Installation Path
 
-After applying localization, your Star Citizen directory should look like:
+After applying localization, the relevant path inside your Star Citizen install looks like:
 ```
 StarCitizen/
-└── LIVE/
+└── LIVE/                    (or PTU/, EPTU/, TECH-PREVIEW/)
     ├── user.cfg
     └── data/
         └── Localization/
@@ -174,21 +169,21 @@ StarCitizen/
 ## Legal
 
 > [!IMPORTANT]
-> **Made by the Community** - This is an unofficial Star Citizen fan project, not affiliated with the Cloud Imperium group of companies. All content in this repository not authored by its host or users are property of their respective owners.
+> **Made by the Community** — This is an unofficial Star Citizen fan project, not affiliated with the Cloud Imperium group of companies. All content in this repository not authored by its host or users is the property of its respective owners.
 
-- The ability to customize your localization using extracted global.ini files is **authorized by CIG** to support community translations until officially integrated
+- The ability to customize your localization using extracted `global.ini` files is **authorized by CIG** to support community translations until officially integrated.
   - *[Star Citizen: Community Localization Update](https://robertsspaceindustries.com/spectrum/community/SC/forum/1/thread/star-citizen-community-localization-update) 2023-10-11*
-- Use at your own discretion as a third-party contribution
+- Use at your own discretion as a third-party contribution.
 - [RSI Terms of Service](https://robertsspaceindustries.com/en/tos)
 - [Translation & Fan Localization Statement](https://support.robertsspaceindustries.com/hc/en-us/articles/360006895793-Star-Citizen-Fankit-and-Fandom-FAQ#h_01JNKSPM7MRSB1WNBW6FGD2H98)
 
 ## Acknowledgments
 
-- [ExoAE](https://github.com/ExoAE/ScCompLangPack) - Original ScCompLangPack concept and merge logic
-- [MrKraken](https://github.com/MrKraken/StarStrings) - ASOP terminal enhancements, workflow improvements, and mission contract localization strings
-- [BeltaKoda](https://github.com/BeltaKoda/ScCompLangPackRemix) - Community language pack remix (base file source for auto-update)
-- [dolkensp/unp4k](https://github.com/dolkensp/unp4k) - Bundled `unp4k.exe` / `unforge.exe` used to unpack Data.p4k and convert DataForge to XML
-- Star Citizen Community - Localization support and testing
+- **Boogie Man, Tichro, Perseus, Flat Earth, Lord Valium** — testers who helped shape Smart Citizen across the 0.x cycle
+- [**dolkensp/unp4k**](https://github.com/dolkensp/unp4k) — Bundled `unp4k.exe` / `unforge.exe` used to unpack `Data.p4k` and convert DataForge to XML
+- [**ExoAE**](https://github.com/ExoAE/ScCompLangPack) — Original ScCompLangPack concept and merge logic that inspired Smart Citizen's foundation
+- [**MrKraken**](https://github.com/MrKraken/StarStrings) — ASOP terminal enhancements, workflow improvements, and mission contract localization work
+- The **Star Citizen community** — for endless feedback, testing, and ideas
 
 ## License
 
@@ -196,30 +191,18 @@ This project is provided as-is for community use. See LICENSE file for details.
 
 ## Support & Community
 
-### Getting Help
+### Feedback, Bugs & Feature Voting
+All bug reports, feature requests, and prioritization happen in the dedicated `#smart-citizen` channel on the Osiris DevWorks Discord. Reactions and polls drive what lands next.
 
-For issues, feature requests, or contributions:
-- **Join the Discord community** (link below) - Ask questions and get support
-- **Report bugs** with steps to reproduce on the GitHub issues page
-- **Request features** and suggest improvements
-- **Share your custom localization sets** with the community
+- **[Discord Server Invite](https://discord.gg/BNzRegKZ7k)** — join the server first, then jump into the [Smart Citizen feedback channel](https://discord.com/channels/1438175448420057323/1472394204347895890).
+- When reporting a bug, attach the log (Log tab → **Export**) and mention the SC version you're on.
 
 ### Support the Project
 
-Smart Citizen is a free, open-source project created to help Star Citizen players customize their game localization. If you find it useful and would like to support the development:
+Smart Citizen is a free, open-source project. If you find it useful and want to support development:
 
-**Donate:**
-- [PayPal Donation](https://paypal.me/RighteousKill) - Support via PayPal
-- [Venmo Donation](https://venmo.com/u/Amr-Abouelleil) - Support via Venmo
-
-**Contribute:**
-- Report bugs with steps to reproduce
-- Request features you'd like to see
-- Share configurations and localization sets with the community
-- Submit code contributions via GitHub
-
-**Join the Community:**
-- [Discord Community](https://discord.gg/BNzRegKZ7k) - Support, discussions, and feature requests
+- [PayPal Donation](https://paypal.me/RighteousKill)
+- [Venmo Donation](https://venmo.com/u/Amr-Abouelleil)
 
 ---
 
