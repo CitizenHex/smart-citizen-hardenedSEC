@@ -2429,7 +2429,13 @@ class MainWindow(QMainWindow):
         self._refresh_channel_indicator()
         self.config_tab._refresh_p4k_status()
         if hasattr(self, "enhancements_tab"):
-            self.enhancements_tab.refresh_forge_status()
+            # Use the full refresh — it updates the per-category status
+            # dots (which file by file reflect whether each enhancement INI
+            # exists in this channel's cache) and then calls
+            # refresh_forge_status() internally for the DataForge cache
+            # label. Calling only refresh_forge_status() would leave the
+            # per-category dots showing the prior channel's state.
+            self.enhancements_tab.refresh_enhancements_status()
 
         # Reset the "already prompted once" flag so the category-selection
         # dialog fires again for this channel's (potentially different) set
