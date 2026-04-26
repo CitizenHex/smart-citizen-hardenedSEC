@@ -189,7 +189,23 @@ begin
 end;
 
 function GetDocumentsDir(): String;
+var
+  Override: String;
 begin
+  { Match the app's resolution order (AppSettings.get_user_data_dir):
+      1. user_data_dir registry override — set when the user picked a
+         non-Documents folder during install (OneDrive escape) or via the
+         in-app data dir setting. If the app is storing cache here, the
+         uninstaller MUST clean here too — otherwise stale 2GB+ caches
+         survive uninstall.
+      2. {userdocs}\Smart Citizen — the default. }
+  if RegQueryStringValue(HKCU,
+    'Software\Osiris DevWorks\Smart Citizen',
+    'user_data_dir', Override) and (Override <> '') then
+  begin
+    Result := Override;
+    Exit;
+  end;
   Result := GetDocumentsBase() + '\Smart Citizen';
 end;
 
@@ -218,26 +234,43 @@ end;
 
 procedure CleanPerChannelCaches(UserDataDir: String);
 var
-  Channels: array[0..3] of String;
+  Channels: array[0..4] of String;
   i: Integer;
   CachePath: String;
+  Deleted: Boolean;
 begin
   { Per-channel layout (0.9.3+): each Star Citizen channel has its own
     user data subtree at Documents\Smart Citizen\<channel>\. Only \cache
     is disposable — \backups (the user's global.ini safety net) and
     user.ini (their customizations) must survive both install and
-    uninstall, so we delete \cache per channel and leave the rest alone. }
+    uninstall, so we delete \cache per channel and leave the rest alone.
+
+    Logs the path tried, the DelTree return value, and whether the
+    directory still exists afterwards. Surfaces silent failures (locked
+    files under OneDrive sync / Defender real-time scan) in the install
+    log so users reporting "cache wasn't removed" can be diagnosed. }
   Channels[0] := 'LIVE';
   Channels[1] := 'PTU';
   Channels[2] := 'EPTU';
-  Channels[3] := 'TECH-PREVIEW';
-  for i := 0 to 3 do
+  Channels[3] := 'HOTFIX';
+  Channels[4] := 'TECH-PREVIEW';
+  for i := 0 to 4 do
   begin
     CachePath := UserDataDir + '\' + Channels[i] + '\cache';
     if DirExists(CachePath) then
     begin
       Log('Deleting per-channel cache: ' + CachePath);
-      DelTree(CachePath, True, True, True);
+      Deleted := DelTree(CachePath, True, True, True);
+      if not Deleted then
+        Log('WARNING: DelTree returned false for ' + CachePath);
+      if DirExists(CachePath) then
+        Log('WARNING: cache path still exists after DelTree: ' + CachePath +
+            ' (likely a file is locked by OneDrive sync, Windows Defender, ' +
+            'or the Search Indexer — close those processes and retry the uninstaller)');
+    end
+    else
+    begin
+      Log('Per-channel cache absent (nothing to delete): ' + CachePath);
     end;
   end;
 end;
@@ -430,7 +463,7 @@ begin
   end;
 
   { Normalize the prompt default to the LIVE subfolder: if the resolved
-    path ends in \PTU, \EPTU, or \TECH-PREVIEW (because the app persisted
+    path ends in a non-LIVE channel name (because the app persisted
     game_install_path as the channel-suffixed path while the friend was
     on a non-LIVE channel), swap the suffix for \LIVE. The page is
     specifically asking for the LIVE directory; offering a non-LIVE one
@@ -438,6 +471,8 @@ begin
   if LowerCase(ExtractFileName(DefaultPath)) = 'ptu' then
     DefaultPath := ExtractFilePath(DefaultPath) + 'LIVE'
   else if LowerCase(ExtractFileName(DefaultPath)) = 'eptu' then
+    DefaultPath := ExtractFilePath(DefaultPath) + 'LIVE'
+  else if LowerCase(ExtractFileName(DefaultPath)) = 'hotfix' then
     DefaultPath := ExtractFilePath(DefaultPath) + 'LIVE'
   else if LowerCase(ExtractFileName(DefaultPath)) = 'tech-preview' then
     DefaultPath := ExtractFilePath(DefaultPath) + 'LIVE';
