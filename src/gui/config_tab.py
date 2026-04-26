@@ -403,9 +403,17 @@ class ConfigTab(QWidget):
 
             entries = load_source_files(sources_dict, hierarchy)
 
+            # Count contributions per source. The merge engine overlays later
+            # sources on top of earlier ones, with user.ini always winning —
+            # so a key the user has overridden is contributed by the user
+            # source, even though entry.source_file still records its
+            # original baseline source. Without this, the User row in the
+            # preview always reads 0 unless the user added a brand-new key.
+            from src.utils.settings import AppSettings as _AS
             source_counts = {}
             for entry in entries:
-                source_counts[entry.source_file] = source_counts.get(entry.source_file, 0) + 1
+                contributing = _AS.SOURCE_USER if entry.custom_value else entry.source_file
+                source_counts[contributing] = source_counts.get(contributing, 0) + 1
 
             text = "Merge Preview\n\nMerge Order (top to bottom):\n"
             for i, name in enumerate(hierarchy, 1):
