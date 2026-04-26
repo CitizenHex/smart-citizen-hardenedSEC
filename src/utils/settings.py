@@ -461,10 +461,12 @@ class AppSettings:
         key = f"{AppSettings.SOURCE_AUTO_UPDATE_PREFIX}/{source_name}"
         AppSettings.settings().setValue(key, enabled)
 
-    # One-shot marker for migrate_remove_retired_url_sources(). Stored in the
-    # registry so the prune runs exactly once per user, then gets out of the
-    # way on subsequent launches.
-    RETIRED_URL_SOURCES_PRUNED = "_retired_url_sources_pruned"
+    # One-shot marker for migrate_remove_retired_url_sources(). Versioned
+    # so the migration can pick up new retired source names in later
+    # releases without being blocked by an earlier run's marker. Always bump
+    # the version when expanding RETIRED_URL_SOURCE_NAMES — the prior marker
+    # stays in the registry but is ignored.
+    RETIRED_URL_SOURCES_PRUNED = "_retired_url_sources_pruned_v2"
 
     # Sources that were retired in 0.7.0 when the app moved to local Data.p4k
     # extraction + locally-generated *_enhancements.ini files. New installs
@@ -475,6 +477,7 @@ class AppSettings:
         SOURCE_COMPONENTS,
         SOURCE_SHIPS,
         SOURCE_COMMODITIES,
+        SOURCE_GEAR,
     )
 
     @staticmethod
@@ -553,34 +556,46 @@ class AppSettings:
         if settings.value(AppSettings.RETIRED_URL_SOURCES_PRUNED, False, type=bool):
             return False
 
-        removed: list[str] = []
+        # First pass: figure out which retired sources to prune. A source is
+        # eligible if EITHER its registry path is a URL (the original default
+        # state) OR it's in the merge hierarchy with no path stored at all
+        # (orphan hierarchy entry — happens when an even earlier version
+        # added the name to the hierarchy without a per-source registration).
+        # Sources with a local-file path are preserved (rare user override).
+        prior_hierarchy = AppSettings.get_merge_hierarchy()
+        in_hierarchy = set(prior_hierarchy)
+        prune: list[str] = []
         for source_name in AppSettings.RETIRED_URL_SOURCE_NAMES:
             path = AppSettings.get_source_path(source_name)
-            if not path:
-                continue
-            if not (path.startswith('http://') or path.startswith('https://')):
+            if path and not (path.startswith('http://') or path.startswith('https://')):
                 logger.info(
                     f"Skipping retired-source prune for {source_name}: "
                     f"path is local ({path}), not a URL — preserving user override"
                 )
                 continue
-            # Nuke every key under data_sources/<name>/...
-            settings.remove(f"{AppSettings.DATA_SOURCES_PREFIX}/{source_name}")
-            removed.append(source_name)
+            if not path and source_name not in in_hierarchy:
+                # No path AND not in hierarchy — nothing to prune for this one.
+                continue
+            prune.append(source_name)
 
-        if removed:
-            hierarchy = AppSettings.get_merge_hierarchy()
-            new_hierarchy = [s for s in hierarchy if s not in removed]
-            if new_hierarchy != hierarchy:
+        for source_name in prune:
+            # Nuke every key under data_sources/<name>/... (no-op if no path
+            # was registered, which is fine — Qt's remove() on a missing key
+            # is idempotent).
+            settings.remove(f"{AppSettings.DATA_SOURCES_PREFIX}/{source_name}")
+
+        if prune:
+            new_hierarchy = [s for s in prior_hierarchy if s not in prune]
+            if new_hierarchy != prior_hierarchy:
                 AppSettings.set_merge_hierarchy(new_hierarchy)
             logger.info(
-                f"Pruned retired URL-based sources: {removed} — "
+                f"Pruned retired URL-based sources: {prune} — "
                 f"these defunct defaults from pre-0.7.0 produce no data and "
                 f"have been removed from the merge hierarchy"
             )
 
         settings.setValue(AppSettings.RETIRED_URL_SOURCES_PRUNED, True)
-        return bool(removed)
+        return bool(prune)
 
     @staticmethod
     def migrate_global_to_p4k_local() -> bool:

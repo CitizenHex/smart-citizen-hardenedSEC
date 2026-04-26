@@ -2,11 +2,13 @@
 
 Covers:
 - migrate_legacy_settings() seeds only the live sources (global + user) for
-  fresh installs, with a [global, user] hierarchy. The four sources retired
-  in 0.7.0 (contracts/components/ships/commodities) are NOT registered.
-- migrate_remove_retired_url_sources() prunes the four retired sources from
+  fresh installs, with a [global, user] hierarchy. The five sources retired
+  in 0.7.0 (contracts/components/ships/commodities/gear) are NOT registered.
+- migrate_remove_retired_url_sources() prunes the five retired sources from
   upgraded users' registries, but only when their stored path is a URL —
-  local-path overrides are preserved.
+  local-path overrides are preserved. Also handles the orphan-hierarchy
+  case where a source is in the merge hierarchy without a per-source path
+  registration (gear was shipped this way in some pre-1.0 builds).
 - Both migrations are idempotent (safe to re-run on every launch).
 """
 from __future__ import annotations
@@ -54,7 +56,7 @@ def fake_user_data_dir(tmp_path, monkeypatch):
 
 
 def _seed_pre_1_0_defaults():
-    """Recreate the pre-1.0 default settings shape (4 retired URL sources +
+    """Recreate the pre-1.0 default settings shape (5 retired URL sources +
     global + user) so we can exercise the upgrader path."""
     AppSettings.set_source_path(
         AppSettings.SOURCE_GLOBAL,
@@ -74,6 +76,7 @@ def _seed_pre_1_0_defaults():
         AppSettings.SOURCE_COMPONENTS,
         AppSettings.SOURCE_CONTRACTS,
         AppSettings.SOURCE_COMMODITIES,
+        AppSettings.SOURCE_GEAR,
         AppSettings.SOURCE_USER,
     ])
 
@@ -121,7 +124,7 @@ class TestFreshInstallDefaults:
 
 
 class TestRetiredUrlSourcePrune:
-    def test_prunes_all_four_when_paths_are_urls(
+    def test_prunes_all_when_paths_are_urls(
         self, isolated_qsettings, fake_user_data_dir
     ):
         _seed_pre_1_0_defaults()
@@ -187,3 +190,26 @@ class TestRetiredUrlSourcePrune:
         # Marker should still be set so we don't re-scan on every launch
         result2 = AppSettings.migrate_remove_retired_url_sources()
         assert result2 is False
+
+    def test_prunes_orphan_hierarchy_entry(
+        self, isolated_qsettings, fake_user_data_dir
+    ):
+        """Some pre-1.0 builds shipped 'gear' in the merge hierarchy without
+        a corresponding per-source path registration. The migrator must
+        still drop it from the hierarchy — otherwise it shows up as a
+        Gear (0 keys) phantom in the Merge Preview forever."""
+        AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, "C:\\fake\\base.ini")
+        AppSettings.set_source_path(AppSettings.SOURCE_USER, "C:\\fake\\user.ini")
+        # Gear is in hierarchy with no path stored — orphan entry.
+        AppSettings.set_merge_hierarchy([
+            AppSettings.SOURCE_GLOBAL,
+            AppSettings.SOURCE_GEAR,
+            AppSettings.SOURCE_USER,
+        ])
+
+        result = AppSettings.migrate_remove_retired_url_sources()
+        assert result is True
+        assert AppSettings.get_merge_hierarchy() == [
+            AppSettings.SOURCE_GLOBAL,
+            AppSettings.SOURCE_USER,
+        ]
