@@ -7,8 +7,8 @@ from functools import lru_cache
 # All of these used to be re-created on every call. At 87k entries loaded and
 # extract_category() being hit twice per entry (filter pass in ini_parser +
 # StringEntry assignment in load_source_files), that was ~174k list/set
-# rebuilds and ~174k regex compilations per Load Base File. Hoisting them to
-# module scope plus the @lru_cache below dropped that whole block of work.
+# rebuilds and ~174k regex compilations per source-load pass. Hoisting them
+# to module scope plus the @lru_cache below dropped that whole block of work.
 
 _FPS_WEAPON_WORDS = (
     "_rifle_", "_pistol_", "_smg_", "_shotgun_", "_sniper_",
@@ -91,7 +91,7 @@ _MISSION_PREFIXES = (
 def _extract_category_impl(key: str) -> str:
     """Memoized impl of :meth:`StringEntry.extract_category`.
 
-    The Load Base File pipeline calls extract_category twice per entry (once
+    The source-load pipeline calls extract_category twice per entry (once
     in ini_parser's filter pass, once assigning StringEntry.category) — the
     second call is guaranteed to hit the cache. Cache is unbounded because
     the universe of keys is bounded (~87k base + ~4k enhancements), and a

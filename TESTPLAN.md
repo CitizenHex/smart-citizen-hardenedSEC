@@ -39,7 +39,7 @@ Per active channel:
 - [ ] **Extract from Data.p4k** — determinate progress bar, shows unp4k → unforge → cache filter phases, completes without Log tab errors
 - [ ] Cache size sanity: `cache\dataforge\` ≈ 1.3 GB / ≈ 28k files (not the old 2.4 GB / 58k). Larger = `_copy_filtered_records` regressed
 - [ ] **Generate Enhancements** — determinate progress, no "Ready" mid-run, all 7 output INIs produced
-- [ ] **Load Base File** — table populates instantly, no freeze on 87k+ rows
+- [ ] **Post-extract auto-reload** — strings load into the table automatically when Extract finishes; table populates instantly, no freeze on 87k+ rows
 - [ ] **Edit a string** — autosaves to `user.ini`, Modified status appears, survives app restart
 - [ ] **Apply to Game** — timestamped backup created; 5-backup cap enforced; written file validates against stock keys
 - [ ] **Restore Backup** — last backup restores cleanly

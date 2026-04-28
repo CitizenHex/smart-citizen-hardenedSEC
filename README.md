@@ -61,9 +61,8 @@ Download the **`SmartCitizen-{VERSION}-Setup.exe`** installer and run it. The ap
 
 ### First Run
 1. The app creates `Documents\Smart Citizen\<channel>\` (one subdir per Star Citizen channel) for user data — cache, backups, `user.ini`.
-2. Open the Config tab and click **Extract from Data.p4k** to unpack stock localization plus DataForge entity data from your installed game.
-3. Click **Load Base File** on the toolbar — sources merge by hierarchy and the strings load into the table.
-4. The guided tutorial auto-runs the first time you launch a new version, walking you through the rest.
+2. Open the Config tab and click **Extract from Data.p4k** to unpack stock localization plus DataForge entity data from your installed game. When extraction finishes, sources merge by hierarchy and the strings load into the table automatically.
+3. The guided tutorial auto-runs the first time you launch a new version, walking you through the rest.
 
 ### Standard Workflow
 1. **Find & Edit**:
@@ -73,9 +72,8 @@ Download the **`SmartCitizen-{VERSION}-Setup.exe`** installer and run it. The ap
 3. **Restore** (if needed): Click **Restore Backup** to revert to a previous version.
 
 ### After Star Citizen Updates
-1. Re-run **Extract from Data.p4k** in the Config tab to pull fresh stock strings and DataForge entity data from the patched game.
-2. **Load Base File** — your customizations re-apply on top automatically.
-3. Click **Apply to Game** to push the updated merge into the new build.
+1. Re-run **Extract from Data.p4k** in the Config tab to pull fresh stock strings and DataForge entity data from the patched game. The table reloads automatically and your customizations re-apply on top.
+2. Click **Apply to Game** to push the updated merge into the new build.
 
 ## Configuration
 

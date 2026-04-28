@@ -8,7 +8,7 @@ On launch, Smart Citizen reloads any customizations from your previous session a
 
 Open the **Config** tab and click **Extract from Data.p4k**. This unpacks stock `global.ini` plus the DataForge entity XMLs used by the enhancement generator — ships, components, weapons, missions, blueprints, etc.
 
-Then click **Load Base File** on the toolbar to load the extracted `base.ini` into the table.
+When extraction finishes, the extracted `base.ini` is loaded into the table automatically — merged with any enhancement files and your saved `user.ini` overrides.
 
 ## 2. Edit Localization Strings
 
@@ -73,7 +73,7 @@ Use **Import INI** in the **Config** tab to fold an existing INI file into your 
 
 ## 11. After Game Updates
 
-When Star Citizen updates, your edits are preserved in `Documents\Smart Citizen\<channel>\user.ini`. Re-run **Extract from Data.p4k** to pull fresh stock strings from the patched game, then **Load Base File** — your customizations re-apply on top automatically.
+When Star Citizen updates, your edits are preserved in `Documents\Smart Citizen\<channel>\user.ini`. Re-run **Extract from Data.p4k** to pull fresh stock strings from the patched game — the table reloads automatically and your customizations re-apply on top.
 
 ## Enhancements Tab
 
@@ -116,7 +116,7 @@ Click the **Tutorial** button on the toolbar at any time to replay the guided to
 
 ## Troubleshooting
 
-- **Nothing in the table** — Make sure `Load Base File` has completed, then check the **Log Tab** for parse errors.
+- **Nothing in the table** — Make sure **Extract from Data.p4k** has completed and the post-extract reload has finished, then check the **Log Tab** for parse errors.
 - **Enhancements empty or missing items** — Run **Generate Enhancements** from the Enhancements tab; it needs a DataForge cache (click **Extract from Data.p4k** first if you haven't).
 - **Apply to Game fails** — Confirm the Star Citizen install path in the **Config Tab** and that the game isn't running.
 - **Stale data after game update** — Re-run **Extract from Data.p4k**, then regenerate enhancements.

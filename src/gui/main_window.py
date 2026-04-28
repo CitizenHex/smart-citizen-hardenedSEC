@@ -183,12 +183,8 @@ def _render_preview_html(key: str, raw: str) -> str:
 class FileLoaderWorker(QThread):
     """Worker thread for loading INI files without blocking UI.
 
-    Supports both old-style (single base file) and new-style (multiple sources
-    from settings) loading. If sources_dict is provided, uses new system.
-    Otherwise, loads configured sources from settings.
-
-    The finished signal carries (entries, default_values, sort_keys) so the
-    main thread doesn't need to re-parse base.ini or compute sort keys.
+    Loads configured sources from settings and emits the merged entries plus
+    pre-computed sort keys so the main thread doesn't need to re-parse base.ini.
     """
 
     # (entries, default_values dict, pre-computed group sort keys)
@@ -200,60 +196,27 @@ class FileLoaderWorker(QThread):
     # 3 phase boundaries: sources read → entries built → sort keys computed.
     _PHASE_TOTAL = 3
 
-    def __init__(
-        self,
-        base_path: str | None = None,
-        overrides_path: str | None = None,
-        contracts_path: str | None = None,
-        sources_dict=None,
-        hierarchy=None
-    ):
-        super().__init__()
-        self.base_path = base_path
-        self.overrides_path = overrides_path
-        self.contracts_path = contracts_path
-        self.sources_dict = sources_dict
-        self.hierarchy = hierarchy
-
     def run(self):
         from src.gui.string_table_model import _group_sort_key
         try:
             logger.info("FileLoaderWorker starting...")
             self.progress_pct.emit(0, self._PHASE_TOTAL, "Reading source files...")
+            self.progress.emit("Reading source files...")
 
-            # New system: load sources from settings if not provided
-            if self.sources_dict is None and self.hierarchy is None:
-                self.progress.emit("Reading source files...")
-                logger.info("No sources_dict provided, loading from settings...")
-                self.sources_dict, self.hierarchy, self._enhancements_key_categories = load_sources_from_settings()
-                logger.info(f"Loaded from settings: sources={list(self.sources_dict.keys())}, hierarchy={self.hierarchy}")
-            else:
-                self._enhancements_key_categories = None
+            sources_dict, hierarchy, enhancements_key_categories = load_sources_from_settings()
+            logger.info(f"Loaded from settings: sources={list(sources_dict.keys())}, hierarchy={hierarchy}")
+
+            if not (sources_dict and hierarchy):
+                raise ValueError("No sources configured")
 
             self.progress_pct.emit(1, self._PHASE_TOTAL, "Creating StringEntry objects...")
+            self.progress.emit("Creating StringEntry objects...")
+            entries = load_source_files(sources_dict, hierarchy, enhancements_key_categories=enhancements_key_categories)
+            logger.info(f"load_source_files returned {len(entries)} entries")
 
-            # If still no sources (empty settings), try legacy base_path
-            if self.sources_dict and self.hierarchy:
-                self.progress.emit("Creating StringEntry objects...")
-                logger.info(f"Calling load_source_files with {len(self.sources_dict)} sources")
-                entries = load_source_files(self.sources_dict, self.hierarchy, enhancements_key_categories=self._enhancements_key_categories)
-                logger.info(f"load_source_files returned {len(entries)} entries")
-            elif self.base_path:
-                # Legacy: single base file loading
-                self.progress.emit("Creating StringEntry objects...")
-                logger.info(f"Using legacy base_path: {self.base_path}")
-                base_data = parse_ini_file(self.base_path)
-                self.sources_dict = {"global": base_data}
-                hierarchy = ["global"]
-                entries = load_source_files(self.sources_dict, hierarchy, None, self.overrides_path)
-            else:
-                raise ValueError("No sources configured and no base_path provided")
-
-            # Extract default values from the global source (avoids re-parsing base.ini)
-            default_values = dict(self.sources_dict.get("global", {}))
+            default_values = dict(sources_dict.get("global", {}))
 
             self.progress_pct.emit(2, self._PHASE_TOTAL, "Computing sort keys...")
-            # Pre-compute grouped sort keys on the worker thread
             self.progress.emit("Computing sort keys...")
             sort_keys = [_group_sort_key(e.key) for e in entries]
 
@@ -668,12 +631,6 @@ class MainWindow(QMainWindow):
         button_layout = QHBoxLayout()
 
         # Blue group — read / navigate
-        self.load_btn = QPushButton("Load Base File")
-        self.load_btn.setStyleSheet(f"background-color: {get_button_color('load')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
-        self.load_btn.setToolTip("Load cached base.ini into the table, merged with any enhancement files and your user.ini overrides. Requires Extract from Data.p4k to have been run at least once.")
-        self.load_btn.clicked.connect(self.load_files)
-        button_layout.addWidget(self.load_btn)
-
         self.open_loc_dir_btn = QPushButton("Open Localization Dir")
         self.open_loc_dir_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
         self.open_loc_dir_btn.setToolTip("Open the game's localization directory in Windows Explorer")
@@ -1207,79 +1164,8 @@ class MainWindow(QMainWindow):
             )
 
     @pyqtSlot()
-    def load_files(self):
-        """Load base global.ini."""
-        base_path, _ = QFileDialog.getOpenFileName(
-            self, "Select global.ini", "", "INI Files (*.ini);;All Files (*)"
-        )
-        if not base_path:
-            return
-
-        self._start_loading(base_path)
-
-    def _start_loading(self, base_path: str):
-        """Start file loading in background worker thread."""
-        self._set_toolbar_enabled(False)
-
-        # Show progress dialog
-        self._progress_dialog = AnimatedProgressDialog(
-            "Loading file...", parent=self, title="Loading"
-        )
-        self._progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        self._progress_dialog.setAutoClose(False)
-
-        # Create and start worker
-        overrides_path = AppSettings.get_user_ini_path()
-        overrides_arg = str(overrides_path) if overrides_path.exists() else None
-
-        contracts_ini = Path(__file__).parent.parent.parent / "data" / "contracts.ini"
-        contracts_arg = str(contracts_ini) if contracts_ini.exists() else None
-
-        self._loader_worker = FileLoaderWorker(base_path, overrides_arg, contracts_arg)
-        self._loader_worker.finished.connect(self._on_files_loaded)
-        self._loader_worker.error.connect(self._on_load_error)
-        self._loader_worker.progress.connect(self._progress_dialog.setLabelText)
-        self._loader_worker.start()
-
-    @pyqtSlot(list, dict, list)
-    def _on_files_loaded(self, entries: list, default_values: dict, sort_keys: list):
-        """Handle successful file loading."""
-        if self._progress_dialog:
-            self._progress_dialog.close()
-
-        self.default_values = default_values
-        self.entries = entries
-        self.update_category_combo()
-        self._model.set_data_source(
-            self.entries, self.default_values, AppSettings.get_favorite_prefix(),
-            sort_keys=sort_keys,
-        )
-        self.apply_filters()
-
-        # Show override count in status bar
-        modified_count = sum(1 for e in self.entries if e.status in ("Modified", "New"))
-        msg = f"Loaded {len(self.entries)} entries"
-        if modified_count:
-            msg += f" | {modified_count} overrides active"
-        self.statusBar().showMessage(msg)
-
-        logger.info(f"Loaded {len(self.entries)} entries")
-        self._set_toolbar_enabled(True)
-
-    @pyqtSlot(str)
-    def _on_load_error(self, message: str):
-        """Handle file loading error."""
-        if self._progress_dialog:
-            self._progress_dialog.close()
-
-        QMessageBox.critical(self, "Error", f"Failed to load file: {message}")
-        logger.error(f"Error loading file: {message}")
-
-        self._set_toolbar_enabled(True)
-
     def _set_toolbar_enabled(self, enabled: bool):
         """Toggle toolbar button enabled states."""
-        self.load_btn.setEnabled(enabled)
         self.apply_btn.setEnabled(enabled)
         self.restore_backup_btn.setEnabled(enabled)
         self.clear_loc_btn.setEnabled(enabled)
@@ -1301,87 +1187,6 @@ class MainWindow(QMainWindow):
                 logger.warning(f"Failed to load default values from {cache_file}: {e}")
         else:
             logger.debug(f"Cache file not found: {cache_file}. Default values will be empty until sources are downloaded.")
-
-    def auto_load_default_files(self):
-        """Automatically load and merge configured sources, or fall back to legacy behavior."""
-        try:
-            # Try new system first: load configured sources from settings
-            sources_dict, hierarchy, enhancements_key_categories = load_sources_from_settings()
-
-            if sources_dict and hierarchy:
-                logger.info(f"Loading configured sources: {list(sources_dict.keys())} with hierarchy {hierarchy}")
-                self.statusBar().showMessage("Loading and merging configured sources...")
-
-                try:
-                    # Load synchronously in main thread to avoid threading issues
-                    logger.info("Synchronously loading sources...")
-                    entries = load_source_files(sources_dict, hierarchy, enhancements_key_categories=enhancements_key_categories)
-                    logger.info(f"Loaded {len(entries)} entries")
-                    self.entries = entries
-                    self.default_values = dict(sources_dict.get("global", {}))
-                    self.update_category_combo()
-                    self._model.set_data_source(
-                        self.entries, self.default_values, AppSettings.get_favorite_prefix(),
-                    )
-                    self.apply_filters()
-
-                    # Update status bar with entry counts and per-source status
-                    self._update_status_bar()
-                    return
-                except Exception as e:
-                    logger.exception(f"Error loading sources synchronously: {e}")
-                    QMessageBox.critical(self, "Error", f"Failed to load sources: {e}")
-                    return
-
-        except Exception as e:
-            logger.warning(f"Failed to load from configured sources, falling back to legacy: {e}")
-
-        # Fall back to legacy single-file loading
-        global_path = None
-
-        # First, try to load from base_global_path setting (legacy)
-        legacy_path = AppSettings.get_base_global_path()
-        if legacy_path and Path(legacy_path).exists():
-            global_path = legacy_path
-            logger.info(f"Loading legacy base_global_path: {legacy_path}")
-        else:
-            # Try to load from the active channel's game directory if configured
-            game_global = AppSettings.get_global_ini_path()
-            if game_global.parent.parent.parent.parent != Path():  # non-empty path
-                logger.info(f"Looking for global.ini at: {game_global}")
-                if game_global.exists():
-                    global_path = game_global
-                    logger.info(f"Found global.ini in game directory: {game_global}")
-
-            # Fall back to data folder if game directory doesn't have it
-            if not global_path:
-                data_dir = Path(__file__).parent.parent.parent / "data"
-                data_base = data_dir / "base.ini"
-                logger.info(f"Falling back to data folder: {data_base}")
-                if data_base.exists():
-                    global_path = data_base
-                    logger.info(f"Loading default base file from data folder")
-
-        # Bootstrap overrides from diff if missing
-        if global_path:
-            overrides_path = AppSettings.get_user_ini_path()
-            if not overrides_path.exists():
-                data_dir = Path(__file__).parent.parent.parent / "data"
-                data_base = data_dir / "base.ini"
-                if data_base.exists():
-                    try:
-                        from src.utils.user_ini_manager import generate_user_ini_from_diff
-                        count = generate_user_ini_from_diff(data_base, global_path, overrides_path)
-                        if count:
-                            logger.info(f"Bootstrapped {count} overrides from diff")
-                    except Exception as e:
-                        logger.warning(f"Failed to bootstrap overrides: {e}")
-
-            # Load the file in background
-            self._start_loading(str(global_path))
-        else:
-            logger.warning("No base file found in configured sources, game directory, or data folder")
-            self.statusBar().showMessage("No base file found - please configure sources in Config tab or load a file manually")
 
     @pyqtSlot()
     @timed
@@ -1855,7 +1660,6 @@ class MainWindow(QMainWindow):
         self._apply_branding_styles()
         base = "font-weight: bold; padding: 6px;"
         text = get_button_text_color()
-        self.load_btn.setStyleSheet(f"background-color: {get_button_color('load')}; color: {text}; {base}")
         self.open_loc_dir_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {text}; {base}")
         self.apply_btn.setStyleSheet(f"background-color: {get_button_color('apply')}; color: {text}; {base}")
         self.restore_backup_btn.setStyleSheet(f"background-color: {get_button_color('restore')}; color: {text}; {base}")
@@ -2201,7 +2005,6 @@ class MainWindow(QMainWindow):
         return {
             "welcome":      {"target": lambda: None,                                            "pre_action": None},
             "extract":      {"target": lambda: self.config_tab._extract_btn,                    "pre_action": _switch_to(config_tab)},
-            "load":         {"target": lambda: self.load_btn,                                   "pre_action": _switch_to(strings_tab)},
             "edit":         {"target": lambda: self.table,                                      "pre_action": _switch_to(strings_tab)},
             "preview":      {"target": lambda: self.preview_pane,                               "pre_action": _switch_to(strings_tab)},
             "apply":        {"target": lambda: self.apply_btn,                                  "pre_action": None},

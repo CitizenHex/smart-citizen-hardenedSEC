@@ -10,42 +10,36 @@
     {
       "id": "extract",
       "title": "1. Extract from Data.p4k",
-      "description": "Clicking Extract unpacks your installed game's stock localization file. You should be prompted to run this if your current file becomes stale due to a patch, but if not, you can always run it manually.",
+      "description": "Clicking Extract unpacks your installed game's stock localization file. You should be prompted to run this if your current file becomes stale due to a patch, but if not, you can always run it manually. The strings reload into the table automatically when extraction finishes.",
       "preferred_side": "above"
     },
     {
-      "id": "load",
-      "title": "2. Load Base File",
-      "description": "Load Base File reads the cached base.ini into the table, merged with any enhancement files and your saved user.ini overrides.",
-      "preferred_side": "below"
-    },
-    {
       "id": "edit",
-      "title": "3. Edit strings",
+      "title": "2. Edit strings",
       "description": "Each row is one localization record. Double-click a cell in the Custom Value column to edit — your change are autosaved. Use the filter row above to narrow down your results. The ★ column marks ships as favorites so they sort to the top of the ASOP.",
       "preferred_side": "auto"
     },
     {
       "id": "preview",
-      "title": "4. Preview pane",
+      "title": "3. Preview pane",
       "description": "Whenever you select a row, this pane on the right shows the rendered text of its current value.",
       "preferred_side": "below"
     },
     {
       "id": "apply",
-      "title": "5. Apply to Game",
+      "title": "4. Apply to Game",
       "description": "Apply writes the merged result to the game's global.ini. A timestamped backup of the current global.ini is created first (up to 5 are kept, restorable from Restore Backup).",
       "preferred_side": "below"
     },
     {
       "id": "enhancements",
-      "title": "6. Enhancements",
+      "title": "5. Enhancements",
       "description": "Optional but recommended: the Enhancements tab toggles stat overlays for ships, components, weapons, and mission blueprints and rewards. Generate Enhancements runs the pipeline that produces those overlays from your extracted data.",
       "preferred_side": "above"
     },
     {
       "id": "help",
-      "title": "7. Help & feedback",
+      "title": "6. Help & feedback",
       "description": "The Help button opens a side-panel with the full guide, a Known Issues list, and a feedback link to the Smart Citizen Discord channel. That's everything you need to get started — good luck, citizen.",
       "preferred_side": "below"
     }

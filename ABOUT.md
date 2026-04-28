@@ -64,12 +64,11 @@ Smart Citizen also bundles upstream tooling from:
 ## Quick Start
 
 1. **First Launch**: App auto-detects your Star Citizen installation (editable in the **Config** tab)
-2. **Extract**: Click **Extract from Data.p4k** in the Config tab to unpack stock localization + DataForge entity data from your installed game
-3. **Load**: Click **Load Base File** to load the extracted strings into the table
-4. **Edit Strings**: Use the search and filter tools, then double-click any Custom Value cell to customize text
-5. **Apply**: Click **Apply to Game** — your changes are saved and applied with an automatic backup
-6. **Enhancements (Optional)**: Open the Enhancements tab to enable stat overlays for ships, components, weapons, and mission rewards
-7. **After Game Updates**: Re-run Extract from Data.p4k — your edits reapply automatically
+2. **Extract**: Click **Extract from Data.p4k** in the Config tab to unpack stock localization + DataForge entity data from your installed game — the strings load into the table automatically when extraction finishes
+3. **Edit Strings**: Use the search and filter tools, then double-click any Custom Value cell to customize text
+4. **Apply**: Click **Apply to Game** — your changes are saved and applied with an automatic backup
+5. **Enhancements (Optional)**: Open the Enhancements tab to enable stat overlays for ships, components, weapons, and mission rewards
+6. **After Game Updates**: Re-run Extract from Data.p4k — your edits reapply automatically
 
 ## Community & Support
 
