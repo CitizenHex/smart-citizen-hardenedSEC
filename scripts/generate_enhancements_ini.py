@@ -1924,11 +1924,35 @@ def scan_crafting_blueprints(
     if base_title and base_content:
         out_journal[journal_title_key] = f"{base_title} <EM4>[SmC]</EM4>"
 
+        # Build lookup keyed by every name a Compendium line might use:
+        # the internal CIG name (american-spelling: ``aluminum_ore``) plus
+        # the localized display name from loc (CIG mixes british spelling
+        # in display text: ``Aluminium``). Adding the first-word stem
+        # ("Aluminium" from "Aluminium Ore") catches Compendium lines that
+        # use a bare mineral name even when loc only carries the +-Ore form.
+        # Without this, minerals whose internal stem and display spelling
+        # diverge (most prominently aluminum/aluminium) silently lose their
+        # crafting block.
         mineral_crafting: dict[str, str] = {}
         for internal_name, items in commodity_items.items():
             condensed = _condense_crafted_items(items)
-            if condensed:
-                mineral_crafting[internal_name] = ", ".join(condensed)
+            if not condensed:
+                continue
+            crafting_text = ", ".join(condensed)
+            lookup_keys: set[str] = {internal_name.lower()}
+            for name_key, _desc_key in _discover_commodity_loc_pairs(internal_name, loc):
+                display = loc.get(name_key, "").strip().lower()
+                if not display:
+                    continue
+                lookup_keys.add(display)
+                first_word = display.split()[0] if display.split() else ""
+                if first_word:
+                    lookup_keys.add(first_word)
+            for k in lookup_keys:
+                # setdefault — first writer wins on collisions (e.g. "iron"
+                # arriving from both raw and ore variants), which is fine
+                # since either crafting list is representative.
+                mineral_crafting.setdefault(k, crafting_text)
 
         lines = base_content.split("\\n\\n")
         augmented_lines = []
@@ -2875,13 +2899,13 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         radar_dir = ships_scitem / "radar"
         if radar_dir.exists():
             logger.info(f"Processing radars from {radar_dir}…")
-            out.update(scan_entity_dir(radar_dir, enhancements_radar, loc=loc))
+            out.update(scan_entity_dir(radar_dir, enhancements_radar, loc=loc, generate_name_tags=True))
         else:
             logger.info("No radar directory found in cache")
         # Propagate stats from _SCItem keys to their non-SCItem siblings (base.ini
         # carries both patterns: item_DescTYPE_..._SCItem and item_Desc_TYPE_...).
         # Same treatment for name labels (item_nameTYPE → item_Name_TYPE).
-        comp_types = ("COOL", "SHLD", "POWR", "QDRV")
+        comp_types = ("COOL", "SHLD", "POWR", "QDRV", "RADR")
         sibling_count = 0
         for key, value in list(out.items()):
             if not key.endswith("_SCItem"):

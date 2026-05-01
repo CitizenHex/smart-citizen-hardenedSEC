@@ -13,9 +13,9 @@ from PyQt6.QtWidgets import (
     QHeaderView, QStatusBar, QFrame, QStyledItemDelegate,
     QAbstractItemView, QMenu, QProgressDialog, QProgressBar, QTextBrowser,
     QTableView, QStackedLayout, QGraphicsOpacityEffect,
-    QDockWidget,
+    QDockWidget, QPlainTextEdit,
 )
-from PyQt6.QtGui import QColor, QFont, QCursor, QPixmap, QIcon
+from PyQt6.QtGui import QColor, QFont, QCursor, QPixmap, QIcon, QPalette
 from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices
 
@@ -145,9 +145,110 @@ _EM3_RE = _re_mod.compile(r"&lt;EM3&gt;(.*?)&lt;/EM3&gt;", _re_mod.DOTALL)
 _EM4_RE = _re_mod.compile(r"&lt;EM4&gt;(.*?)&lt;/EM4&gt;", _re_mod.DOTALL)
 _MISSION_TOKEN_RE = _re_mod.compile(r"~mission\(([^|)]+)(?:\|[^)]*)?\)")
 
+# Trailing "[Edited with Smart Citizen vX.Y.Z]" tag (with the literal-\n
+# leading separators the loc-string format uses for line breaks). Stripped
+# from prior values before re-stamping so successive applies don't
+# accumulate tags and a version bump rolls the stamp forward cleanly.
+_JOURNAL_STAMP_RE = _re_mod.compile(
+    r"(?:\\n)*\[Edited with Smart Citizen v[^\]]+\]\s*$"
+)
 
-def _render_preview_html(key: str, raw: str) -> str:
-    """Render *raw* loc-string value as styled HTML for the preview pane."""
+# Title-like journal keys we should NOT stamp — the stamp belongs at the
+# end of journal body content, not in titles, short titles, sub-headings,
+# or the "From:" sender line. ",P" is CIG's parallel-form suffix and
+# should match alongside the bare key. Match is case-insensitive on the
+# suffix so ``_Title``, ``_title``, and ``_TITLE`` all skip.
+_JOURNAL_TITLE_KEY_RE = _re_mod.compile(
+    r"_(?:title|shorttitle|subtitle|subheading|from)(?:,P)?$",
+    _re_mod.IGNORECASE,
+)
+
+
+def _stamp_journal_entries(merged: dict, stock: dict | None = None) -> dict:
+    """Append a Smart Citizen version stamp to Journal entries SC produced or modified.
+
+    A Journal entry counts as "modified by Smart Citizen" if its merged
+    value differs from the stock CIG value, or if it's a key SC added that
+    doesn't exist in stock at all. That covers both user-edited journals
+    AND auto-generated enhancements (Mining Compendium etc.) while leaving
+    untouched stock CIG entries alone.
+
+    *stock* is the stock-only key→value dict (typically the parsed base.ini).
+    Passing None disables the stock comparison and stamps every Journal key
+    in *merged* — kept as a fallback for callers that don't have stock.
+
+    Idempotent: re-applying with no edits produces byte-identical output.
+    The trailing stamp regex strips a prior version's tag before appending
+    the current one, so version bumps roll the stamp forward cleanly.
+    """
+    from src.utils.version import get_version
+    version = get_version()
+    new_stamp = f"\\n\\n[Edited with Smart Citizen v{version}]"
+    stock = stock or {}
+    out: dict = {}
+    for key, value in merged.items():
+        if StringEntry.extract_category(key) != "Journal":
+            out[key] = value
+            continue
+        # Title-like keys (Title / ShortTitle / SubTitle / SubHeading /
+        # From) belong to the journal's header chrome, not its body —
+        # stamping them would put the version tag in the entry title,
+        # which the user explicitly does not want.
+        if _JOURNAL_TITLE_KEY_RE.search(key):
+            out[key] = value
+            continue
+        # Strip any prior stamp from the merged value before deciding
+        # whether SC modified it — otherwise an already-stamped value from
+        # a previous apply would compare unequal to stock and re-stamp,
+        # which is benign but wasteful.
+        unstamped = _JOURNAL_STAMP_RE.sub("", value).rstrip()
+        if stock and stock.get(key, _SENTINEL_MISSING) == unstamped:
+            # Stock-equivalent content; SC didn't produce or modify it.
+            out[key] = unstamped
+            continue
+        out[key] = unstamped + new_stamp
+    return out
+
+
+# Sentinel used for "key not in stock" so we can distinguish that from
+# "stock has empty string for this key" — the empty-string case is a
+# legitimate stock value that should still match an empty merged value.
+_SENTINEL_MISSING = object()
+
+
+def _journal_stamp_for_entry(entry) -> str | None:
+    """Return the rendered stamp text for *entry*'s preview, or None.
+
+    Mirrors the apply-time stamp policy at the entry level: an entry
+    qualifies for a stamp if it's a Journal entry whose key is body
+    content (not a title/header field) and that's either user-edited
+    (non-empty ``custom_value``) or enhancement-sourced. Stock CIG
+    entries with no user touch, and any title-like key, return None.
+    """
+    if entry.category != "Journal":
+        return None
+    if _JOURNAL_TITLE_KEY_RE.search(entry.key):
+        return None
+    if not (entry.custom_value or entry.source_file == "enhancements"):
+        return None
+    from src.utils.version import get_version
+    return f"[Edited with Smart Citizen v{get_version()}]"
+
+
+def _render_preview_html(key: str, raw: str, stamp: str | None = None) -> str:
+    """Render *raw* loc-string value as styled HTML for the preview pane.
+
+    If *stamp* is provided, append it to the raw value with two literal
+    line breaks first, so the preview shows the same trailing version
+    stamp that will be written to the game's global.ini at apply-time.
+    Purely cosmetic on this side — the stamp is never persisted into
+    user.ini or the entry, just rendered here to give users a faithful
+    in-app preview of what the in-game text will look like.
+    """
+    # Append the stamp on the raw side, before HTML rendering, so the
+    # standard `\n` → `<br>` transform handles the spacing in lockstep.
+    if stamp:
+        raw = (raw or "") + "\\n\\n" + stamp
     if not raw:
         body = "<em style='color:#888;'>(empty)</em>"
     else:
@@ -438,13 +539,49 @@ class DataForgeExtractWorker(QThread):
 
 
 class SelectAllDelegate(QStyledItemDelegate):
-    """Custom delegate that selects all text on edit."""
+    """Custom delegate for the Custom Value column.
+
+    - Selects all text when the editor opens so typing overwrites but Esc keeps it.
+    - Extends the editor's right-click menu with <EM3>/<EM4> wrap actions so
+      authors can apply Star Citizen emphasis tags around the selected text.
+    """
 
     def createEditor(self, parent, option, index):
+        from PyQt6.QtWidgets import QLineEdit
         editor = super().createEditor(parent, option, index)
         if hasattr(editor, 'selectAll'):
             editor.selectAll()
+        if isinstance(editor, QLineEdit):
+            editor.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            editor.customContextMenuRequested.connect(
+                lambda pos, ed=editor: SelectAllDelegate._show_editor_menu(ed, pos)
+            )
         return editor
+
+    @staticmethod
+    def _show_editor_menu(editor, pos):
+        menu = editor.createStandardContextMenu()
+        menu.addSeparator()
+        has_sel = editor.hasSelectedText()
+        em3 = menu.addAction("Underline")
+        em3.setEnabled(has_sel)
+        em3.triggered.connect(lambda: SelectAllDelegate._wrap_selection(editor, "EM3"))
+        em4 = menu.addAction("Highlight")
+        em4.setEnabled(has_sel)
+        em4.triggered.connect(lambda: SelectAllDelegate._wrap_selection(editor, "EM4"))
+        menu.exec(editor.mapToGlobal(pos))
+
+    @staticmethod
+    def _wrap_selection(editor, tag: str):
+        sel = editor.selectedText()
+        if not sel:
+            return
+        # QLineEdit.insert replaces the current selection. Place the caret
+        # just inside the closing tag so successive edits stay near the text.
+        wrapped = f"<{tag}>{sel}</{tag}>"
+        start = editor.selectionStart()
+        editor.insert(wrapped)
+        editor.setCursorPosition(start + len(f"<{tag}>") + len(sel))
 
 
 class MainWindow(QMainWindow):
@@ -605,6 +742,13 @@ class MainWindow(QMainWindow):
         self._ensure_help_dock()
         self.help_dock.hide()
 
+        # Editor side-panel — same eager-create rationale as the Help dock:
+        # restoreState only remembers docks that exist with a stable
+        # objectName at restore time. Hidden by default so first-launch
+        # users aren't surprised.
+        self._ensure_editor_dock()
+        self.editor_dock.hide()
+
         # App-version indicator sits immediately next to the SC-version
         # text in the status bar message area. Added BEFORE the channel
         # indicator so it lands leftmost in the permanent-widget zone
@@ -663,6 +807,16 @@ class MainWindow(QMainWindow):
         self.clear_cache_btn.setToolTip("Delete all cached source files (base.ini, contracts.ini, etc.) from the local cache directory")
         self.clear_cache_btn.clicked.connect(self.clear_cache)
         button_layout.addWidget(self.clear_cache_btn)
+
+        # Editor — toggles the side-docked String Editor for editing long
+        # values comfortably. Shares the 'open' info-action role so it pairs
+        # visually with Help/Tutorial as a panel-toggle.
+        self.editor_btn = QPushButton("Editor")
+        self.editor_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
+        self.editor_btn.setCheckable(True)
+        self.editor_btn.setToolTip("Toggle the side-docked String Editor — a larger canvas for editing the selected row's custom value")
+        self.editor_btn.clicked.connect(self.show_editor_dock)
+        button_layout.addWidget(self.editor_btn)
 
         # Help — sits with the other toolbar buttons rather than floating
         # right; uses the 'open' role so it shares the blue/cyan/gold
@@ -1079,6 +1233,13 @@ class MainWindow(QMainWindow):
 
         # Model
         self._model = StringTableModel(self)
+        # Single chokepoint for instant cross-pane sync: every code path that
+        # mutates an entry (inline edit, favorite toggle, editor-dock edit,
+        # reset-to-original, …) ends up emitting dataChanged on the model.
+        # Subscribing here means the preview pane and the editor dock both
+        # track those edits live without each mutator having to know which
+        # other surfaces to nudge.
+        self._model.dataChanged.connect(self._on_model_data_changed)
 
         # Table view
         self.table = QTableView()
@@ -1268,6 +1429,16 @@ class MainWindow(QMainWindow):
 
             # Merge all sources in hierarchy order, with user edits on top
             merged_dict = merge_sources_by_hierarchy(sources_dict, hierarchy, user_overrides_dict)
+
+            # Stamp Journal entries Smart Citizen produced or modified —
+            # both user-edited journals AND auto-generated journal
+            # enhancements (Mining Compendium etc.) qualify; stock CIG
+            # content is left alone. Comparison is against the stock
+            # base.ini values from sources_dict["global"], so any merged
+            # value that diverges from stock gets the stamp. Purely
+            # write-time and idempotent across re-applies.
+            stock_dict = sources_dict.get(AppSettings.SOURCE_GLOBAL, {})
+            merged_dict = _stamp_journal_entries(merged_dict, stock_dict)
 
             # Get a base file to use for structure preservation
             # Use the first source file from hierarchy
@@ -1600,12 +1771,47 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     @timed
+    def _snapshot_pending_user_edits(self) -> dict:
+        """Return {key: custom_value} for in-memory edits that may not be on disk.
+
+        Reload paths (Config-tab save, Generate Enhancements completion, etc.)
+        rebuild self.entries from disk sources — which means custom_value comes
+        only from user.ini. Edits the user made but hasn't yet Applied live
+        only in memory; without snapshotting them here they'd be silently
+        wiped by the reload.
+        """
+        return {
+            e.key: e.custom_value
+            for e in self.entries
+            if e.custom_value
+        }
+
+    def _restore_pending_user_edits(self, entries: list, snapshot: dict) -> int:
+        """Re-apply *snapshot* on top of freshly-loaded *entries*.
+
+        Mirrors inline-edit setData semantics: status flips Modified if the
+        restored value differs from the new original, Unmodified otherwise.
+        Returns the count actually restored.
+        """
+        if not snapshot:
+            return 0
+        restored = 0
+        for e in entries:
+            pending = snapshot.get(e.key)
+            if pending is None or pending == e.custom_value:
+                continue
+            e.custom_value = pending
+            e.status = "Modified" if pending != e.original_value else "Unmodified"
+            restored += 1
+        return restored
+
     def perform_merge_and_reload(self):
         """Perform merge of configured sources and reload table.
 
         Called when user saves configuration in Config tab. Loads all configured
         sources, merges them in hierarchy order, and updates the table display.
         """
+        pending_edits = self._snapshot_pending_user_edits()
         try:
             # Load all configured sources
             sources_dict, hierarchy, enhancements_key_categories = load_sources_from_settings()
@@ -1621,6 +1827,9 @@ class MainWindow(QMainWindow):
                 logger.info("Merging configured sources...")
                 entries = load_source_files(sources_dict, hierarchy, enhancements_key_categories=enhancements_key_categories)
                 logger.info(f"Merge complete: {len(entries)} entries")
+                restored = self._restore_pending_user_edits(entries, pending_edits)
+                if restored:
+                    logger.info(f"Restored {restored} in-memory user edits not yet persisted to user.ini")
                 self.entries = entries
                 self.default_values = dict(sources_dict.get("global", {}))
                 self.update_category_combo()
@@ -1665,11 +1874,13 @@ class MainWindow(QMainWindow):
         self.restore_backup_btn.setStyleSheet(f"background-color: {get_button_color('restore')}; color: {text}; {base}")
         self.clear_loc_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {text}; {base}")
         self.clear_cache_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {text}; {base}")
+        self.editor_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {text}; {base}")
         self.help_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {text}; {base}")
         if hasattr(self, "about_browser"):
             self._render_about_html()
         if hasattr(self, "help_browser"):
             self._render_help_html()
+        self._apply_editor_dock_canvas_tint()
 
     def _handle_import_ini(self):
         """Handle Import INI button: get source, validate, resolve conflicts, merge."""
@@ -1978,6 +2189,232 @@ class MainWindow(QMainWindow):
             dock.show()
             dock.raise_()
 
+    # ── Side-docked String Editor ────────────────────────────────────────────
+
+    def _ensure_editor_dock(self) -> QDockWidget:
+        """Create the side-docked String Editor on first use and return it.
+
+        Provides a multi-line editing canvas for the currently-selected
+        row's custom value — useful for long mission descriptions and
+        journal entries that don't fit comfortably in a single-line table
+        cell. Lives as a QDockWidget so users can drag it to either side,
+        undock it into a free-floating window, resize freely, or close it
+        via the title-bar X. State persists across sessions through
+        saveState/restoreState, which keys docks by objectName.
+
+        The loc-string format stores line breaks as the literal two-char
+        sequence ``\\n``; the dock displays them as real newlines for
+        readability and converts both directions on load/save so values
+        round-trip cleanly with the inline cell editor.
+        """
+        if getattr(self, "editor_dock", None) is not None:
+            return self.editor_dock
+
+        dock = QDockWidget("String Editor", self)
+        dock.setObjectName("editorDock")
+        dock.setAllowedAreas(
+            Qt.DockWidgetArea.RightDockWidgetArea
+            | Qt.DockWidgetArea.LeftDockWidgetArea
+        )
+        dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetClosable
+            | QDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        )
+
+        container = QWidget(dock)
+        vlayout = QVBoxLayout(container)
+        vlayout.setContentsMargins(8, 8, 8, 8)
+        vlayout.setSpacing(6)
+
+        self.editor_dock_key_label = QLabel("(no row selected)")
+        self.editor_dock_key_label.setProperty("role", "secondary")
+        key_font = QFont("Consolas")
+        key_font.setPointSize(9)
+        self.editor_dock_key_label.setFont(key_font)
+        self.editor_dock_key_label.setWordWrap(True)
+        vlayout.addWidget(self.editor_dock_key_label)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(4)
+        em3_btn = QPushButton("Underline")
+        em3_btn.setToolTip("Underline the selected text (wraps it in <EM3>...</EM3>)")
+        em3_btn.clicked.connect(lambda: self._editor_dock_wrap("EM3"))
+        btn_row.addWidget(em3_btn)
+        em4_btn = QPushButton("Highlight")
+        em4_btn.setToolTip("Highlight the selected text with color emphasis (wraps it in <EM4>...</EM4>)")
+        em4_btn.clicked.connect(lambda: self._editor_dock_wrap("EM4"))
+        btn_row.addWidget(em4_btn)
+        btn_row.addStretch()
+        vlayout.addLayout(btn_row)
+
+        self.editor_dock_text = QPlainTextEdit()
+        self.editor_dock_text.setPlaceholderText(
+            "Select a row in the String Editor table to edit its custom value here."
+        )
+        self.editor_dock_text.setEnabled(False)
+        self.editor_dock_text.textChanged.connect(self._on_editor_dock_text_changed)
+        self.editor_dock_text.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.editor_dock_text.customContextMenuRequested.connect(self._show_editor_dock_menu)
+        vlayout.addWidget(self.editor_dock_text, stretch=1)
+        # Tint the canvas with the lighter of the table's two row colors so
+        # the editing surface stands apart from the dock's frame/border —
+        # especially important when the dock is undocked into its own window.
+        self._apply_editor_dock_canvas_tint()
+
+        self.editor_dock_status_label = QLabel("")
+        self.editor_dock_status_label.setProperty("role", "secondary")
+        vlayout.addWidget(self.editor_dock_status_label)
+
+        dock.setWidget(container)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+        self.editor_dock = dock
+        self._editor_dock_entry_idx: Optional[int] = None
+        # Set during programmatic load so textChanged doesn't echo back
+        # into the model and re-flag the row as Modified.
+        self._editor_dock_loading = False
+
+        dock.visibilityChanged.connect(self._on_editor_dock_visibility_changed)
+        return dock
+
+    def _apply_editor_dock_canvas_tint(self):
+        """Tint the editor canvas with the lighter of Base/AlternateBase.
+
+        The two roles drive the table's alternating row stripes; whichever is
+        lighter visually reads as the 'foreground' band. Using it for the
+        editing surface keeps the canvas distinct from the dock's frame
+        and gives the pop-out window a clear inner/outer separation.
+        Light theme has Base lighter than AlternateBase; the dark and
+        branded themes invert that — so pick by lightness rather than
+        hard-coding either role.
+        """
+        if not getattr(self, "editor_dock_text", None):
+            return
+        from PyQt6.QtWidgets import QApplication
+        app_pal = QApplication.palette()
+        base = app_pal.color(QPalette.ColorRole.Base)
+        alt = app_pal.color(QPalette.ColorRole.AlternateBase)
+        canvas = base if base.lightness() >= alt.lightness() else alt
+        # QPlainTextEdit paints its viewport via the style; the most
+        # reliable way to recolor the canvas without disturbing scrollbars
+        # or selection rendering is a scoped stylesheet on the widget.
+        self.editor_dock_text.setStyleSheet(
+            f"QPlainTextEdit {{ background-color: {canvas.name()}; }}"
+        )
+
+    def _on_editor_dock_visibility_changed(self, visible: bool):
+        """Keep the toolbar Editor button's checked state in sync with the dock."""
+        if hasattr(self, "editor_btn"):
+            was_blocked = self.editor_btn.blockSignals(True)
+            try:
+                self.editor_btn.setChecked(visible)
+            finally:
+                self.editor_btn.blockSignals(was_blocked)
+        # Sync content if the dock was just shown — restoreState may have
+        # opened it before any selection-change event fires.
+        if visible and getattr(self, "table", None) and self.table.selectionModel():
+            idx = self.table.selectionModel().currentIndex()
+            if idx.isValid():
+                self._load_editor_dock_from_row(idx.row())
+
+    def show_editor_dock(self):
+        """Toggle the String Editor side-panel."""
+        dock = self._ensure_editor_dock()
+        if dock.isVisible():
+            dock.hide()
+        else:
+            dock.show()
+            dock.raise_()
+            self.editor_dock_text.setFocus()
+
+    def _clear_editor_dock(self):
+        """Reset the editor dock to its 'no row selected' state."""
+        if not getattr(self, "editor_dock", None):
+            return
+        self._editor_dock_entry_idx = None
+        self._editor_dock_loading = True
+        try:
+            self.editor_dock_text.setPlainText("")
+            self.editor_dock_text.setEnabled(False)
+        finally:
+            self._editor_dock_loading = False
+        self.editor_dock_key_label.setText("(no row selected)")
+        self.editor_dock_status_label.setText("")
+
+    def _load_editor_dock_from_row(self, row: int) -> None:
+        """Populate the editor dock from the given table row (visual row)."""
+        if not getattr(self, "editor_dock", None):
+            return
+        if not self.entries:
+            self._clear_editor_dock()
+            return
+        try:
+            entry_idx = self._entry_index_for_row(row)
+            entry = self.entries[entry_idx]
+        except (IndexError, AttributeError):
+            self._clear_editor_dock()
+            return
+        self._editor_dock_entry_idx = entry_idx
+        self.editor_dock_key_label.setText(entry.key)
+        # Show real newlines while editing, even though the loc-string
+        # format stores them as the literal two-char escape "\n".
+        raw = entry.custom_value if entry.custom_value else entry.original_value
+        visual = (raw or "").replace("\\n", "\n")
+        self._editor_dock_loading = True
+        try:
+            self.editor_dock_text.setPlainText(visual)
+            self.editor_dock_text.setEnabled(True)
+        finally:
+            self._editor_dock_loading = False
+        self.editor_dock_status_label.setText(entry.status)
+
+    def _on_editor_dock_text_changed(self):
+        """Push edits in the dock back to the entry, mirroring inline-edit semantics."""
+        if self._editor_dock_loading:
+            return
+        if self._editor_dock_entry_idx is None:
+            return
+        if self._editor_dock_entry_idx >= len(self.entries):
+            return
+        entry = self.entries[self._editor_dock_entry_idx]
+        # QTextCursor uses U+2029 as paragraph separator in some APIs; the
+        # plain-text path here returns "\n" so a direct conversion is safe.
+        visual = self.editor_dock_text.toPlainText()
+        new_value = visual.replace("\n", "\\n")
+        if new_value == entry.custom_value:
+            return
+        entry.custom_value = new_value
+        entry.status = "Modified" if new_value != entry.original_value else "Unmodified"
+        self._model.notify_entry_changed(self._editor_dock_entry_idx)
+        self.editor_dock_status_label.setText(entry.status)
+
+    def _show_editor_dock_menu(self, pos):
+        """Right-click menu: standard edit actions plus EM3/EM4 wrap."""
+        menu = self.editor_dock_text.createStandardContextMenu()
+        menu.addSeparator()
+        cursor = self.editor_dock_text.textCursor()
+        has_sel = cursor.hasSelection()
+        em3 = menu.addAction("Underline")
+        em3.setEnabled(has_sel)
+        em3.triggered.connect(lambda: self._editor_dock_wrap("EM3"))
+        em4 = menu.addAction("Highlight")
+        em4.setEnabled(has_sel)
+        em4.triggered.connect(lambda: self._editor_dock_wrap("EM4"))
+        menu.exec(self.editor_dock_text.mapToGlobal(pos))
+
+    def _editor_dock_wrap(self, tag: str):
+        """Wrap the current selection in <tag>...</tag>."""
+        if not getattr(self, "editor_dock", None):
+            return
+        cursor = self.editor_dock_text.textCursor()
+        if not cursor.hasSelection():
+            return
+        # QTextCursor.selectedText() returns U+2029 for paragraph breaks;
+        # normalize back to newlines so wrapping multi-line selections
+        # preserves their structure.
+        sel = cursor.selectedText().replace(" ", "\n")
+        cursor.insertText(f"<{tag}>{sel}</{tag}>")
+
     # ── Guided tour (coach-marks) ─────────────────────────────────────────────
 
     def _tutorial_step_wiring(self) -> dict[str, dict]:
@@ -2006,6 +2443,7 @@ class MainWindow(QMainWindow):
             "welcome":      {"target": lambda: None,                                            "pre_action": None},
             "extract":      {"target": lambda: self.config_tab._extract_btn,                    "pre_action": _switch_to(config_tab)},
             "edit":         {"target": lambda: self.table,                                      "pre_action": _switch_to(strings_tab)},
+            "editor":       {"target": lambda: self.editor_btn,                                  "pre_action": _switch_to(strings_tab)},
             "preview":      {"target": lambda: self.preview_pane,                               "pre_action": _switch_to(strings_tab)},
             "apply":        {"target": lambda: self.apply_btn,                                  "pre_action": None},
             "enhancements": {"target": lambda: self.enhancements_tab._generate_enhancements_btn, "pre_action": _switch_to(enh_tab)},
@@ -2721,6 +3159,15 @@ class MainWindow(QMainWindow):
             self._loader_worker.wait()
             self._loader_worker = None
 
+        # Preserve in-memory edits the user hasn't Applied yet — Generate
+        # Enhancements (and other reload paths) hit this slot with freshly
+        # loaded entries whose custom_value comes only from user.ini, so
+        # any un-saved edits would be silently dropped without this.
+        pending_edits = self._snapshot_pending_user_edits()
+        restored = self._restore_pending_user_edits(entries, pending_edits)
+        if restored:
+            logger.info(f"Restored {restored} in-memory user edits not yet persisted to user.ini")
+
         self.default_values = default_values
         self.entries = entries
         self.update_category_combo()
@@ -2999,18 +3446,75 @@ class MainWindow(QMainWindow):
         """Map a visual table row to an index into self.entries."""
         return self._model.entry_index_for_row(row)
 
+    def _on_model_data_changed(self, top_left, bottom_right, _roles=None) -> None:
+        """Keep the preview pane and editor dock in sync with model edits.
+
+        Fires for every entry mutation routed through StringTableModel —
+        inline cell edits, favorite-toggle, editor-dock typing, reset-to-
+        original. Refreshes the preview if the changed range covers the
+        currently-selected row, and refreshes the dock if it covers the
+        entry the dock is currently tracking. Idempotent on both sides:
+        when the change *originated* from the dock or the preview, the
+        new value already matches what's on screen, so the refresh is a
+        cheap no-op.
+        """
+        if not self.entries or not top_left.isValid():
+            return
+
+        # Preview: refresh if the selected row falls inside the changed range.
+        sel_model = self.table.selectionModel() if hasattr(self, "table") else None
+        if sel_model is not None:
+            sel = sel_model.currentIndex()
+            if sel.isValid() and top_left.row() <= sel.row() <= bottom_right.row():
+                try:
+                    entry = self.entries[self._entry_index_for_row(sel.row())]
+                    raw = entry.custom_value or entry.original_value or ""
+                    self.preview_pane.setHtml(
+                        _render_preview_html(entry.key, raw, stamp=_journal_stamp_for_entry(entry))
+                    )
+                except (IndexError, AttributeError):
+                    pass
+
+        # Editor dock: refresh if the dock is tracking an entry whose row
+        # falls inside the changed range. The dock's row is derived from
+        # its entry index via the model's reverse lookup; if the entry
+        # isn't currently visible in the filtered view there's no row to
+        # check against, so fall back to a direct entry-index match.
+        if (
+            getattr(self, "editor_dock", None) is not None
+            and self._editor_dock_entry_idx is not None
+            and self._editor_dock_entry_idx < len(self.entries)
+        ):
+            dock_row = self._model.source_row_for_entry_index(self._editor_dock_entry_idx)
+            if dock_row is None or top_left.row() <= dock_row <= bottom_right.row():
+                entry = self.entries[self._editor_dock_entry_idx]
+                raw = entry.custom_value if entry.custom_value else entry.original_value
+                visual = (raw or "").replace("\\n", "\n")
+                if visual != self.editor_dock_text.toPlainText():
+                    self._editor_dock_loading = True
+                    try:
+                        self.editor_dock_text.setPlainText(visual)
+                    finally:
+                        self._editor_dock_loading = False
+                self.editor_dock_status_label.setText(entry.status)
+
     def _on_preview_row_changed(self, current: QModelIndex, _previous: QModelIndex) -> None:
-        """Refresh the preview pane when the selected row changes."""
+        """Refresh the preview pane and editor dock when the selected row changes."""
         if not current.isValid() or not self.entries:
             self.preview_pane.clear()
+            self._clear_editor_dock()
             return
         try:
             entry = self.entries[self._entry_index_for_row(current.row())]
         except (IndexError, AttributeError):
             self.preview_pane.clear()
+            self._clear_editor_dock()
             return
         raw = entry.custom_value or entry.original_value or ""
-        self.preview_pane.setHtml(_render_preview_html(entry.key, raw))
+        self.preview_pane.setHtml(
+            _render_preview_html(entry.key, raw, stamp=_journal_stamp_for_entry(entry))
+        )
+        self._load_editor_dock_from_row(current.row())
 
     @pyqtSlot()
     def apply_filters(self):
