@@ -30,13 +30,18 @@ Smart Citizen also bundles upstream tooling from:
 ## Key Features
 
 ### 🎯 Core Features
-- **Load & Edit**: Load global.ini from your Star Citizen installation and customize strings in an intuitive table view
+- **Load & Edit**: Load `global.ini` from your Star Citizen installation and customize strings in an intuitive table view
+- **Multi-Channel Support**: LIVE / PTU / EPTU / HOTFIX / TECH-PREVIEW each get their own isolated `user.ini`, cache, backups, and DataForge extraction — switch channels from the Config tab without restarting
 - **Mission Contracts**: Edit mission contract and briefing text from the dedicated Missions category
 - **Smart Filtering**: Search strings, filter by category (Ships, Ship Items, Missions, Gear, Commodities, Journal, Other), or modification status
 - **Per-Column Filters**: Type directly into filter boxes below each column header for fine-grained searching
-- **Safe Application**: Automatic timestamped backups before applying changes to prevent data loss
-- **Restore Backups**: Keep up to 5 backup versions — revert changes anytime with one click
+- **Live Preview Pane**: A side preview renders the selected row's text with the game's loc-tokens (line breaks, EM3/EM4 emphasis, mission placeholders) translated to styled HTML so you see roughly how the string will read in-game
+- **Editor Side-Panel**: Toolbar-toggleable, drag-resizable, undockable canvas for editing long values (journal entries, mission briefings, ship descriptions) with Underline/Highlight buttons and live cross-pane sync
+- **Safe Application**: Apply writes to `global.ini` with an automatic timestamped backup first, validates the output against the stock key set, and auto-rolls back on any mismatch
+- **Restore Backups**: Keep up to 5 backup versions per channel — revert changes anytime with one click
+- **Clear Localization**: Revert your game to vanilla text without losing your saved overrides
 - **Import INI**: Import an existing INI file and resolve conflicts key-by-key with the built-in conflict dialog
+- **Guided Tutorial**: A coach-mark tour walks new users through the workflow on first launch of each version — replayable any time from the Tutorial button
 
 ### 🔄 Data Sourcing & Persistence
 - **Sourced from Data.p4k**: All stock localization and DataForge entity data is unpacked directly from your installed `Data.p4k` — no downloads, no community mirrors, always in sync with your actual game version
@@ -45,10 +50,13 @@ Smart Citizen also bundles upstream tooling from:
 - **Clean UI**: High-performance table view with filters, in-line editing, keyboard shortcuts, and a modern interface
 
 ### 📊 Enhancements
-- **Ship Stats**: SCM speed, hydrogen fuel, quantum fuel, cargo capacity, and weapon loadouts appended to ship descriptions
-- **Component Stats**: Shield HP, power draw, cooling rate, and other stats for ship components
-- **Weapon Stats**: DPS, fire rate, range, and damage stats for ship weapons and FPS weapons
+- **Ship Stats**: SCM speed, hydrogen/quantum fuel, cargo capacity, full weapon loadouts, and armor multipliers (physical / energy / distortion / thermal) appended to ship descriptions
+- **Component Stats**: Shield HP, power draw, cooling rate, regen, and similar stats for shields, coolers, power plants, quantum drives, and radars — with `[CLASS-S{size}-{grade}]` name tags
+- **Weapon Stats**: DPS, fire rate, range, and damage on ship guns and turrets from S1 through capital. Missiles get tagged like `Arrester III [IR]`; bombs like `500SCB Cluster [S5]`
 - **Mission Annotations**: `[BP]` / `[BP?]` blueprint reward tags on titles, plus structured *MISSION DETAILS*, *POTENTIAL BLUEPRINTS*, and *ITEM REWARDS* blocks in descriptions
+- **Journal Cross-References**: Mining Compendium entries get crafting cross-references; commodities used in crafting get a `[CF]` name tag and a list of every blueprint that calls for them
+- **Ship Favorites**: Star a ship to prepend a configurable prefix (default `*`) so favorites sort to the top of the in-game ASOP terminal
+- **Declarative CIG Data-Bug Patches**: A patch system applies fixes to known DataForge bugs at extraction time so in-game text reads correctly without waiting on CIG
 - **Selective Categories**: Enable or disable each enhancement category independently from the Enhancements tab
 
 ### 🎨 Themes
@@ -57,9 +65,11 @@ Smart Citizen also bundles upstream tooling from:
 - **ODW**: Osiris DevWorks signature theme — navy charcoal with antique gold
 
 ### 🛡️ Data Management
-- **Automatic Backups**: Timestamped backups created before applying changes to your game
+- **Automatic Backups**: Timestamped backups created before applying changes to your game (up to 5 per channel)
 - **Registry Persistence**: All paths and preferences saved securely in Windows Registry
-- **Documents Storage**: Your custom edits stored in `Documents\Smart Citizen\` for safe persistence across sessions
+- **Documents Storage**: Your custom edits stored under `Documents\Smart Citizen\<channel>\` (one isolated subtree per Star Citizen channel) for safe persistence across sessions
+- **In-App Log Viewer**: Real-time application log with level filter, auto-scroll, and an Export button for bug reports
+- **Auto-Update Notifier**: Smart Citizen checks GitHub Releases periodically and surfaces a non-blocking notification when a newer installer is available
 
 ## Quick Start
 
