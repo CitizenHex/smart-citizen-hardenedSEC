@@ -1703,7 +1703,7 @@ class MainWindow(QMainWindow):
             reply = QMessageBox.question(
                 self, "Clear DataForge Cache?",
                 "Also clear the DataForge entity cache?\n\n"
-                "⚠️  Warning: Recreating the DataForge cache takes 5–10 minutes on first run.\n\n"
+                "⚠️  Warning: Recreating the DataForge cache takes a few minutes on first run.\n\n"
                 "The DataForge cache contains extracted entity data used for generating\n"
                 "ship and weapon stats. You can keep this cache and only clear the INI files\n"
                 "if you just want to refresh the localization strings.\n\n"
@@ -2970,7 +2970,7 @@ class MainWindow(QMainWindow):
             self, "DataForge Cache Outdated",
             "Your DataForge entity cache is older than the current Data.p4k.\n\n"
             "Re-extract DataForge and regenerate enhancements now?\n\n"
-            "This takes 5–10 minutes and runs in the background — you can keep "
+            "This takes a few minutes and runs in the background — you can keep "
             "editing strings while it works. Skip for now if you'd rather not wait; "
             "you can always trigger this from the Enhancements tab.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -3066,7 +3066,7 @@ class MainWindow(QMainWindow):
 
         info = QLabel(
             "DataForge data will be extracted automatically if not already cached.\n"
-            "First run takes ~5-10 minutes."
+            "First run takes a few minutes."
         )
         info.setProperty("role", "secondary")
         info.setStyleSheet("font-size: 11px;")

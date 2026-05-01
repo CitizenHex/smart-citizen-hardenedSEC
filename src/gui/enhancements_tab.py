@@ -114,7 +114,7 @@ class EnhancementsTab(QWidget):
         self._generate_enhancements_btn.setToolTip(
             "Generate enhanced localization files from your game's Data.p4k.\n"
             "DataForge data will be extracted automatically if not already cached\n"
-            "(first run takes ~5–10 minutes; subsequent runs are fast)."
+            "(first run takes a few minutes; subsequent runs are fast)."
         )
         self._generate_enhancements_btn.clicked.connect(self.enhancements_pipeline_requested.emit)
         btn_row.addWidget(self._generate_enhancements_btn)

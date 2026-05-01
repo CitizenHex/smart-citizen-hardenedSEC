@@ -152,7 +152,7 @@ python src/main.py
 7. Toggle "Stats enabled" OFF in Config tab, save, and verify stats disappear from display
 8. Toggle back ON and verify stats reappear
 
-**Time**: ~5-10 minutes
+**Time**: a few minutes
 
 ### 4. Multi-Source & Merge Test
 1. Config tab: Verify all sources are configured (Global, Contracts, Ships, Commodities, Gear)

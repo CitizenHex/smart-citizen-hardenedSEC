@@ -33,6 +33,16 @@ Grab the latest release here: [Smart Citizen Releases](https://github.com/Osiris
 
 Download the **`SmartCitizen-{VERSION}-Setup.exe`** installer and run it. The app auto-detects your Star Citizen installation.
 
+> [!IMPORTANT]
+> **Windows Smart App Control may block the installer.** Smart Citizen is not yet code-signed, and Windows 11's Smart App Control (SAC) silently blocks unsigned installers — right-click → Properties → Unblock does **not** help with SAC. To install:
+>
+> 1. Open **Settings → Privacy & security → Windows Security → App & browser control**.
+> 2. Click **Smart App Control settings** and set Smart App Control to **Off**.
+> 3. Run `SmartCitizen-{VERSION}-Setup.exe` and finish installation.
+> 4. After install, you can return to that screen and turn Smart App Control back on if you'd like.
+>
+> Note: on stock Windows 11, turning SAC off can be a one-way change — Microsoft does not always permit re-enabling without resetting Windows. Weigh that before disabling. A code-signing certificate is the only way to remove this friction permanently; Smart Citizen is a free side project, so signing will only happen if community donations cover the recurring cost.
+
 ### For Developers
 
 **Prerequisites**:
