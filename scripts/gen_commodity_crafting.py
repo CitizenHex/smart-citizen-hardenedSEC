@@ -6,13 +6,18 @@ import subprocess, re, os, sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scripts.generate_enhancements_ini import DEFAULT_BASE_INI, parse_ini, write_ini, APP_CACHE_DIR
+from scripts.generate_enhancements_ini import (
+    DEFAULT_BASE_INI, DEFAULT_FORGE_DIR, parse_ini, write_ini, APP_CACHE_DIR,
+)
 
-forge_dir = Path("C:/Users/aabou/OneDrive/Documents/Smart Citizen/cache/dataforge/raw/libs/foundry/records")
-scitem_dir = forge_dir / "entities" / "scitem"
-bp_dir = forge_dir / "crafting" / "blueprints" / "crafting"
+base_ini = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_BASE_INI
+dataforge_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_FORGE_DIR
+candidate_records_dir = dataforge_dir / "raw" / "libs" / "foundry" / "records"
+records_dir = candidate_records_dir if candidate_records_dir.exists() else dataforge_dir
+scitem_dir = records_dir / "entities" / "scitem"
+bp_dir = records_dir / "crafting" / "blueprints" / "crafting"
 
-loc = parse_ini(DEFAULT_BASE_INI)
+loc = parse_ini(base_ini)
 
 # Step 1: Resource UUID -> commodity name
 resource_uuids_all = set()
@@ -175,7 +180,8 @@ for commodity in sorted(commodity_items.keys()):
         stats_block = f"== Blueprint Data ==\\n{bp_block}"
         out[desc_key] = f"{base_desc}\\n\\n{stats_block}"
 
-output_path = APP_CACHE_DIR / "commodity_crafting_enhancements.ini"
+output_dir = base_ini.parent if base_ini.parent.exists() else APP_CACHE_DIR
+output_path = output_dir / "commodity_crafting_enhancements.ini"
 write_ini(output_path, out)
 print(f"Written {len(out)} entries to {output_path}")
 

@@ -71,7 +71,7 @@ Entry point: `src/main.py`. The app has two main layers:
 - `string_model.py` — `StringEntry` dataclass with category extraction from key prefixes.
 - `ini_parser.py` — Line-by-line INI parsing (splits on first `=`), source loading via `load_sources_from_settings()`, and `load_overrides(target_path)` for reading `user.ini` back as a `dict[str, str]`.
 - `ini_merger.py` — Merge engine: `merge_sources_by_hierarchy(sources_dict, hierarchy, user_overrides)`. Sources merge sequentially; user overrides always win.
-- `settings.py` — `AppSettings` class wrapping QSettings (Windows Registry). All user data stored under `Documents\Smart Citizen\{active_channel}\`. Critical: Registry is the single source of truth for all paths and preferences. Also owns canonical paths (`get_user_data_dir()`, `get_cache_dir()`, `get_user_ini_path()`, `get_backups_dir()`) and handles automatic migrations: legacy `overrides.ini` → `user.ini`, `AppData\Roaming\...` → `Documents\...`, and the 0.9.3+ flat layout → per-channel layout (`migrate_game_path_to_channel_layout()`).
+- `settings.py` — `AppSettings` class wrapping QSettings (Windows Registry). User data lives under the configured data root (default `Documents\Smart Citizen\`) plus `{active_channel}\`. Critical: Registry is the single source of truth for all paths and preferences. Also owns canonical paths (`get_user_data_dir()`, `get_cache_dir()`, `get_user_ini_path()`, `get_backups_dir()`) and handles automatic migrations: legacy `overrides.ini` → `user.ini`, `AppData\Roaming\...` → the configured data root, and the 0.9.3+ flat layout → per-channel layout (`migrate_game_path_to_channel_layout()`).
 - `updater.py` — Per-source GitHub downloads. Drives the auto-update workers that refresh each cached source INI (`base.ini`, `contracts.ini`, etc.) from its configured GitHub URL.
 - `app_updater.py` — *Separate* from `updater.py`. Polls `GET /repos/Osiris-DevWorks/smart-citizen/releases/latest` and compares `tag_name` to the local `VERSION.TXT` to surface a "new installer available" prompt. Runs on a `QThread`; `MainWindow` caps auto-checks to once per 6 hours via a registry timestamp to stay under GitHub's 60-req/hr unauthenticated limit.
 - `pak_extractor.py` — P4K extraction pipeline: `unp4k.exe` (extracts Game2.dcb) → `unforge.exe` (converts to entity XMLs). After unforge writes the full DataForge tree to a temp dir, `_copy_filtered_records()` copies only the subtrees in `DATAFORGE_KEEP_SUBPATHS` (the ones the generator actually reads) to the persistent cache — halves cache file count and cuts copy/rmtree wall time. Adding a new read path in the generator requires adding it to `DATAFORGE_KEEP_SUBPATHS`; `tests/test_pak_extraction.py::TestDataForgeKeepList` locks the contract.
@@ -124,13 +124,13 @@ Favorites prepend a configurable prefix (default `*`) to `custom_value`. The pre
 | What | Where |
 |------|-------|
 | Settings | Windows Registry: `HKEY_CURRENT_USER\Software\Osiris DevWorks\Smart Citizen` |
-| User data root | `Documents\Smart Citizen\` (resolved via registry for OneDrive support) |
-| **Per-channel data** | `Documents\Smart Citizen\{LIVE|PTU|EPTU|HOTFIX|TECH-PREVIEW}\` — 0.9.3+ nests user.ini / cache / backups / dataforge under the active channel so each SC channel is isolated. Migrator: `AppSettings.migrate_game_path_to_channel_layout()`. |
-| User overrides | `Documents\Smart Citizen\{active_channel}\user.ini` (legacy `overrides.ini`, auto-migrated) |
-| Cached sources | `Documents\Smart Citizen\{active_channel}\cache\` (`base.ini`, `contracts.ini`, etc.) |
-| DataForge cache | `Documents\Smart Citizen\{active_channel}\cache\dataforge\` (entity XMLs from Data.p4k) |
-| Enhancement INIs | `Documents\Smart Citizen\{active_channel}\cache\` (`ships_desc_enhancements.ini`, `components_desc_enhancements.ini`, `ship_weapons_desc_enhancements.ini`, `fps_weapons_desc_enhancements.ini`, `mission_rewards_enhancements.ini`, `commodity_crafting_enhancements.ini`) |
-| Backups | `Documents\Smart Citizen\{active_channel}\backups\` (max 5, oldest auto-deleted) |
+| User data root | Configurable via `user_data_dir` (alias `UserDataDir` is also read); defaults to `Documents\Smart Citizen\` |
+| **Per-channel data** | `{user_data_root}\{LIVE|PTU|EPTU|HOTFIX|TECH-PREVIEW}\` — 0.9.3+ nests user.ini / cache / backups / dataforge under the active channel so each SC channel is isolated. Migrator: `AppSettings.migrate_game_path_to_channel_layout()`. |
+| User overrides | `{user_data_root}\{active_channel}\user.ini` (legacy `overrides.ini`, auto-migrated) |
+| Cached sources | `{user_data_root}\{active_channel}\cache\` (`base.ini`, `contracts.ini`, etc.) |
+| DataForge cache | `{user_data_root}\{active_channel}\cache\dataforge\` (entity XMLs from Data.p4k) |
+| Enhancement INIs | `{user_data_root}\{active_channel}\cache\` (`ships_desc_enhancements.ini`, `components_desc_enhancements.ini`, `ship_weapons_desc_enhancements.ini`, `fps_weapons_desc_enhancements.ini`, `mission_rewards_enhancements.ini`, `commodity_crafting_enhancements.ini`) |
+| Backups | `{user_data_root}\{active_channel}\backups\` (max 5, oldest auto-deleted) |
 | Game file | `{sc_install_root}\{active_channel}\data\Localization\english\global.ini` — resolved via `AppSettings.get_global_ini_path()` |
 | P4K tools | `assets/unp4k/` (`unp4k.exe`, `unforge.exe`) |
 | DataForge patches | `patches/` (JSON files mirroring DataForge layout; applied post-extraction) |
@@ -179,11 +179,11 @@ Discord notification is automatic via GitHub Actions (`scripts/discord_notify.py
 ## Debugging
 
 - **Registry**: `regedit` → `HKEY_CURRENT_USER\Software\Osiris DevWorks\Smart Citizen` (live tree). Pre-0.9 installs leave a parallel `Osiris DevWorks\SC Localization Editor` tree that the in-app migrator drains on next launch.
-- **User data path**: If `Documents` is redirected (OneDrive), Registry stores the resolved path under `UserDataDir`; delete that value to reset and auto-detect on next run.
+- **User data path**: If `Documents` is redirected (OneDrive), Registry stores the override under `user_data_dir` (legacy/manual alias `UserDataDir` is also honored); delete that value to reset and auto-detect on next run.
 - **Threading hangs**: Check `worker.quit()` + `worker.wait()` are called in finished slots. Use Log Tab to watch for blockages.
 - **File encoding**: Parser expects UTF-8; BOM or other encodings fail silently. Ensure cache files are UTF-8 no-BOM.
 - **GitHub API rate limit**: Unauthenticated, 60 requests/hour per IP. Check updater logs if auto-update stalls.
-- **Overrides not loading**: Verify `Documents\Smart Citizen\{active_channel}\user.ini` exists with `key=value` format (no sections). If you find a legacy `Documents\SC Localization Editor\overrides.ini`, both the rename (`overrides.ini` → `user.ini`) and the channel-nesting migration are handled lazily by `AppSettings` — launching the app once should drain them.
+- **Overrides not loading**: Verify `{user_data_root}\{active_channel}\user.ini` exists with `key=value` format (no sections). If you find a legacy `Documents\SC Localization Editor\overrides.ini`, both the rename (`overrides.ini` → `user.ini`) and the channel-nesting migration are handled lazily by `AppSettings` — launching the app once should drain them.
 - **Performance**: Use `@timed` decorator on slow functions and check elapsed times in DEBUG logs.
 - **Test isolation**: Each test should not depend on Registry state; mock `AppSettings` or use conftest fixtures.
 
