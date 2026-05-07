@@ -53,7 +53,6 @@ Filename: "{app}\SmartCitizen-v{#AppVer}.exe"; Description: "{cm:LaunchProgram,S
 var
   SCDirectoryPage: TInputDirWizardPage;
   DataDirPage: TInputDirWizardPage;
-  DataDirPromptShown: Boolean;
 
 function IsDocsOnOneDrive(): Boolean;
 var
@@ -73,21 +72,6 @@ begin
     Result := (Pos('\OneDrive\', DocsPath) > 0) or
               (Pos('\OneDrive/', DocsPath) > 0);
   end;
-end;
-
-function HasDataDirOverride(): Boolean;
-var
-  Dummy: String;
-begin
-  { Respect existing user choice — if the override is already set in either
-    the new "Smart Citizen" node or the legacy "SC Localization Editor"
-    node, skip the prompt entirely. }
-  Result := RegQueryStringValue(HKCU,
-              'Software\Osiris DevWorks\Smart Citizen',
-              'user_data_dir', Dummy) or
-            RegQueryStringValue(HKCU,
-              'Software\Osiris DevWorks\SC Localization Editor',
-              'user_data_dir', Dummy);
 end;
 
 function SuggestLocalDataDir(): String;
@@ -467,6 +451,7 @@ var
   SavedPath: String;
   SCRoot: String;
   ActiveChannel: String;
+  SavedDataDir: String;
 begin
   { Registry path resolution order:
       1. NEW "Smart Citizen" node (post-0.9.2 rebrand) — every app launch
@@ -554,51 +539,60 @@ begin
   if Pos('SC Localization Editor', WizardForm.GroupEdit.Text) > 0 then
     WizardForm.GroupEdit.Text := 'Smart Citizen';
 
-  { OneDrive guard rail: when Documents is redirected to OneDrive, offer
-    to store Smart Citizen's cache + user.ini on a local path instead.
-    The page is *always* created (so ShouldSkipPage has something to
-    reference) but hidden when it doesn't apply. DataDirPromptShown
-    records whether it was actually exposed, so CurFinished only persists
-    a value the user was given the chance to see. }
+  { Smart Citizen data location: always exposed so users can move the
+    cache, custom edits, and backups off the default Documents folder —
+    useful even when Documents isn't OneDrive-synced (e.g. user wants the
+    2 GB cache on a faster SSD or a different drive). The default value
+    adapts:
+      1. If a prior override exists, pre-fill it (respects the user's
+         previous choice across reinstalls).
+      2. Else if Documents is OneDrive-synced, suggest the local
+         %USERPROFILE%\Documents\Smart Citizen junction (escapes the sync).
+      3. Else pre-fill Documents\Smart Citizen (the natural default).
+    CurFinished compares the final value against the natural default and
+    only writes user_data_dir when the user actually picked something
+    different — so leaving the field at its default keeps the registry
+    clean and lets the app's dynamic Documents resolution win. }
   DataDirPage := CreateInputDirPage(
     SCDirectoryPage.ID,
     'Smart Citizen Data Location',
-    'Your Documents folder is synced to OneDrive — pick where to store data.',
+    'Choose where Smart Citizen stores cache, custom edits, and backups.',
     'Smart Citizen caches 2+ GB of extracted game data and stores your custom edits ' +
-    'under your Documents folder. OneDrive-synced Documents is known to cause problems:'
+    'and backups under this folder. The default is your Documents folder.'
     + #13#10 + #13#10 +
-    '  - DataForge extraction is 3-5x slower because OneDrive, Windows Defender,'
+    'Consider a custom location if:'
     + #13#10 +
-    '    and the Search Indexer each intercept every one of the 50,000+ files'
+    '  - Your Documents folder is synced to OneDrive (causes 3-5x slower extraction'
     + #13#10 +
-    '  - Cache rebuilds can fail with "Access is denied" errors when OneDrive holds'
+    '    and occasional "Access is denied" errors during cache rebuilds)'
     + #13#10 +
-    '    a transient file lock'
+    '  - You want the cache on a different drive (faster SSD, or to free C: space)'
     + #13#10 +
-    '  - The 2+ GB cache uploads to your OneDrive cloud quota on every rebuild'
+    '  - You manage multiple profiles or installs and want them isolated'
     + #13#10 + #13#10 +
-    'We recommend a local (non-OneDrive) folder. Accept the suggestion below, browse ' +
-    'to a different location, or clear the field to keep the OneDrive default.',
+    'You can change this later from the app''s Config tab.',
     False,
     'Smart Citizen Data'
   );
   DataDirPage.Add('');
-  DataDirPage.Values[0] := SuggestLocalDataDir();
-  DataDirPromptShown := False;
+
+  { Pre-fill: existing override > OneDrive suggestion > Documents default. }
+  if RegQueryStringValue(HKCU, NewRegPath, 'user_data_dir', SavedDataDir) and
+     (SavedDataDir <> '') then
+    DataDirPage.Values[0] := SavedDataDir
+  else if IsDocsOnOneDrive() then
+    DataDirPage.Values[0] := SuggestLocalDataDir()
+  else
+    DataDirPage.Values[0] := GetDocumentsBase() + '\Smart Citizen';
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
+  { 1.3.0+: the data-folder page is always shown so every user gets a
+    chance to relocate the cache (not just OneDrive-synced installs). The
+    OneDrive-only gate was removed — pre-fill logic in InitializeWizard
+    handles the OneDrive case by suggesting a local path. }
   Result := False;
-  if (DataDirPage <> nil) and (PageID = DataDirPage.ID) then
-  begin
-    { Skip unless Documents is OneDrive-synced AND the user hasn't already
-      set an override from a prior launch. }
-    if IsDocsOnOneDrive() and not HasDataDirOverride() then
-      DataDirPromptShown := True
-    else
-      Result := True;
-  end;
 end;
 
 procedure CurFinished(LastStep: TSetupStep);
@@ -606,6 +600,7 @@ var
   RegPath: String;
   FinalPath: String;
   DataDir: String;
+  DocsDefault: String;
 begin
   if LastStep = ssPostInstall then
   begin
@@ -631,26 +626,39 @@ begin
       Log('Saved sc_directory to registry (Smart Citizen + legacy nodes): ' + FinalPath);
     end;
 
-    { Persist the OneDrive-escape choice. Writes to the NEW (Smart Citizen)
-      node — 0.9.2+ reads user_data_dir from there. If a legacy install's
-      migration runs afterwards and the old node happens to carry its own
-      user_data_dir, that user's prior explicit choice wins (migration
-      overwrites). Otherwise this installer-written value survives. }
-    if DataDirPromptShown then
+    { Persist the data folder choice. The page is always shown in 1.3.0+,
+      so every install reaches this branch. Comparison rules:
+        - Empty field, or value equal to the natural Documents default:
+          clear the override so the app's dynamic Documents resolution
+          wins on every launch (matches the in-app Reset behavior in
+          AppSettings.set_user_data_dir(None)). Keeps the registry tidy
+          for users who never wanted a custom path.
+        - Anything else: write user_data_dir. Also clear the legacy
+          camelCase 'UserDataDir' alias if present so the app reads the
+          canonical value. ForceDirectories ensures the chosen folder
+          exists by the time the app first launches.
+      Writes are scoped to the NEW (Smart Citizen) registry node — the
+      app's migrate_registry_appname() preserves it across rebrand
+      migrations. }
+    DataDir := DataDirPage.Values[0];
+    DocsDefault := GetDocumentsBase() + '\Smart Citizen';
+    if (DataDir = '') or (CompareText(DataDir, DocsDefault) = 0) then
     begin
-      DataDir := DataDirPage.Values[0];
-      if DataDir <> '' then
-      begin
-        RegWriteStringValue(HKCU,
-          'Software\Osiris DevWorks\Smart Citizen',
-          'user_data_dir', DataDir);
-        ForceDirectories(DataDir);
-        Log('Saved user_data_dir to registry: ' + DataDir);
-      end
-      else
-      begin
-        Log('User cleared data-dir override; keeping OneDrive default.');
-      end;
+      RegDeleteValue(HKCU,
+        'Software\Osiris DevWorks\Smart Citizen', 'user_data_dir');
+      RegDeleteValue(HKCU,
+        'Software\Osiris DevWorks\Smart Citizen', 'UserDataDir');
+      Log('User chose default Documents folder; cleared user_data_dir override.');
+    end
+    else
+    begin
+      RegWriteStringValue(HKCU,
+        'Software\Osiris DevWorks\Smart Citizen',
+        'user_data_dir', DataDir);
+      RegDeleteValue(HKCU,
+        'Software\Osiris DevWorks\Smart Citizen', 'UserDataDir');
+      ForceDirectories(DataDir);
+      Log('Saved user_data_dir to registry: ' + DataDir);
     end;
   end;
 end;
