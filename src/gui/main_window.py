@@ -710,6 +710,7 @@ class MainWindow(QMainWindow):
         self.config_tab.import_ini_requested.connect(self._handle_import_ini)
         self.config_tab.channel_changed.connect(self._on_channel_changed)
         self.config_tab.check_updates_requested.connect(self._on_check_updates_clicked)
+        self.config_tab.data_dir_changed.connect(self._on_data_dir_changed)
         self._config_tab_index = self.tabs.addTab(self.config_tab, "Config")
 
         # Enhancements tab
@@ -2666,6 +2667,22 @@ class MainWindow(QMainWindow):
             return
         self._channel_indicator.setText(f"Channel: {AppSettings.get_active_channel()}")
 
+    def _sync_canonical_source_paths(self, context: str) -> None:
+        """Mirror canonical file-backed source paths into QSettings."""
+        for source_name, canonical in (
+            (AppSettings.SOURCE_GLOBAL, str(AppSettings.get_cache_dir() / "base.ini")),
+            (AppSettings.SOURCE_USER, str(AppSettings.get_user_ini_path())),
+        ):
+            stored = AppSettings.get_source_path(source_name)
+            if stored.startswith("http://") or stored.startswith("https://"):
+                continue
+            if stored != canonical:
+                AppSettings.set_source_path(source_name, canonical)
+                logger.info(
+                    f"Re-synced {source_name} source path {context}: "
+                    f"{stored or '(unset)'} → {canonical}"
+                )
+
     @pyqtSlot(str)
     def _on_channel_changed(self, channel: str) -> None:
         """Handle a channel switch from the Config tab.
@@ -2687,19 +2704,7 @@ class MainWindow(QMainWindow):
         # new values into those entries the same way main() does on startup.
         # Skip any source currently set to a URL to preserve custom remote
         # configs.
-        for source_name, canonical in (
-            (AppSettings.SOURCE_GLOBAL, str(AppSettings.get_cache_dir() / "base.ini")),
-            (AppSettings.SOURCE_USER, str(AppSettings.get_user_ini_path())),
-        ):
-            stored = AppSettings.get_source_path(source_name)
-            if stored.startswith("http://") or stored.startswith("https://"):
-                continue
-            if stored != canonical:
-                AppSettings.set_source_path(source_name, canonical)
-                logger.info(
-                    f"Re-synced {source_name} source path for channel {channel}: "
-                    f"{stored or '(unset)'} → {canonical}"
-                )
+        self._sync_canonical_source_paths(f"for channel {channel}")
 
         self._refresh_channel_indicator()
         self.config_tab._refresh_p4k_status()
@@ -2740,6 +2745,31 @@ class MainWindow(QMainWindow):
         self._maybe_prompt_dataforge_refresh()
 
         self.statusBar().showMessage(f"Switched to {channel} — reloading sources…")
+        self.perform_merge_and_reload()
+
+    @pyqtSlot(str)
+    def _on_data_dir_changed(self, data_dir: str) -> None:
+        """Reload the app against a newly selected Smart Citizen data folder."""
+        logger.info(f"MainWindow reacting to data folder change → {data_dir}")
+
+        AppSettings.ensure_user_ini_file()
+        self._sync_canonical_source_paths(f"for data folder {data_dir}")
+        self.config_tab._refresh_p4k_status()
+        if hasattr(self, "enhancements_tab"):
+            self.enhancements_tab.refresh_enhancements_status()
+
+        self._enhancements_prompted_on_startup = False
+
+        if self._check_p4k_freshness():
+            self.statusBar().showMessage(
+                f"Data folder changed to {data_dir} — extracting Data.p4k…"
+            )
+            return
+
+        self._maybe_prompt_dataforge_refresh()
+        self.statusBar().showMessage(
+            f"Data folder changed to {data_dir} — reloading sources…"
+        )
         self.perform_merge_and_reload()
 
     def _update_status_bar(self):

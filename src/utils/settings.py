@@ -114,6 +114,9 @@ class AppSettings:
     # Documents redirected to OneDrive can point this at a local path to
     # avoid slow extraction / rmtree races on OneDrive-synced folders.
     USER_DATA_DIR = "user_data_dir"
+    # Compatibility alias for older docs/manual registry edits. The installer
+    # and current app write ``user_data_dir``; read both so either spelling works.
+    USER_DATA_DIR_ALIASES = ("UserDataDir",)
 
     # Settings keys - Data sources (new)
     # Prefix: data_sources/{source_name}/
@@ -950,6 +953,38 @@ class AppSettings:
         settings.sync()
 
     @staticmethod
+    def _get_user_data_dir_override() -> str:
+        """Return the configured user-data directory override, if any.
+
+        Current builds store this as ``user_data_dir``. Some docs and manual
+        support notes referred to ``UserDataDir``; migrate that alias lazily
+        so users who followed those instructions don't fall back to Documents.
+        """
+        settings = AppSettings.settings()
+        raw = settings.value(AppSettings.USER_DATA_DIR, "", type=str)
+        if raw and str(raw).strip():
+            return str(raw).strip()
+
+        for alias in AppSettings.USER_DATA_DIR_ALIASES:
+            raw_alias = settings.value(alias, "", type=str)
+            if raw_alias and str(raw_alias).strip():
+                value = str(raw_alias).strip()
+                settings.setValue(AppSettings.USER_DATA_DIR, value)
+                settings.sync()
+                logger.info(
+                    f"Migrated user data directory setting {alias} → "
+                    f"{AppSettings.USER_DATA_DIR}: {value}"
+                )
+                return value
+
+        return ""
+
+    @staticmethod
+    def get_user_data_dir_override() -> str:
+        """Return the explicit user-data directory override, or ``""`` when unset."""
+        return AppSettings._get_user_data_dir_override()
+
+    @staticmethod
     def get_user_data_dir() -> Path:
         r"""Get the user data directory.
 
@@ -964,9 +999,9 @@ class AppSettings:
         Returns:
             Path to the resolved directory (created if needed).
         """
-        override = AppSettings.settings().value(AppSettings.USER_DATA_DIR, "", type=str)
+        override = AppSettings._get_user_data_dir_override()
         if override:
-            override_path = Path(override)
+            override_path = Path(os.path.expandvars(override)).expanduser().resolve()
             try:
                 override_path.mkdir(parents=True, exist_ok=True)
                 return override_path
@@ -984,15 +1019,21 @@ class AppSettings:
         r"""Override the user data directory. Pass ``None`` or an empty
         string to clear the override and revert to the Documents default.
 
-        Writes to the Osiris DevWorks\SC Localization Editor registry key
-        (same scope as every other AppSettings value), so it survives
-        reinstalls and is per-user.
+        Writes to the Osiris DevWorks\Smart Citizen registry key (same scope
+        as every other AppSettings value), so it survives reinstalls and is
+        per-user.
         """
+        settings = AppSettings.settings()
         if not path:
-            AppSettings.settings().remove(AppSettings.USER_DATA_DIR)
+            settings.remove(AppSettings.USER_DATA_DIR)
+            for alias in AppSettings.USER_DATA_DIR_ALIASES:
+                settings.remove(alias)
         else:
-            AppSettings.settings().setValue(AppSettings.USER_DATA_DIR, str(path))
-        AppSettings.settings().sync()
+            expanded = Path(os.path.expandvars(str(path))).expanduser().resolve()
+            settings.setValue(AppSettings.USER_DATA_DIR, str(expanded))
+            for alias in AppSettings.USER_DATA_DIR_ALIASES:
+                settings.remove(alias)
+        settings.sync()
 
     # ── Channel selection API ────────────────────────────────────────────────
 

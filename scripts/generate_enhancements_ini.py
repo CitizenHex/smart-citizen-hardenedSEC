@@ -48,7 +48,19 @@ def _get_documents_dir() -> Path:
         return Path.home() / "Documents"
 
 
-APP_CACHE_DIR    = _get_documents_dir() / "Smart Citizen" / "cache"
+def _get_default_cache_dir() -> Path:
+    """Resolve the app's active cache directory for standalone CLI defaults."""
+    try:
+        if str(PROJECT_ROOT) not in sys.path:
+            sys.path.insert(0, str(PROJECT_ROOT))
+        from src.utils.settings import AppSettings
+        return AppSettings.get_cache_dir()
+    except (ImportError, OSError) as e:
+        logger.debug(f"Falling back to Documents cache default: {e}")
+        return _get_documents_dir() / "Smart Citizen" / "LIVE" / "cache"
+
+
+APP_CACHE_DIR    = _get_default_cache_dir()
 DEFAULT_BASE_INI = APP_CACHE_DIR / "base.ini"
 DEFAULT_FORGE_DIR = APP_CACHE_DIR / "dataforge"
 
