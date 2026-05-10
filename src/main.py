@@ -43,39 +43,62 @@ def main():
     """Application entry point."""
     logger.info(f"Starting Smart Citizen v{get_version()}")
 
-    # Move HKCU\Software\Osiris DevWorks\SC Localization Editor → Smart Citizen
-    # on first launch after 0.9.2 (idempotent via marker). Must run FIRST —
-    # every subsequent AppSettings call reads QSettings under the new node,
-    # so if the legacy settings haven't been copied over yet the app sees
-    # an empty registry and loses the user's saved paths / theme / etc.
-    AppSettings.migrate_registry_appname()
+    # Portable mode: swap the JSON backend in BEFORE any AppSettings
+    # accessor runs. No-op in registry mode (the default). Must run
+    # before the migrators below — they all read/write the active
+    # backend, and we want the JSON file to be the target in portable
+    # mode (or the migrators to skip entirely, which the early-return
+    # block right after handles).
+    AppSettings.setup_portable_backend_if_needed()
 
-    # Rename Documents\SC Localization Editor\ → Documents\Smart Citizen\ on
-    # first run after the 0.9.0 rebrand (idempotent). Must run before any
-    # path-resolving setting is touched.
-    AppSettings.migrate_docs_folder_rename()
+    # Skip all registry migrators in portable mode — they migrate
+    # state in HKEY_CURRENT_USER, which a portable build never reads.
+    # Filesystem migrators (`migrate_docs_folder_rename`,
+    # `migrate_data_to_documents`, `migrate_game_path_to_channel_layout`)
+    # also skip because portable mode starts fresh under
+    # `<exe-dir>/data/` — there's no legacy Documents\Smart Citizen tree
+    # to drain.
+    from src.utils import build_mode
+    if not build_mode.IS_PORTABLE:
+        # Move HKCU\Software\Osiris DevWorks\SC Localization Editor → Smart Citizen
+        # on first launch after 0.9.2 (idempotent via marker). Must run FIRST —
+        # every subsequent AppSettings call reads QSettings under the new node,
+        # so if the legacy settings haven't been copied over yet the app sees
+        # an empty registry and loses the user's saved paths / theme / etc.
+        AppSettings.migrate_registry_appname()
 
-    # Migrate legacy settings to new data source format
-    AppSettings.migrate_legacy_settings()
+        # Rename Documents\SC Localization Editor\ → Documents\Smart Citizen\ on
+        # first run after the 0.9.0 rebrand (idempotent). Must run before any
+        # path-resolving setting is touched.
+        AppSettings.migrate_docs_folder_rename()
 
-    # One-shot prune of the four URL-based sources (contracts/components/
-    # ships/commodities) retired in 0.7.0 when the app switched to local
-    # Data.p4k extraction. They've been silently 404-ing for ~10 versions
-    # and produced zero-key rows in the Merge Preview. Marker-gated so it
-    # runs exactly once per user.
-    AppSettings.migrate_remove_retired_url_sources()
+        # Migrate legacy settings to new data source format
+        AppSettings.migrate_legacy_settings()
 
-    # Migrate global source from any remote URL to local P4K cache path (v0.6.0+)
-    AppSettings.migrate_global_to_p4k_local()
+        # One-shot prune of the four URL-based sources (contracts/components/
+        # ships/commodities) retired in 0.7.0 when the app switched to local
+        # Data.p4k extraction. They've been silently 404-ing for ~10 versions
+        # and produced zero-key rows in the Merge Preview. Marker-gated so it
+        # runs exactly once per user.
+        AppSettings.migrate_remove_retired_url_sources()
 
-    # Split the pre-0.9.3 single-channel layout into channel-aware directories
-    # (registry: GAME_INSTALL_PATH → SC_INSTALL_ROOT + ACTIVE_CHANNEL;
-    # filesystem: Documents\Smart Citizen\{base.ini,cache,backups,user.ini,...}
-    # → Documents\Smart Citizen\LIVE\{...}). One-shot, marker-gated.
-    AppSettings.migrate_game_path_to_channel_layout()
+        # Migrate global source from any remote URL to local P4K cache path (v0.6.0+)
+        AppSettings.migrate_global_to_p4k_local()
 
-    # Move user data files from old AppData location to Documents (idempotent)
-    AppSettings.migrate_data_to_documents()
+        # Split the pre-0.9.3 single-channel layout into channel-aware directories
+        # (registry: GAME_INSTALL_PATH → SC_INSTALL_ROOT + ACTIVE_CHANNEL;
+        # filesystem: Documents\Smart Citizen\{base.ini,cache,backups,user.ini,...}
+        # → Documents\Smart Citizen\LIVE\{...}). One-shot, marker-gated.
+        AppSettings.migrate_game_path_to_channel_layout()
+
+        # Move user data files from old AppData location to Documents (idempotent)
+        AppSettings.migrate_data_to_documents()
+    else:
+        # Portable mode also seeds defaults — the migrator does both
+        # ("seed defaults if no settings exist" + "migrate legacy"); we
+        # need the seed half. Check the marker explicitly to skip the
+        # registry-cleanup half.
+        AppSettings.migrate_legacy_settings()
 
     # Always keep user source path in sync with canonical user.ini location
     AppSettings.set_source_path(AppSettings.SOURCE_USER, str(AppSettings.get_user_ini_path()))

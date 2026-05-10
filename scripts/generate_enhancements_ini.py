@@ -48,7 +48,19 @@ def _get_documents_dir() -> Path:
         return Path.home() / "Documents"
 
 
-APP_CACHE_DIR    = _get_documents_dir() / "Smart Citizen" / "cache"
+def _get_default_cache_dir() -> Path:
+    """Resolve the app's active cache directory for standalone CLI defaults."""
+    try:
+        if str(PROJECT_ROOT) not in sys.path:
+            sys.path.insert(0, str(PROJECT_ROOT))
+        from src.utils.settings import AppSettings
+        return AppSettings.get_cache_dir()
+    except (ImportError, OSError) as e:
+        logger.debug(f"Falling back to Documents cache default: {e}")
+        return _get_documents_dir() / "Smart Citizen" / "LIVE" / "cache"
+
+
+APP_CACHE_DIR    = _get_default_cache_dir()
 DEFAULT_BASE_INI = APP_CACHE_DIR / "base.ini"
 DEFAULT_FORGE_DIR = APP_CACHE_DIR / "dataforge"
 
@@ -359,6 +371,64 @@ def _mission_loc_key(root: ET.Element) -> str | None:
     if desc.startswith("@") and not _is_sentinel_loc_ref(desc):
         return desc.lstrip("@")
     return None
+
+
+# Loc-key tokens that flag a mission as on-foot / first-person. Lowercase
+# substring match against the loc_key. CIG's own naming convention puts these
+# in the key whenever the mission is FPS-themed (e.g.
+# ``BountyHuntersGuild_FPS_Nyx``, ``vaughn_assassination_FPS_UGF_legal_…``,
+# ``GoblinG_Crusader_RecoverCargoFPS_L_Title``). UGF = Underground Facility,
+# always FPS. ``ugf`` is matched as a standalone token via word-boundary check
+# below to avoid false-positives on substrings like ``frugfrog``.
+_FPS_TOKENS = (
+    "_fps_", "fps_", "_fps", "fpsmine",
+    "_ugf_", "ugf_", "_ugf",
+    "_onfoot_", "onfoot_", "_onfoot",
+    "_foot_",
+)
+
+# Tokens that flag the mission also requires ship transport ON TOP OF the
+# FPS work. Cargo recovery / salvage / hauling missions take the player
+# in on foot to deal with hostiles + retrieve goods, then back out by ship
+# to drop the cargo at a freight elevator (typical "RecoverCargoFPS"
+# pattern). Combined with an FPS marker, this promotes the classification
+# from ``FPS`` to ``FPS & Ship``.
+_FPS_PLUS_SHIP_TOKENS = (
+    "recovercargo", "cargo_recover",
+    "salvage", "hauling",
+    "freight",
+)
+
+
+def _classify_mission_engagement(loc_key: str | None) -> str:
+    """Classify a mission as FPS / Ship / FPS & Ship from its loc_key.
+
+    Conservative defaults — when in doubt, classify as ``Ship`` (the most
+    common SC mission category and the safer mis-classification: a player
+    who's expecting ship combat and gets dropped into FPS will reload and
+    re-prep, but the inverse is rare in this dataset).
+
+    Rules (applied in order):
+
+    1. No FPS marker in the key → ``Ship``
+    2. FPS marker present + cargo / salvage / freight token also present
+       → ``FPS & Ship`` (mission needs FPS gear AND a ship for transport)
+    3. FPS marker present, no transport token → ``FPS``
+    """
+    if not loc_key:
+        return "Ship"
+
+    key_lower = loc_key.lower()
+
+    has_fps = any(tok in key_lower for tok in _FPS_TOKENS)
+    if not has_fps:
+        return "Ship"
+
+    has_transport = any(tok in key_lower for tok in _FPS_PLUS_SHIP_TOKENS)
+    if has_transport:
+        return "FPS & Ship"
+
+    return "FPS"
 
 
 def _resource_amount(amount_el: ET.Element) -> str | None:
@@ -1102,6 +1172,11 @@ def _extract_spawn_counts(element: ET.Element) -> tuple[int, int, int]:
         total = sum(int(s.get("concurrentAmount", "0")) for s in ships)
         if total <= 0:
             continue
+        # Turret spawn-groups are reported separately by
+        # _extract_turret_info — skip them here so they don't double-count
+        # in the Enemies tally.
+        if "turret" in name:
+            continue
         # Classify by group name
         if any(kw in name for kw in ("target", "reinforcement", "enemy", "hostile", "pirate", "bandit")):
             num_enemies += total
@@ -1146,6 +1221,60 @@ def _extract_spawn_counts(element: ET.Element) -> tuple[int, int, int]:
                 wave_groups += 1
 
     return wave_groups, num_enemies, num_not_enemies
+
+
+def _extract_turret_info(root: ET.Element) -> str | None:
+    """Return a formatted ``count (hostility)`` for mission turrets, or None.
+
+    Two CIG signal sources, used together:
+
+    1. ``SpawnDescription_ShipGroup Name="Turrets"`` — the mission spawns
+       turret entities at the location. ~119/2558 pu_missions in 4.7 use
+       this. The ``concurrentAmount`` on each ``SpawnDescription_Ship``
+       child gives the count.
+    2. ``MissionProperty missionVariableName="OverrideTurretHosility_BP"``
+       (note CIG's spelling — "Hosility", not "Hostility") with a Boolean
+       value. ~8 missions set this. ``value="1"`` means the mission
+       deliberately wants its turrets hostile to the player; only seen as
+       ``"1"`` in the live 4.7 dataset, so a friendly explicit override is
+       hypothetical until observed.
+
+    Hostility default is "hostile" — when a mission spawns turrets without
+    an explicit override, you're almost always going to a hostile location
+    where the turrets are defending the target. Players answering "what
+    should I expect" are best served by the conservative warning. Friendly
+    turret cases will get a ``(friendly)`` qualifier if/when CIG ever ships
+    one.
+
+    Returns:
+        ``"4 (hostile)"`` / ``"2 (friendly)"`` / ``"present (hostile)"``
+        when a count is unavailable but the override flag was set, or
+        ``None`` when the mission has no turret references at all.
+    """
+    turret_count = 0
+    for sg in root.findall(".//SpawnDescription_ShipGroup"):
+        name = sg.get("Name", "").lower()
+        if "turret" not in name:
+            continue
+        ships = sg.findall(".//SpawnDescription_Ship")
+        turret_count += sum(int(s.get("concurrentAmount", "0")) for s in ships)
+
+    explicit_hostility: bool | None = None
+    for prop in root.findall(".//MissionProperty"):
+        if prop.get("missionVariableName") == "OverrideTurretHosility_BP":
+            val_el = prop.find(".//MissionPropertyValue_Boolean")
+            if val_el is not None:
+                explicit_hostility = val_el.get("value") == "1"
+            break
+
+    if turret_count == 0 and explicit_hostility is None:
+        return None
+
+    count_str = str(turret_count) if turret_count > 0 else "present"
+
+    if explicit_hostility is False:
+        return f"{count_str} (friendly)"
+    return f"{count_str} (hostile)"
 
 
 def _parse_difficulty_rating(value: str) -> int:
@@ -1224,6 +1353,7 @@ def enhancements_mission(root: ET.Element, reputation_lookup: dict[str, int] | N
     """Extract mission/contract reward stats (aUEC + Reputation XP) and flags.
 
     Extracts:
+    - Engagement Type (FPS / Ship / FPS & Ship) from the mission loc_key
     - aUEC mission reward amount
     - Reputation XP from reward UUID references using the reputation_lookup table
     - Mission flags (Chain, Starter, Unique)
@@ -1232,6 +1362,14 @@ def enhancements_mission(root: ET.Element, reputation_lookup: dict[str, int] | N
     reputation_lookup = reputation_lookup or {}
 
     try:
+        # Engagement Type comes first so players can see at a glance whether
+        # to kit up for FPS or ship combat. Re-extract the loc_key here
+        # rather than threading it through scan_entity_dir's callback —
+        # cheap (single attribute read), avoids changing the enhancement_fn
+        # signature shared with non-mission generators.
+        loc_key = _mission_loc_key(root) or _loc_key(root)
+        lines.append(f"<EM4>Engagement Type:</EM4> {_classify_mission_engagement(loc_key)}")
+
         # Extract mission flags
         flags = _extract_mission_flags(root)
         lines.append(f"<EM4>Mission Type:</EM4> {', '.join(flags) if flags else 'Standard'}")
@@ -1252,6 +1390,13 @@ def enhancements_mission(root: ET.Element, reputation_lookup: dict[str, int] | N
             lines.append(f"<EM4>Enemies:</EM4> {num_enemies}")
         if num_not_enemies > 0:
             lines.append(f"<EM4>Non-hostiles:</EM4> {num_not_enemies}")
+
+        # Turret presence — groups visually with the other hostile-entity
+        # tallies so a player sizing up the mission sees enemies + turrets
+        # adjacently in the MISSION DETAILS block.
+        turret_info = _extract_turret_info(root)
+        if turret_info:
+            lines.append(f"<EM4>Turrets:</EM4> {turret_info}")
 
     except Exception:
         pass

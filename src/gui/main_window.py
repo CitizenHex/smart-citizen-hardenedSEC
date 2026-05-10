@@ -19,115 +19,41 @@ from PyQt6.QtGui import QColor, QFont, QCursor, QPixmap, QIcon, QPalette
 from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices
 
+from src.gui.coach_mark import CoachMarkStep, TutorialTour
+from src.gui.config_tab import ConfigTab
+from src.gui.enhancements_tab import EnhancementsTab
 from src.gui.filter_header import FilterHeaderView
+from src.gui.log_tab import LogTab
+from src.gui.markdown_renderer import markdown_to_html as _md_to_html
 from src.gui.string_table_model import (
     StringTableModel, COL_STAR, COL_CUSTOM, COL_STATUS,
     status_color,
 )
-
-
-class AnimatedProgressDialog(QProgressDialog):
-    """Reusable progress dialog that toggles between indeterminate and determinate.
-
-    Starts indeterminate (range 0-0, auto-animating). Call `set_progress(completed,
-    total, message)` to switch to determinate; pass total=0 to drop back to
-    indeterminate for phases with an unknown extent. The phase message shows
-    in the label above the bar. In determinate mode the bar displays the
-    percent-complete (default Qt ``%p%`` format); indeterminate mode hides
-    the bar text since there's no meaningful percentage to show.
-    """
-
-    def __init__(self, message: str, parent=None, title: str = "Processing"):
-        super().__init__(message, None, 0, 0, parent)
-        self.setWindowTitle(title)
-        self.setModal(True)
-        self.setMinimumWidth(400)
-        self._bar = self.findChild(QProgressBar)
-        if self._bar is not None:
-            # Start indeterminate — bar text hidden until set_progress flips
-            # to determinate and a real percentage exists to display.
-            self._bar.setTextVisible(False)
-        self.show()
-
-    def set_progress(self, completed: int, total: int, message: str = "") -> None:
-        """Drive the bar from a ProgressSink. total=0 ⇒ indeterminate.
-
-        Determinate mode applies a two-tone gradient QSS and shows ``%p%``
-        inside the bar. Indeterminate mode clears the QSS so Fusion's
-        animated busy indicator still works, and hides the bar text.
-        Phase messages go to the label above the bar in both modes.
-        """
-        if total <= 0:
-            if self.maximum() != 0 or self.minimum() != 0:
-                self.setRange(0, 0)
-            if self._bar is not None:
-                self._bar.setTextVisible(False)
-                self._bar.setStyleSheet("")
-        else:
-            if self.maximum() != total:
-                self.setRange(0, total)
-            self.setValue(min(completed, total))
-            if self._bar is not None:
-                # Reset format to the Qt default so %p% resolves even if
-                # something upstream had set a custom format string.
-                self._bar.setFormat("%p%")
-                self._bar.setTextVisible(True)
-                from src.gui.theme import get_progress_groove_color, get_progress_chunk_color
-                chunk = QColor(get_progress_chunk_color())
-                light = chunk.lighter(135).name()
-                dark  = chunk.darker(125).name()
-                mid   = chunk.name()
-                self._bar.setStyleSheet(
-                    "QProgressBar {"
-                    f" background-color: {get_progress_groove_color()};"
-                    " border: 1px solid rgba(0,0,0,0.25);"
-                    " border-radius: 3px;"
-                    " text-align: center;"
-                    "}"
-                    "QProgressBar::chunk {"
-                    " background: qlineargradient("
-                    "  x1:0, y1:0, x2:0, y2:1,"
-                    f"  stop:0 {light},"
-                    f"  stop:0.5 {mid},"
-                    f"  stop:1 {dark}"
-                    " );"
-                    " border-radius: 2px;"
-                    "}"
-                )
-        if message:
-            self.setLabelText(message)
-
+from src.gui.theme import (
+    BRAND_FONT_FAMILY, get_button_color, get_button_text_color,
+    get_tagline_color, get_title_color,
+)
+from src.gui.workers import (
+    AnimatedProgressDialog,
+    DataForgeExtractWorker,
+    EnhancementsGeneratorWorker,
+    FileLoaderWorker,
+    P4kExtractWorker,
+    SelectAllDelegate,
+    StartupSyncWorker,
+)
+from src.merger.ini_merger import merge_sources_by_hierarchy
 from src.models.string_model import StringEntry
 from src.parser.ini_parser import load_source_files, load_sources_from_settings, parse_ini_file
-from src.utils.settings import AppSettings
-from src.merger.ini_merger import merge_sources_by_hierarchy
-from src.utils.version import get_version
-from src.utils.perf import timed
 from src.utils.app_updater import AppUpdateCheckWorker
-from src.gui.config_tab import ConfigTab
-from src.gui.theme import get_button_color, get_button_text_color, get_title_color, get_tagline_color, BRAND_FONT_FAMILY
-from src.gui.enhancements_tab import EnhancementsTab
-from src.gui.log_tab import LogTab
-from src.gui.coach_mark import CoachMarkStep, TutorialTour
+from src.utils.applied_file_validator import validate_applied_file as _validate_applied_file_impl
+from src.utils.entry_filter import filter_entry_indices as _filter_entry_indices_impl
+from src.utils.perf import timed
+from src.utils.resource_path import get_resource_path
+from src.utils.settings import AppSettings
+from src.utils.version import get_version
 
 logger = logging.getLogger(__name__)
-
-
-def get_resource_path(relative_path):
-    """Get absolute path to resource, works for dev and for PyInstaller."""
-    try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
-        base_path = sys._MEIPASS
-    except Exception:
-        # If not running as PyInstaller bundle, use the project root
-        base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-    return os.path.join(base_path, relative_path)
-
-
-def _resolve_patches_dir() -> Path:
-    """Return the path to the bundled DataForge patches directory."""
-    return Path(get_resource_path("patches"))
 
 
 # Preview-pane token translation — turns the raw loc-string format the game
@@ -281,308 +207,6 @@ def _render_preview_html(key: str, raw: str, stamp: str | None = None) -> str:
     )
 
 
-class FileLoaderWorker(QThread):
-    """Worker thread for loading INI files without blocking UI.
-
-    Loads configured sources from settings and emits the merged entries plus
-    pre-computed sort keys so the main thread doesn't need to re-parse base.ini.
-    """
-
-    # (entries, default_values dict, pre-computed group sort keys)
-    finished = pyqtSignal(list, dict, list)
-    error = pyqtSignal(str)
-    progress = pyqtSignal(str)
-    progress_pct = pyqtSignal(int, int, str)  # (completed, total, message)
-
-    # 3 phase boundaries: sources read → entries built → sort keys computed.
-    _PHASE_TOTAL = 3
-
-    def run(self):
-        from src.gui.string_table_model import _group_sort_key
-        try:
-            logger.info("FileLoaderWorker starting...")
-            self.progress_pct.emit(0, self._PHASE_TOTAL, "Reading source files...")
-            self.progress.emit("Reading source files...")
-
-            sources_dict, hierarchy, enhancements_key_categories = load_sources_from_settings()
-            logger.info(f"Loaded from settings: sources={list(sources_dict.keys())}, hierarchy={hierarchy}")
-
-            if not (sources_dict and hierarchy):
-                raise ValueError("No sources configured")
-
-            self.progress_pct.emit(1, self._PHASE_TOTAL, "Creating StringEntry objects...")
-            self.progress.emit("Creating StringEntry objects...")
-            entries = load_source_files(sources_dict, hierarchy, enhancements_key_categories=enhancements_key_categories)
-            logger.info(f"load_source_files returned {len(entries)} entries")
-
-            default_values = dict(sources_dict.get("global", {}))
-
-            self.progress_pct.emit(2, self._PHASE_TOTAL, "Computing sort keys...")
-            self.progress.emit("Computing sort keys...")
-            sort_keys = [_group_sort_key(e.key) for e in entries]
-
-            self.progress_pct.emit(3, self._PHASE_TOTAL, "Ready")
-            logger.info("FileLoaderWorker finished successfully")
-            self.finished.emit(entries, default_values, sort_keys)
-        except Exception as e:
-            logger.exception(f"Error loading files: {e}")
-            self.error.emit(str(e))
-
-
-class StartupSyncWorker(QThread):
-    """Worker thread that syncs all enabled remote sources on startup.
-
-    Uses conditional GET (If-Modified-Since) so only changed files are downloaded.
-    Emits source_starting before each download, source_synced after, source_error on
-    failure. Always emits finished so loading proceeds even when sources fail.
-    """
-
-    source_starting = pyqtSignal(str)        # source_name (about to sync)
-    source_synced = pyqtSignal(str, bool)    # (source_name, was_updated)
-    source_error = pyqtSignal(str, str)      # (source_name, error_message)
-    finished = pyqtSignal()
-
-    def run(self):
-        from src.utils.updater import download_file_if_changed
-        from src.utils.settings import AppSettings
-
-        cache_dir = AppSettings.get_cache_dir()
-        cache_mapping = {
-            AppSettings.SOURCE_GLOBAL:      "base.ini",
-        }
-
-        for source_name in [
-            AppSettings.SOURCE_GLOBAL,
-        ]:
-            if not AppSettings.is_source_enabled(source_name):
-                continue
-            if not AppSettings.get_source_auto_update(source_name):
-                continue
-
-            source_url = AppSettings.get_source_path(source_name)
-            if not source_url or not source_url.startswith("http"):
-                continue
-
-            self.source_starting.emit(source_name)
-            cache_file = cache_dir / cache_mapping.get(source_name, f"{source_name}.ini")
-            try:
-                updated = download_file_if_changed(source_url, cache_file)
-                self.source_synced.emit(source_name, updated)
-            except Exception as e:
-                logger.warning(f"Startup sync failed for {source_name}: {e}")
-                self.source_error.emit(source_name, str(e))
-
-        self.finished.emit()
-
-
-class EnhancementsGeneratorWorker(QThread):
-    """Worker thread for generating enhancements INI files via generate_enhancements_ini.py."""
-
-    progress = pyqtSignal(str)
-    progress_pct = pyqtSignal(int, int, str)  # (completed, total, message)
-    finished = pyqtSignal(bool)
-    error = pyqtSignal(str)
-
-    def __init__(self, categories: set[str] | None = None):
-        super().__init__()
-        self.categories = categories
-
-    def run(self):
-        import importlib.util
-        import sys as sys_module
-        from src.utils.dataforge_patcher import apply_patches
-        try:
-            if getattr(sys, 'frozen', False):
-                script_path = Path(sys._MEIPASS) / 'scripts' / 'generate_enhancements_ini.py'
-            else:
-                script_path = Path(__file__).parent.parent.parent / 'scripts' / 'generate_enhancements_ini.py'
-
-            if not script_path.exists():
-                raise FileNotFoundError(f"Enhancements generator script not found: {script_path}")
-
-            base_ini  = AppSettings.get_cache_dir() / 'base.ini'
-            forge_dir = AppSettings.get_dataforge_cache_dir()
-
-            # Re-apply DataForge patches before generation. apply_patches is
-            # idempotent: already-patched files are a cheap no-op, so running
-            # this every regen picks up newly-added patches without forcing
-            # the user through a full re-extract. Bar stays indeterminate
-            # here — ``mod.main()`` below takes over with determinate ticks
-            # once its ProgressSink is wired up.
-            self.progress_pct.emit(0, 0, "Applying DataForge patches…")
-            self.progress.emit("Applying DataForge patches…")
-            patch_report = apply_patches(
-                _resolve_patches_dir(), forge_dir,
-                progress_callback=self.progress.emit,
-            )
-            logger.info(f"DataForge patches: {patch_report.summary_line()}")
-            if patch_report.errors:
-                for err in patch_report.errors:
-                    logger.warning(f"  patch error: {err}")
-
-            self.progress.emit("Loading enhancements generator...")
-
-            module_name = "generate_enhancements_ini_worker"
-            if module_name in sys_module.modules:
-                del sys_module.modules[module_name]
-
-            spec = importlib.util.spec_from_file_location(module_name, script_path)
-            mod = importlib.util.module_from_spec(spec)
-            sys_module.modules[module_name] = mod
-            spec.loader.exec_module(mod)
-
-            self.progress.emit("Generating enhancements (may take a few minutes on first run)...")
-            logger.info("Enhancements generation worker: calling mod.main()")
-
-            cat_desc = ", ".join(sorted(self.categories)) if self.categories else "all"
-            logger.info(f"Enhancements generation: base_ini={base_ini}, forge_dir={forge_dir}, categories={cat_desc}")
-
-            # Bridge the script's ProgressSink callback into a Qt-safe signal.
-            # PyQt signal emits are thread-safe across QThread boundaries, so
-            # this is safe to call from lookup-pool workers.
-            def _on_progress(completed: int, total: int, message: str) -> None:
-                self.progress_pct.emit(completed, total, message)
-
-            mod.main(base_ini, forge_dir, categories=self.categories,
-                     progress_callback=_on_progress,
-                     patches_dir=_resolve_patches_dir())
-            logger.info("Enhancements generation worker: mod.main() completed successfully")
-
-            self.finished.emit(True)
-        except Exception as e:
-            logger.exception(f"Enhancements generation failed: {e}")
-            self.error.emit(str(e))
-            self.finished.emit(False)
-
-
-class P4kExtractWorker(QThread):
-    """Worker thread for extracting global.ini from Data.p4k via unp4k.exe."""
-
-    progress = pyqtSignal(str)   # status message
-    progress_pct = pyqtSignal(int, int, str)  # (completed, total, message)
-    finished = pyqtSignal(bool)  # True = success
-    error = pyqtSignal(str)      # error message (emitted before finished(False))
-
-    def __init__(self, p4k_path, output_path, unp4k_exe):
-        super().__init__()
-        self._p4k = p4k_path
-        self._out = output_path
-        self._exe = unp4k_exe
-
-    def run(self):
-        from src.utils.pak_extractor import extract_global_ini
-        try:
-            extract_global_ini(
-                self._p4k, self._out, self._exe,
-                progress_callback=self.progress.emit,
-                progress_pct_callback=lambda c, t, m: self.progress_pct.emit(c, t, m),
-            )
-            self.finished.emit(True)
-        except Exception as e:
-            logger.exception(f"P4K extraction failed: {e}")
-            self.error.emit(str(e))
-            self.finished.emit(False)
-
-
-class DataForgeExtractWorker(QThread):
-    """Worker thread for extracting DataForge entity XMLs from Data.p4k."""
-
-    progress = pyqtSignal(str)
-    progress_pct = pyqtSignal(int, int, str)  # (completed, total, message)
-    finished = pyqtSignal(bool)
-    error = pyqtSignal(str)
-
-    def __init__(self, p4k_path, unp4k_exe, unforge_exe, cache_dir):
-        super().__init__()
-        self._p4k       = p4k_path
-        self._unp4k_exe = unp4k_exe
-        self._unforge_exe = unforge_exe
-        self._cache_dir = cache_dir
-
-    def run(self):
-        from src.utils.pak_extractor import extract_dataforge
-        from src.utils.dataforge_patcher import apply_patches
-        try:
-            extract_dataforge(
-                self._p4k,
-                self._unp4k_exe,
-                self._unforge_exe,
-                self._cache_dir,
-                progress_callback=self.progress.emit,
-                progress_pct_callback=lambda c, t, m: self.progress_pct.emit(c, t, m),
-            )
-            # Apply declarative patches over known CIG data bugs so downstream
-            # consumers (enhancement generator, future tooling) see corrected
-            # data. Patch failures are recorded in the report but don't block
-            # the pipeline.
-            #
-            # Flip the progress bar back to indeterminate (range 0-0, auto-
-            # animating) so the user can see we're still working — after
-            # extract_dataforge completes, the bar sits at its final 3/3
-            # "Done" determinate state, which would look like the dialog is
-            # about to close. The patches phase has no useful per-file
-            # progress, so indeterminate is the honest signal.
-            self.progress_pct.emit(0, 0, "Applying DataForge patches…")
-            self.progress.emit("Applying DataForge patches…")
-            patch_root = _resolve_patches_dir()
-            report = apply_patches(patch_root, self._cache_dir,
-                                   progress_callback=self.progress.emit)
-            logger.info(f"DataForge patches: {report.summary_line()}")
-            if report.errors:
-                for err in report.errors:
-                    logger.warning(f"  patch error: {err}")
-            self.finished.emit(True)
-        except Exception as e:
-            logger.exception(f"DataForge extraction failed: {e}")
-            self.error.emit(str(e))
-            self.finished.emit(False)
-
-
-class SelectAllDelegate(QStyledItemDelegate):
-    """Custom delegate for the Custom Value column.
-
-    - Selects all text when the editor opens so typing overwrites but Esc keeps it.
-    - Extends the editor's right-click menu with <EM3>/<EM4> wrap actions so
-      authors can apply Star Citizen emphasis tags around the selected text.
-    """
-
-    def createEditor(self, parent, option, index):
-        from PyQt6.QtWidgets import QLineEdit
-        editor = super().createEditor(parent, option, index)
-        if hasattr(editor, 'selectAll'):
-            editor.selectAll()
-        if isinstance(editor, QLineEdit):
-            editor.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-            editor.customContextMenuRequested.connect(
-                lambda pos, ed=editor: SelectAllDelegate._show_editor_menu(ed, pos)
-            )
-        return editor
-
-    @staticmethod
-    def _show_editor_menu(editor, pos):
-        menu = editor.createStandardContextMenu()
-        menu.addSeparator()
-        has_sel = editor.hasSelectedText()
-        em3 = menu.addAction("Underline")
-        em3.setEnabled(has_sel)
-        em3.triggered.connect(lambda: SelectAllDelegate._wrap_selection(editor, "EM3"))
-        em4 = menu.addAction("Highlight")
-        em4.setEnabled(has_sel)
-        em4.triggered.connect(lambda: SelectAllDelegate._wrap_selection(editor, "EM4"))
-        menu.exec(editor.mapToGlobal(pos))
-
-    @staticmethod
-    def _wrap_selection(editor, tag: str):
-        sel = editor.selectedText()
-        if not sel:
-            return
-        # QLineEdit.insert replaces the current selection. Place the caret
-        # just inside the closing tag so successive edits stay near the text.
-        wrapped = f"<{tag}>{sel}</{tag}>"
-        start = editor.selectionStart()
-        editor.insert(wrapped)
-        editor.setCursorPosition(start + len(f"<{tag}>") + len(sel))
-
 
 class MainWindow(QMainWindow):
     """Main application window."""
@@ -690,7 +314,19 @@ class MainWindow(QMainWindow):
             "Select a row to preview its rendered text."
         )
         self.preview_pane.setMinimumWidth(420)
-        self.preview_pane.setMaximumHeight(200)
+        # Capped to keep the toolbar QHBoxLayout from inflating when the
+        # active tab has slack vertical space to redistribute (the
+        # post-1.3.0 Config / Enhancements gap bug — QTextBrowser's
+        # default Expanding vertical sizePolicy let the pane grow to
+        # its old 200px ceiling, dragging the buttons down ~40px below
+        # the tagline). The Preferred sizePolicy prevents the greedy
+        # expansion; the cap is a belt-and-braces upper bound and
+        # answers "how many lines of preview do I want at most." 120
+        # comfortably fits ~5–6 lines of rendered HTML — long mission
+        # journals overflow into the built-in scrollbar.
+        from PyQt6.QtWidgets import QSizePolicy
+        self.preview_pane.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        self.preview_pane.setMaximumHeight(120)
 
         toolbar_row = QHBoxLayout()
         toolbar_row.setSpacing(12)
@@ -710,6 +346,7 @@ class MainWindow(QMainWindow):
         self.config_tab.import_ini_requested.connect(self._handle_import_ini)
         self.config_tab.channel_changed.connect(self._on_channel_changed)
         self.config_tab.check_updates_requested.connect(self._on_check_updates_clicked)
+        self.config_tab.data_dir_changed.connect(self._on_data_dir_changed)
         self._config_tab_index = self.tabs.addTab(self.config_tab, "Config")
 
         # Enhancements tab
@@ -808,6 +445,22 @@ class MainWindow(QMainWindow):
         self.clear_cache_btn.clicked.connect(self.clear_cache)
         button_layout.addWidget(self.clear_cache_btn)
 
+        # Export Loc-Pack — packages the currently-applied global.ini into a
+        # zip for sharing (org-wide loc-packs, Discord drops, etc.). Reads
+        # the already-written game file rather than re-merging in memory,
+        # which keeps the export aligned with what the user has actually
+        # validated in-game. Blue 'open' info-action role since it produces
+        # output without modifying game state.
+        self.export_locpack_btn = QPushButton("Export")
+        self.export_locpack_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
+        self.export_locpack_btn.setToolTip(
+            "Package the currently-applied global.ini into a zip for sharing. "
+            "Click Apply to Game first if you haven't already — Export reads the "
+            "applied file, not the in-memory edits."
+        )
+        self.export_locpack_btn.clicked.connect(self.export_locpack)
+        button_layout.addWidget(self.export_locpack_btn)
+
         # Editor — toggles the side-docked String Editor for editing long
         # values comfortably. Shares the 'open' info-action role so it pairs
         # visually with Help/Tutorial as a panel-toggle.
@@ -852,9 +505,15 @@ class MainWindow(QMainWindow):
 
         filter_layout.addWidget(QLabel("Status:"))
         self.status_combo = QComboBox()
-        self.status_combo.addItems(["All", "Modified", "Unmodified", "New"])
+        self.status_combo.addItems(["All", "Modified", "Enhanced", "Unmodified", "New"])
         self.status_combo.setMaximumWidth(120)
-        self.status_combo.setToolTip("Filter by modification status. Modified = you've set a Custom Value; New = key exists only in enhancements/user.ini, not in the base file; Unmodified = default text only.")
+        self.status_combo.setToolTip(
+            "Filter by status. "
+            "Modified = you've set a Custom Value; "
+            "Enhanced = produced by Smart Citizen's enhancements pipeline (ship stats, mission rewards, etc.); "
+            "Unmodified = default text only; "
+            "New = key exists only in enhancements/user.ini, not in the base file."
+        )
         self.status_combo.currentTextChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.status_combo)
 
@@ -1541,75 +1200,17 @@ class MainWindow(QMainWindow):
         written_path: Path,
         stock_keys: set[str] | None = None,
     ) -> str:
-        """Validate the written global.ini against the stock base.ini.
+        """Thin Qt-side wrapper around src.utils.applied_file_validator.
 
-        Checks that every key in base.ini is present in the written file.
-        Values are allowed to differ. Extra keys (from components/contracts/
-        commodities sources) are expected and not treated as errors.
-
-        Args:
-            written_path: Path to the global.ini just written to the game directory.
-            stock_keys: Optional pre-parsed set of base.ini keys. If provided,
-                skips a redundant ~87k-line parse — apply_to_game already has
-                base.ini in memory via load_sources_from_settings(). The
-                written-file parse remains (independent verification against
-                a merger bug).
-
-        Returns:
-            Empty string if validation passed, or a human-readable warning message
-            describing any missing keys.
+        Resolves the cache directory from AppSettings and forwards to the
+        pure-Python implementation. Kept as an instance method so existing
+        call sites (apply_to_game) don't change.
         """
-        from src.parser.ini_parser import parse_ini_file
-
-        if stock_keys is None:
-            stock_path = AppSettings.get_cache_dir() / "base.ini"
-            if not stock_path.exists():
-                logger.warning("Validation skipped: base.ini not found in cache")
-                return ""
-            try:
-                stock_keys = set(parse_ini_file(stock_path).keys())
-            except Exception as e:
-                logger.warning(f"Validation error reading stock base.ini: {e}")
-                return ""
-
-        try:
-            written_keys = set(parse_ini_file(written_path).keys())
-        except Exception as e:
-            logger.warning(f"Validation error reading written file: {e}")
-            return ""
-
-        missing = stock_keys - written_keys
-        extra = written_keys - stock_keys
-
-        logger.info(
-            f"Validation: stock={len(stock_keys)} keys, "
-            f"written={len(written_keys)} keys, "
-            f"missing={len(missing)}, extra={len(extra)}"
+        return _validate_applied_file_impl(
+            written_path,
+            AppSettings.get_cache_dir(),
+            stock_keys=stock_keys,
         )
-
-        if not missing and not extra:
-            return ""
-
-        lines = []
-
-        if missing:
-            sample = sorted(missing)[:20]
-            lines += [f"{len(missing)} key(s) from base.ini are missing from the written file:"]
-            lines += [f"  {k}" for k in sample]
-            if len(missing) > 20:
-                lines.append(f"  ... and {len(missing) - 20} more")
-
-        if extra:
-            if lines:
-                lines.append("")
-            sample = sorted(extra)[:20]
-            lines += [f"{len(extra)} unexpected key(s) in written file (not in base.ini):"]
-            lines += [f"  {k}" for k in sample]
-            if len(extra) > 20:
-                lines.append(f"  ... and {len(extra) - 20} more")
-
-        lines += ["", "The previous file has been restored. Check your source configuration."]
-        return "\n".join(lines)
 
     @pyqtSlot()
     def clear_localization(self):
@@ -1768,6 +1369,69 @@ class MainWindow(QMainWindow):
             return
 
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(loc_dir)))
+
+    @pyqtSlot()
+    def export_locpack(self):
+        """Package the currently-applied global.ini into a shareable zip.
+
+        Reads the already-written game file rather than re-merging in
+        memory — keeps the export aligned with what the user has actually
+        validated in-game, and makes "Export" a no-side-effect action
+        (no implicit re-apply, no surprises).
+        """
+        from src.utils.locpack_exporter import default_locpack_filename, write_locpack_zip
+
+        if not AppSettings.get_game_install_path():
+            QMessageBox.warning(self, "Warning", "Please configure game install path in Config tab")
+            return
+
+        global_ini = AppSettings.get_global_ini_path()
+        if not global_ini.exists():
+            QMessageBox.information(
+                self, "Nothing to Export",
+                "No applied global.ini was found in the game's localization directory.\n\n"
+                "Click 'Apply to Game' first to write your customizations, then "
+                "Export to package them for sharing."
+            )
+            return
+
+        channel = AppSettings.get_active_channel()
+        default_name = default_locpack_filename(channel)
+        # Suggest the user's Downloads folder as the default save location —
+        # most natural place for a "share this file" output.
+        downloads_dir = Path.home() / "Downloads"
+        if not downloads_dir.exists():
+            downloads_dir = Path.home()
+        default_path = str(downloads_dir / default_name)
+
+        out_path_str, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Loc-Pack",
+            default_path,
+            "Zip files (*.zip);;All files (*)",
+        )
+        if not out_path_str:
+            return  # user cancelled
+
+        out_path = Path(out_path_str)
+        try:
+            source_size = write_locpack_zip(global_ini, out_path)
+        except Exception as e:
+            logger.exception("Loc-pack export failed")
+            QMessageBox.critical(
+                self, "Export Failed",
+                f"Could not write the loc-pack zip:\n{e}"
+            )
+            return
+
+        zip_size = out_path.stat().st_size
+        QMessageBox.information(
+            self, "Export Complete",
+            f"Loc-pack written to:\n{out_path}\n\n"
+            f"Channel: {channel}\n"
+            f"Source size: {source_size:,} bytes\n"
+            f"Zip size: {zip_size:,} bytes"
+        )
 
     @pyqtSlot()
     @timed
@@ -2517,10 +2181,18 @@ class MainWindow(QMainWindow):
             self._start_post_tutorial_tasks()
 
     def _on_tutorial_finished(self, completed: bool) -> None:
-        """Record completion on Finish; skip doesn't burn the flag so the user
-        still sees the tour on their next launch if they hit Skip by accident."""
-        if completed:
-            AppSettings.set_tutorial_completed_version(get_version())
+        """Record either Finish or Skip as "tutorial seen for this version"
+        so we don't auto-replay on every install/version bump.
+
+        Prior behavior only persisted on Finish, on the theory that a user
+        who hit Skip by accident would still get the tour next launch.
+        Community feedback was the opposite: power users who deliberately
+        skip get re-prompted on every release, which is more annoying than
+        the accidental-skip protection is worth. The Tutorial button on
+        the toolbar is always available to replay on demand, so persisting
+        Skip costs nothing for the rare accidental case.
+        """
+        AppSettings.set_tutorial_completed_version(get_version())
         self._tutorial_tour = None
         # Now that the user is past (or has skipped) the tour, fire the
         # deferred startup tasks. Their modal prompts would otherwise pop
@@ -2666,6 +2338,22 @@ class MainWindow(QMainWindow):
             return
         self._channel_indicator.setText(f"Channel: {AppSettings.get_active_channel()}")
 
+    def _sync_canonical_source_paths(self, context: str) -> None:
+        """Mirror canonical file-backed source paths into QSettings."""
+        for source_name, canonical in (
+            (AppSettings.SOURCE_GLOBAL, str(AppSettings.get_cache_dir() / "base.ini")),
+            (AppSettings.SOURCE_USER, str(AppSettings.get_user_ini_path())),
+        ):
+            stored = AppSettings.get_source_path(source_name)
+            if stored.startswith("http://") or stored.startswith("https://"):
+                continue
+            if stored != canonical:
+                AppSettings.set_source_path(source_name, canonical)
+                logger.info(
+                    f"Re-synced {source_name} source path {context}: "
+                    f"{stored or '(unset)'} → {canonical}"
+                )
+
     @pyqtSlot(str)
     def _on_channel_changed(self, channel: str) -> None:
         """Handle a channel switch from the Config tab.
@@ -2687,19 +2375,7 @@ class MainWindow(QMainWindow):
         # new values into those entries the same way main() does on startup.
         # Skip any source currently set to a URL to preserve custom remote
         # configs.
-        for source_name, canonical in (
-            (AppSettings.SOURCE_GLOBAL, str(AppSettings.get_cache_dir() / "base.ini")),
-            (AppSettings.SOURCE_USER, str(AppSettings.get_user_ini_path())),
-        ):
-            stored = AppSettings.get_source_path(source_name)
-            if stored.startswith("http://") or stored.startswith("https://"):
-                continue
-            if stored != canonical:
-                AppSettings.set_source_path(source_name, canonical)
-                logger.info(
-                    f"Re-synced {source_name} source path for channel {channel}: "
-                    f"{stored or '(unset)'} → {canonical}"
-                )
+        self._sync_canonical_source_paths(f"for channel {channel}")
 
         self._refresh_channel_indicator()
         self.config_tab._refresh_p4k_status()
@@ -2740,6 +2416,31 @@ class MainWindow(QMainWindow):
         self._maybe_prompt_dataforge_refresh()
 
         self.statusBar().showMessage(f"Switched to {channel} — reloading sources…")
+        self.perform_merge_and_reload()
+
+    @pyqtSlot(str)
+    def _on_data_dir_changed(self, data_dir: str) -> None:
+        """Reload the app against a newly selected Smart Citizen data folder."""
+        logger.info(f"MainWindow reacting to data folder change → {data_dir}")
+
+        AppSettings.ensure_user_ini_file()
+        self._sync_canonical_source_paths(f"for data folder {data_dir}")
+        self.config_tab._refresh_p4k_status()
+        if hasattr(self, "enhancements_tab"):
+            self.enhancements_tab.refresh_enhancements_status()
+
+        self._enhancements_prompted_on_startup = False
+
+        if self._check_p4k_freshness():
+            self.statusBar().showMessage(
+                f"Data folder changed to {data_dir} — extracting Data.p4k…"
+            )
+            return
+
+        self._maybe_prompt_dataforge_refresh()
+        self.statusBar().showMessage(
+            f"Data folder changed to {data_dir} — reloading sources…"
+        )
         self.perform_merge_and_reload()
 
     def _update_status_bar(self):
@@ -3382,45 +3083,22 @@ class MainWindow(QMainWindow):
 
     @timed
     def _filtered_entry_indices(self) -> list[int]:
-        """Return indices into self.entries for entries passing the current filters."""
-        column_filters = self.filter_header.get_filter_texts()
-        category_filter = self.category_combo.currentText()
-        status_filter = self.status_combo.currentText()
-        hide_unmodified = self.hide_unmodified_check.isChecked()
-        favorites_only = self.favorites_only_check.isChecked()
-        prefix = AppSettings.get_favorite_prefix()
-        active_col_filters = [(i, t) for i, t in enumerate(column_filters) if t]
+        """Return indices into self.entries for entries passing the current filters.
 
-        result = []
-        for idx, entry in enumerate(self.entries):
-            show = True
-
-            if hide_unmodified and entry.status == "Unmodified":
-                show = False
-            elif category_filter != "All" and entry.category != category_filter:
-                show = False
-            elif status_filter != "All" and entry.status != status_filter:
-                show = False
-            elif favorites_only and not entry.custom_value.startswith(prefix):
-                show = False
-            elif active_col_filters:
-                row_values = [
-                    entry.category.lower(),
-                    entry.key.lower(),
-                    self.default_values.get(entry.key, "").lower(),
-                    entry.original_value.lower(),
-                    "★" if entry.custom_value.startswith(prefix) else "",
-                    entry.custom_value.lower(),
-                    entry.status.lower(),
-                ]
-                for col, filter_text in active_col_filters:
-                    if filter_text not in row_values[col]:
-                        show = False
-                        break
-
-            if show:
-                result.append(idx)
-        return result
+        Reads UI state and delegates the actual filter loop to
+        src.utils.entry_filter — kept Qt-aware here so the table can stay
+        unaware of the extracted module's signature.
+        """
+        return _filter_entry_indices_impl(
+            self.entries,
+            self.default_values,
+            self.filter_header.get_filter_texts(),
+            self.category_combo.currentText(),
+            self.status_combo.currentText(),
+            self.hide_unmodified_check.isChecked(),
+            self.favorites_only_check.isChecked(),
+            AppSettings.get_favorite_prefix(),
+        )
 
     @timed
     def update_category_combo(self):
@@ -3685,186 +3363,19 @@ class MainWindow(QMainWindow):
         if state:
             self.restoreState(state)
 
-    def create_anchor_id(self, text: str) -> str:
-        """Convert text to anchor ID (used in markdown links)."""
-        return text.lower().replace(" ", "-").replace(".", "").replace("&", "and")
-
     def markdown_to_html(self, markdown_text: str) -> str:
-        """Convert markdown to HTML with theme-aware styling."""
-        # Pull directly from the application palette so this is stable even when
-        # called synchronously right after QApplication.setPalette (widget-local
-        # palettes can lag one event-loop tick behind the app palette).
-        from PyQt6.QtWidgets import QApplication
-        from PyQt6.QtGui import QPalette
-        palette = QApplication.palette()
-        text_color = palette.color(QPalette.ColorRole.Text).name()
-        base_color = palette.color(QPalette.ColorRole.Base).name()
-        link_color = palette.color(QPalette.ColorRole.Link).name()
+        """Convert markdown to HTML with theme-aware styling.
 
-        # Build HTML with styling
-        html = "<html><head><style>"
-        html += f"body {{ font-family: Segoe UI, Arial, sans-serif; line-height: 1.8; padding: 20px; font-size: 15px; color: {text_color}; background-color: {base_color}; }}"
-        html += f"h1 {{ color: {link_color}; border-bottom: 3px solid {link_color}; padding-bottom: 10px; font-size: 32px; font-weight: bold; margin-top: 20px; }}"
-        html += f"h2 {{ color: {link_color}; border-bottom: 2px solid {link_color}; padding-bottom: 5px; margin-top: 30px; font-size: 24px; font-weight: bold; }}"
-        html += f"h3 {{ color: {link_color}; margin-top: 20px; font-size: 20px; font-weight: bold; }}"
-        html += f"p {{ font-size: 15px; margin: 10px 0; color: {text_color}; }}"
-        html += f"li {{ font-size: 15px; margin: 5px 0; color: {text_color}; }}"
-        html += f"a {{ color: {link_color}; text-decoration: underline; font-weight: 500; }}"
-        html += f"a:hover {{ text-decoration: underline; opacity: 0.8; cursor: pointer; }}"
-        html += f"code {{ background-color: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 14px; }}"
-        html += f"pre {{ background-color: rgba(0,0,0,0.05); padding: 10px; border-radius: 5px; overflow-x: auto; font-size: 14px; }}"
-        html += f"ul {{ margin-left: 20px; font-size: 15px; }}"
-        html += f"ol {{ margin-left: 20px; font-size: 15px; }}"
-        html += f"strong {{ font-weight: bold; }}"
-        html += f"blockquote {{ border-left: 4px solid {link_color}; padding-left: 15px; font-style: italic; font-size: 15px; }}"
-        html += "</style></head><body>"
-
-        lines = markdown_text.split('\n')
-        in_code_block = False
-        in_list = False
-        list_type = None
-        prev_blank = False
-
-        for line in lines:
-            # Code blocks
-            if line.strip().startswith('```'):
-                if in_code_block:
-                    html += "</pre>"
-                    in_code_block = False
-                else:
-                    html += "<pre><code>"
-                    in_code_block = True
-                continue
-
-            if in_code_block:
-                html += line + "\n"
-                continue
-
-            # Headers
-            if line.startswith('# '):
-                if in_list:
-                    html += f"</{list_type}>"
-                    in_list = False
-                header_text = line[2:].strip()
-                anchor_id = self.create_anchor_id(header_text)
-                html += f"<h1 id='{anchor_id}'>{self._convert_markdown_inline(header_text)}</h1>"
-                prev_blank = False
-            elif line.startswith('## '):
-                if in_list:
-                    html += f"</{list_type}>"
-                    in_list = False
-                header_text = line[3:].strip()
-                anchor_id = self.create_anchor_id(header_text)
-                html += f"<h2 id='{anchor_id}'>{self._convert_markdown_inline(header_text)}</h2>"
-                prev_blank = False
-            elif line.startswith('### '):
-                if in_list:
-                    html += f"</{list_type}>"
-                    in_list = False
-                header_text = line[4:].strip()
-                anchor_id = self.create_anchor_id(header_text)
-                html += f"<h3 id='{anchor_id}'>{self._convert_markdown_inline(header_text)}</h3>"
-                prev_blank = False
-            # Lists
-            elif line.strip().startswith('- ') or line.strip().startswith('* '):
-                if not in_list or list_type != 'ul':
-                    if in_list:
-                        html += f"</{list_type}>"
-                    html += "<ul>"
-                    in_list = True
-                    list_type = 'ul'
-                list_text = line.strip()[2:].strip()
-                list_text = self._convert_markdown_inline(list_text)
-                html += f"<li>{list_text}</li>"
-                prev_blank = False
-            elif line.strip() and line[0].isdigit() and '. ' in line:
-                if not in_list or list_type != 'ol':
-                    if in_list:
-                        html += f"</{list_type}>"
-                    html += "<ol>"
-                    in_list = True
-                    list_type = 'ol'
-                list_text = line.strip()
-                # Remove number and period
-                list_text = list_text[list_text.index('. ') + 2:].strip()
-                list_text = self._convert_markdown_inline(list_text)
-                html += f"<li>{list_text}</li>"
-                prev_blank = False
-            # Empty lines (skip consecutive blank lines)
-            elif not line.strip():
-                if in_list:
-                    html += f"</{list_type}>"
-                    in_list = False
-                    prev_blank = True
-                elif not prev_blank:
-                    # Only add one blank line, not consecutive ones
-                    prev_blank = True
-                continue
-            # Paragraphs
-            else:
-                if in_list:
-                    html += f"</{list_type}>"
-                    in_list = False
-                line = self._convert_markdown_inline(line)
-                html += f"<p>{line}</p>"
-                prev_blank = False
-
-        # Close any open tags
-        if in_list:
-            html += f"</{list_type}>"
-        if in_code_block:
-            html += "</pre>"
-
-        html += "</body></html>"
-        return html
-
-    def _convert_markdown_links(self, text: str) -> str:
-        """Convert markdown links [text](url) to HTML links."""
-        import re
-        # Match [text](url) pattern
-        pattern = r'\[([^\]]+)\]\(([^\)]+)\)'
-        replacement = r'<a href="\2">\1</a>'
-        return re.sub(pattern, replacement, text)
-
-    def _convert_markdown_inline(self, text: str) -> str:
-        """Apply inline Markdown (code, links, bold, italic) to a single line.
-
-        Order matters: inline ``code`` is stashed first so ``**`` or ``_``
-        inside a code span stay literal, then links / bold / italic run over
-        the remaining text. Bold runs before italic so a ``**`` pair isn't
-        mis-parsed as two ``*italic*`` brackets.
+        Pulls colors from the application palette (stable even when called
+        synchronously right after QApplication.setPalette — widget-local
+        palettes can lag one event-loop tick behind the app palette) and
+        delegates the conversion to src.gui.markdown_renderer.
         """
-        import re
-        from html import escape
-
-        # 1. Stash inline code spans behind opaque placeholders so bold/italic
-        #    regexes can't touch their content (e.g. `vehicle_Name*` shouldn't
-        #    become vehicle_Name<em>).
-        code_spans: list[str] = []
-
-        def _stash(match):
-            code_spans.append(match.group(1))
-            return f"\x00CODE{len(code_spans) - 1}\x00"
-
-        text = re.sub(r"`([^`]+)`", _stash, text)
-
-        # 2. Links — do before bold/italic so '_' inside URLs doesn't get
-        #    chewed.
-        text = self._convert_markdown_links(text)
-
-        # 3. Bold: **...** and __...__.
-        text = re.sub(r"\*\*([^*]+?)\*\*", r"<strong>\1</strong>", text)
-        text = re.sub(r"__([^_]+?)__", r"<strong>\1</strong>", text)
-
-        # 4. Italic: *...* (only; '_' is too common in loc-keys/identifiers
-        #    to italicize safely without a proper tokenizer). Require no '*'
-        #    on either side of the pair so we don't steal halves of a '**'
-        #    bold run that happened to not match step 3.
-        text = re.sub(r"(?<!\*)\*(?!\*)([^*\n]+?)\*(?!\*)", r"<em>\1</em>", text)
-
-        # 5. Restore code spans — escape the content so any stray angle
-        #    brackets inside a backtick span render as literal text.
-        for i, content in enumerate(code_spans):
-            text = text.replace(f"\x00CODE{i}\x00", f"<code>{escape(content)}</code>")
-
-        return text
+        from PyQt6.QtWidgets import QApplication
+        palette = QApplication.palette()
+        return _md_to_html(
+            markdown_text,
+            text_color=palette.color(QPalette.ColorRole.Text).name(),
+            base_color=palette.color(QPalette.ColorRole.Base).name(),
+            link_color=palette.color(QPalette.ColorRole.Link).name(),
+        )

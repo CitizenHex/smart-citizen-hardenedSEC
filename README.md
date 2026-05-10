@@ -70,7 +70,7 @@ Download the **`SmartCitizen-{VERSION}-Setup.exe`** installer and run it. The ap
 ## Usage
 
 ### First Run
-1. The app creates `Documents\Smart Citizen\<channel>\` (one subdir per Star Citizen channel) for user data — cache, backups, `user.ini`.
+1. The app creates `<data folder>\<channel>\` for user data — cache, backups, `user.ini`. The default data folder is `Documents\Smart Citizen`, and it can be changed in the Config tab.
 2. Open the Config tab and click **Extract from Data.p4k** to unpack stock localization plus DataForge entity data from your installed game. When extraction finishes, sources merge by hierarchy and the strings load into the table automatically.
 3. The guided tutorial auto-runs the first time you launch a new version, walking you through the rest.
 
@@ -94,6 +94,7 @@ All settings are stored in Windows Registry under:
 The Config tab lets you set:
 - **Star Citizen install path** (the SC root folder containing `LIVE/`, `PTU/`, etc. — auto-detected at install time)
 - **Active channel** (LIVE / PTU / EPTU / HOTFIX / TECH-PREVIEW)
+- **Smart Citizen data folder** (where `user.ini`, cache, DataForge extraction, enhancement INIs, and backups live)
 - **Theme**
 - **Data sources**: enable/disable, drag-drop merge priority
 - **Import INI**: fold an external `.ini` into your overrides
@@ -102,7 +103,7 @@ The Enhancements tab lets you toggle each enhancement category (ship stats, weap
 
 ### Data Storage
 
-All per-user data lives under `Documents\Smart Citizen\<channel>\`, where `<channel>` is one of `LIVE`, `PTU`, `EPTU`, `HOTFIX`, `TECH-PREVIEW`:
+All per-user data lives under `<data folder>\<channel>\`, where `<data folder>` defaults to `Documents\Smart Citizen` and `<channel>` is one of `LIVE`, `PTU`, `EPTU`, `HOTFIX`, `TECH-PREVIEW`:
 
 - **Your edits**: `user.ini`
 - **Cached sources & extracted DataForge**: `cache\` (`base.ini`, `cache\dataforge\`, and the generated `*_enhancements.ini` files)
@@ -193,9 +194,15 @@ StarCitizen/
 - [**MrKraken**](https://github.com/MrKraken/StarStrings) — ASOP terminal enhancements, workflow improvements, and mission contract localization work
 - The **Star Citizen community** — for endless feedback, testing, and ideas
 
+### Supporters
+
+Thanks to those who've supported the project financially — your contributions help keep Smart Citizen free for everyone:
+
+- **Dimwit the Wise**
+
 ## License
 
-This project is provided as-is for community use. See LICENSE file for details.
+Smart Citizen is licensed under the **Apache License, Version 2.0** — see [LICENSE](LICENSE) for the full text and [NOTICE](NOTICE) for attribution of bundled third-party software (`unp4k` / `unforge`) and the Star Citizen / CIG trademark notice.
 
 ## Support & Community
 

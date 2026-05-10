@@ -14,8 +14,11 @@ Run against the built `dist/SmartCitizen-1.0.0-Setup.exe`.
 - [ ] **Upgrade from 0.8.x** (legacy registry `SC Localization Editor`, legacy folder `Documents\SC Localization Editor\`) — `migrate_registry_appname` runs, marker `_migrated_from_legacy_appname` appears under new node, old subtree deleted; folder auto-migrated to `Documents\Smart Citizen\`; `overrides.ini` → `user.ini` rename works; paths/favorites/theme preserved
 - [ ] **Upgrade from 0.9.2** (flat `Documents\Smart Citizen\` layout) — `migrate_game_path_to_channel_layout` splits `GAME_INSTALL_PATH` into `SC_INSTALL_ROOT` + `ACTIVE_CHANNEL`; flat cache/backups/user.ini move into `LIVE/`; marker gates idempotence on relaunch
 - [ ] **Upgrade 0.9.3 → 1.0** (reinstall) — no duplicate migrations, no data loss, no zombie uninstall entry
-- [ ] **OneDrive-redirected Documents** — installer's `IsDocsOnOneDrive` page fires; user redirects to local path; `USER_DATA_DIR` override written; app respects it
-- [ ] **OneDrive + override already set** — installer skips the redirect page (`HasDataDirOverride`)
+- [ ] **Installer data-folder page (non-OneDrive)** — page appears after the SC LIVE Directory step with `Documents\Smart Citizen` pre-filled; accepting the default leaves `user_data_dir` *unset* in the registry so the app resolves Documents dynamically
+- [ ] **Installer data-folder page (OneDrive-redirected Documents)** — same page now pre-fills the local `%USERPROFILE%\Documents\Smart Citizen` junction path; accepting writes `user_data_dir` and the app respects it on first launch
+- [ ] **Installer data-folder page (custom path)** — type or browse to e.g. `D:\SC-Data`; page accepts; install completes; `user_data_dir = D:\SC-Data` in `HKCU\Software\Osiris DevWorks\Smart Citizen`; `D:\SC-Data` exists post-install (ForceDirectories)
+- [ ] **Reinstall with prior override set** — page pre-fills the previously chosen path (not the OneDrive suggestion or Documents default); accepting preserves it
+- [ ] **Config tab data folder override** — change Smart Citizen Data to a custom local path; app reloads, `user.ini`/cache/backups resolve under `<custom>\<channel>\`, and Reset returns to `Documents\Smart Citizen`
 - [ ] **Uninstall → reinstall** — preserves `backups/`, registry settings, and `user.ini` across the cycle
 - [ ] **Uninstall** does NOT delete `Documents\Smart Citizen\backups\`
 
@@ -28,7 +31,7 @@ For **each channel you have installed** (minimum: LIVE; ideally also PTU):
 - [ ] `Channel: {NAME}` shown in status bar; SC-version string carries suffix (e.g. `SC v4.7.176-PTU`)
 - [ ] Switching channels triggers the enhancement-categories prompt **every** switch (not just first)
 - [ ] Switching to an **un-extracted** channel prompts to extract, doesn't load stale data
-- [ ] `Documents\Smart Citizen\{channel}\` has its own `cache/`, `backups/`, `dataforge/`, `user.ini` — zero cross-contamination
+- [ ] `<data folder>\{channel}\` has its own `cache/`, `backups/`, `dataforge/`, `user.ini` — zero cross-contamination
 - [ ] **PTU DataForge extraction succeeds** (validates bundled `unforge.exe` v4.0.83 PTU DCB fix)
 - [ ] `⚠` hint appears when the stored active channel's P4K is missing
 

@@ -23,6 +23,12 @@ Thanks to the testers and contributors who helped shape Smart Citizen with their
 - **Lord Valium**
 - **Zero**
 
+### Supporters
+
+Thanks to those who've supported the project financially — your contributions help keep Smart Citizen free for everyone:
+
+- **Dimwit the Wise**
+
 Smart Citizen also bundles upstream tooling from:
 
 - [**dolkensp/unp4k**](https://github.com/dolkensp/unp4k) — `unp4k.exe` and `unforge.exe`, used to unpack `Data.p4k` and convert DataForge to XML
@@ -67,7 +73,7 @@ Smart Citizen also bundles upstream tooling from:
 ### 🛡️ Data Management
 - **Automatic Backups**: Timestamped backups created before applying changes to your game (up to 5 per channel)
 - **Registry Persistence**: All paths and preferences saved securely in Windows Registry
-- **Documents Storage**: Your custom edits stored under `Documents\Smart Citizen\<channel>\` (one isolated subtree per Star Citizen channel) for safe persistence across sessions
+- **Configurable Data Storage**: Your custom edits are stored under `<data folder>\<channel>\` (default `Documents\Smart Citizen`, one isolated subtree per Star Citizen channel) for safe persistence across sessions
 - **In-App Log Viewer**: Real-time application log with level filter, auto-scroll, and an Export button for bug reports
 - **Auto-Update Notifier**: Smart Citizen checks GitHub Releases periodically and surfaces a non-blocking notification when a newer installer is available
 
@@ -102,3 +108,9 @@ Smart Citizen is completely free. If you find it valuable:
 Built with **PyQt6** and inspired by the Star Citizen community's localization work.
 
 **GitHub**: https://github.com/Osiris-DevWorks/smart-citizen
+
+## License
+
+Smart Citizen is licensed under the **Apache License, Version 2.0**. The full license text is in `LICENSE` next to the executable, and the source is at the [GitHub repository](https://github.com/Osiris-DevWorks/smart-citizen/blob/main/LICENSE).
+
+Bundled `unp4k` / `unforge` tools are licensed under the MIT License — see `NOTICE` for full attribution and the Star Citizen / CIG trademark notice.

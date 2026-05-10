@@ -1,5 +1,6 @@
 """Configuration tab for Smart Citizen."""
 import logging
+import os
 from pathlib import Path
 from datetime import datetime
 
@@ -29,6 +30,9 @@ class ConfigTab(QWidget):
     # MainWindow owns the update-check worker and writes results back via
     # set_update_status() so this tab stays decoupled from the network path.
     check_updates_requested = pyqtSignal()
+    # Emitted after the Smart Citizen data folder override has been saved.
+    # MainWindow re-syncs source paths and reloads against the new location.
+    data_dir_changed = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -137,6 +141,44 @@ class ConfigTab(QWidget):
         self.channel_combo.currentIndexChanged.connect(self._on_channel_changed)
 
         layout.addWidget(game_group)
+
+        # ── Smart Citizen Data ───────────────────────────────────────────────
+        data_group = QGroupBox("Smart Citizen Data")
+        data_layout = QVBoxLayout(data_group)
+
+        data_desc = QLabel(
+            "Folder for user.ini, source cache, DataForge extraction, enhancement INIs, "
+            "and backups. Move this off OneDrive-synced Documents if extraction is slow "
+            "or cache cleanup fails."
+        )
+        data_desc.setProperty("role", "secondary")
+        data_desc.setStyleSheet("font-size: 11px; margin-bottom: 5px;")
+        data_desc.setWordWrap(True)
+        data_layout.addWidget(data_desc)
+
+        data_input_layout = QHBoxLayout()
+        self.data_dir_input = QLineEdit()
+        self.data_dir_input.setText(str(AppSettings.get_user_data_dir()))
+        self.data_dir_input.setToolTip(
+            "Smart Citizen's app data root. Each channel gets its own subfolder "
+            "inside this directory. Leave blank or click Reset to use Documents\\Smart Citizen."
+        )
+        self.data_dir_input.editingFinished.connect(self._save_data_dir)
+        data_input_layout.addWidget(self.data_dir_input)
+
+        data_browse_btn = QPushButton("Browse...")
+        data_browse_btn.setMaximumWidth(100)
+        data_browse_btn.clicked.connect(self._browse_data_dir)
+        data_input_layout.addWidget(data_browse_btn)
+
+        data_reset_btn = QPushButton("Reset")
+        data_reset_btn.setMaximumWidth(80)
+        data_reset_btn.setToolTip("Clear the custom data folder and use Documents\\Smart Citizen.")
+        data_reset_btn.clicked.connect(self._reset_data_dir)
+        data_input_layout.addWidget(data_reset_btn)
+
+        data_layout.addLayout(data_input_layout)
+        layout.addWidget(data_group)
 
         # ── P4K Extraction ───────────────────────────────────────────────────
         p4k_group = QGroupBox("Base Localization (P4K Extraction)")
@@ -266,6 +308,65 @@ class ConfigTab(QWidget):
         if path:
             self.game_path_input.setText(path)
             self._save_game_path()
+
+    # ── Smart Citizen data folder ────────────────────────────────────────────
+
+    def _save_data_dir(self):
+        """Persist the Smart Citizen data folder override."""
+        current_dir = AppSettings.get_user_data_dir()
+        raw_path = self.data_dir_input.text().strip()
+
+        try:
+            if raw_path:
+                target = Path(os.path.expandvars(raw_path)).expanduser().resolve()
+                if target.exists() and not target.is_dir():
+                    QMessageBox.warning(
+                        self,
+                        "Invalid Data Folder",
+                        f"The selected data folder is a file, not a directory:\n{target}",
+                    )
+                    self.data_dir_input.setText(str(current_dir))
+                    return
+                target.mkdir(parents=True, exist_ok=True)
+                AppSettings.set_user_data_dir(target)
+            else:
+                AppSettings.set_user_data_dir(None)
+
+            new_dir = AppSettings.get_user_data_dir()
+        except OSError as e:
+            logger.warning(f"Could not use Smart Citizen data folder {raw_path!r}: {e}")
+            QMessageBox.warning(
+                self,
+                "Invalid Data Folder",
+                f"Smart Citizen could not use that data folder:\n{e}",
+            )
+            self.data_dir_input.setText(str(current_dir))
+            return
+
+        self.data_dir_input.setText(str(new_dir))
+        if new_dir != current_dir:
+            logger.info(f"Smart Citizen data folder changed: {current_dir} → {new_dir}")
+            self._refresh_p4k_status()
+            self.data_dir_changed.emit(str(new_dir))
+
+    def _browse_data_dir(self):
+        start_dir = self.data_dir_input.text().strip() or str(AppSettings.get_user_data_dir())
+        path = QFileDialog.getExistingDirectory(
+            self, "Select Smart Citizen Data Folder", start_dir
+        )
+        if path:
+            self.data_dir_input.setText(path)
+            self._save_data_dir()
+
+    def _reset_data_dir(self):
+        current_dir = AppSettings.get_user_data_dir()
+        AppSettings.set_user_data_dir(None)
+        new_dir = AppSettings.get_user_data_dir()
+        self.data_dir_input.setText(str(new_dir))
+        if new_dir != current_dir:
+            logger.info(f"Smart Citizen data folder reset to default: {new_dir}")
+            self._refresh_p4k_status()
+            self.data_dir_changed.emit(str(new_dir))
 
     # ── Channel selector ─────────────────────────────────────────────────────
 
