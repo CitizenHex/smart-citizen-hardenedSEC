@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Smart Citizen (formerly SC Localization Editor) is a Windows-only PyQt6 GUI application for customizing Star Citizen localization strings. Tagline: *Smarter Strings for Star Citizen*. Users configure multiple data sources (Global, Contracts, Components, Ships, Commodities, Gear, User) with a drag-and-drop merge hierarchy, edit strings in a table, and apply changes to their game installation with automatic backup management.
+Smart Citizen (formerly SC Localization Editor) is a Windows-only PyQt6 GUI application for customizing Star Citizen localization strings. Tagline: *Smarter Strings for Star Citizen*. Users edit strings in a table backed by a `global` source (locally cached `base.ini` from Data.p4k extraction) merged with their per-channel `user.ini` overrides, then apply the result to their game installation with automatic backup management.
 
 **Rebrand status**: As of 0.9.0, user-facing strings, registry path (`Osiris DevWorks\Smart Citizen`), and the user data root (`Documents\Smart Citizen\`) all use the new name. `AppSettings` still contains one-shot migrators for the legacy `Osiris DevWorks\SC Localization Editor` registry tree and `Documents\SC Localization Editor\` directory; do not remove them while users on pre-0.9 builds may still upgrade.
 
-**Current Version**: Read from `VERSION.TXT` (single source of truth). Project is at 1.0 as of this writing.
+**Current Version**: Read from `VERSION.TXT` (single source of truth).
 
 ## Quick Commands
 
@@ -48,7 +48,7 @@ python scripts/extract_components.py [--stock path] [--base path] [--output path
 
 ## Testing Strategy
 
-**Unit Tests** (`tests/`): Split by domain — `test_core.py` (INI parsing/merging/category extraction), `test_missions.py` (mission rewards pipeline), `test_pak_extraction.py` (P4K/DataForge), `test_progress_sink.py` (thread-safe progress coalescing), `test_dataforge_patcher.py` (declarative XML patching), `test_app_updater.py` (GitHub Releases version-check worker), `test_channel_layout.py` (per-channel directory migration). Pytest config lives in `tests/pytest.ini` (sets `pythonpath = src`, registers markers: `unit`, `integration`, `slow`, `critical`, `regression`).
+**Unit Tests** (`tests/`): Split by domain — `test_core.py` (INI parsing/merging/category extraction; `TestStringEntry` is currently `@pytest.mark.skip` because its constructor calls predate `category` and `status` becoming required positional args — fix is a separate cleanup), `test_missions.py` (mission rewards pipeline), `test_pak_extraction.py` (P4K/DataForge), `test_progress_sink.py` (thread-safe progress coalescing), `test_dataforge_patcher.py` (declarative XML patching), `test_app_updater.py` (GitHub Releases version-check worker), `test_channel_layout.py` (per-channel directory migration), `test_retired_url_sources_migration.py` (1.0 cleanup of the contracts/components/ships/commodities/gear sources retired in 0.7.0 — covers fresh-install defaults, upgrade-time pruning, URL-vs-local guard, and idempotence), `test_applied_file_validator.py` (post-apply `global.ini` vs stock `base.ini` validation), `test_entry_filter.py` (column-filter logic + the `NUM_COLUMNS` getter-tuple drift guard), `test_markdown_renderer.py` (About/Help markdown→HTML conversion), `test_resource_path.py` (PyInstaller `_MEIPASS`-aware resource resolution). Worker classes themselves have no automated tests — they need `pytest-qt` (not currently a dev dependency); manual smoke testing is still the only verification path for the QThread workers in `workers.py`. Pytest config lives in `tests/pytest.ini` — `pythonpath = . src` (project root for `from src.X` imports + `src/` for legacy `from utils.X` imports used by older tests), registers markers: `unit`, `integration`, `slow`, `critical`, `regression`.
 
 **GUI Testing**: Manual. Run app (`python src/main.py`), load base file, edit a value, apply to game, restart to verify persistence. Use the Log Tab to watch for errors during load/merge/apply cycles.
 
@@ -57,7 +57,9 @@ python scripts/extract_components.py [--stock path] [--base path] [--output path
 Entry point: `src/main.py`. The app has two main layers:
 
 **GUI layer** (`src/gui/`):
-- `main_window.py` — Main window with table, toolbar, filters, backup/restore, threading workers, DataForge extraction. This is the largest file (~2000+ lines). Manages the primary workflow: load, merge, edit, apply.
+- `main_window.py` — Main window with table, toolbar, filters, backup/restore, DataForge extraction trigger, and worker-thread orchestration. ~3275 lines after the PR #6 + PR #7 extractions; manages the primary workflow: load, merge, edit, apply. Worker classes live in `workers.py`; pure-Python helpers (`validate_applied_file`, `filter_entry_indices`, `markdown_to_html`) live in their own modules and are wrapped by thin `MainWindow` methods.
+- `workers.py` — All `QThread` background workers + the shared `AnimatedProgressDialog` and `SelectAllDelegate`. Workers: `FileLoaderWorker` (load sources → build `StringEntry` list + sort keys), `StartupSyncWorker` (refresh URL-backed sources at startup), `EnhancementsGeneratorWorker` (run `scripts/generate_enhancements_ini.py` in-process via `importlib.util`), `P4kExtractWorker` (unp4k extraction of `global.ini`), `DataForgeExtractWorker` (unp4k + unforge + post-extract patches). Each worker emits `progress` (str) + `progress_pct` (completed, total, message) signals; `AnimatedProgressDialog.set_progress` consumes the latter. `AppUpdateCheckWorker` is the exception — it lives in `src/utils/app_updater.py` because the worker, the version-comparison logic, and the registry timestamp-cap belong together as one unit.
+- `markdown_renderer.py` — `markdown_to_html(text, text_color, base_color, link_color)` for the About / Help panels. Pure-Python; the Qt caller passes in palette colours so the converter has no Qt dependency. Stash-and-restore code-span handling means `**` and `_` inside backticks stay literal (important: loc keys like `vehicle_Name*` shouldn't sprout `<em>` tags).
 - `config_tab.py` — **Config Tab**: Data source management (add/edit/remove sources), drag-drop merge hierarchy, Star Citizen install path, and DataForge extraction trigger.
 - `enhancements_tab.py` — **Enhancements Tab**: Toggle stats overlays, configure ship favorites prefix, trigger DataForge extraction. Emits `merge_requested` and `stats_pipeline_requested` signals.
 - `log_tab.py` — **Log Tab**: In-app real-time log viewer. Bridges Python `logging` to Qt text widget via `_LogEmitter` signal (thread-safe). Supports level filtering, auto-scroll, and log export.
@@ -71,8 +73,8 @@ Entry point: `src/main.py`. The app has two main layers:
 - `string_model.py` — `StringEntry` dataclass with category extraction from key prefixes.
 - `ini_parser.py` — Line-by-line INI parsing (splits on first `=`), source loading via `load_sources_from_settings()`, and `load_overrides(target_path)` for reading `user.ini` back as a `dict[str, str]`.
 - `ini_merger.py` — Merge engine: `merge_sources_by_hierarchy(sources_dict, hierarchy, user_overrides)`. Sources merge sequentially; user overrides always win.
-- `settings.py` — `AppSettings` class wrapping QSettings (Windows Registry). User data lives under the configured data root (default `Documents\Smart Citizen\`) plus `{active_channel}\`. Critical: Registry is the single source of truth for all paths and preferences. Also owns canonical paths (`get_user_data_dir()`, `get_cache_dir()`, `get_user_ini_path()`, `get_backups_dir()`) and handles automatic migrations: legacy `overrides.ini` → `user.ini`, `AppData\Roaming\...` → the configured data root, and the 0.9.3+ flat layout → per-channel layout (`migrate_game_path_to_channel_layout()`).
-- `updater.py` — Per-source GitHub downloads. Drives the auto-update workers that refresh each cached source INI (`base.ini`, `contracts.ini`, etc.) from its configured GitHub URL.
+- `settings.py` — `AppSettings` class wrapping QSettings (Windows Registry). User data lives under the configured data root (default `Documents\Smart Citizen\`) plus `{active_channel}\`. Critical: Registry is the single source of truth for all paths and preferences. Also owns canonical paths (`get_user_data_dir()`, `get_cache_dir()`, `get_user_ini_path()`, `get_backups_dir()`) and a chain of one-shot migrators run on every launch (all idempotent): `migrate_legacy_settings()` (seeds `[global, user]` defaults for fresh installs), `migrate_remove_retired_url_sources()` (1.0 prune of contracts/components/ships/commodities/gear from upgrader registries — only when the stored path is a URL; local-path overrides are preserved), `migrate_global_to_p4k_local()` (rewrites `global` from a URL to the local cached `base.ini`), `migrate_registry_appname()` (`SC Localization Editor` → `Smart Citizen` registry tree), `migrate_docs_folder_rename()` (`Documents\SC Localization Editor\` → `Documents\Smart Citizen\`), `migrate_data_to_documents()` (`AppData\Roaming\...` → the configured data root), `migrate_game_path_to_channel_layout()` (0.9.3+ flat layout → per-channel layout).
+- `updater.py` — Per-source GitHub downloads. Drives the auto-update workers that refresh cached source INIs from their configured GitHub URL. Post-1.0 the only URL-backed source is `global` (`base.ini`); the four legacy URL sources have been retired in favor of local Data.p4k extraction.
 - `app_updater.py` — *Separate* from `updater.py`. Polls `GET /repos/Osiris-DevWorks/smart-citizen/releases/latest` and compares `tag_name` to the local `VERSION.TXT` to surface a "new installer available" prompt. Runs on a `QThread`; `MainWindow` caps auto-checks to once per 6 hours via a registry timestamp to stay under GitHub's 60-req/hr unauthenticated limit.
 - `pak_extractor.py` — P4K extraction pipeline: `unp4k.exe` (extracts Game2.dcb) → `unforge.exe` (converts to entity XMLs). After unforge writes the full DataForge tree to a temp dir, `_copy_filtered_records()` copies only the subtrees in `DATAFORGE_KEEP_SUBPATHS` (the ones the generator actually reads) to the persistent cache — halves cache file count and cuts copy/rmtree wall time. Adding a new read path in the generator requires adding it to `DATAFORGE_KEEP_SUBPATHS`; `tests/test_pak_extraction.py::TestDataForgeKeepList` locks the contract.
 - `user_ini_manager.py` — Saves user-modified entries to `user.ini` (plain `key=value`, no sections) via `save_user_ini(entries, path)`; coordinates with `ImportConflictDialog` when importing external INIs.
@@ -81,6 +83,9 @@ Entry point: `src/main.py`. The app has two main layers:
 - `perf.py` — `@timed` decorator for debug-level performance profiling. No-op when DEBUG logging disabled.
 - `progress_sink.py` — `ProgressSink` coalesces `advance()` calls from many worker threads into throttled `(completed, total, message)` callbacks. Used by the parallelized lookup builders and enhancement generators to drive determinate progress bars without flooding the Qt event loop.
 - `dataforge_patcher.py` — Applies declarative JSON patches from `patches/` to the DataForge XML cache immediately after extraction. Fixes upstream CIG data bugs (e.g. mission records pointing at wrong loc-keys) so downstream consumers see corrected data. Patches mirror the DataForge layout under `patches/<category>/.../<name>.patch.json`.
+- `applied_file_validator.py` — `validate_applied_file(written_path, cache_dir, stock_keys=None)`: independently re-parses the just-written `global.ini` against the cached `base.ini` and returns a human-readable diff (missing / unexpected keys) or `""` when valid. `MainWindow._validate_applied_file` is a thin wrapper that supplies the cache dir from `AppSettings`. Lets `apply_to_game` auto-rollback on a merger bug.
+- `entry_filter.py` — `filter_entry_indices(...)`: pure-Python row filter for the strings table (column filters + category / status / hide-unmodified / favorites-only). Imports `NUM_COLUMNS` from `string_table_model` so the OOB-bounds guard stays in sync if a column is added; bad indices are dropped + logged once instead of raising `IndexError` deep in the per-entry loop. Per-call getter tuple lets the hot path call only the getters for active filters.
+- `resource_path.py` — `get_resource_path(rel)` (PyInstaller `_MEIPASS`-aware) and `resolve_patches_dir()` (`Path` to bundled `patches/`). Lives in `src/utils/` rather than `src/gui/` because both `main_window.py` and `workers.py` depend on it — keeping it leaf-level avoids a `gui` ↔ `gui` import cycle.
 
 **Scripts** (`scripts/`):
 - `generate_enhancements_ini.py` — Reads DataForge entity XMLs only (no external JSON) → outputs enhancement INI files to cache (ships, components, ship weapons, FPS weapons descriptions).
@@ -88,6 +93,7 @@ Entry point: `src/main.py`. The app has two main layers:
 - `gen_commodity_crafting.py` — Generates `commodity_crafting_enhancements.ini` with crafting blueprint usage data from DataForge XMLs.
 - `compare_kraken_fixture.py` — Research/reporting tool: diffs the `kraken_4.7.ini` ground-truth fixture against our generated `mission_rewards_enhancements.ini` to validate blueprint list output. Read-only.
 - `diff_bp_kraken.py`, `diff_bp_annotations.py`, `diff_bp_csv_fixture.py` — Read-only diagnostic scripts validating `[BP]` / `[BP?]` blueprint annotations on mission rewards. Each compares our `mission_rewards_enhancements.ini` output against a different ground-truth source (kraken fixture, an applied LIVE `global.ini`, and the `missions_4.7.177.csv` per-variant fixture, respectively). Use these when blueprint tags regress.
+- `diff_base_ini_channels.py` — Read-only: diffs cached `base.ini` between two SC channels (e.g. `LIVE` vs `PTU`) and reports added / removed / changed loc keys as a category-bucket summary plus optional full machine-readable list. Defaults to `%USERPROFILE%\Documents\Smart Citizen` and supports `--user-data` for OneDrive-redirected installs.
 - `discord_notify.py` — GitHub Actions release webhook notifier.
 - `build/build_exe.py`, `build/build_all.bat`, `build/clean_cache_for_distribution.py` — Build pipeline; see `scripts/build/BUILD_INSTRUCTIONS.md`.
 
@@ -102,7 +108,7 @@ The table is a `QTableView` backed by `StringTableModel` (`src/gui/string_table_
 The cached global source is saved as `base.ini` (not `global.ini`) to avoid confusion with the game's `global.ini` at `LIVE/data/Localization/english/global.ini`.
 
 ### Threading model
-All I/O-bound operations (file loads, network requests, P4K extraction) run in `QThread` workers. Workers emit `finished()` signals; cleanup requires `quit()` + `wait()`. Never block the main thread with file or network operations. Bulk table updates wrap in `setUpdatesEnabled(False)`. Registry access (via `AppSettings`) is thread-safe; use it freely from main or worker threads.
+All I/O-bound operations (file loads, network requests, P4K extraction) run in `QThread` workers — they live in `src/gui/workers.py` (with `AppUpdateCheckWorker` as the lone exception, which lives next to its companion logic in `src/utils/app_updater.py`). Workers emit `finished()` signals; cleanup requires `quit()` + `wait()`. Never block the main thread with file or network operations. Bulk table updates wrap in `setUpdatesEnabled(False)`. Registry access (via `AppSettings`) is thread-safe; use it freely from main or worker threads. Worker logger names are `src.gui.workers` post-extraction (was `src.gui.main_window` pre-extraction) — relevant if you grep logs.
 
 ### Startup initialization
 On first run, the app initializes user data directories, validates Star Citizen install path, and may show a startup dialog to guide configuration. Subsequent runs check source freshness and auto-apply any pending DataForge cache updates.
@@ -114,7 +120,7 @@ The "Extract DataForge from P4K" button triggers: (1) unpack Data.p4k → entity
 Lookup builders and enhancement output generators run in parallel worker threads (see `scripts/generate_enhancements_ini.py`). They share a single `ProgressSink` (`src/utils/progress_sink.py`) so the UI shows one determinate progress bar. Never call `QProgressBar.setValue()` directly from workers — go through the sink so updates are coalesced and throttled on the main thread.
 
 ### Merge hierarchy
-Sources merge in user-defined order (default: global → contracts → components → ships → commodities → gear → user). Later sources overwrite earlier ones. User overrides are always applied last and never lost during source updates.
+Sources merge in user-defined order. Later sources overwrite earlier ones; user overrides are always applied last and never lost during source updates. As of 1.0 the seeded default is just `[global, user]` — the four URL-based sources (contracts/components/ships/commodities) and `gear` were retired in 0.7.0 when extraction moved to local Data.p4k, and `migrate_remove_retired_url_sources()` cleans them out of upgrader registries. `load_sources_from_settings()` additionally injects a synthetic `enhancements` source at runtime when any enhancement category is enabled on the Enhancements tab — it is *not* a registry entry and shouldn't be added to the hierarchy by hand.
 
 ### Favorites use value prefix
 Favorites prepend a configurable prefix (default `*`) to `custom_value`. The prefix is stored in Registry via `AppSettings.FAVORITE_PREFIX`.
@@ -127,7 +133,7 @@ Favorites prepend a configurable prefix (default `*`) to `custom_value`. The pre
 | User data root | Configurable via `user_data_dir` (alias `UserDataDir` is also read); defaults to `Documents\Smart Citizen\` |
 | **Per-channel data** | `{user_data_root}\{LIVE|PTU|EPTU|HOTFIX|TECH-PREVIEW}\` — 0.9.3+ nests user.ini / cache / backups / dataforge under the active channel so each SC channel is isolated. Migrator: `AppSettings.migrate_game_path_to_channel_layout()`. |
 | User overrides | `{user_data_root}\{active_channel}\user.ini` (legacy `overrides.ini`, auto-migrated) |
-| Cached sources | `{user_data_root}\{active_channel}\cache\` (`base.ini`, `contracts.ini`, etc.) |
+| Cached sources | `{user_data_root}\{active_channel}\cache\` — only `base.ini` post-1.0 (the four legacy URL-based source INIs were retired in 0.7.0); enhancement INIs live alongside it, see below |
 | DataForge cache | `{user_data_root}\{active_channel}\cache\dataforge\` (entity XMLs from Data.p4k) |
 | Enhancement INIs | `{user_data_root}\{active_channel}\cache\` (`ships_desc_enhancements.ini`, `components_desc_enhancements.ini`, `ship_weapons_desc_enhancements.ini`, `fps_weapons_desc_enhancements.ini`, `mission_rewards_enhancements.ini`, `commodity_crafting_enhancements.ini`) |
 | Backups | `{user_data_root}\{active_channel}\backups\` (max 5, oldest auto-deleted) |
@@ -140,9 +146,10 @@ Favorites prepend a configurable prefix (default `*`) to `custom_value`. The pre
 
 | Task | File | Key Function |
 |------|------|-------------|
-| Add/change table columns | `main_window.py` | `setup_string_table()` |
-| Add/change filters | `main_window.py` | `apply_filters()`, `on_filter_changed()` |
-| Change per-column filters | `filter_header.py` | `FilterHeaderView` |
+| Add/change table columns | `main_window.py`, `string_table_model.py` | `setup_string_table()`, `NUM_COLUMNS` + `COL_*` constants (also referenced by `entry_filter.py`'s getter tuple) |
+| Add/change filters (UI wiring) | `main_window.py` | `apply_filters()`, `on_filter_changed()` |
+| Change row-filter logic | `entry_filter.py` | `filter_entry_indices()` (delegated to from `MainWindow._filtered_entry_indices`) |
+| Change per-column filter widgets | `filter_header.py` | `FilterHeaderView` |
 | Change category extraction | `string_model.py` | `StringEntry.extract_category()` |
 | Modify INI parsing | `ini_parser.py` | `parse_ini_file()` |
 | Change merge logic | `ini_merger.py` | `merge_sources_by_hierarchy()` |
@@ -163,6 +170,10 @@ Favorites prepend a configurable prefix (default `*`) to `custom_value`. The pre
 | Change user.cfg behavior | `user_cfg.py` | `ensure_user_cfg_language()` |
 | Fix an upstream DataForge data bug | `patches/<category>/.../<name>.patch.json`, `dataforge_patcher.py` | `apply_patches()` |
 | Change parallel progress reporting | `progress_sink.py` | `ProgressSink.advance()` |
+| Change post-apply validation | `applied_file_validator.py` | `validate_applied_file()` (wrapped by `MainWindow._validate_applied_file`) |
+| Change About / Help markdown rendering | `markdown_renderer.py` | `markdown_to_html()` (wrapped by `MainWindow.markdown_to_html`, which supplies palette colours) |
+| Add or modify a background worker | `workers.py` | The relevant `*Worker` class (subclass of `QThread`) |
+| Change resource-path resolution (PyInstaller bundle vs dev) | `resource_path.py` | `get_resource_path()`, `resolve_patches_dir()` |
 
 ## Version & Release
 
