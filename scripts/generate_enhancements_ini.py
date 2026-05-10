@@ -99,6 +99,23 @@ def write_ini(path: Path, entries: dict[str, str]) -> None:
 # by pak_extractor.py. When DataForge is re-extracted, the stamp changes and
 # the cache is invalidated automatically.
 
+# Per-cache builder version. Bump the value whenever the builder for that
+# cache changes its WHAT-it-collects semantics (new source dirs, schema
+# additions, etc.) so existing pickled results from before the change get
+# detected as stale and rebuilt — the .p4k_mtime fingerprint alone can't
+# catch this because the underlying DataForge data hasn't changed, only
+# our parsing of it has.
+#
+# History:
+#   blueprint_pools v2 (1.3.1) — walks all crafting/blueprintrewards/
+#     subdirs (was: only blueprintmissionpools/). Adds ~40 new pool
+#     records that 4.8 PTU references via 48blueprints/ + a new
+#     xenothreat2rewards/ dir.
+_LOOKUP_VERSIONS: dict[str, str] = {
+    "blueprint_pools": "v2",
+}
+
+
 def _dataforge_cache_key(forge_dir: Path) -> str:
     """Return a stable fingerprint for the current DataForge cache.
 
@@ -121,21 +138,28 @@ def _dataforge_cache_key(forge_dir: Path) -> str:
 def _cached_lookup(forge_dir: Path, name: str, builder):
     """Memoize *builder*'s output to cache/dataforge/.lookups/{name}.pkl.
 
-    The cache is invalidated when _dataforge_cache_key() changes. On cache
-    hit the pickled result is returned; on miss we call builder() and write
-    the result back. Pickle errors silently fall back to rebuilding.
+    Cache key is ``{builder_version}:{dataforge_fingerprint}``. Either side
+    changing invalidates the cache: re-extracting Data.p4k changes the
+    fingerprint; updating the builder's collection logic bumps the version
+    in _LOOKUP_VERSIONS. Pickle errors silently fall back to rebuilding.
     """
     cache_dir = forge_dir / ".lookups"
     cache_file = cache_dir / f"{name}.pkl"
-    key = _dataforge_cache_key(forge_dir)
+    builder_version = _LOOKUP_VERSIONS.get(name, "v1")
+    key = f"{builder_version}:{_dataforge_cache_key(forge_dir)}"
 
     if cache_file.exists():
         try:
             with cache_file.open("rb") as f:
                 stored_key, value = pickle.load(f)
             if stored_key == key:
-                logger.info(f"Lookup cache hit: {name}")
+                logger.info(f"Lookup cache hit: {name} ({builder_version})")
                 return value
+            else:
+                logger.info(
+                    f"Lookup cache invalidated: {name} "
+                    f"(stored={stored_key!r}, expected={key!r})"
+                )
         except (pickle.PickleError, OSError, EOFError, ValueError):
             pass
 
