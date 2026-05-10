@@ -1004,7 +1004,13 @@ class AppSettings:
     def get_user_data_dir() -> Path:
         r"""Get the user data directory.
 
-        Resolution order:
+        Portable mode (build_mode.IS_PORTABLE = True): always returns
+        the ``data/`` directory next to the running binary. Registry
+        override and Documents fallback are skipped — portability is
+        the whole point. ``<exe-dir>/data/`` when frozen,
+        ``<repo-root>/portable_data/`` when running from source.
+
+        Registry mode (default) resolution order:
           1. Registry override ``USER_DATA_DIR`` — set by users who want the
              cache/user.ini off a OneDrive-synced Documents folder (extraction
              and rmtree are much slower under OneDrive's sync hooks).
@@ -1015,6 +1021,13 @@ class AppSettings:
         Returns:
             Path to the resolved directory (created if needed).
         """
+        # Portable build: always next to the binary, no overrides.
+        from src.utils import build_mode
+        if build_mode.IS_PORTABLE:
+            data_dir = AppSettings._portable_data_dir()
+            data_dir.mkdir(parents=True, exist_ok=True)
+            return data_dir
+
         override = AppSettings._get_user_data_dir_override()
         if override:
             override_path = Path(os.path.expandvars(override)).expanduser().resolve()
@@ -1029,6 +1042,50 @@ class AppSettings:
         data_dir = AppSettings._resolve_docs_base() / "Smart Citizen"
         data_dir.mkdir(parents=True, exist_ok=True)
         return data_dir
+
+    @staticmethod
+    def _portable_data_dir() -> Path:
+        """Resolve the portable-mode data root.
+
+        Frozen (PyInstaller): ``<exe-dir>/data/`` — true portable, no
+        machine state outside the .exe's folder. ``sys.executable``
+        points at the bundled .exe, not the Python interpreter.
+
+        Unfrozen (dev / tests): ``<repo-root>/portable_data/`` so a
+        developer running ``python src/main.py`` with a monkeypatched
+        IS_PORTABLE = True can exercise the portable code path without
+        accidentally polluting Documents\\Smart Citizen.
+        """
+        import sys
+        if getattr(sys, "frozen", False):
+            return Path(sys.executable).resolve().parent / "data"
+        # src/utils/settings.py → src/utils → src → repo root
+        repo_root = Path(__file__).resolve().parent.parent.parent
+        return repo_root / "portable_data"
+
+    @staticmethod
+    def setup_portable_backend_if_needed() -> None:
+        """Wire the JSON settings backend on portable startup.
+
+        Called from main.py once at startup, BEFORE any AppSettings
+        accessor that depends on get_user_data_dir() (which the JSON
+        backend file path is derived from). No-op in registry mode —
+        the existing QSettings default keeps working.
+
+        Idempotent: safe to call multiple times. Subsequent calls are
+        a no-op once `_backend` is set.
+        """
+        from src.utils import build_mode
+        if not build_mode.IS_PORTABLE:
+            return
+        if AppSettings._backend is not None:
+            return
+        from src.utils.json_settings import JsonSettings
+        # Lives next to all the other portable data so the whole
+        # standalone install is one folder the user can copy/move.
+        config_path = AppSettings._portable_data_dir() / "config.json"
+        AppSettings._backend = JsonSettings(config_path)
+        logger.info("Portable mode active — settings backend: %s", config_path)
 
     @staticmethod
     def set_user_data_dir(path: "str | Path | None") -> None:
