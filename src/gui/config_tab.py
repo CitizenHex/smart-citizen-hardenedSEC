@@ -532,16 +532,29 @@ class ConfigTab(QWidget):
                 if contributing == ENHANCEMENTS_SRC:
                     enhancement_categories[entry.category] += 1
 
+            # Filter out zero-key entries before displaying — leftover
+            # `contracts` / `components` / `commodities` / `gear` source
+            # entries from pre-0.7.0 registry state can linger in the
+            # hierarchy even after `migrate_remove_retired_url_sources`
+            # ran, because that migrator only prunes URL-backed paths.
+            # Their content has been folded into the general
+            # enhancements pipeline, so showing them as "X (0 keys)"
+            # is just visual noise. Renumber remaining entries so the
+            # list reads 1, 2, 3, ... without gaps.
             text = "Apply Preview\n\nMerge Order (top to bottom):\n"
-            for i, name in enumerate(hierarchy, 1):
+            visible_index = 0
+            for name in hierarchy:
                 count = source_counts.get(name, 0)
+                if count == 0:
+                    continue
+                visible_index += 1
                 if name == ENHANCEMENTS_SRC:
-                    text += f"  {i}. Smart Citizen Enhancements ({count:,} keys total):\n"
+                    text += f"  {visible_index}. Smart Citizen Enhancements ({count:,} keys total):\n"
                     if enhancement_categories:
                         for cat, ccount in enhancement_categories.most_common():
                             text += f"       {cat}: {ccount:,}\n"
                 else:
-                    text += f"  {i}. {name.capitalize()} ({count:,} keys)\n"
+                    text += f"  {visible_index}. {name.capitalize()} ({count:,} keys)\n"
 
             text += f"\nTotal Keys: {len(entries):,}\nStatus Breakdown:\n"
             status_counts: dict[str, int] = {}
