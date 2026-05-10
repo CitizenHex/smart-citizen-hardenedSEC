@@ -1,0 +1,97 @@
+"""Filter StringEntry lists by user-selected criteria.
+
+Extracted from MainWindow._filtered_entry_indices so this logic can be
+tested independently of Qt.
+"""
+
+import logging
+
+from src.gui.string_table_model import NUM_COLUMNS
+from src.models.string_model import StringEntry
+
+logger = logging.getLogger(__name__)
+
+
+def filter_entry_indices(
+    entries: list[StringEntry],
+    default_values: dict[str, str],
+    column_filters: list[str],
+    category_filter: str,
+    status_filter: str,
+    hide_unmodified: bool,
+    favorites_only: bool,
+    favorite_prefix: str,
+) -> list[int]:
+    """Return indices of entries that pass all active filters.
+
+    Args:
+        entries: The full list of StringEntry objects.
+        default_values: Mapping of key → stock base.ini value (for the
+            Default Value column filter).
+        column_filters: Per-column filter texts in column order.
+            Empty strings mean "no filter for this column".
+        category_filter: Category name to filter by, or "All".
+        status_filter: Status name to filter by, or "All".
+        hide_unmodified: When True, entries with status "Unmodified" are hidden.
+        favorites_only: When True, only entries whose custom_value starts with
+            favorite_prefix are shown.
+        favorite_prefix: The prefix that marks a row as a favourite.
+
+    Returns:
+        Ordered list of integer indices into *entries* for rows that should
+        be visible.
+    """
+    # Validate column indices once. Stale filters (e.g. after a column layout
+    # change) would cause IndexError inside the per-entry loop below; drop
+    # them here and log once instead.
+    valid_col_filters: list[tuple[int, str]] = []
+    bad_indices: list[int] = []
+    for i, t in enumerate(column_filters):
+        if not t:
+            continue
+        if i < NUM_COLUMNS:
+            valid_col_filters.append((i, t))
+        else:
+            bad_indices.append(i)
+    if bad_indices:
+        logger.warning(
+            "Column filter indices out of range for %d-column table — skipped: %s",
+            NUM_COLUMNS,
+            bad_indices,
+        )
+
+    # Per-column value getters. Indices match the COL_* constants in
+    # string_table_model. Closures over default_values / favorite_prefix —
+    # safe because both are parameters, not loop variables.
+    _col_getters = (
+        lambda e: e.category.lower(),
+        lambda e: e.key.lower(),
+        lambda e: default_values.get(e.key, "").lower(),
+        lambda e: e.original_value.lower(),
+        lambda e: "★" if e.custom_value.startswith(favorite_prefix) else "",
+        lambda e: e.custom_value.lower(),
+        lambda e: e.status.lower(),
+    )
+    active_filter_fns = [(_col_getters[i], t) for i, t in valid_col_filters]
+
+    result: list[int] = []
+    for idx, entry in enumerate(entries):
+        if hide_unmodified and entry.status == "Unmodified":
+            continue
+        if category_filter != "All" and entry.category != category_filter:
+            continue
+        if status_filter != "All" and entry.status != status_filter:
+            continue
+        if favorites_only and not entry.custom_value.startswith(favorite_prefix):
+            continue
+        if active_filter_fns:
+            skip = False
+            for get_val, filter_text in active_filter_fns:
+                if filter_text not in get_val(entry):
+                    skip = True
+                    break
+            if skip:
+                continue
+        result.append(idx)
+
+    return result
