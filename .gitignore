@@ -69,3 +69,11 @@ data/contracts_version.txt
 
 # Local DataForge extraction scratch (Game2.dcb + unforge output, ~300 MB)
 /Data/
+
+# Build-time flag module — written by build_exe.py --portable, deleted
+# after the build finishes. Should never be committed; if it is, it'd
+# silently flip the default-build behavior.
+src/utils/_build_info.py
+
+# Portable-mode runtime data (when running locally with IS_PORTABLE flipped)
+/portable_data/
