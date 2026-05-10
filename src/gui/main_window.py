@@ -451,7 +451,7 @@ class MainWindow(QMainWindow):
         # which keeps the export aligned with what the user has actually
         # validated in-game. Blue 'open' info-action role since it produces
         # output without modifying game state.
-        self.export_locpack_btn = QPushButton("Export Loc-Pack")
+        self.export_locpack_btn = QPushButton("Export")
         self.export_locpack_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
         self.export_locpack_btn.setToolTip(
             "Package the currently-applied global.ini into a zip for sharing. "
@@ -1391,7 +1391,7 @@ class MainWindow(QMainWindow):
                 self, "Nothing to Export",
                 "No applied global.ini was found in the game's localization directory.\n\n"
                 "Click 'Apply to Game' first to write your customizations, then "
-                "Export Loc-Pack to package them for sharing."
+                "Export to package them for sharing."
             )
             return
 
