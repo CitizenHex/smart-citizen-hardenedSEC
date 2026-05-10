@@ -110,22 +110,53 @@ def send_discord_notification(version: str, release_notes: str = "") -> bool:
         return False
 
 
+def _resolve_release_notes(version: str, explicit_notes: str | None) -> str:
+    """Three-tier resolution for the embed body.
+
+    1. Explicit positional argument (legacy callers, tests).
+    2. ``RELEASE_BODY`` env var (CI patterns that pre-load via env).
+    3. ``{VERSION}-RELEASE-NOTES.md`` next to scripts/ at the repo root —
+       matches the existing convention used by the build / release
+       workflow and means the script is self-sufficient when given just
+       the version.
+
+    Returns ``""`` when nothing's available; the embed falls back to its
+    "Check the release page for more details." default in that case.
+    """
+    if explicit_notes is not None and explicit_notes.strip():
+        return explicit_notes
+    env_notes = os.getenv("RELEASE_BODY", "")
+    if env_notes.strip():
+        return env_notes
+    # Strip leading "v" from the tag so v1.3.0 → 1.3.0-RELEASE-NOTES.md
+    version_bare = version.lstrip("v")
+    notes_file = project_root / f"{version_bare}-RELEASE-NOTES.md"
+    if notes_file.exists():
+        try:
+            return notes_file.read_text(encoding="utf-8")
+        except OSError as e:
+            print(f"[WARNING] Could not read {notes_file}: {e}")
+    return ""
+
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: python scripts/discord_notify.py <version> [release_notes]")
-        print("Example: python scripts/discord_notify.py v0.1.0")
+        print("       (release_notes also resolved from $RELEASE_BODY env var")
+        print("        or {VERSION}-RELEASE-NOTES.md if not given)")
+        print("Example: python scripts/discord_notify.py v1.3.0")
         sys.exit(1)
 
     version = sys.argv[1]
+    explicit_notes = sys.argv[2] if len(sys.argv) > 2 else None
+    release_notes = _resolve_release_notes(version, explicit_notes)
 
-    # Get release notes from second argument or empty string
-    release_notes = ""
-    if len(sys.argv) > 2:
-        release_notes = sys.argv[2]
+    if release_notes:
+        print(f"Posting release notification for {version} ({len(release_notes)} chars of notes)...")
+    else:
+        print(f"Posting release notification for {version} (no release notes resolved)...")
 
-    print(f"Posting release notification for {version}...")
     success = send_discord_notification(version, release_notes)
-
     sys.exit(0 if success else 1)
 
 
