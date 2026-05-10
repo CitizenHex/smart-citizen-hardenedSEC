@@ -194,6 +194,12 @@ StarCitizen/
 - [**MrKraken**](https://github.com/MrKraken/StarStrings) — ASOP terminal enhancements, workflow improvements, and mission contract localization work
 - The **Star Citizen community** — for endless feedback, testing, and ideas
 
+### Supporters
+
+Thanks to those who've supported the project financially — your contributions help keep Smart Citizen free for everyone:
+
+- **Dimwit the Wise**
+
 ## License
 
 Smart Citizen is licensed under the **Apache License, Version 2.0** — see [LICENSE](LICENSE) for the full text and [NOTICE](NOTICE) for attribution of bundled third-party software (`unp4k` / `unforge`) and the Star Citizen / CIG trademark notice.
