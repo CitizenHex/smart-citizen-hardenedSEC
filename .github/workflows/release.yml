@@ -95,17 +95,23 @@ jobs:
             "skip=false" | Out-File -Append $env:GITHUB_OUTPUT
             exit 0
           }
-          # gh release view returns non-zero (and exits the step) if the
-          # release doesn't exist. Catch that and proceed; if it returns
-          # zero, the release exists and we skip.
+          # gh release view returns non-zero when the release doesn't
+          # exist — that's the expected "go publish" signal. Capture
+          # the exit code, branch on it, then explicitly exit 0 so
+          # PowerShell doesn't carry the non-zero $LASTEXITCODE forward
+          # and fail the whole step (GitHub Actions runs each pwsh
+          # script as a child process and fails the step if it returns
+          # non-zero at end of script).
           $existing = gh release view $tag --repo "${{ github.repository }}" 2>$null
-          if ($LASTEXITCODE -eq 0) {
+          $existsCode = $LASTEXITCODE
+          if ($existsCode -eq 0) {
             Write-Host "Release $tag already exists — skipping (no version bump in this push)"
             "skip=true" | Out-File -Append $env:GITHUB_OUTPUT
           } else {
             Write-Host "No release for $tag yet — proceeding to build + publish"
             "skip=false" | Out-File -Append $env:GITHUB_OUTPUT
           }
+          exit 0
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
