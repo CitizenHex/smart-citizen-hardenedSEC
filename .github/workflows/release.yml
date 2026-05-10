@@ -1,17 +1,27 @@
 name: Release
 
-# Triggered when a tag matching v*.*.* is pushed (e.g. v1.3.0). Builds the
-# PyInstaller onedir, compiles the Inno Setup installer, then publishes a
-# GitHub Release with the installer attached as an asset. The existing
-# release-notify.yml workflow fires on `release: published` and posts the
-# Discord notification — no change needed to that workflow; this PR just
-# provides the release event for it to subscribe to.
+# Three trigger paths, all converging on the same build-and-publish job:
 #
-# Manual trigger is also available for one-off rebuilds against an existing
-# tag (e.g. if the first attempt failed midway through release publish).
+#   1. Push to main / master — the primary release event. Workflow reads
+#      VERSION.TXT, derives the tag (`v{VERSION}`), checks if a release
+#      with that tag already exists, and skips if it does. So merging
+#      a non-version-bump PR into main is a no-op; merging a PR that
+#      bumps VERSION.TXT triggers a release. Workflow auto-creates and
+#      pushes the tag from the merge commit.
+#   2. Push of a v*.*.* tag — explicit re-release path. Skips the
+#      "does the release already exist" check; always proceeds. Useful
+#      if you want to retag and rebuild deliberately.
+#   3. workflow_dispatch — manual trigger for one-off rebuilds against
+#      an existing tag (e.g. if the first attempt failed mid-publish).
+#
+# Builds BOTH the standard installer AND the portable zip, attaches both
+# to the GitHub Release. The existing release-notify.yml workflow fires
+# on `release: published` and posts the Discord notification — no change
+# needed there.
 
 on:
   push:
+    branches: [main, master]
     tags: ["v*.*.*"]
   workflow_dispatch:
     inputs:
@@ -20,53 +30,90 @@ on:
         required: true
         type: string
 
-# Releases are inherently per-tag; no concurrency cancellation. If the same
-# tag triggers twice (rare), let both runs complete so the second can
-# overwrite the first cleanly via softprops/action-gh-release.
-
 jobs:
   build-and-release:
-    name: Build installer + publish GitHub Release
+    name: Build installer + portable + publish GitHub Release
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     permissions:
-      # Required for softprops/action-gh-release to create / update the
-      # release and upload assets.
+      # Required for: softprops/action-gh-release (create release + upload
+      # assets) AND `git push origin <tag>` (auto-tag the merge commit on
+      # branch-push trigger).
       contents: write
 
     steps:
-      - name: Resolve tag
-        id: tag
-        shell: pwsh
-        run: |
-          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
-            $tag = "${{ github.event.inputs.tag }}"
-          } else {
-            $tag = "${{ github.ref_name }}"
-          }
-          # Strip leading v for VERSION.TXT comparison; release artifacts
-          # use the bare version (matches installer.iss OutputBaseFilename).
-          $version = $tag -replace "^v", ""
-          Write-Host "Tag: $tag"
-          Write-Host "Version: $version"
-          "tag=$tag"     | Out-File -Append $env:GITHUB_OUTPUT
-          "version=$version" | Out-File -Append $env:GITHUB_OUTPUT
-
-      - name: Checkout (at tag)
+      - name: Checkout (at tag, branch HEAD, or dispatch input)
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.tag.outputs.tag }}
-          # Need full history so VERSION.TXT and any release-notes file
-          # are available; shallow checkout is fine, no need for fetch-depth.
+          # On tag push: github.ref is the tag. On branch push: it's the
+          # branch HEAD. On workflow_dispatch: use the explicit input.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+          # Need write-capable auth so we can push the auto-created tag
+          # back to origin on the branch-push path.
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Verify VERSION.TXT matches tag
-        # Sanity check — release-time mismatches between tag and
-        # VERSION.TXT produce installers with the wrong filename and
-        # in-app version display. Fail fast at job start instead of
-        # discovering this in the published release.
+      - name: Resolve trigger + tag + version
+        # Three trigger paths, three resolution rules. Branch-push reads
+        # VERSION.TXT to derive the tag (`v{VERSION}`); tag-push and
+        # workflow_dispatch use the tag verbatim.
+        id: resolve
         shell: pwsh
         run: |
-          $expected = "${{ steps.tag.outputs.version }}"
+          $eventName = "${{ github.event_name }}"
+          $refType   = "${{ github.ref_type }}"
+          if ($eventName -eq "workflow_dispatch") {
+            $tag = "${{ github.event.inputs.tag }}"
+            $trigger = "dispatch"
+          } elseif ($refType -eq "tag") {
+            $tag = "${{ github.ref_name }}"
+            $trigger = "tag"
+          } else {
+            $version_raw = (Get-Content VERSION.TXT).Trim()
+            $tag = "v$version_raw"
+            $trigger = "branch"
+          }
+          $version = $tag -replace "^v", ""
+          Write-Host "Trigger: $trigger | Tag: $tag | Version: $version"
+          "tag=$tag"         | Out-File -Append $env:GITHUB_OUTPUT
+          "version=$version" | Out-File -Append $env:GITHUB_OUTPUT
+          "trigger=$trigger" | Out-File -Append $env:GITHUB_OUTPUT
+
+      - name: Skip if release already exists (branch-push only)
+        # Branch-push fires on EVERY merge to main, including doc-only or
+        # bug-fix merges that don't bump VERSION.TXT. Skip the release
+        # in that case so we don't try to overwrite the existing one.
+        # Tag-push and workflow_dispatch always proceed — caller intent
+        # is explicit.
+        id: gate
+        shell: pwsh
+        run: |
+          $trigger = "${{ steps.resolve.outputs.trigger }}"
+          $tag = "${{ steps.resolve.outputs.tag }}"
+          if ($trigger -ne "branch") {
+            Write-Host "Trigger=$trigger — proceed unconditionally"
+            "skip=false" | Out-File -Append $env:GITHUB_OUTPUT
+            exit 0
+          }
+          # gh release view returns non-zero (and exits the step) if the
+          # release doesn't exist. Catch that and proceed; if it returns
+          # zero, the release exists and we skip.
+          $existing = gh release view $tag --repo "${{ github.repository }}" 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Release $tag already exists — skipping (no version bump in this push)"
+            "skip=true" | Out-File -Append $env:GITHUB_OUTPUT
+          } else {
+            Write-Host "No release for $tag yet — proceeding to build + publish"
+            "skip=false" | Out-File -Append $env:GITHUB_OUTPUT
+          }
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify VERSION.TXT matches tag
+        if: steps.gate.outputs.skip == 'false'
+        shell: pwsh
+        run: |
+          $expected = "${{ steps.resolve.outputs.version }}"
           $actual = (Get-Content VERSION.TXT).Trim()
           if ($expected -ne $actual) {
             Write-Error "Tag version ($expected) does not match VERSION.TXT ($actual). Bump VERSION.TXT and re-tag."
@@ -75,6 +122,7 @@ jobs:
           Write-Host "VERSION.TXT matches tag: $actual"
 
       - name: Set up Python 3.11
+        if: steps.gate.outputs.skip == 'false'
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -84,31 +132,27 @@ jobs:
             requirements-dev.txt
 
       - name: Install dependencies
+        if: steps.gate.outputs.skip == 'false'
         run: pip install -r requirements-dev.txt
 
       - name: Run tests
-        # Same exclusions as ci.yml — keep release builds gated on the
-        # same green-test bar as PRs. If we want to ship despite a known
-        # test regression, the user can re-tag after committing a skip
-        # marker; better than silently shipping with broken assertions.
+        if: steps.gate.outputs.skip == 'false'
         run: |
           pytest tests/ `
             --deselect tests/test_pak_extraction.py::TestDataForgeCache `
             -q
 
-      - name: Build PyInstaller onedir
+      - name: Build standard PyInstaller onedir
+        if: steps.gate.outputs.skip == 'false'
         run: python scripts/build/build_exe.py
 
       - name: Install Inno Setup
-        # windows-latest doesn't ship Inno Setup pre-installed. Chocolatey
-        # installs the standard v6 to its default location
-        # (C:\Program Files (x86)\Inno Setup 6\ISCC.exe) — same path the
-        # local build_all.bat checks for, so installer.iss compiles
-        # without any path overrides.
+        if: steps.gate.outputs.skip == 'false'
         shell: pwsh
         run: choco install innosetup --no-progress --yes
 
       - name: Compile installer
+        if: steps.gate.outputs.skip == 'false'
         shell: pwsh
         run: |
           $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
@@ -122,31 +166,41 @@ jobs:
             exit $LASTEXITCODE
           }
 
-      - name: Verify installer exists
+      - name: Build portable variant
+        # Cleans dist/ + builds the same source tree with --portable, which
+        # writes src/utils/_build_info.py with IS_PORTABLE=True before
+        # PyInstaller runs and packages the result as a zip. The build
+        # script removes _build_info.py in its finally block.
+        if: steps.gate.outputs.skip == 'false'
+        run: python scripts/build/build_exe.py --portable
+
+      - name: Verify both artifacts exist
+        if: steps.gate.outputs.skip == 'false'
+        id: artifacts
         shell: pwsh
         run: |
-          $version = "${{ steps.tag.outputs.version }}"
+          $version = "${{ steps.resolve.outputs.version }}"
           $installer = "dist/SmartCitizen-${version}-Setup.exe"
-          if (-not (Test-Path $installer)) {
-            Write-Error "Installer not produced: $installer"
-            Get-ChildItem dist | ForEach-Object { Write-Host $_.FullName }
+          $portable  = "dist/SmartCitizen-Portable-v${version}.zip"
+          $missing = @()
+          if (-not (Test-Path $installer)) { $missing += $installer }
+          if (-not (Test-Path $portable))  { $missing += $portable }
+          if ($missing.Count -gt 0) {
+            Write-Error "Missing artifacts: $($missing -join ', ')"
+            Get-ChildItem dist -Recurse -Depth 2 | ForEach-Object { Write-Host $_.FullName }
             exit 1
           }
-          $size = (Get-Item $installer).Length
-          Write-Host "Installer ready: $installer ($size bytes)"
+          Write-Host "Installer: $installer ($((Get-Item $installer).Length) bytes)"
+          Write-Host "Portable:  $portable ($((Get-Item $portable).Length) bytes)"
           "installer_path=$installer" | Out-File -Append $env:GITHUB_OUTPUT
-        id: installer
+          "portable_path=$portable"   | Out-File -Append $env:GITHUB_OUTPUT
 
       - name: Resolve release notes
-        # Convention: release notes for vX.Y.Z live in X.Y.Z-RELEASE-NOTES.md
-        # at the repo root (matching the existing 1.0.0-RELEASE-NOTES.md /
-        # 1.0.1-RELEASE-NOTES.md pattern in the tree). If the file isn't
-        # present, the release body falls back to a generic one-liner so
-        # the publish step doesn't fail.
+        if: steps.gate.outputs.skip == 'false'
         id: notes
         shell: pwsh
         run: |
-          $version = "${{ steps.tag.outputs.version }}"
+          $version = "${{ steps.resolve.outputs.version }}"
           $notes_file = "${version}-RELEASE-NOTES.md"
           if (Test-Path $notes_file) {
             Write-Host "Using release notes from $notes_file"
@@ -156,22 +210,32 @@ jobs:
             "notes_file=" | Out-File -Append $env:GITHUB_OUTPUT
           }
 
+      - name: Create + push tag (branch-push only)
+        # On branch push we need to tag the merge commit so the published
+        # release has a tag to point at. Tag/dispatch triggers already
+        # have one. Pushing tags via GITHUB_TOKEN does NOT recursively
+        # trigger this workflow (that's GitHub's built-in safety against
+        # workflow loops with the default token).
+        if: steps.gate.outputs.skip == 'false' && steps.resolve.outputs.trigger == 'branch'
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.resolve.outputs.tag }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a $tag -m "Release $tag (auto-tagged by release.yml on merge to ${{ github.ref_name }})"
+          git push origin $tag
+
       - name: Publish GitHub Release
-        # softprops/action-gh-release is the de-facto standard for this —
-        # creates the release if it doesn't exist, updates the asset list
-        # if it does. Pinned to a SHA via @v2 (the repo's stable major).
+        if: steps.gate.outputs.skip == 'false'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          name: "Smart Citizen ${{ steps.tag.outputs.tag }}"
+          tag_name: ${{ steps.resolve.outputs.tag }}
+          name: "Smart Citizen ${{ steps.resolve.outputs.tag }}"
           body_path: ${{ steps.notes.outputs.notes_file }}
-          # Generate auto-notes from commit messages when no release-notes
-          # file is present. Harmless if both are set — body_path wins.
           generate_release_notes: ${{ steps.notes.outputs.notes_file == '' }}
-          files: ${{ steps.installer.outputs.installer_path }}
+          files: |
+            ${{ steps.artifacts.outputs.installer_path }}
+            ${{ steps.artifacts.outputs.portable_path }}
           fail_on_unmatched_files: true
-          # `draft: false` and `prerelease: false` are defaults — explicit
-          # for clarity. If we want to ship pre-releases later (e.g.
-          # v1.3.0-rc1), bumping this to a tag-pattern check is one line.
           draft: false
           prerelease: false

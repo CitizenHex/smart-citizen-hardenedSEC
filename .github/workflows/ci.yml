@@ -11,10 +11,16 @@ name: CI
 # free for public repos so the runner-cost concern is moot here.
 
 on:
+  # main / master are intentionally excluded from push triggers —
+  # release.yml owns those (it builds standard installer + portable zip,
+  # auto-tags from VERSION.TXT, and publishes the GitHub Release).
+  # Running CI in parallel on main-push would duplicate test work and
+  # produce a confusing dual status. PRs *to* main still run CI here,
+  # just the post-merge push doesn't.
   push:
-    branches: [main, "1.3.0"]
+    branches: ["1.3.0"]
   pull_request:
-    branches: [main, "1.3.0"]
+    branches: [main, master, "1.3.0"]
   # Manual trigger for one-off debugging without pushing.
   workflow_dispatch:
 
