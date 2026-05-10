@@ -108,3 +108,9 @@ Smart Citizen is completely free. If you find it valuable:
 Built with **PyQt6** and inspired by the Star Citizen community's localization work.
 
 **GitHub**: https://github.com/Osiris-DevWorks/smart-citizen
+
+## License
+
+Smart Citizen is licensed under the **Apache License, Version 2.0**. The full license text is in `LICENSE` next to the executable, and the source is at the [GitHub repository](https://github.com/Osiris-DevWorks/smart-citizen/blob/main/LICENSE).
+
+Bundled `unp4k` / `unforge` tools are licensed under the MIT License — see `NOTICE` for full attribution and the Star Citizen / CIG trademark notice.
