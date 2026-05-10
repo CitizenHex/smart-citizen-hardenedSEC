@@ -489,9 +489,15 @@ class MainWindow(QMainWindow):
 
         filter_layout.addWidget(QLabel("Status:"))
         self.status_combo = QComboBox()
-        self.status_combo.addItems(["All", "Modified", "Unmodified", "New"])
+        self.status_combo.addItems(["All", "Modified", "Enhanced", "Unmodified", "New"])
         self.status_combo.setMaximumWidth(120)
-        self.status_combo.setToolTip("Filter by modification status. Modified = you've set a Custom Value; New = key exists only in enhancements/user.ini, not in the base file; Unmodified = default text only.")
+        self.status_combo.setToolTip(
+            "Filter by status. "
+            "Modified = you've set a Custom Value; "
+            "Enhanced = produced by Smart Citizen's enhancements pipeline (ship stats, mission rewards, etc.); "
+            "Unmodified = default text only; "
+            "New = key exists only in enhancements/user.ini, not in the base file."
+        )
         self.status_combo.currentTextChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.status_combo)
 
