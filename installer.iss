@@ -360,6 +360,75 @@ begin
   end;
 end;
 
+procedure WriteInstallerChoicesToRegistry();
+var
+  RegPath: String;
+  FinalPath: String;
+  DataDir: String;
+  DocsDefault: String;
+begin
+  { Persist the user's choices from the installer wizard pages
+    (SC install dir + Smart Citizen data folder) into the registry
+    so the app reads them on first launch. Called from
+    CurStepChanged at ssPostInstall — AFTER files have been copied
+    so ForceDirectories on a custom data folder doesn't race the
+    install itself. }
+
+  { SC directory: written to BOTH the new (Smart Citizen) and legacy
+    (SC Localization Editor) registry nodes. The new node survives
+    the app's migrate_registry_appname() — which deletes the legacy
+    subtree after copying values across. The legacy write is a compat
+    fallback for very old app versions that haven't been launched
+    yet to perform their own migration; cheap and keeps downgrade
+    paths working. }
+  FinalPath := SCDirectoryPage.Values[0];
+  if FinalPath <> '' then
+  begin
+    RegPath := 'Software\Osiris DevWorks\Smart Citizen';
+    RegWriteStringValue(HKCU, RegPath, 'sc_directory', FinalPath);
+    RegWriteStringValue(HKCU, RegPath, 'game_install_path', FinalPath);
+    RegWriteStringValue(HKCU,
+      'Software\Osiris DevWorks\SC Localization Editor',
+      'sc_directory', FinalPath);
+    Log('Saved sc_directory to registry (Smart Citizen + legacy nodes): ' + FinalPath);
+  end;
+
+  { Persist the data folder choice. The page is always shown in 1.3.0+,
+    so every install reaches this branch. Comparison rules:
+      - Empty field, or value equal to the natural Documents default:
+        clear the override so the app's dynamic Documents resolution
+        wins on every launch (matches the in-app Reset behavior in
+        AppSettings.set_user_data_dir(None)). Keeps the registry tidy
+        for users who never wanted a custom path.
+      - Anything else: write user_data_dir. Also clear the legacy
+        camelCase 'UserDataDir' alias if present so the app reads the
+        canonical value. ForceDirectories ensures the chosen folder
+        exists by the time the app first launches.
+    Writes are scoped to the NEW (Smart Citizen) registry node — the
+    app's migrate_registry_appname() preserves it across rebrand
+    migrations. }
+  DataDir := DataDirPage.Values[0];
+  DocsDefault := GetDocumentsBase() + '\Smart Citizen';
+  if (DataDir = '') or (CompareText(DataDir, DocsDefault) = 0) then
+  begin
+    RegDeleteValue(HKCU,
+      'Software\Osiris DevWorks\Smart Citizen', 'user_data_dir');
+    RegDeleteValue(HKCU,
+      'Software\Osiris DevWorks\Smart Citizen', 'UserDataDir');
+    Log('User chose default Documents folder; cleared user_data_dir override.');
+  end
+  else
+  begin
+    RegWriteStringValue(HKCU,
+      'Software\Osiris DevWorks\Smart Citizen',
+      'user_data_dir', DataDir);
+    RegDeleteValue(HKCU,
+      'Software\Osiris DevWorks\Smart Citizen', 'UserDataDir');
+    ForceDirectories(DataDir);
+    Log('Saved user_data_dir to registry: ' + DataDir);
+  end;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if (CurStep=ssInstall) then
@@ -375,6 +444,19 @@ begin
 
     { Clear cached data but preserve registry settings (source paths, preferences, etc.) }
     CleanCachedData();
+  end;
+
+  if (CurStep = ssPostInstall) then
+  begin
+    { Persist wizard-page choices (sc_directory + user_data_dir) to the
+      registry. Previously this lived in a procedure named
+      `CurFinished(LastStep: TSetupStep)` — NOT a real Inno Setup event
+      callback name (Inno doesn't support that signature) — so the
+      whole block silently never ran. Users who customized the data
+      folder in the installer would see Documents\Smart Citizen on
+      first launch instead of their pick. Discovered post-1.3.0 release
+      after a user reported the data-dir choice not carrying over. }
+    WriteInstallerChoicesToRegistry();
   end;
 end;
 
@@ -463,9 +545,10 @@ begin
       2. LEGACY "SC Localization Editor" node — kept as a read-side
          fallback so users who upgrade from a version earlier than 0.9.2
          (and therefore have no NEW node yet) still get their path
-         prefilled on the first reinstall. The installer's CurFinished
-         writes to the NEW node regardless, so subsequent reinstalls
-         resolve via path 1. }
+         prefilled on the first reinstall. The installer's
+         WriteInstallerChoicesToRegistry (called from CurStepChanged
+         at ssPostInstall) writes to the NEW node regardless, so
+         subsequent reinstalls resolve via path 1. }
   NewRegPath := 'Software\Osiris DevWorks\Smart Citizen';
   LegacyRegPath := 'Software\Osiris DevWorks\SC Localization Editor';
   DefaultPath := '';
@@ -549,10 +632,11 @@ begin
       2. Else if Documents is OneDrive-synced, suggest the local
          %USERPROFILE%\Documents\Smart Citizen junction (escapes the sync).
       3. Else pre-fill Documents\Smart Citizen (the natural default).
-    CurFinished compares the final value against the natural default and
-    only writes user_data_dir when the user actually picked something
-    different — so leaving the field at its default keeps the registry
-    clean and lets the app's dynamic Documents resolution win. }
+    WriteInstallerChoicesToRegistry compares the final value against the
+    natural default and only writes user_data_dir when the user actually
+    picked something different — so leaving the field at its default
+    keeps the registry clean and lets the app's dynamic Documents
+    resolution win. }
   DataDirPage := CreateInputDirPage(
     SCDirectoryPage.ID,
     'Smart Citizen Data Location',
@@ -595,70 +679,3 @@ begin
   Result := False;
 end;
 
-procedure CurFinished(LastStep: TSetupStep);
-var
-  RegPath: String;
-  FinalPath: String;
-  DataDir: String;
-  DocsDefault: String;
-begin
-  if LastStep = ssPostInstall then
-  begin
-    { Read the SC directory value at finish time (not page-change time)
-      to ensure we capture any edits the user made on the page }
-    FinalPath := SCDirectoryPage.Values[0];
-    if FinalPath <> '' then
-    begin
-      { Write to the NEW ("Smart Citizen") node so the value survives
-        the app's migrate_registry_appname() — which deletes the legacy
-        subtree after copying values across. Prior installer revs wrote
-        only to the legacy node and lost sc_directory on the next app
-        launch, so reinstalls couldn't pre-fill the path. Writing to the
-        legacy node ALSO (as a compat fallback for very old app versions
-        that don't understand the new node yet) is cheap and keeps
-        downgrade paths working. }
-      RegPath := 'Software\Osiris DevWorks\Smart Citizen';
-      RegWriteStringValue(HKCU, RegPath, 'sc_directory', FinalPath);
-      RegWriteStringValue(HKCU, RegPath, 'game_install_path', FinalPath);
-      RegWriteStringValue(HKCU,
-        'Software\Osiris DevWorks\SC Localization Editor',
-        'sc_directory', FinalPath);
-      Log('Saved sc_directory to registry (Smart Citizen + legacy nodes): ' + FinalPath);
-    end;
-
-    { Persist the data folder choice. The page is always shown in 1.3.0+,
-      so every install reaches this branch. Comparison rules:
-        - Empty field, or value equal to the natural Documents default:
-          clear the override so the app's dynamic Documents resolution
-          wins on every launch (matches the in-app Reset behavior in
-          AppSettings.set_user_data_dir(None)). Keeps the registry tidy
-          for users who never wanted a custom path.
-        - Anything else: write user_data_dir. Also clear the legacy
-          camelCase 'UserDataDir' alias if present so the app reads the
-          canonical value. ForceDirectories ensures the chosen folder
-          exists by the time the app first launches.
-      Writes are scoped to the NEW (Smart Citizen) registry node — the
-      app's migrate_registry_appname() preserves it across rebrand
-      migrations. }
-    DataDir := DataDirPage.Values[0];
-    DocsDefault := GetDocumentsBase() + '\Smart Citizen';
-    if (DataDir = '') or (CompareText(DataDir, DocsDefault) = 0) then
-    begin
-      RegDeleteValue(HKCU,
-        'Software\Osiris DevWorks\Smart Citizen', 'user_data_dir');
-      RegDeleteValue(HKCU,
-        'Software\Osiris DevWorks\Smart Citizen', 'UserDataDir');
-      Log('User chose default Documents folder; cleared user_data_dir override.');
-    end
-    else
-    begin
-      RegWriteStringValue(HKCU,
-        'Software\Osiris DevWorks\Smart Citizen',
-        'user_data_dir', DataDir);
-      RegDeleteValue(HKCU,
-        'Software\Osiris DevWorks\Smart Citizen', 'UserDataDir');
-      ForceDirectories(DataDir);
-      Log('Saved user_data_dir to registry: ' + DataDir);
-    end;
-  end;
-end;
