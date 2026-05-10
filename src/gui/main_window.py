@@ -1171,11 +1171,17 @@ class MainWindow(QMainWindow):
             from src.utils.user_ini_manager import save_user_ini
             user_count = save_user_ini(self.entries, AppSettings.get_user_ini_path())
 
-            # Count enhancement entries
-            enhancement_count = sum(
-                1 for entry in self.entries
+            # Count enhancement entries, broken down by category. Sorted
+            # descending by count so the dialog leads with the biggest
+            # buckets (typically Missions / Ship Items). "SCLE" was the
+            # legacy app name (SC Localization Editor); the label now
+            # matches the rebrand to "Smart Citizen".
+            from collections import Counter
+            enhancement_categories = Counter(
+                entry.category for entry in self.entries
                 if entry.source_file == "enhancements"
             )
+            enhancement_count = sum(enhancement_categories.values())
 
             # Ensure user.cfg has language setting
             from src.utils.user_cfg import ensure_user_cfg_language
@@ -1185,11 +1191,22 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(
                 f"Applied to game | {user_count} user edits | {enhancement_count} enhancements"
             )
+            if enhancement_categories:
+                breakdown = "\n".join(
+                    f"    {cat}: {count:,}"
+                    for cat, count in enhancement_categories.most_common()
+                )
+                enhancement_block = (
+                    f"  Smart Citizen enhancements ({enhancement_count:,} total):\n"
+                    f"{breakdown}"
+                )
+            else:
+                enhancement_block = f"  Smart Citizen enhancements: 0"
             QMessageBox.information(
                 self, "Success",
                 f"Applied to {target_path}\n\n"
-                f"  User edits: {user_count}\n"
-                f"  SCLE enhancements: {enhancement_count}"
+                f"  User edits: {user_count:,}\n\n"
+                f"{enhancement_block}"
             )
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to apply to game: {e}")
