@@ -445,6 +445,22 @@ class MainWindow(QMainWindow):
         self.clear_cache_btn.clicked.connect(self.clear_cache)
         button_layout.addWidget(self.clear_cache_btn)
 
+        # Export Loc-Pack — packages the currently-applied global.ini into a
+        # zip for sharing (org-wide loc-packs, Discord drops, etc.). Reads
+        # the already-written game file rather than re-merging in memory,
+        # which keeps the export aligned with what the user has actually
+        # validated in-game. Blue 'open' info-action role since it produces
+        # output without modifying game state.
+        self.export_locpack_btn = QPushButton("Export Loc-Pack")
+        self.export_locpack_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
+        self.export_locpack_btn.setToolTip(
+            "Package the currently-applied global.ini into a zip for sharing. "
+            "Click Apply to Game first if you haven't already — Export reads the "
+            "applied file, not the in-memory edits."
+        )
+        self.export_locpack_btn.clicked.connect(self.export_locpack)
+        button_layout.addWidget(self.export_locpack_btn)
+
         # Editor — toggles the side-docked String Editor for editing long
         # values comfortably. Shares the 'open' info-action role so it pairs
         # visually with Help/Tutorial as a panel-toggle.
@@ -1353,6 +1369,69 @@ class MainWindow(QMainWindow):
             return
 
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(loc_dir)))
+
+    @pyqtSlot()
+    def export_locpack(self):
+        """Package the currently-applied global.ini into a shareable zip.
+
+        Reads the already-written game file rather than re-merging in
+        memory — keeps the export aligned with what the user has actually
+        validated in-game, and makes "Export" a no-side-effect action
+        (no implicit re-apply, no surprises).
+        """
+        from src.utils.locpack_exporter import default_locpack_filename, write_locpack_zip
+
+        if not AppSettings.get_game_install_path():
+            QMessageBox.warning(self, "Warning", "Please configure game install path in Config tab")
+            return
+
+        global_ini = AppSettings.get_global_ini_path()
+        if not global_ini.exists():
+            QMessageBox.information(
+                self, "Nothing to Export",
+                "No applied global.ini was found in the game's localization directory.\n\n"
+                "Click 'Apply to Game' first to write your customizations, then "
+                "Export Loc-Pack to package them for sharing."
+            )
+            return
+
+        channel = AppSettings.get_active_channel()
+        default_name = default_locpack_filename(channel)
+        # Suggest the user's Downloads folder as the default save location —
+        # most natural place for a "share this file" output.
+        downloads_dir = Path.home() / "Downloads"
+        if not downloads_dir.exists():
+            downloads_dir = Path.home()
+        default_path = str(downloads_dir / default_name)
+
+        out_path_str, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Loc-Pack",
+            default_path,
+            "Zip files (*.zip);;All files (*)",
+        )
+        if not out_path_str:
+            return  # user cancelled
+
+        out_path = Path(out_path_str)
+        try:
+            source_size = write_locpack_zip(global_ini, out_path)
+        except Exception as e:
+            logger.exception("Loc-pack export failed")
+            QMessageBox.critical(
+                self, "Export Failed",
+                f"Could not write the loc-pack zip:\n{e}"
+            )
+            return
+
+        zip_size = out_path.stat().st_size
+        QMessageBox.information(
+            self, "Export Complete",
+            f"Loc-pack written to:\n{out_path}\n\n"
+            f"Channel: {channel}\n"
+            f"Source size: {source_size:,} bytes\n"
+            f"Zip size: {zip_size:,} bytes"
+        )
 
     @pyqtSlot()
     @timed
