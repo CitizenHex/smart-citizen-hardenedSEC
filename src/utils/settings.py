@@ -485,7 +485,16 @@ class AppSettings:
     # releases without being blocked by an earlier run's marker. Always bump
     # the version when expanding RETIRED_URL_SOURCE_NAMES — the prior marker
     # stays in the registry but is ignored.
-    RETIRED_URL_SOURCES_PRUNED = "_retired_url_sources_pruned_v2"
+    #
+    # v3 (1.3.1): re-runs to prune orphan hierarchy entries that v2 left
+    # behind. v2 correctly handled URL-backed and orphan-no-path entries
+    # in the same pass, but users who had a stored local path at v2-run
+    # time (later cleared, leaving an orphan hierarchy slot with no path)
+    # didn't get re-cleaned. v3 re-runs the (idempotent) prune so those
+    # tail-end orphans surface and get removed. Local-path overrides are
+    # still preserved — the URL-vs-local guard inside the migrator is
+    # unchanged.
+    RETIRED_URL_SOURCES_PRUNED = "_retired_url_sources_pruned_v3"
 
     # Sources that were retired in 0.7.0 when the app moved to local Data.p4k
     # extraction + locally-generated *_enhancements.ini files. New installs
