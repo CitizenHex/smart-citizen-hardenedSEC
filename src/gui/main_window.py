@@ -314,7 +314,19 @@ class MainWindow(QMainWindow):
             "Select a row to preview its rendered text."
         )
         self.preview_pane.setMinimumWidth(420)
-        self.preview_pane.setMaximumHeight(200)
+        # Cap to ~the toolbar's natural height (button row + filter row ≈ 80px)
+        # so the preview pane can't drive the toolbar QHBoxLayout taller than
+        # the buttons need. Without this, QTextBrowser's default Expanding
+        # vertical sizePolicy lets the pane grow to its 200px ceiling whenever
+        # the active tab's content has slack vertical space to give back to
+        # main_layout (e.g. the Config tab post-1.3.0, which got taller when
+        # PR #3 added the "Smart Citizen Data" GroupBox). When that happened,
+        # the toolbar row inflated and the buttons appeared to drop ~40px
+        # below the tagline on Config / Enhancements vs. String Editor.
+        # Pre-1.3.0 the bug was latent — main_layout never had enough slack
+        # to expose it. QTextBrowser's built-in scrollbar still handles long
+        # rendered HTML inside the cap.
+        self.preview_pane.setMaximumHeight(80)
 
         toolbar_row = QHBoxLayout()
         toolbar_row.setSpacing(12)
