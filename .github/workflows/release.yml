@@ -136,9 +136,11 @@ jobs:
         run: pip install -r requirements-dev.txt
 
       - name: Run tests
+        # See ci.yml for the same `python -m pytest` rationale (CWD on
+        # sys.path independent of pytest.ini pythonpath resolution).
         if: steps.gate.outputs.skip == 'false'
         run: |
-          pytest tests/ `
+          python -m pytest tests/ `
             --deselect tests/test_pak_extraction.py::TestDataForgeCache `
             -q
 

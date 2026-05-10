@@ -54,13 +54,17 @@ jobs:
         run: pip install -r requirements-dev.txt
 
       - name: Run pytest
+        # `python -m pytest` (not bare `pytest`) so the CWD always lands
+        # on sys.path — required for the `from src.X` test imports even
+        # if pytest.ini's pythonpath resolution drifts. Belt-and-braces.
+        #
         # Excludes the 4 known-broken pak_extraction failures (str/Path
         # bug in dataforge_cache_is_fresh — separate fix, tracked
         # outside this PR). Also excludes the skipped TestStringEntry
         # block in test_core.py (constructor calls predate the
         # StringEntry signature expansion). Everything else MUST pass.
         run: |
-          pytest tests/ `
+          python -m pytest tests/ `
             --deselect tests/test_pak_extraction.py::TestDataForgeCache `
             -q
 
