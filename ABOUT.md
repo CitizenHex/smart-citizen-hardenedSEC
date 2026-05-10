@@ -23,6 +23,12 @@ Thanks to the testers and contributors who helped shape Smart Citizen with their
 - **Lord Valium**
 - **Zero**
 
+### Supporters
+
+Thanks to those who've supported the project financially — your contributions help keep Smart Citizen free for everyone:
+
+- **Dimwit the Wise**
+
 Smart Citizen also bundles upstream tooling from:
 
 - [**dolkensp/unp4k**](https://github.com/dolkensp/unp4k) — `unp4k.exe` and `unforge.exe`, used to unpack `Data.p4k` and convert DataForge to XML

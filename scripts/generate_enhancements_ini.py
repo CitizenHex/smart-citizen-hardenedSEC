@@ -373,6 +373,64 @@ def _mission_loc_key(root: ET.Element) -> str | None:
     return None
 
 
+# Loc-key tokens that flag a mission as on-foot / first-person. Lowercase
+# substring match against the loc_key. CIG's own naming convention puts these
+# in the key whenever the mission is FPS-themed (e.g.
+# ``BountyHuntersGuild_FPS_Nyx``, ``vaughn_assassination_FPS_UGF_legal_…``,
+# ``GoblinG_Crusader_RecoverCargoFPS_L_Title``). UGF = Underground Facility,
+# always FPS. ``ugf`` is matched as a standalone token via word-boundary check
+# below to avoid false-positives on substrings like ``frugfrog``.
+_FPS_TOKENS = (
+    "_fps_", "fps_", "_fps", "fpsmine",
+    "_ugf_", "ugf_", "_ugf",
+    "_onfoot_", "onfoot_", "_onfoot",
+    "_foot_",
+)
+
+# Tokens that flag the mission also requires ship transport ON TOP OF the
+# FPS work. Cargo recovery / salvage / hauling missions take the player
+# in on foot to deal with hostiles + retrieve goods, then back out by ship
+# to drop the cargo at a freight elevator (typical "RecoverCargoFPS"
+# pattern). Combined with an FPS marker, this promotes the classification
+# from ``FPS`` to ``FPS & Ship``.
+_FPS_PLUS_SHIP_TOKENS = (
+    "recovercargo", "cargo_recover",
+    "salvage", "hauling",
+    "freight",
+)
+
+
+def _classify_mission_engagement(loc_key: str | None) -> str:
+    """Classify a mission as FPS / Ship / FPS & Ship from its loc_key.
+
+    Conservative defaults — when in doubt, classify as ``Ship`` (the most
+    common SC mission category and the safer mis-classification: a player
+    who's expecting ship combat and gets dropped into FPS will reload and
+    re-prep, but the inverse is rare in this dataset).
+
+    Rules (applied in order):
+
+    1. No FPS marker in the key → ``Ship``
+    2. FPS marker present + cargo / salvage / freight token also present
+       → ``FPS & Ship`` (mission needs FPS gear AND a ship for transport)
+    3. FPS marker present, no transport token → ``FPS``
+    """
+    if not loc_key:
+        return "Ship"
+
+    key_lower = loc_key.lower()
+
+    has_fps = any(tok in key_lower for tok in _FPS_TOKENS)
+    if not has_fps:
+        return "Ship"
+
+    has_transport = any(tok in key_lower for tok in _FPS_PLUS_SHIP_TOKENS)
+    if has_transport:
+        return "FPS & Ship"
+
+    return "FPS"
+
+
 def _resource_amount(amount_el: ET.Element) -> str | None:
     """Extract the numeric value from a resourceAmountPerSecond element."""
     unit = amount_el.find(".//SPowerSegmentResourceUnit")
@@ -1236,6 +1294,7 @@ def enhancements_mission(root: ET.Element, reputation_lookup: dict[str, int] | N
     """Extract mission/contract reward stats (aUEC + Reputation XP) and flags.
 
     Extracts:
+    - Engagement Type (FPS / Ship / FPS & Ship) from the mission loc_key
     - aUEC mission reward amount
     - Reputation XP from reward UUID references using the reputation_lookup table
     - Mission flags (Chain, Starter, Unique)
@@ -1244,6 +1303,14 @@ def enhancements_mission(root: ET.Element, reputation_lookup: dict[str, int] | N
     reputation_lookup = reputation_lookup or {}
 
     try:
+        # Engagement Type comes first so players can see at a glance whether
+        # to kit up for FPS or ship combat. Re-extract the loc_key here
+        # rather than threading it through scan_entity_dir's callback —
+        # cheap (single attribute read), avoids changing the enhancement_fn
+        # signature shared with non-mission generators.
+        loc_key = _mission_loc_key(root) or _loc_key(root)
+        lines.append(f"<EM4>Engagement Type:</EM4> {_classify_mission_engagement(loc_key)}")
+
         # Extract mission flags
         flags = _extract_mission_flags(root)
         lines.append(f"<EM4>Mission Type:</EM4> {', '.join(flags) if flags else 'Standard'}")
