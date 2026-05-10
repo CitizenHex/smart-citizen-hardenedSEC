@@ -24,6 +24,13 @@ either branch without rebuilding. Production code should only ever
 read ``IS_PORTABLE`` (never write to it outside the build script).
 """
 
-# Default ships False — registry mode. The portable build's overwrite
-# of this file changes only this constant.
-IS_PORTABLE: bool = False
+# Resolution: prefer ``_build_info.IS_PORTABLE`` if present (written by
+# the build script via ``build_exe.py --portable``); otherwise default
+# to False (registry mode). Keeping the build-time flag in a separate
+# generated module means the repo can stay clean — no on-disk diff
+# between standard vs portable builds, no risk of accidentally
+# committing IS_PORTABLE=True. The generated module is git-ignored.
+try:
+    from src.utils._build_info import IS_PORTABLE
+except ImportError:
+    IS_PORTABLE: bool = False  # type: ignore[no-redef]
