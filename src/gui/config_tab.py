@@ -234,7 +234,7 @@ class ConfigTab(QWidget):
         import_btn.clicked.connect(self.import_ini_requested.emit)
         button_layout.addWidget(import_btn)
 
-        preview_btn = QPushButton("Preview Merge")
+        preview_btn = QPushButton("Preview Apply")
         preview_btn.setMaximumWidth(150)
         preview_btn.clicked.connect(self.preview_merge)
         button_layout.addWidget(preview_btn)
@@ -492,8 +492,15 @@ class ConfigTab(QWidget):
     # ── Preview ──────────────────────────────────────────────────────────────
 
     def preview_merge(self):
-        """Show a dry-run summary of the current merge configuration."""
+        """Show a dry-run summary of what Apply to Game would write.
+
+        Mirrors the post-Apply success dialog so the preview reads as
+        a "what will I get" forecast: per-source key counts, with the
+        Smart Citizen Enhancements row broken down by category, plus
+        a status (Modified / Enhanced / Unmodified / New) tally.
+        """
         try:
+            from collections import Counter
             from src.parser.ini_parser import load_sources_from_settings, load_source_files
 
             sources_dict, hierarchy, _enhancements_cats = load_sources_from_settings()
@@ -511,23 +518,41 @@ class ConfigTab(QWidget):
             # original baseline source. Without this, the User row in the
             # preview always reads 0 unless the user added a brand-new key.
             from src.utils.settings import AppSettings as _AS
-            source_counts = {}
+            source_counts: dict[str, int] = {}
+            # Per-category counter for the enhancements source so we can
+            # mirror the Apply-to-game dialog's breakdown. Other sources
+            # don't get the category split — they're either "Global" (the
+            # whole base) or "User" (always small enough to read at a
+            # glance).
+            enhancement_categories: Counter[str] = Counter()
+            ENHANCEMENTS_SRC = "enhancements"
             for entry in entries:
                 contributing = _AS.SOURCE_USER if entry.custom_value else entry.source_file
                 source_counts[contributing] = source_counts.get(contributing, 0) + 1
+                if contributing == ENHANCEMENTS_SRC:
+                    enhancement_categories[entry.category] += 1
 
-            text = "Merge Preview\n\nMerge Order (top to bottom):\n"
+            text = "Apply Preview\n\nMerge Order (top to bottom):\n"
             for i, name in enumerate(hierarchy, 1):
-                text += f"  {i}. {name.capitalize()} ({source_counts.get(name, 0)} keys)\n"
+                count = source_counts.get(name, 0)
+                if name == ENHANCEMENTS_SRC:
+                    text += f"  {i}. Smart Citizen Enhancements ({count:,} keys total):\n"
+                    if enhancement_categories:
+                        for cat, ccount in enhancement_categories.most_common():
+                            text += f"       {cat}: {ccount:,}\n"
+                else:
+                    text += f"  {i}. {name.capitalize()} ({count:,} keys)\n"
 
-            text += f"\nTotal Keys: {len(entries)}\nStatus Breakdown:\n"
-            status_counts = {}
+            text += f"\nTotal Keys: {len(entries):,}\nStatus Breakdown:\n"
+            status_counts: dict[str, int] = {}
             for entry in entries:
                 status_counts[entry.status] = status_counts.get(entry.status, 0) + 1
-            for status, count in status_counts.items():
-                text += f"  {status}: {count}\n"
+            # Sort descending by count so the largest bucket leads —
+            # consistent with the Apply dialog's most_common() ordering.
+            for status, count in sorted(status_counts.items(), key=lambda kv: -kv[1]):
+                text += f"  {status}: {count:,}\n"
 
-            QMessageBox.information(self, "Merge Preview", text)
+            QMessageBox.information(self, "Apply Preview", text)
 
         except Exception as e:
             logger.exception(f"Error previewing merge: {e}")
