@@ -134,9 +134,25 @@ class AppSettings:
     SOURCE_USER = "user"
     AVAILABLE_SOURCES = [SOURCE_GLOBAL, SOURCE_USER]
 
+    # Backend override hook — kept None by default so production stays on
+    # QSettings (registry mode). PR-B in the standalone-build series sets
+    # this to a JsonSettings instance during portable-mode startup. Tests
+    # can also assign it to swap in a JsonSettings backed by a tmp_path
+    # for hermetic settings testing without touching the real registry.
+    _backend: object | None = None
+
     @staticmethod
-    def settings() -> QSettings:
-        """Get QSettings instance."""
+    def settings():
+        """Return the active settings backend.
+
+        Defaults to a per-call QSettings(ORG_NAME, APP_NAME) — same
+        behavior as before. When `_backend` is set (PR-B portable mode
+        or test injection), returns that backend instead. Both paths
+        expose the same minimal API: ``value(key, default, type=...)``,
+        ``setValue(key, value)``, ``remove(key)``, ``sync()``.
+        """
+        if AppSettings._backend is not None:
+            return AppSettings._backend
         return QSettings(AppSettings.ORG_NAME, AppSettings.APP_NAME)
 
     @staticmethod
