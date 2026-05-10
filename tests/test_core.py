@@ -20,9 +20,9 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from models.string_model import StringEntry
-from parser.ini_parser import parse_ini_file, load_source_files
+from parser.ini_parser import parse_ini_file, load_source_files, load_overrides
 from merger.ini_merger import merge_sources_by_hierarchy
-from utils.overrides_manager import load_overrides, save_overrides
+from utils.user_ini_manager import save_user_ini_dict as save_overrides
 
 
 class TestIniParsing:
@@ -362,7 +362,7 @@ class TestOverridesManagement:
     def test_save_and_load_overrides(self):
         """Test saving and loading overrides"""
         with tempfile.TemporaryDirectory() as tmpdir:
-            overrides_path = os.path.join(tmpdir, 'overrides.ini')
+            overrides_path = Path(tmpdir) / 'overrides.ini'
 
             overrides = {
                 'vehicle_NameHunter': 'My Cutlass',
@@ -372,7 +372,7 @@ class TestOverridesManagement:
 
             # Save
             save_overrides(overrides, overrides_path)
-            assert os.path.exists(overrides_path)
+            assert overrides_path.exists()
 
             # Load
             loaded = load_overrides(overrides_path)
@@ -389,7 +389,7 @@ class TestOverridesManagement:
     def test_overrides_with_special_characters(self):
         """Test that overrides preserve special characters"""
         with tempfile.TemporaryDirectory() as tmpdir:
-            overrides_path = os.path.join(tmpdir, 'overrides.ini')
+            overrides_path = Path(tmpdir) / 'overrides.ini'
 
             overrides = {
                 'key1': 'Value with = equals',

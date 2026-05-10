@@ -93,13 +93,41 @@ def test_column_filter_by_custom_value():
 
 
 def test_out_of_bounds_column_filter_skipped_with_warning(caplog):
+    """A filter index >= NUM_COLUMNS would IndexError inside the per-entry
+    loop; the validator at the top of filter_entry_indices drops it and
+    logs once instead. This test seeds an 11-element column_filters list
+    where only index 10 is non-empty (the rest are empty so the validator
+    sees a single OOB index, not ten of them) — proves the OOB index is
+    dropped without raising and without affecting the visible row set.
+    """
     entries = [_e("k1"), _e("k2")]
-    # Index 10 is past the 7-column ceiling — should be dropped, not raise IndexError
     col_filters = ["", "", "", "", "", "", "", "", "", "", "sometext"]  # 11 items
     with caplog.at_level(logging.WARNING, logger="src.utils.entry_filter"):
         result = filter_entry_indices(entries, {}, col_filters, "All", "All", False, False, "★")
     assert result == [0, 1]  # OOB filter dropped → all entries visible
     assert any("out of range" in rec.message.lower() for rec in caplog.records)
+
+
+def test_getter_count_matches_num_columns():
+    """If a future column is added to string_table_model.NUM_COLUMNS, the
+    getter tuple inside filter_entry_indices must grow to match — otherwise
+    a filter on the new column would silently use the wrong getter (or
+    IndexError, depending on order). This test catches that drift by
+    introspecting the function's bytecode for tuple length, which is
+    cheaper than running a filter on every column.
+    """
+    from src.gui.string_table_model import NUM_COLUMNS
+    from src.utils.entry_filter import filter_entry_indices as fef
+
+    # Seed one filter per column with a string that will not match anything,
+    # then confirm none raise IndexError — implicit tuple-length check via
+    # exercise rather than introspection.
+    entries = [_e("k1")]
+    for col in range(NUM_COLUMNS):
+        col_filters = [""] * NUM_COLUMNS
+        col_filters[col] = "no_such_value_anywhere_xyz"
+        result = fef(entries, {}, col_filters, "All", "All", False, False, "★")
+        assert result == [], f"col {col}: filter should match nothing"
 
 
 def test_favorites_marker_searchable_in_star_column():

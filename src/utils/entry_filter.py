@@ -6,13 +6,10 @@ tested independently of Qt.
 
 import logging
 
+from src.gui.string_table_model import NUM_COLUMNS
 from src.models.string_model import StringEntry
 
 logger = logging.getLogger(__name__)
-
-# Number of columns in the row_values list built inside filter_entry_indices.
-# Category / Key / Default Value / Original Value / Fav-star / Custom Value / Status
-_NUM_FILTER_COLUMNS = 7
 
 
 def filter_entry_indices(
@@ -44,61 +41,57 @@ def filter_entry_indices(
         Ordered list of integer indices into *entries* for rows that should
         be visible.
     """
-    active_col_filters = [(i, t) for i, t in enumerate(column_filters) if t]
-
-    # Validate column indices once, before the hot per-entry loop.
-    # Stale filters (e.g. after a column layout change) would cause IndexError
-    # inside the loop; drop them here and log once instead.
-    valid_col_filters = [(i, t) for i, t in active_col_filters if i < _NUM_FILTER_COLUMNS]
-    if len(valid_col_filters) != len(active_col_filters):
-        bad_indices = [i for i, _ in active_col_filters if i >= _NUM_FILTER_COLUMNS]
+    # Validate column indices once. Stale filters (e.g. after a column layout
+    # change) would cause IndexError inside the per-entry loop below; drop
+    # them here and log once instead.
+    valid_col_filters: list[tuple[int, str]] = []
+    bad_indices: list[int] = []
+    for i, t in enumerate(column_filters):
+        if not t:
+            continue
+        if i < NUM_COLUMNS:
+            valid_col_filters.append((i, t))
+        else:
+            bad_indices.append(i)
+    if bad_indices:
         logger.warning(
             "Column filter indices out of range for %d-column table — skipped: %s",
-            _NUM_FILTER_COLUMNS,
+            NUM_COLUMNS,
             bad_indices,
         )
-        active_col_filters = valid_col_filters
 
-    # Pre-resolve each active column filter to a (value_getter, text) pair.
-    # Built once per call, amortised over all ~87k entries: the per-entry loop
-    # then calls only the getters for columns that are actually filtered rather
-    # than constructing a full 7-element list for every entry.
-    # Getters close over default_values / favorite_prefix — safe because both
-    # are parameters, not loop variables.
-    if active_col_filters:
-        _col_getters: tuple = (
-            lambda e: e.category.lower(),
-            lambda e: e.key.lower(),
-            lambda e: default_values.get(e.key, "").lower(),
-            lambda e: e.original_value.lower(),
-            lambda e: "★" if e.custom_value.startswith(favorite_prefix) else "",
-            lambda e: e.custom_value.lower(),
-            lambda e: e.status.lower(),
-        )
-        active_filter_fns: list = [(_col_getters[i], t) for i, t in active_col_filters]
-    else:
-        active_filter_fns = []
+    # Per-column value getters. Indices match the COL_* constants in
+    # string_table_model. Closures over default_values / favorite_prefix —
+    # safe because both are parameters, not loop variables.
+    _col_getters = (
+        lambda e: e.category.lower(),
+        lambda e: e.key.lower(),
+        lambda e: default_values.get(e.key, "").lower(),
+        lambda e: e.original_value.lower(),
+        lambda e: "★" if e.custom_value.startswith(favorite_prefix) else "",
+        lambda e: e.custom_value.lower(),
+        lambda e: e.status.lower(),
+    )
+    active_filter_fns = [(_col_getters[i], t) for i, t in valid_col_filters]
 
     result: list[int] = []
-
     for idx, entry in enumerate(entries):
-        show = True
-
         if hide_unmodified and entry.status == "Unmodified":
-            show = False
-        elif category_filter != "All" and entry.category != category_filter:
-            show = False
-        elif status_filter != "All" and entry.status != status_filter:
-            show = False
-        elif favorites_only and not entry.custom_value.startswith(favorite_prefix):
-            show = False
-        elif active_filter_fns:
+            continue
+        if category_filter != "All" and entry.category != category_filter:
+            continue
+        if status_filter != "All" and entry.status != status_filter:
+            continue
+        if favorites_only and not entry.custom_value.startswith(favorite_prefix):
+            continue
+        if active_filter_fns:
+            skip = False
             for get_val, filter_text in active_filter_fns:
                 if filter_text not in get_val(entry):
-                    show = False
+                    skip = True
                     break
-
-        if show:
-            result.append(idx)
+            if skip:
+                continue
+        result.append(idx)
 
     return result
