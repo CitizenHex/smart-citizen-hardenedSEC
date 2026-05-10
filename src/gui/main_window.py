@@ -2096,10 +2096,18 @@ class MainWindow(QMainWindow):
             self._start_post_tutorial_tasks()
 
     def _on_tutorial_finished(self, completed: bool) -> None:
-        """Record completion on Finish; skip doesn't burn the flag so the user
-        still sees the tour on their next launch if they hit Skip by accident."""
-        if completed:
-            AppSettings.set_tutorial_completed_version(get_version())
+        """Record either Finish or Skip as "tutorial seen for this version"
+        so we don't auto-replay on every install/version bump.
+
+        Prior behavior only persisted on Finish, on the theory that a user
+        who hit Skip by accident would still get the tour next launch.
+        Community feedback was the opposite: power users who deliberately
+        skip get re-prompted on every release, which is more annoying than
+        the accidental-skip protection is worth. The Tutorial button on
+        the toolbar is always available to replay on demand, so persisting
+        Skip costs nothing for the rare accidental case.
+        """
+        AppSettings.set_tutorial_completed_version(get_version())
         self._tutorial_tour = None
         # Now that the user is past (or has skipped) the tour, fire the
         # deferred startup tasks. Their modal prompts would otherwise pop
