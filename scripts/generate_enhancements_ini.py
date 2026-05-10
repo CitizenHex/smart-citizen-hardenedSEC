@@ -111,8 +111,14 @@ def write_ini(path: Path, entries: dict[str, str]) -> None:
 #     subdirs (was: only blueprintmissionpools/). Adds ~40 new pool
 #     records that 4.8 PTU references via 48blueprints/ + a new
 #     xenothreat2rewards/ dir.
+#   blueprint_pools v3 (1.3.1) — fallback name from blueprint XML
+#     filename when the entityClass UUID isn't __ref'd anywhere in
+#     the cache (PTU WIP state — blueprints shipped ahead of their
+#     entity records, e.g. fuel-nozzle blueprints in 4.8). Without
+#     this the pool's names list ended up empty and the entire pool
+#     was dropped, swallowing the [BP?] tag for those missions.
 _LOOKUP_VERSIONS: dict[str, str] = {
-    "blueprint_pools": "v2",
+    "blueprint_pools": "v3",
 }
 
 
@@ -1428,6 +1434,34 @@ def enhancements_mission(root: ET.Element, reputation_lookup: dict[str, int] | N
     return "\\n".join(lines) if lines else ""
 
 
+def _name_from_blueprint_filename(bp_xml: Path) -> str:
+    """Best-effort fallback display name from a blueprint XML's filename.
+
+    Used when the blueprint's entityClass UUID isn't resolvable in the
+    entity_names lookup (CIG sometimes ships blueprint references ahead
+    of the entity definitions in PTU patches). The result isn't pretty
+    but it's recognisable enough for users to know what reward category
+    a mission pays — much better than dropping the whole BP tag.
+
+    Examples:
+        bp_craft_nozzle_fuelgiver_grin_nozzlefast.xml
+            → "Nozzle Fuelgiver Grin Nozzlefast"
+        bp_craft_salvage_modifier_scraper_large.xml
+            → "Salvage Modifier Scraper Large"
+        bp_rewards_eckhartsecuritykillnpcboss.xml
+            → "Eckhartsecuritykillnpcboss"
+    """
+    stem = bp_xml.stem
+    # Strip common prefixes — bp_craft_, bp_rewards_, bp_ — so the
+    # surfaced part is the descriptive tail.
+    for prefix in ("bp_craft_", "bp_rewards_", "bp_"):
+        if stem.startswith(prefix):
+            stem = stem[len(prefix):]
+            break
+    # Replace separators with spaces and title-case.
+    return stem.replace("_", " ").replace("-", " ").title()
+
+
 def build_blueprint_pool_lookup(
     pool_dir: Path,
     bp_dir: Path,
@@ -1446,18 +1480,28 @@ def build_blueprint_pool_lookup(
     if not pool_dir.exists() or not bp_dir.exists():
         return {}
 
-    # Index all blueprint files by __ref UUID → entityClass UUID
-    bp_entity: dict[str, str] = {}
+    # Index all blueprint files by __ref UUID → (entityClass UUID, fallback name).
+    # Fallback name is derived from the blueprint XML filename so that pools
+    # whose entityClass UUIDs CIG hasn't shipped yet (common in PTU — the
+    # blueprint refs land before the entity definitions in some patches,
+    # e.g. 4.8 fuel-nozzle blueprints reference UUIDs that aren't __ref'd
+    # anywhere in the extracted cache) can still produce a readable name
+    # for the POTENTIAL BLUEPRINTS block. Without the fallback the entire
+    # pool was silently dropped, the contract-gen scan saw "pool not in
+    # blueprint_pools dict", and the mission's [BP?] tag never fired.
+    bp_entity: dict[str, tuple[str, str]] = {}
     for xml_file in bp_dir.rglob("*.xml"):
         try:
             root = ET.parse(xml_file).getroot()
             ref = root.get("__ref", "")
             if not ref:
                 continue
+            entity_class = ""
             for elem in root.iter():
                 if _poly_type(elem) == "CraftingProcess_Creation":
-                    bp_entity[ref] = elem.get("entityClass", "")
+                    entity_class = elem.get("entityClass", "")
                     break
+            bp_entity[ref] = (entity_class, _name_from_blueprint_filename(xml_file))
         except ET.ParseError:
             continue
 
@@ -1473,11 +1517,18 @@ def build_blueprint_pool_lookup(
             for elem in root.iter("BlueprintReward"):
                 bp_ref = elem.get("blueprintRecord", "")
                 if bp_ref and bp_ref in bp_entity:
-                    entity_ref = bp_entity[bp_ref]
+                    entity_ref, fallback_name = bp_entity[bp_ref]
                     if entity_ref in entity_names:
                         name = entity_names[entity_ref]
-                        if name not in names:
-                            names.append(name)
+                    else:
+                        # Entity isn't in the cache (CIG WIP — blueprint
+                        # shipped ahead of its entity record). Use the
+                        # filename-derived fallback so the pool still
+                        # resolves to *something* readable rather than
+                        # silently dropping the whole BP tag.
+                        name = fallback_name
+                    if name and name not in names:
+                        names.append(name)
             if names:
                 pool_items[pool_uuid] = sorted(names)
         except ET.ParseError:
