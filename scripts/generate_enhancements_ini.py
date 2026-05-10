@@ -3216,8 +3216,23 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         logger.info(f"Finished missions scan ({len(out)} entries)")
         _tick("Scanned missions")
 
-        # Blueprint pool lookup (needs entity_names from Group A)
-        pool_dir = records / "crafting" / "blueprintrewards" / "blueprintmissionpools"
+        # Blueprint pool lookup (needs entity_names from Group A).
+        # Walk the parent `blueprintrewards/` directory so the rglob in
+        # build_blueprint_pool_lookup discovers ALL pool subdirectories,
+        # not just `blueprintmissionpools/`. CIG added two new sibling
+        # dirs in PTU 4.8 — `48blueprints/` (~40 mission-loot pools for
+        # hauling / courier / mercenary / mining / refueling / Foxwell /
+        # Headhunters families) and `xenothreat2rewards/` (Foxwell_X2
+        # mission rewards). Pre-fix, ~1400 BlueprintRewards references
+        # in PTU contract generators silently failed UUID resolution
+        # because the pool dicts didn't include those subdirs, and the
+        # corresponding mission titles never got [BP]/[BP?] tags. Pool
+        # XMLs in all subdirs share the same BlueprintPoolRecord schema,
+        # so the parser doesn't need any structural changes — just a
+        # wider scan root. `collectorwikelo/` is also a sibling subdir
+        # and its pools are now discoverable too (previously read via a
+        # separate path elsewhere; now fully indexed here as well).
+        pool_dir = records / "crafting" / "blueprintrewards"
         bp_dir = records / "crafting" / "blueprints" / "crafting"
         blueprint_pools = _cached_lookup(
             forge_dir, "blueprint_pools",
