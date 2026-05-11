@@ -17,15 +17,19 @@ Usage:
   python scripts/generate_enhancements_ini.py [base_ini_path [dataforge_cache_dir]]
 """
 
+import io
 import logging
 import pickle
 import re
 import sys
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, Optional
 from lxml import etree as ET
+
 logger = logging.getLogger(__name__)
+
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -86,8 +90,10 @@ def parse_ini(path: Path) -> dict[str, str]:
 
 def write_ini(path: Path, entries: dict[str, str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    lines = [f"{k}={v}" for k, v in sorted(entries.items())]
-    path.write_text("\n".join(lines), encoding="utf-8")
+    buf = io.StringIO()
+    for k, v in sorted(entries.items()):
+        buf.write(f"{k}={v}\n")
+    path.write_text(buf.getvalue(), encoding="utf-8")
     logger.info(f"Written {len(entries):,} entries -> {path}")
 
 
@@ -146,6 +152,34 @@ def _cached_lookup(forge_dir: Path, name: str, builder):
     except (pickle.PickleError, OSError) as e:
         logger.debug(f"Could not write lookup cache {name}: {e}")
     return value
+
+
+def _build_xml_path_index(records_dir: Path) -> dict[str, list[str]]:
+    """Single-pass walk of records_dir → {rel_posix_subdir: [sorted_abs_path_str, ...]}.
+
+    Built once per DataForge cache version and pickled via _cached_lookup so
+    the OS directory walk only happens on a cold cache. Callers use
+    _index_rglob() to get the file list for a given directory subtree.
+    """
+    idx: dict[str, list[str]] = defaultdict(list)  # type: ignore[assignment]
+    for xml_file in records_dir.rglob("*.xml"):
+        key = xml_file.parent.relative_to(records_dir).as_posix()
+        idx[key].append(str(xml_file))
+    return {k: sorted(v) for k, v in idx.items()}
+
+
+def _index_rglob(xml_path_index: dict, entity_dir: Path, records_dir: Path) -> list[Path]:
+    """Return all XML paths under entity_dir using the pre-built index.
+
+    Equivalent to list(entity_dir.rglob("*.xml")) but O(#dirs) instead of
+    O(#files) when the index is already in memory.
+    """
+    prefix = entity_dir.relative_to(records_dir).as_posix()
+    result: list[Path] = []
+    for key, paths in xml_path_index.items():
+        if key == prefix or key.startswith(prefix + "/"):
+            result.extend(Path(p) for p in paths)
+    return result
 
 
 ENHANCEMENT_SEPARATOR = "\\n\\n--- STATS ---\\n"
@@ -1462,7 +1496,11 @@ def build_blueprint_pool_lookup(
     return pool_items
 
 
-def _build_template_lookup(templates_dir: Path) -> dict[str, tuple[str, str]]:
+def _build_template_lookup(
+    templates_dir: Path,
+    xml_path_index: dict | None = None,
+    records_dir: Path | None = None,
+) -> dict[str, tuple[str, str]]:
     """Build mapping of contract template UUID → (title_loc_key, desc_loc_key).
 
     Some contracts don't have inline ContractStringParam elements and instead
@@ -1472,7 +1510,12 @@ def _build_template_lookup(templates_dir: Path) -> dict[str, tuple[str, str]]:
     if not templates_dir.exists():
         return lookup
 
-    for xml_file in templates_dir.rglob("*.xml"):
+    _files = (
+        _index_rglob(xml_path_index, templates_dir, records_dir)
+        if xml_path_index is not None and records_dir is not None
+        else templates_dir.rglob("*.xml")
+    )
+    for xml_file in _files:
         try:
             root = ET.parse(xml_file).getroot()
             ref = root.get("__ref", "")
@@ -1528,6 +1571,8 @@ def scan_contract_generators(
     reputation_lookup: dict[str, int] | None = None,
     blueprint_pools: dict[str, list[str]] | None = None,
     entity_names: dict[str, str] | None = None,
+    xml_path_index: dict | None = None,
+    records_dir: Path | None = None,
 ):
     """Scan contract generator XMLs for mission variants with different systems.
 
@@ -1554,10 +1599,15 @@ def scan_contract_generators(
 
     # Build template lookup for contracts that inherit title/desc from templates
     templates_dir = contractgen_dir.parent / "contracttemplates"
-    template_lookup = _build_template_lookup(templates_dir)
+    template_lookup = _build_template_lookup(templates_dir, xml_path_index=xml_path_index, records_dir=records_dir)
 
+    _contractgen_files = (
+        _index_rglob(xml_path_index, contractgen_dir, records_dir)
+        if xml_path_index is not None and records_dir is not None
+        else contractgen_dir.rglob("*.xml")
+    )
     try:
-        for xml_file in contractgen_dir.rglob("*.xml"):
+        for xml_file in _contractgen_files:
             try:
                 root = ET.parse(xml_file).getroot()
             except ET.ParseError:
@@ -1808,12 +1858,21 @@ def scan_contract_generators(
     return missions, mission_blueprints, mission_bp_chance, mission_items
 
 
-def _resolve_resource_uuids(bp_dir: Path) -> set[str]:
+def _resolve_resource_uuids(
+    bp_dir: Path,
+    xml_path_index: dict | None = None,
+    records_dir: Path | None = None,
+) -> set[str]:
     """Collect all CraftingCost_Resource UUIDs referenced in blueprint XMLs."""
     uuids: set[str] = set()
     if not bp_dir.exists():
         return uuids
-    for xml_file in bp_dir.rglob("*.xml"):
+    _files = (
+        _index_rglob(xml_path_index, bp_dir, records_dir)
+        if xml_path_index is not None and records_dir is not None
+        else bp_dir.rglob("*.xml")
+    )
+    for xml_file in _files:
         try:
             root = ET.parse(xml_file).getroot()
             for elem in root.iter():
@@ -1860,12 +1919,22 @@ def _normalize_commodity_name(raw: str) -> str:
     return n
 
 
-def _build_uuid_to_commodity(uuids: set[str], carryables_dir: Path) -> dict[str, str]:
+def _build_uuid_to_commodity(
+    uuids: set[str],
+    carryables_dir: Path,
+    xml_path_index: dict | None = None,
+    records_dir: Path | None = None,
+) -> dict[str, str]:
     """Map resource UUIDs to commodity internal names by scanning carryable entity files."""
     uuid_names: dict[str, str] = {}
     if not carryables_dir.exists() or not uuids:
         return uuid_names
-    for xml_file in carryables_dir.rglob("*.xml"):
+    _files = (
+        _index_rglob(xml_path_index, carryables_dir, records_dir)
+        if xml_path_index is not None and records_dir is not None
+        else carryables_dir.rglob("*.xml")
+    )
+    for xml_file in _files:
         try:
             content = xml_file.read_text(encoding="utf-8", errors="ignore")
             matched_uuids = [u for u in uuids if u in content]
@@ -1916,7 +1985,6 @@ def _discover_commodity_loc_pairs(internal_name: str, loc: dict[str, str]) -> li
 
 def _condense_crafted_items(items_list: list[tuple[str, str]]) -> list[str]:
     """Condense crafted items into readable summary lines, grouped by blueprint category."""
-    from collections import defaultdict
     by_cat: dict[str, list[str]] = defaultdict(list)
     for cat, name in items_list:
         by_cat[cat].append(name)
@@ -1968,13 +2036,14 @@ def scan_crafting_blueprints(
     carryables_dir: Path,
     entity_names: dict[str, str],
     loc: dict[str, str],
+    xml_path_index: dict | None = None,
+    records_dir: Path | None = None,
 ) -> dict[str, str]:
     """Scan crafting blueprints and produce commodity_crafting_stats entries.
 
     Returns a dict of localization key → augmented value for commodity names and
     descriptions that are used as crafting materials.
     """
-    from collections import defaultdict
     import os
 
     if not bp_dir.exists():
@@ -1982,16 +2051,21 @@ def scan_crafting_blueprints(
         return {}
 
     # Step 1: Collect resource UUIDs from blueprints
-    resource_uuids = _resolve_resource_uuids(bp_dir)
+    resource_uuids = _resolve_resource_uuids(bp_dir, xml_path_index=xml_path_index, records_dir=records_dir)
     logger.info(f"Found {len(resource_uuids)} unique resource UUIDs in blueprints")
 
     # Step 2: Resolve UUIDs to commodity names via carryables
-    uuid_names = _build_uuid_to_commodity(resource_uuids, carryables_dir)
+    uuid_names = _build_uuid_to_commodity(resource_uuids, carryables_dir, xml_path_index=xml_path_index, records_dir=records_dir)
     logger.info(f"Resolved {len(uuid_names)} resource UUIDs to commodity names")
 
     # Step 3: Parse blueprints to build commodity → crafted items map
     commodity_items: dict[str, list[tuple[str, str]]] = defaultdict(list)
-    for xml_file in sorted(bp_dir.rglob("*.xml")):
+    _bp_files = (
+        sorted(_index_rglob(xml_path_index, bp_dir, records_dir))
+        if xml_path_index is not None and records_dir is not None
+        else sorted(bp_dir.rglob("*.xml"))
+    )
+    for xml_file in _bp_files:
         try:
             root = ET.parse(xml_file).getroot()
             rel = xml_file.relative_to(bp_dir)
@@ -2614,12 +2688,19 @@ def scan_spaceships(
     controller_lookup: dict,
     loc: dict,
     armor_lookup: dict | None = None,
+    xml_path_index: dict | None = None,
+    records_dir: Path | None = None,
 ) -> dict[str, str]:
     """Scan DataForge spaceship entities and generate ship stat descriptions."""
     out: dict[str, str] = {}
     matched = missed = skipped = 0
 
-    for xml_file in sorted(spaceships_dir.glob("*.xml")):
+    if xml_path_index is not None and records_dir is not None:
+        key = spaceships_dir.relative_to(records_dir).as_posix()
+        xml_file_list = sorted(Path(p) for p in xml_path_index.get(key, []))
+    else:
+        xml_file_list = sorted(spaceships_dir.glob("*.xml"))
+    for xml_file in xml_file_list:
         # Skip AI variants, templates, and unmanned variants
         stem = xml_file.stem.lower()
         if "_pu_ai_" in stem or "_ai_template" in stem or "_unmanned_" in stem:
@@ -2672,7 +2753,11 @@ def scan_spaceships(
 
 # ── Ammo lookup builder ───────────────────────────────────────────────────────
 
-def build_ammo_lookup(ammo_dir: Path) -> dict[str, ET.Element]:
+def build_ammo_lookup(
+    ammo_dir: Path,
+    xml_path_index: dict | None = None,
+    records_dir: Path | None = None,
+) -> dict[str, ET.Element]:
     """Parse all ammo XML files and index them by their __ref GUID.
 
     Falls back to root tag name if __ref is not available.
@@ -2680,7 +2765,12 @@ def build_ammo_lookup(ammo_dir: Path) -> dict[str, ET.Element]:
     lookup: dict[str, ET.Element] = {}
     if not ammo_dir.exists():
         return lookup
-    for xml_file in ammo_dir.rglob("*.xml"):
+    xml_files = (
+        _index_rglob(xml_path_index, ammo_dir, records_dir)
+        if xml_path_index is not None and records_dir is not None
+        else ammo_dir.rglob("*.xml")
+    )
+    for xml_file in xml_files:
         try:
             root = ET.parse(xml_file).getroot()
             # Primary: use __ref attribute (GUID)
@@ -2698,6 +2788,8 @@ def build_ammo_lookup(ammo_dir: Path) -> dict[str, ET.Element]:
 def build_scitem_lookups(
     scitem_dir: Path,
     loc: dict[str, str] | None = None,
+    xml_path_index: dict | None = None,
+    records_dir: Path | None = None,
 ) -> tuple[dict[str, tuple[str, str]], dict[str, str]]:
     """Single-pass scan of scitem XMLs that produces two lookups:
 
@@ -2717,7 +2809,12 @@ def build_scitem_lookups(
         return mag_lookup, entity_names
 
     null_uuid = "00000000-0000-0000-0000-000000000000"
-    for xml_file in scitem_dir.rglob("*.xml"):
+    xml_files = (
+        _index_rglob(xml_path_index, scitem_dir, records_dir)
+        if xml_path_index is not None and records_dir is not None
+        else scitem_dir.rglob("*.xml")
+    )
+    for xml_file in xml_files:
         try:
             root = ET.parse(xml_file).getroot()
         except ET.ParseError:
@@ -2765,6 +2862,8 @@ def scan_entity_dir(
     name_tag_fn = None,
     separator: str = ENHANCEMENT_SEPARATOR,
     capture_all: bool = False,
+    xml_path_index: dict | None = None,
+    records_dir: Path | None = None,
 ) -> dict[str, str]:
     """
     Scan all XML files in entity_dir, extract localization key + enhancements,
@@ -2783,7 +2882,12 @@ def scan_entity_dir(
     out: dict[str, str] = {}
     matched = missed = skipped = 0
 
-    for xml_file in entity_dir.rglob("*.xml"):
+    xml_files = (
+        _index_rglob(xml_path_index, entity_dir, records_dir)
+        if xml_path_index is not None and records_dir is not None
+        else entity_dir.rglob("*.xml")
+    )
+    for xml_file in xml_files:
         try:
             root = ET.parse(xml_file).getroot()
         except ET.ParseError:
@@ -2851,8 +2955,10 @@ def scan_entity_dir(
 # per future as it completes, keeping all Qt signal emission off subprocesses.
 
 def _run_gen_components(ctx: dict) -> dict[str, str]:
-    loc          = ctx["loc"]
-    ships_scitem = ctx["ships_scitem"]
+    loc             = ctx["loc"]
+    ships_scitem    = ctx["ships_scitem"]
+    xml_path_index  = ctx.get("xml_path_index")
+    records         = ctx["records"]
     out: dict[str, str] = {}
     for subdir, fn in [
         ("shieldgenerator", enhancements_shield),
@@ -2860,10 +2966,12 @@ def _run_gen_components(ctx: dict) -> dict[str, str]:
         ("powerplant",      enhancements_powerplant),
         ("quantumdrive",    enhancements_quantum_drive),
     ]:
-        out.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc, generate_name_tags=True))
+        out.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc, generate_name_tags=True,
+                                   xml_path_index=xml_path_index, records_dir=records))
     radar_dir = ships_scitem / "radar"
     if radar_dir.exists():
-        out.update(scan_entity_dir(radar_dir, enhancements_radar, loc=loc, generate_name_tags=True))
+        out.update(scan_entity_dir(radar_dir, enhancements_radar, loc=loc, generate_name_tags=True,
+                                   xml_path_index=xml_path_index, records_dir=records))
 
     comp_types = ("COOL", "SHLD", "POWR", "QDRV", "RADR")
     sibling_count = 0
@@ -2932,8 +3040,10 @@ def _run_gen_components(ctx: dict) -> dict[str, str]:
 
 
 def _run_gen_missiles(ctx: dict) -> dict[str, str]:
-    loc          = ctx["loc"]
-    ships_scitem = ctx["ships_scitem"]
+    loc            = ctx["loc"]
+    ships_scitem   = ctx["ships_scitem"]
+    xml_path_index = ctx.get("xml_path_index")
+    records        = ctx["records"]
     out: dict[str, str] = {}
     weapons_dir = ships_scitem / "weapons"
     for missile_dir in [weapons_dir / "missiles", weapons_dir / "rocket_pods"]:
@@ -2941,14 +3051,17 @@ def _run_gen_missiles(ctx: dict) -> dict[str, str]:
             out.update(scan_entity_dir(
                 missile_dir, enhancements_missile,
                 loc=loc, generate_name_tags=True, name_tag_fn=_missile_name_tag,
+                xml_path_index=xml_path_index, records_dir=records,
             ))
     return out
 
 
 def _run_gen_ship_weapons(ctx: dict) -> dict[str, str]:
-    loc          = ctx["loc"]
-    ships_scitem = ctx["ships_scitem"]
-    vehicle_ammo = ctx["vehicle_ammo"]
+    loc            = ctx["loc"]
+    ships_scitem   = ctx["ships_scitem"]
+    vehicle_ammo   = ctx["vehicle_ammo"]
+    xml_path_index = ctx.get("xml_path_index")
+    records        = ctx["records"]
     out: dict[str, str] = {}
     weapons_dir = ships_scitem / "weapons"
     if weapons_dir.exists():
@@ -2956,16 +3069,18 @@ def _run_gen_ship_weapons(ctx: dict) -> dict[str, str]:
             weapons_dir,
             lambda root: enhancements_weapon(root, vehicle_ammo, loc),
             loc=loc,
+            xml_path_index=xml_path_index, records_dir=records,
         )
     logger.info(f"Finished ship weapons ({len(out)} entries)")
     return out
 
 
 def _run_gen_fps_weapons(ctx: dict) -> dict[str, str]:
-    loc        = ctx["loc"]
-    records    = ctx["records"]
-    fps_ammo   = ctx["fps_ammo"]
-    mag_lookup = ctx["mag_lookup"]
+    loc            = ctx["loc"]
+    records        = ctx["records"]
+    fps_ammo       = ctx["fps_ammo"]
+    mag_lookup     = ctx["mag_lookup"]
+    xml_path_index = ctx.get("xml_path_index")
     out: dict[str, str] = {}
     fps_dir = records / "entities" / "scitem" / "weapons" / "fps_weapons"
     if fps_dir.exists():
@@ -2973,6 +3088,7 @@ def _run_gen_fps_weapons(ctx: dict) -> dict[str, str]:
             fps_dir,
             lambda root: enhancements_weapon(root, fps_ammo, loc, mag_lookup),
             loc=loc,
+            xml_path_index=xml_path_index, records_dir=records,
         )
     logger.info(f"Finished FPS weapons ({len(out)} entries)")
     return out
@@ -2983,8 +3099,10 @@ def _run_gen_ships(ctx: dict) -> dict[str, str]:
     loc               = ctx["loc"]
     controller_lookup = ctx["controller_lookup"]
     armor_lookup      = ctx["armor_lookup"]
+    xml_path_index    = ctx.get("xml_path_index")
     spaceships_dir = records / "entities" / "spaceships"
-    out = scan_spaceships(spaceships_dir, controller_lookup, loc, armor_lookup)
+    out = scan_spaceships(spaceships_dir, controller_lookup, loc, armor_lookup,
+                          xml_path_index=xml_path_index, records_dir=records)
     logger.info(f"Finished ships ({len(out)} entries)")
     return out
 
@@ -2995,6 +3113,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     loc               = ctx["loc"]
     entity_names      = ctx["entity_names"]
     reputation_lookup = ctx["reputation_lookup"]
+    xml_path_index    = ctx.get("xml_path_index")
 
     out: dict[str, str] = {}
     pu_missions_dir = records / "missionbroker" / "pu_missions"
@@ -3005,6 +3124,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             lambda root: enhancements_mission(root, reputation_lookup),
             loc=loc, loc_key_fn=_mission_loc_key,
             separator=MISSION_SEPARATOR, capture_all=True,
+            xml_path_index=xml_path_index, records_dir=records,
         ))
 
     for mission_dir in [
@@ -3017,6 +3137,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
                 mission_dir,
                 lambda root: enhancements_mission(root, reputation_lookup),
                 loc=loc, separator=MISSION_SEPARATOR, capture_all=True,
+                xml_path_index=xml_path_index, records_dir=records,
             ))
 
     logger.info(f"Finished missions scan ({len(out)} entries)")
@@ -3031,6 +3152,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     contractgen_dir = records / "contracts" / "contractgenerator"
     contractgen_missions, mission_blueprints, mission_bp_chance, mission_items = scan_contract_generators(
         contractgen_dir, reputation_lookup, blueprint_pools, entity_names,
+        xml_path_index=xml_path_index, records_dir=records,
     )
     logger.info(f"Processed {len(contractgen_missions)} contract generator mission variants")
 
@@ -3209,10 +3331,16 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
                     f"already written by a prior title_key (likely a game-side data bug)"
                 )
 
-    # Second pu_missions pass: XP for titles contractgen couldn't cover
+    # Second pu_missions pass: XP for titles contractgen couldn't cover.
+    # Materialise the file list once so the third diagnostic pass can reuse it.
+    _pu_files: list[Path] = (
+        _index_rglob(xml_path_index, pu_missions_dir, records)
+        if xml_path_index is not None and pu_missions_dir.exists()
+        else (list(pu_missions_dir.rglob("*.xml")) if pu_missions_dir.exists() else [])
+    )
     pu_title_xps: dict[str, list[int]] = {}
     if pu_missions_dir.exists():
-        for xml_file in pu_missions_dir.rglob("*.xml"):
+        for xml_file in _pu_files:
             try:
                 root = ET.parse(xml_file).getroot()
                 title_attr = root.get("title", "")
@@ -3256,7 +3384,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         "no_base_title": [],
     }
     if pu_missions_dir.exists():
-        for xml_file in pu_missions_dir.rglob("*.xml"):
+        for xml_file in _pu_files:
             try:
                 root = ET.parse(xml_file).getroot()
                 title_attr = root.get("title", "")
@@ -3289,13 +3417,15 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
 
 
 def _run_gen_commodity_journal(ctx: dict) -> tuple[dict[str, str], dict[str, str]]:
-    records      = ctx["records"]
-    scitem_dir   = ctx["scitem_dir"]
-    entity_names = ctx["entity_names"]
-    loc          = ctx["loc"]
-    bp_dir        = records / "crafting" / "blueprints" / "crafting"
+    records        = ctx["records"]
+    scitem_dir     = ctx["scitem_dir"]
+    entity_names   = ctx["entity_names"]
+    loc            = ctx["loc"]
+    xml_path_index = ctx.get("xml_path_index")
+    bp_dir         = records / "crafting" / "blueprints" / "crafting"
     carryables_dir = scitem_dir / "carryables"
-    return scan_crafting_blueprints(bp_dir, carryables_dir, entity_names, loc)
+    return scan_crafting_blueprints(bp_dir, carryables_dir, entity_names, loc,
+                                    xml_path_index=xml_path_index, records_dir=records)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -3364,6 +3494,17 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             "Run 'Extract DataForge' in the app first (Enhancements tab)."
         )
 
+    # ── XML path index ────────────────────────────────────────────────────────
+    # Single rglob of the entire records tree, cached per DataForge version.
+    # All subsequent directory walks use _index_rglob() against this dict
+    # instead of repeated OS rglob calls.
+    xml_path_index: dict = _cached_lookup(
+        forge_dir, "xml_path_index",
+        lambda: _build_xml_path_index(records),
+    )
+    logger.info(f"XML path index: {sum(len(v) for v in xml_path_index.values()):,} files across {len(xml_path_index):,} dirs")
+    _flush()
+
     # ── Estimate total phases for determinate progress ────────────────────────
     # One tick per logical phase. The sink caps at total, so over-counting is
     # safer than under-counting.
@@ -3404,7 +3545,10 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
     def _build_scitem_pair():
         return _cached_lookup(
             forge_dir, "scitem_lookups",
-            lambda: build_scitem_lookups(records / "entities" / "scitem", loc),
+            lambda: build_scitem_lookups(
+                records / "entities" / "scitem", loc,
+                xml_path_index=xml_path_index, records_dir=records,
+            ),
         )
 
     def _build_reputation():
@@ -3430,8 +3574,10 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
 
     lookup_jobs: dict[str, Callable] = {}
     if need_ammo:
-        lookup_jobs["vehicle_ammo"] = lambda: build_ammo_lookup(records / "ammoparams" / "vehicle")
-        lookup_jobs["fps_ammo"]     = lambda: build_ammo_lookup(records / "ammoparams" / "fps")
+        lookup_jobs["vehicle_ammo"] = lambda: build_ammo_lookup(
+            records / "ammoparams" / "vehicle", xml_path_index=xml_path_index, records_dir=records)
+        lookup_jobs["fps_ammo"]     = lambda: build_ammo_lookup(
+            records / "ammoparams" / "fps", xml_path_index=xml_path_index, records_dir=records)
     if need_mag or need_names:
         lookup_jobs["scitem"] = _build_scitem_pair
     if _want("ship_descs"):
@@ -3492,6 +3638,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         "controller_lookup": controller_lookup,
         "armor_lookup":      armor_lookup,
         "reputation_lookup": reputation_lookup,
+        "xml_path_index":    xml_path_index,
     }
 
     gen_jobs: dict[str, Callable] = {}
