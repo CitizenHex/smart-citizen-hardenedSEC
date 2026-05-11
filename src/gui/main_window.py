@@ -3079,8 +3079,10 @@ class MainWindow(QMainWindow):
         # Auto-save overrides if there are unsaved edits
         if self.entries and not (self._loader_worker and self._loader_worker.isRunning()):
             try:
-                from src.utils.user_ini_manager import save_user_ini
-                save_user_ini(self.entries, AppSettings.get_user_ini_path())
+                from src.utils.user_ini_manager import save_user_ini, should_autosave_user_ini
+                user_ini_path = AppSettings.get_user_ini_path()
+                if should_autosave_user_ini(self.entries, user_ini_path):
+                    save_user_ini(self.entries, user_ini_path)
             except Exception as e:
                 logger.error(f"Failed to auto-save overrides on exit: {e}")
 

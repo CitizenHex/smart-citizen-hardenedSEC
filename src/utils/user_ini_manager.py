@@ -10,6 +10,43 @@ from src.utils.perf import timed
 logger = logging.getLogger(__name__)
 
 
+def should_autosave_user_ini(entries: List[StringEntry], user_ini_path: Path) -> bool:
+    """Decide whether the close-time autosave is safe to run.
+
+    Returns False — and the caller skips the write — when the in-memory entry
+    list has zero modified entries but ``user_ini_path`` already exists on
+    disk with non-zero content. Under those conditions a write would
+    truncate the file to 0 bytes, which is the data-loss path reported
+    against 1.3.0: a load mismatch (channel/path drift after a migration,
+    or a transient I/O hiccup) leaves every entry with an empty
+    ``custom_value``, and the unconditional close-time write then clobbers
+    a populated user.ini with an empty one.
+
+    All other cases return True:
+      * Modified entries exist → write captures the user's edits.
+      * File doesn't exist → first save, nothing to protect.
+      * File is already empty → write is a no-op rewrite.
+
+    Trade-off: a user who manually reverts *every* edit and closes will
+    not have their clear persisted via autosave. The explicit Apply-to-Game
+    path remains the authoritative "persist current state" action.
+    """
+    if any(e.is_modified for e in entries):
+        return True
+    try:
+        if user_ini_path.exists() and user_ini_path.stat().st_size > 0:
+            logger.warning(
+                f"Skipping autosave: in-memory state has no overrides but "
+                f"on-disk user.ini has {user_ini_path.stat().st_size} bytes "
+                f"({user_ini_path}). Preserving disk contents to guard against "
+                f"a load mismatch."
+            )
+            return False
+    except OSError as e:
+        logger.warning(f"Could not stat user.ini for autosave guard ({user_ini_path}): {e}")
+    return True
+
+
 @timed
 def save_user_ini(entries: List[StringEntry], user_ini_path: Path) -> int:
     """Write only user-modified entries to user.ini.
