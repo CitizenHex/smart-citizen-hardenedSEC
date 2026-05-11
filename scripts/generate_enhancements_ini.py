@@ -18,21 +18,13 @@ Usage:
 """
 
 import logging
-import multiprocessing
 import pickle
 import re
 import sys
-import xml.etree.ElementTree as ET
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, Optional
-
-# Required for ProcessPoolExecutor when running as a frozen PyInstaller
-# executable or when this module is imported into a QThread (workers.py).
-# Must be called before any ProcessPoolExecutor is created.
-if __name__ == "__main__":
-    multiprocessing.freeze_support()
-
+from lxml import etree as ET
 logger = logging.getLogger(__name__)
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
@@ -2852,7 +2844,8 @@ def scan_entity_dir(
 
 
 # ── Process-pool entry points ─────────────────────────────────────────────────
-# Must be module-level (not closures) so ProcessPoolExecutor can pickle them.
+# Module-level (not closures) so they can be called cleanly from the thread pool
+# and reasoned about in isolation without capturing main()'s local scope.
 # Each receives the shared context dict built in main() and returns its output.
 # Progress ticks are intentionally omitted here — the main process ticks once
 # per future as it completes, keeping all Qt signal emission off subprocesses.
@@ -3478,10 +3471,11 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             _tick("Built reputation lookup")
 
     # ── Output-file generators (parallel wave) ────────────────────────────────
-    # Generators run in a ProcessPoolExecutor so they each get a private GIL
-    # and truly run in parallel across CPU cores. All shared data is bundled
-    # into a plain picklable context dict. Progress ticks happen in this
-    # process as each future completes — no Qt signal emission in subprocesses.
+    # Generators run in a ThreadPoolExecutor. Each is a module-level function
+    # (not a closure) receiving shared read-only state via a context dict.
+    # Internal sub-phases within each generator stay serial since each step
+    # consumes the prior step's in-memory result. Across generators there is
+    # no shared mutable state, so they run safely on independent threads.
     ships_scitem = records / "entities" / "scitem" / "ships"
     scitem_dir   = records / "entities" / "scitem"
 
@@ -3521,9 +3515,10 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
 
     if gen_jobs:
         n_workers = min(max_workers, len(gen_jobs))
-        logger.info(f"Running {len(gen_jobs)} output generators in parallel (workers={n_workers}, pool=process)…")
+        logger.info(f"Running {len(gen_jobs)} output generators in parallel (workers={n_workers}, pool=thread)…")
         _flush()
-        with ProcessPoolExecutor(max_workers=n_workers) as pool:
+        with ThreadPoolExecutor(max_workers=n_workers,
+                                thread_name_prefix="gen") as pool:
             futs = {name: pool.submit(fn, ctx) for name, fn in gen_jobs.items()}
             for name, fut in futs.items():
                 result = fut.result()
@@ -3596,4 +3591,3 @@ if __name__ == "__main__":
     base_ini  = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_BASE_INI
     forge_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_FORGE_DIR
     main(base_ini, forge_dir)
-    

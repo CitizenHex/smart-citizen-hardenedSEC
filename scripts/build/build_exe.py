@@ -153,9 +153,7 @@ common_args = [
     # is the robust fix.
     '--hidden-import=src.utils.progress_sink',
     '--hidden-import=src.utils.dataforge_patcher',
-    '--hidden-import=xml',
-    '--hidden-import=xml.etree',
-    '--hidden-import=xml.etree.ElementTree',
+    '--collect-all=lxml',
     # scripts/generate_enhancements_ini.py is loaded dynamically via
     # importlib at runtime (see EnhancementsGeneratorWorker), so
     # PyInstaller's static import graph can't see its dependencies.

@@ -227,16 +227,21 @@ class EnhancementsGeneratorWorker(QThread):
             # {...} → only re-run the categories whose source XMLs changed.
             libs_dir = forge_dir / "raw" / "libs"
             diff = dirty_categories(libs_dir)
-            if diff is not None:
-                if not diff:
-                    logger.info("Diff-cache: no DataForge changes detected, skipping enhancement generation.")
-                    self.finished.emit(True)
-                    return
-                if self.categories is not None:
-                    self.categories = self.categories & diff
-                else:
-                    self.categories = diff
-                logger.info(f"Diff-cache: re-running categories {self.categories}")
+            # If enhancement files are missing, force regeneration even if the
+            # manifest says nothing changed — the manifest may have been written
+            # before enhancements were ever successfully generated.
+            if diff is not None and not diff:
+                cache_dir = AppSettings.get_cache_dir()
+                missing = [
+                    name for name in AppSettings.ENHANCEMENTS_FILES.values()
+                    if not (cache_dir / name).exists()
+                ]
+                if missing:
+                    logger.info(
+                        f"Diff-cache: manifest clean but {len(missing)} enhancement "
+                        f"file(s) missing ({', '.join(missing[:3])}{'…' if len(missing) > 3 else ''}), forcing regeneration."
+                    )
+                    diff = None  # None = treat as first run, regenerate everything
             # ─────────────────────────────────────────────────────────────────
             # Re-apply DataForge patches before generation. apply_patches is
             # idempotent: already-patched files are a cheap no-op, so running
@@ -280,7 +285,8 @@ class EnhancementsGeneratorWorker(QThread):
 
             mod.main(base_ini, forge_dir, categories=self.categories,
                      progress_callback=_on_progress,
-                     patches_dir=resolve_patches_dir())
+                     patches_dir=resolve_patches_dir(),
+                     max_workers=1)
             logger.info("Enhancements generation worker: mod.main() completed successfully")
 
             self.finished.emit(True)
