@@ -5,6 +5,13 @@ import os
 import sys
 from pathlib import Path
 
+# Ensure the project root is on sys.path so `from src.*` imports work when
+# the script is invoked directly as `python src/main.py` (Python only adds
+# the script's own directory — src/ — not the project root).
+_project_root = str(Path(__file__).parent.parent)
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
 # ── Force Qt to look for platform plugins in OUR bundled Qt6/plugins directory
 # ── BEFORE we import anything from PyQt6. The most common source of the
 # ── "No Qt platform plugin could be initialized" crash on user machines is a
