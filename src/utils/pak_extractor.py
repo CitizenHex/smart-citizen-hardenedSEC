@@ -12,7 +12,7 @@ from pathlib import Path
 
 from src.utils.perf import timed
 
-from utils.dataforge_diff import update_manifest
+from src.utils.dataforge_diff import update_manifest
 
 logger = logging.getLogger(__name__)
 

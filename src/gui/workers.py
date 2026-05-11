@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import QProgressBar, QProgressDialog, QStyledItemDelegate
 from src.parser.ini_parser import load_source_files, load_sources_from_settings
 from src.utils.resource_path import resolve_patches_dir
 from src.utils.settings import AppSettings
-from utils.dataforge_diff import dirty_categories
+from src.utils.dataforge_diff import dirty_categories
 logger = logging.getLogger(__name__)
 
 
