@@ -98,6 +98,10 @@ def main():
         # → Documents\Smart Citizen\LIVE\{...}). One-shot, marker-gated.
         AppSettings.migrate_game_path_to_channel_layout()
 
+        # Move DataForge XML cache from Documents → AppData\Local (idempotent).
+        # Runs after channel-layout migration so get_active_channel() is settled.
+        AppSettings.migrate_dataforge_cache_to_local()
+
         # Move user data files from old AppData location to Documents (idempotent)
         AppSettings.migrate_data_to_documents()
     else:

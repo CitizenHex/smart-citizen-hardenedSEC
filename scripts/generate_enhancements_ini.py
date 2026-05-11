@@ -63,9 +63,28 @@ def _get_default_cache_dir() -> Path:
         return _get_documents_dir() / "Smart Citizen" / "LIVE" / "cache"
 
 
+def _get_default_forge_dir() -> Path:
+    """Resolve the DataForge cache directory for standalone CLI defaults.
+
+    Mirrors AppSettings.get_dataforge_cache_dir() — AppData\\Local, not
+    Documents, so the ~1.4 GB XML cache stays out of OneDrive.
+    """
+    try:
+        if str(PROJECT_ROOT) not in sys.path:
+            sys.path.insert(0, str(PROJECT_ROOT))
+        from src.utils.settings import AppSettings
+        return AppSettings.get_dataforge_cache_dir()
+    except (ImportError, OSError) as e:
+        logger.debug(f"Falling back to LocalAppData forge default: {e}")
+        local_appdata = Path(
+            os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))
+        )
+        return local_appdata / "Smart Citizen" / "LIVE" / "cache" / "dataforge"
+
+
 APP_CACHE_DIR    = _get_default_cache_dir()
 DEFAULT_BASE_INI = APP_CACHE_DIR / "base.ini"
-DEFAULT_FORGE_DIR = APP_CACHE_DIR / "dataforge"
+DEFAULT_FORGE_DIR = _get_default_forge_dir()
 
 OUTPUT_DIR = APP_CACHE_DIR
 
