@@ -12,6 +12,8 @@ from pathlib import Path
 
 from src.utils.perf import timed
 
+from utils.dataforge_diff import update_manifest
+
 logger = logging.getLogger(__name__)
 
 
@@ -409,6 +411,8 @@ def extract_dataforge(
         stamp = dataforge_cache_dir / ".p4k_mtime"
         stamp.write_text(str(p4k_path.stat().st_mtime))
         logger.info(f"DataForge cache written to {dataforge_cache_dir}")
+        # Snapshot the new cache so the next run can diff against it.
+        update_manifest(raw_dir / "libs")
 
     # Ensure all file handles are released before returning
     gc.collect()

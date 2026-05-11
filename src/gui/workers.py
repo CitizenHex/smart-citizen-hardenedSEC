@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import QProgressBar, QProgressDialog, QStyledItemDelegate
 from src.parser.ini_parser import load_source_files, load_sources_from_settings
 from src.utils.resource_path import resolve_patches_dir
 from src.utils.settings import AppSettings
-
+from utils.dataforge_diff import dirty_categories
 logger = logging.getLogger(__name__)
 
 
@@ -220,7 +220,24 @@ class EnhancementsGeneratorWorker(QThread):
 
             base_ini  = AppSettings.get_cache_dir() / 'base.ini'
             forge_dir = AppSettings.get_dataforge_cache_dir()
-
+            # ── Diff-cache check ──────────────────────────────────────────────
+            # Compare the current DataForge XMLs against the last-run manifest.
+            # None  → no manifest yet, run everything.
+            # set() → nothing changed, skip entirely.
+            # {...} → only re-run the categories whose source XMLs changed.
+            libs_dir = forge_dir / "raw" / "libs"
+            diff = dirty_categories(libs_dir)
+            if diff is not None:
+                if not diff:
+                    logger.info("Diff-cache: no DataForge changes detected, skipping enhancement generation.")
+                    self.finished.emit(True)
+                    return
+                if self.categories is not None:
+                    self.categories = self.categories & diff
+                else:
+                    self.categories = diff
+                logger.info(f"Diff-cache: re-running categories {self.categories}")
+            # ─────────────────────────────────────────────────────────────────
             # Re-apply DataForge patches before generation. apply_patches is
             # idempotent: already-patched files are a cheap no-op, so running
             # this every regen picks up newly-added patches without forcing
