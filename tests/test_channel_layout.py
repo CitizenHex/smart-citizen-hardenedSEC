@@ -131,11 +131,18 @@ class TestChannelScopedPaths:
         assert ini_path == fake_user_data_dir / "LIVE" / "user.ini"
 
     def test_dataforge_cache_dir_nests_under_active_channel(
-        self, isolated_qsettings, fake_user_data_dir
+        self, isolated_qsettings, tmp_path, monkeypatch
     ):
+        # PR #26 moved the DataForge cache out of user_data_dir (Documents)
+        # to LOCALAPPDATA so OneDrive sync / Defender don't churn on the
+        # 1.4 GB extract. The test mirrors that — path must be under
+        # %LOCALAPPDATA%\Smart Citizen\<channel>\cache\dataforge.
+        fake_local = tmp_path / "LocalAppData"
+        fake_local.mkdir()
+        monkeypatch.setenv("LOCALAPPDATA", str(fake_local))
         AppSettings.set_active_channel("TECH-PREVIEW")
         df = AppSettings.get_dataforge_cache_dir()
-        assert df == fake_user_data_dir / "TECH-PREVIEW" / "cache" / "dataforge"
+        assert df == fake_local / "Smart Citizen" / "TECH-PREVIEW" / "cache" / "dataforge"
 
     def test_switching_channel_changes_all_paths(
         self, isolated_qsettings, fake_user_data_dir

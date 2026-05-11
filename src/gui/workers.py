@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import QProgressBar, QProgressDialog, QStyledItemDelegate
 from src.parser.ini_parser import load_source_files, load_sources_from_settings
 from src.utils.resource_path import resolve_patches_dir
 from src.utils.settings import AppSettings
-
+from src.utils.dataforge_diff import dirty_categories
 logger = logging.getLogger(__name__)
 
 
@@ -220,7 +220,29 @@ class EnhancementsGeneratorWorker(QThread):
 
             base_ini  = AppSettings.get_cache_dir() / 'base.ini'
             forge_dir = AppSettings.get_dataforge_cache_dir()
-
+            # ── Diff-cache check ──────────────────────────────────────────────
+            # Compare the current DataForge XMLs against the last-run manifest.
+            # None  → no manifest yet, run everything.
+            # set() → nothing changed, skip entirely.
+            # {...} → only re-run the categories whose source XMLs changed.
+            libs_dir = forge_dir / "raw" / "libs"
+            diff = dirty_categories(libs_dir)
+            # If enhancement files are missing, force regeneration even if the
+            # manifest says nothing changed — the manifest may have been written
+            # before enhancements were ever successfully generated.
+            if diff is not None and not diff:
+                cache_dir = AppSettings.get_cache_dir()
+                missing = [
+                    name for name in AppSettings.ENHANCEMENTS_FILES.values()
+                    if not (cache_dir / name).exists()
+                ]
+                if missing:
+                    logger.info(
+                        f"Diff-cache: manifest clean but {len(missing)} enhancement "
+                        f"file(s) missing ({', '.join(missing[:3])}{'…' if len(missing) > 3 else ''}), forcing regeneration."
+                    )
+                    diff = None  # None = treat as first run, regenerate everything
+            # ─────────────────────────────────────────────────────────────────
             # Re-apply DataForge patches before generation. apply_patches is
             # idempotent: already-patched files are a cheap no-op, so running
             # this every regen picks up newly-added patches without forcing
@@ -263,7 +285,8 @@ class EnhancementsGeneratorWorker(QThread):
 
             mod.main(base_ini, forge_dir, categories=self.categories,
                      progress_callback=_on_progress,
-                     patches_dir=resolve_patches_dir())
+                     patches_dir=resolve_patches_dir(),
+                     max_workers=1)
             logger.info("Enhancements generation worker: mod.main() completed successfully")
 
             self.finished.emit(True)
