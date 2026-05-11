@@ -412,7 +412,14 @@ def extract_dataforge(
         stamp.write_text(str(p4k_path.stat().st_mtime))
         logger.info(f"DataForge cache written to {dataforge_cache_dir}")
         # Snapshot the new cache so the next run can diff against it.
-        update_manifest(raw_dir / "libs")
+        # SHA-256 over ~28k files is multi-minute serial; we surface it
+        # to the progress bar (and parallelize it inside update_manifest)
+        # so the UI doesn't appear frozen.
+        logger.info("Snapshotting DataForge cache for diff manifest…")
+        if progress_callback:
+            progress_callback("Snapshotting cache for diff…")
+        update_manifest(raw_dir / "libs", progress_callback=progress_pct_callback)
+        logger.info("Diff manifest written")
 
     # Ensure all file handles are released before returning
     gc.collect()

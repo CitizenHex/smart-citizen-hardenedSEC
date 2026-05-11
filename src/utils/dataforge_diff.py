@@ -24,10 +24,16 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 MANIFEST_FILE = ".diff_manifest.json"
+
+# Default parallel workers for the per-file hash sweep. ~28k tiny XMLs on
+# Windows hit Defender / Search Indexer / OneDrive on every open, so the
+# work is I/O-bound, not CPU-bound; oversubscribing past CPU count helps.
+_HASH_WORKERS = max(8, (os.cpu_count() or 4) * 2)
 
 # Maps category name → DataForge subtree prefixes it reads from.
 # Mirrors DATAFORGE_KEEP_SUBPATHS in pak_extractor.py — keep in sync.
@@ -55,25 +61,65 @@ def _hash_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def _build_snapshot(cache_dir: Path) -> dict[str, dict]:
+def _build_snapshot(
+    cache_dir: Path,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
+) -> dict[str, dict]:
     """
     Walk the dataforge cache and return a snapshot dict:
         { "relative/path.xml": {"mtime": float, "sha256": str}, ... }
 
-    mtime is checked first; sha256 is only computed when mtime differs,
-    keeping the hot path (nothing changed) fast.
+    Hashes every XML in parallel — the cache holds ~28k XMLs and a
+    serial sweep over them costs minutes on Windows because each
+    file-open is intercepted by Defender / Search Indexer / OneDrive.
+    A bounded ThreadPoolExecutor brings that down to seconds-to-tens.
+
+    Optional ``progress_callback`` receives ``(completed, total, label)``
+    so callers can drive a determinate progress bar; without it the
+    sweep runs silently. Progress is throttled to roughly every 256
+    completions to keep the Qt event loop unbloated.
     """
-    snapshot: dict[str, dict] = {}
+    # Enumerate first so we know the total up front for progress reporting.
+    paths: list[tuple[Path, str]] = []
     for root, _, files in os.walk(cache_dir):
         for fname in files:
             if not fname.endswith(".xml"):
                 continue
             abs_path = Path(root) / fname
             rel = str(abs_path.relative_to(cache_dir)).replace("\\", "/")
-            snapshot[rel] = {
-                "mtime": abs_path.stat().st_mtime,
-                "sha256": _hash_file(abs_path),
-            }
+            paths.append((abs_path, rel))
+
+    total = len(paths)
+    if progress_callback:
+        progress_callback(0, total, f"Snapshotting cache for diff (0/{total})…")
+
+    snapshot: dict[str, dict] = {}
+    if total == 0:
+        return snapshot
+
+    def _hash_one(item: tuple[Path, str]) -> tuple[str, dict]:
+        abs_path, rel = item
+        return rel, {
+            "mtime": abs_path.stat().st_mtime,
+            "sha256": _hash_file(abs_path),
+        }
+
+    completed = 0
+    next_report = 256
+    with ThreadPoolExecutor(max_workers=_HASH_WORKERS) as pool:
+        for fut in as_completed(pool.submit(_hash_one, item) for item in paths):
+            rel, entry = fut.result()
+            snapshot[rel] = entry
+            completed += 1
+            if progress_callback and completed >= next_report:
+                progress_callback(
+                    completed, total,
+                    f"Snapshotting cache for diff ({completed}/{total})…",
+                )
+                next_report = completed + 256
+
+    if progress_callback:
+        progress_callback(total, total, f"Snapshotting cache for diff ({total}/{total})…")
     return snapshot
 
 
@@ -85,14 +131,22 @@ def _manifest_path(cache_dir: Path) -> Path:
 # Public API
 # ---------------------------------------------------------------------------
 
-def update_manifest(cache_dir: Path) -> None:
+def update_manifest(
+    cache_dir: Path,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
+) -> None:
     """
     Snapshot the current state of the DataForge cache and persist it.
     Call this *after* a successful extraction so the next run can diff
     against it.
+
+    ``progress_callback(completed, total, label)`` is forwarded to the
+    underlying snapshot sweep. The sweep is the long-running part —
+    SHA-256 of ~28k files — so wiring this in is the difference between
+    a frozen progress bar and a moving one.
     """
     cache_dir = Path(cache_dir)
-    snapshot = _build_snapshot(cache_dir)
+    snapshot = _build_snapshot(cache_dir, progress_callback=progress_callback)
     with open(_manifest_path(cache_dir), "w", encoding="utf-8") as f:
         json.dump(snapshot, f, indent=2)
 
