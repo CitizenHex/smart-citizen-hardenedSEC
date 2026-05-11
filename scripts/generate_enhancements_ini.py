@@ -117,8 +117,23 @@ def write_ini(path: Path, entries: dict[str, str]) -> None:
 #     entity records, e.g. fuel-nozzle blueprints in 4.8). Without
 #     this the pool's names list ended up empty and the entire pool
 #     was dropped, swallowing the [BP?] tag for those missions.
+#   blueprint_pools v4 (1.3.1) — second-tier filename-stem fallback
+#     (entity_names_by_filename) before falling through to the ugly
+#     filename-derived placeholder. Recovers real localized names
+#     ("Norfield", "Harkin", "RN-7s") for fuel-nozzle blueprints
+#     whose entityClass UUIDs are CIG-WIP-broken — the entity XML
+#     itself ships in entities/scitem/ with the matching stem and
+#     a clean Localization Name attribute, we just couldn't reach
+#     it via UUID. v3 produced "Nozzle Fuelgiver Grin Nozzlefast";
+#     v4 produces "Norfield".
+#   scitem_lookups v2 (1.3.1) — return tuple shape changed from
+#     (mag_lookup, entity_names) to (mag_lookup, entity_names,
+#     entity_names_by_filename) to feed the v4 blueprint_pools
+#     filename-stem fallback. v1 pickles will fail to unpack into
+#     the new 3-tuple, so we MUST invalidate them.
 _LOOKUP_VERSIONS: dict[str, str] = {
-    "blueprint_pools": "v3",
+    "blueprint_pools": "v4",
+    "scitem_lookups": "v2",
 }
 
 
@@ -1466,30 +1481,46 @@ def build_blueprint_pool_lookup(
     pool_dir: Path,
     bp_dir: Path,
     entity_names: dict[str, str],
+    entity_names_by_filename: dict[str, str] | None = None,
 ) -> dict[str, list[str]]:
     """Build mapping of blueprint pool UUID → list of craftable item display names.
 
+    Resolution chain for each blueprint:
+      1. Look up the blueprint's `entityClass` UUID in `entity_names`
+         (first-class path; works for the bulk of items in stable patches).
+      2. If 1 misses (CIG WIP — blueprint references an entityClass UUID
+         that isn't __ref'd anywhere yet), look up the blueprint XML's
+         filename stem (minus `bp_craft_` prefix) in
+         `entity_names_by_filename`. CIG's authored layout puts the
+         entity XML in `entities/scitem/...` with the same stem; the
+         entity's localized Name attribute resolves cleanly even if the
+         UUID linkage is broken. This recovers real product names like
+         "Norfield" or "Harkin" instead of falling all the way through
+         to filename-derived placeholders.
+      3. If 2 also misses, derive a name from the blueprint XML's filename
+         (`Nozzle Fuelgiver Grin Nozzlefast`-style — recognisable but
+         not pretty). Set as a backstop so the BP tag still fires.
+
     Args:
-        pool_dir: Directory containing BlueprintPoolRecord XMLs (blueprintmissionpools)
-        bp_dir: Directory containing CraftingBlueprintRecord XMLs (blueprints/crafting)
-        entity_names: UUID → display name lookup for resolving crafted item entities
+        pool_dir: Directory containing BlueprintPoolRecord XMLs.
+        bp_dir: Directory containing CraftingBlueprintRecord XMLs.
+        entity_names: UUID → display name (built from entities/scitem/).
+        entity_names_by_filename: filename-stem → display name (same
+            source). Optional — without it the resolver skips path 2.
 
     Returns:
         Dict mapping pool __ref UUID → sorted list of item display names
     """
+    entity_names_by_filename = entity_names_by_filename or {}
     if not pool_dir.exists() or not bp_dir.exists():
         return {}
 
-    # Index all blueprint files by __ref UUID → (entityClass UUID, fallback name).
-    # Fallback name is derived from the blueprint XML filename so that pools
-    # whose entityClass UUIDs CIG hasn't shipped yet (common in PTU — the
-    # blueprint refs land before the entity definitions in some patches,
-    # e.g. 4.8 fuel-nozzle blueprints reference UUIDs that aren't __ref'd
-    # anywhere in the extracted cache) can still produce a readable name
-    # for the POTENTIAL BLUEPRINTS block. Without the fallback the entire
-    # pool was silently dropped, the contract-gen scan saw "pool not in
-    # blueprint_pools dict", and the mission's [BP?] tag never fired.
-    bp_entity: dict[str, tuple[str, str]] = {}
+    # Index all blueprint files by __ref UUID → (entityClass UUID,
+    # entity-stem-for-filename-lookup, filename-derived backstop name).
+    # The resolver below tries entity_names[uuid] first, then
+    # entity_names_by_filename[stem-without-bp_craft_], then the
+    # filename-derived string as a last resort.
+    bp_entity: dict[str, tuple[str, str, str]] = {}
     for xml_file in bp_dir.rglob("*.xml"):
         try:
             root = ET.parse(xml_file).getroot()
@@ -1501,7 +1532,17 @@ def build_blueprint_pool_lookup(
                 if _poly_type(elem) == "CraftingProcess_Creation":
                     entity_class = elem.get("entityClass", "")
                     break
-            bp_entity[ref] = (entity_class, _name_from_blueprint_filename(xml_file))
+            # Derive the entity-stem from the bp filename for the
+            # filename-fallback lookup. CIG's convention is
+            # `bp_craft_<stem>.xml` for the blueprint and `<stem>.xml`
+            # for the entity (e.g. bp_craft_nozzle_fuelgiver_grin_nozzlefast
+            # ↔ nozzle_fuelgiver_grin_nozzlefast).
+            stem = xml_file.stem
+            for prefix in ("bp_craft_", "bp_rewards_", "bp_"):
+                if stem.startswith(prefix):
+                    stem = stem[len(prefix):]
+                    break
+            bp_entity[ref] = (entity_class, stem.lower(), _name_from_blueprint_filename(xml_file))
         except ET.ParseError:
             continue
 
@@ -1517,16 +1558,21 @@ def build_blueprint_pool_lookup(
             for elem in root.iter("BlueprintReward"):
                 bp_ref = elem.get("blueprintRecord", "")
                 if bp_ref and bp_ref in bp_entity:
-                    entity_ref, fallback_name = bp_entity[bp_ref]
+                    entity_ref, entity_stem, filename_fallback = bp_entity[bp_ref]
+                    # Tier 1: UUID match (best — gives the localized
+                    # display name from the entity's Localization Name
+                    # attribute, e.g. "Norfield" / "Harkin" / "RN-7s").
                     if entity_ref in entity_names:
                         name = entity_names[entity_ref]
+                    # Tier 2: filename-stem match. Recovers real product
+                    # names when CIG ships the blueprint ahead of the
+                    # entity-UUID linkage (PTU 4.8 fuel-nozzle pattern).
+                    elif entity_stem in entity_names_by_filename:
+                        name = entity_names_by_filename[entity_stem]
+                    # Tier 3: filename-derived placeholder. Ugly but
+                    # ensures the BP tag still surfaces.
                     else:
-                        # Entity isn't in the cache (CIG WIP — blueprint
-                        # shipped ahead of its entity record). Use the
-                        # filename-derived fallback so the pool still
-                        # resolves to *something* readable rather than
-                        # silently dropping the whole BP tag.
-                        name = fallback_name
+                        name = filename_fallback
                     if name and name not in names:
                         names.append(name)
             if names:
@@ -2774,13 +2820,22 @@ def build_ammo_lookup(ammo_dir: Path) -> dict[str, ET.Element]:
 def build_scitem_lookups(
     scitem_dir: Path,
     loc: dict[str, str] | None = None,
-) -> tuple[dict[str, tuple[str, str]], dict[str, str]]:
-    """Single-pass scan of scitem XMLs that produces two lookups:
+) -> tuple[dict[str, tuple[str, str]], dict[str, str], dict[str, str]]:
+    """Single-pass scan of scitem XMLs that produces three lookups:
 
     * mag_lookup: magazine entity class name → (ammoParamsRecord, maxAmmoCount)
       — derived from SAmmoContainerComponentParams elements.
     * entity_names: __ref UUID → display name (resolved via loc)
       — first @-prefixed Name attribute on any element.
+    * entity_names_by_filename: XML filename stem → display name
+      — same name as above but indexed by the XML filename instead of
+      __ref UUID. Used as a second-tier fallback by
+      build_blueprint_pool_lookup when the blueprint references an
+      entityClass UUID that doesn't __ref any entity record (CIG WIP
+      pattern in PTU patches — blueprints land before the entity UUID
+      assignments are finalised). The blueprint's own filename minus
+      its `bp_craft_` / `bp_rewards_` prefix matches the entity XML's
+      filename in CIG's authored layout.
 
     Walking the scitem tree once instead of twice (magazines + entity names
     used to iterate independently) cuts ~30s off the run since there are
@@ -2788,9 +2843,10 @@ def build_scitem_lookups(
     """
     mag_lookup: dict[str, tuple[str, str]] = {}
     entity_names: dict[str, str] = {}
+    entity_names_by_filename: dict[str, str] = {}
     loc = loc or {}
     if not scitem_dir.exists():
-        return mag_lookup, entity_names
+        return mag_lookup, entity_names, entity_names_by_filename
 
     null_uuid = "00000000-0000-0000-0000-000000000000"
     for xml_file in scitem_dir.rglob("*.xml"):
@@ -2802,7 +2858,8 @@ def build_scitem_lookups(
         ref = root.get("__ref", "")
         entity_name = root.tag.split(".")[-1] if "." in root.tag else xml_file.stem
         found_mag = False
-        found_name = ref == ""  # skip name lookup entirely if no __ref
+        found_name = False
+        resolved_display_name: str | None = None
 
         for elem in root.iter():
             if not found_mag and _poly_type(elem) == "SAmmoContainerComponentParams":
@@ -2815,17 +2872,25 @@ def build_scitem_lookups(
                 name_attr = elem.get("Name", "")
                 if name_attr and name_attr.startswith("@"):
                     loc_key = name_attr.lstrip("@")
-                    entity_names[ref] = loc.get(loc_key, loc_key)
+                    resolved_display_name = loc.get(loc_key, loc_key)
+                    if ref:
+                        entity_names[ref] = resolved_display_name
                     found_name = True
             if found_mag and found_name:
                 break
 
-    return mag_lookup, entity_names
+        # Index by filename stem regardless of whether the entity has a
+        # __ref — the filename fallback in BP resolution doesn't care
+        # about the UUID, only the display name.
+        if resolved_display_name:
+            entity_names_by_filename[xml_file.stem.lower()] = resolved_display_name
+
+    return mag_lookup, entity_names, entity_names_by_filename
 
 
 def build_magazine_lookup(scitem_dir: Path) -> dict[str, tuple[str, str]]:
     """Back-compat wrapper around build_scitem_lookups — returns magazines only."""
-    mag_lookup, _ = build_scitem_lookups(scitem_dir)
+    mag_lookup, _, _ = build_scitem_lookups(scitem_dir)
     return mag_lookup
 
 
@@ -3077,10 +3142,11 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             logger.info(f"Vehicle ammo: {len(vehicle_ammo)} records, FPS ammo: {len(fps_ammo)} records")
             _tick("Built ammo lookups")
         if "scitem" in results:
-            mag_lookup, entity_names = results["scitem"]
+            mag_lookup, entity_names, entity_names_by_filename = results["scitem"]
             logger.info(
                 f"Magazine lookup: {len(mag_lookup)} entries, "
-                f"Entity names: {len(entity_names)} entries"
+                f"Entity names: {len(entity_names)} entries, "
+                f"Entity-name-by-filename fallback: {len(entity_names_by_filename)} entries"
             )
             _tick("Built scitem lookups")
         if "controller" in results:
@@ -3311,7 +3377,10 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         bp_dir = records / "crafting" / "blueprints" / "crafting"
         blueprint_pools = _cached_lookup(
             forge_dir, "blueprint_pools",
-            lambda: build_blueprint_pool_lookup(pool_dir, bp_dir, entity_names),
+            lambda: build_blueprint_pool_lookup(
+                pool_dir, bp_dir, entity_names,
+                entity_names_by_filename=entity_names_by_filename,
+            ),
         )
         _tick("Built blueprint pool lookup")
 
