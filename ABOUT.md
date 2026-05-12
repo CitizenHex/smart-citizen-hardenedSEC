@@ -45,7 +45,7 @@ Thanks to those who've supported the project financially — your contributions 
 
 Smart Citizen also bundles upstream tooling from:
 
-- [**dolkensp/unp4k**](https://github.com/dolkensp/unp4k) — `unp4k.exe` and `unforge.exe`, used to unpack `Data.p4k` and convert DataForge to XML
+- [**Osiris-DevWorks/odw-fast-unp4k**](https://github.com/Osiris-DevWorks/odw-fast-unp4k) — `unp4k.exe` and `unforge.exe`, used to unpack `Data.p4k` and convert DataForge to XML. This is our fork of the original [**dolkensp/unp4k**](https://github.com/dolkensp/unp4k) with parallel extraction and other performance improvements.
 
 ## Key Features
 
