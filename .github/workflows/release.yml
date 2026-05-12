@@ -250,10 +250,22 @@ jobs:
         # have one. Pushing tags via GITHUB_TOKEN does NOT recursively
         # trigger this workflow (that's GitHub's built-in safety against
         # workflow loops with the default token).
+        #
+        # Idempotent: a manually-pushed tag (e.g. someone ran ``git push
+        # origin v1.3.1`` after merging the release PR) races with this
+        # workflow's branch-push trigger, and ``git push origin $tag``
+        # would fail with ``! [rejected] ... (already exists)`` and red-X
+        # the workflow run even though the parallel tag-push run will
+        # publish the release fine. Pre-check origin and bail out cleanly.
         if: steps.gate.outputs.skip == 'false' && steps.resolve.outputs.trigger == 'branch'
         shell: pwsh
         run: |
           $tag = "${{ steps.resolve.outputs.tag }}"
+          $exists = git ls-remote --tags origin "refs/tags/$tag"
+          if ($exists) {
+            Write-Host "Tag $tag already exists on origin — skipping auto-tag step"
+            exit 0
+          }
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a $tag -m "Release $tag (auto-tagged by release.yml on merge to ${{ github.ref_name }})"
