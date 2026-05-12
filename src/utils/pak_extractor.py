@@ -16,6 +16,11 @@ from src.utils.dataforge_diff import update_manifest
 
 logger = logging.getLogger(__name__)
 
+# ``shutil.rmtree`` replaced ``onerror`` with ``onexc`` in Python 3.12. The
+# frozen build runs on 3.11, so passing ``onexc=`` raises TypeError there.
+# Detect once at import.
+_RMTREE_CB_KWARG = "onexc" if sys.version_info >= (3, 12) else "onerror"
+
 
 def _robust_rmtree(path: Path, attempts: int = 6) -> None:
     """Delete *path* recursively, surviving transient Windows locks.
@@ -37,10 +42,13 @@ def _robust_rmtree(path: Path, attempts: int = 6) -> None:
     if not path.exists():
         return
 
-    def _onexc(func, target, exc_info):
-        # Python 3.12 onexc callback: clear the read-only bit and retry the
-        # single failing file/dir. For other errors (e.g. lingering handle),
-        # propagate so the outer retry loop picks it up.
+    def _on_error(func, target, *_):
+        # Compatible with both 3.11 ``onerror(func, path, excinfo)`` and
+        # 3.12+ ``onexc(func, path, exc)`` callback signatures — we only
+        # care about the failing path so the trailing arg is ignored.
+        # Clear the read-only bit and retry the single failing file/dir;
+        # for other errors (e.g. lingering handle), propagate so the
+        # outer retry loop picks it up.
         try:
             os.chmod(target, stat.S_IWRITE)
         except OSError:
@@ -54,7 +62,7 @@ def _robust_rmtree(path: Path, attempts: int = 6) -> None:
     for i in range(attempts):
         try:
             gc.collect()  # drop any lingering XML file handles we own
-            shutil.rmtree(path, onexc=_onexc)
+            shutil.rmtree(path, **{_RMTREE_CB_KWARG: _on_error})
             return
         except OSError as e:
             last_err = e
