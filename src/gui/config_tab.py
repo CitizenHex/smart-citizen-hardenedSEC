@@ -94,7 +94,8 @@ class ConfigTab(QWidget):
 
         game_input_layout = QHBoxLayout()
         self.game_path_input = QLineEdit()
-        self.game_path_input.setText(AppSettings.get_sc_install_root())
+        _initial_game_root = AppSettings.get_sc_install_root()
+        self.game_path_input.setText(os.path.normpath(_initial_game_root) if _initial_game_root else "")
         self.game_path_input.setPlaceholderText(
             r"C:\Program Files\Roberts Space Industries\StarCitizen"
         )
@@ -158,7 +159,7 @@ class ConfigTab(QWidget):
 
         data_input_layout = QHBoxLayout()
         self.data_dir_input = QLineEdit()
-        self.data_dir_input.setText(str(AppSettings.get_user_data_dir()))
+        self.data_dir_input.setText(os.path.normpath(str(AppSettings.get_user_data_dir())))
         self.data_dir_input.setToolTip(
             "Smart Citizen's app data root. Each channel gets its own subfolder "
             "inside this directory. Leave blank or click Reset to use Documents\\Smart Citizen."
@@ -289,6 +290,13 @@ class ConfigTab(QWidget):
         """Save the SC install root when editing finishes, and refresh the
         channel combo so per-channel enable/disable reflects the new root."""
         game_path = self.game_path_input.text().strip()
+        if game_path:
+            # Normalize to native separators (backslashes on Windows). Qt's
+            # QFileDialog returns POSIX-style forward slashes and Path.resolve()
+            # also yields forward slashes in some flows; without this the field
+            # toggles between styles depending on how the path arrived.
+            game_path = os.path.normpath(game_path)
+            self.game_path_input.setText(game_path)
         if game_path and not Path(game_path).exists():
             logger.warning(f"SC install root does not exist: {game_path}")
             return
@@ -315,6 +323,8 @@ class ConfigTab(QWidget):
         """Persist the Smart Citizen data folder override."""
         current_dir = AppSettings.get_user_data_dir()
         raw_path = self.data_dir_input.text().strip()
+        if raw_path:
+            raw_path = os.path.normpath(raw_path)
 
         try:
             if raw_path:
@@ -343,7 +353,7 @@ class ConfigTab(QWidget):
             self.data_dir_input.setText(str(current_dir))
             return
 
-        self.data_dir_input.setText(str(new_dir))
+        self.data_dir_input.setText(os.path.normpath(str(new_dir)))
         if new_dir != current_dir:
             logger.info(f"Smart Citizen data folder changed: {current_dir} → {new_dir}")
             self._refresh_p4k_status()
@@ -362,7 +372,7 @@ class ConfigTab(QWidget):
         current_dir = AppSettings.get_user_data_dir()
         AppSettings.set_user_data_dir(None)
         new_dir = AppSettings.get_user_data_dir()
-        self.data_dir_input.setText(str(new_dir))
+        self.data_dir_input.setText(os.path.normpath(str(new_dir)))
         if new_dir != current_dir:
             logger.info(f"Smart Citizen data folder reset to default: {new_dir}")
             self._refresh_p4k_status()
