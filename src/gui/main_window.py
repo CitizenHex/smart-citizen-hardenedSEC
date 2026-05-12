@@ -89,6 +89,39 @@ _JOURNAL_TITLE_KEY_RE = _re_mod.compile(
     _re_mod.IGNORECASE,
 )
 
+# Frontend version chip (main-menu watermark). CIG ships a key called
+# ``Frontend_PU_Version`` whose value the main menu renders verbatim.
+# We append " | Localizations Enhanced with Smart Citizen vX.Y.Z" so
+# users (and their screenshots / support tickets) can see at a glance
+# that the localization has been customized. Idempotency works the same
+# way as the journal stamp: ``_FRONTEND_VERSION_STAMP_RE`` strips any
+# prior watermark before re-appending the current one, so successive
+# applies and version bumps don't accumulate suffixes. The regex is
+# intentionally permissive — it matches the current "Enhanced with"
+# phrasing as well as the two legacy phrasings ("Enhanced by",
+# "Enhanced with <3 by"), with or without a leading ``v`` on the
+# version, so installs that already have an older watermark on disk
+# roll forward cleanly on the next apply.
+_FRONTEND_VERSION_KEY = "Frontend_PU_Version"
+_FRONTEND_VERSION_STAMP_RE = _re_mod.compile(
+    r"\s*\|\s*(?:Localizations Enhanced (?:with|by)|Enhanced with <3 by)\s+Smart Citizen\s+v?[^\s|]+\s*$"
+)
+
+
+def _stamp_frontend_version(merged: dict) -> dict:
+    """Append the Smart Citizen watermark to Frontend_PU_Version in place.
+
+    Skips entirely if the key is not present in *merged* — we don't
+    fabricate the key when stock doesn't have it. Mutates and returns
+    *merged* so the call site reads symmetrically with the journal stamp.
+    """
+    if _FRONTEND_VERSION_KEY not in merged:
+        return merged
+    from src.utils.version import get_version
+    base = _FRONTEND_VERSION_STAMP_RE.sub("", merged[_FRONTEND_VERSION_KEY]).rstrip()
+    merged[_FRONTEND_VERSION_KEY] = f"{base} | Localizations Enhanced with Smart Citizen v{get_version()}"
+    return merged
+
 
 def _stamp_journal_entries(merged: dict, stock: dict | None = None) -> dict:
     """Append a Smart Citizen version stamp to Journal entries SC produced or modified.
@@ -1098,6 +1131,11 @@ class MainWindow(QMainWindow):
             # write-time and idempotent across re-applies.
             stock_dict = sources_dict.get(AppSettings.SOURCE_GLOBAL, {})
             merged_dict = _stamp_journal_entries(merged_dict, stock_dict)
+
+            # Stamp the main-menu version chip so the game shows that
+            # Smart Citizen is active. Idempotent across re-applies and
+            # version bumps; skipped if stock doesn't ship the key.
+            merged_dict = _stamp_frontend_version(merged_dict)
 
             # Get a base file to use for structure preservation
             # Use the first source file from hierarchy
