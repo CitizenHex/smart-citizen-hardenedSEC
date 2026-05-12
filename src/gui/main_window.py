@@ -2974,6 +2974,12 @@ class MainWindow(QMainWindow):
     def _run_enhancements_generation(self, categories: set[str] | None = None):
         """Launch EnhancementsGeneratorWorker in the background with animated progress dialog."""
         if self._enhancements_worker is not None:
+            # Defensive: if extraction handed off but a stale enhancements
+            # worker is somehow still around, don't orphan the forge dialog.
+            stale = getattr(self, "_forge_progress_dialog", None)
+            if stale is not None:
+                stale.close()
+                self._forge_progress_dialog = None
             return  # already running
 
         # Use enabled categories from settings if none specified
@@ -2984,12 +2990,33 @@ class MainWindow(QMainWindow):
         self.enhancements_tab.set_operation_running("Generating enhancements…")
         self.statusBar().showMessage("Generating enhancements in background…")
 
-        # Show animated progress dialog
-        self._enhancements_progress_dialog = AnimatedProgressDialog(
-            "Generating enhanced localizations from DataForge…\n\nThis may take a few minutes on the first run.",
-            parent=self,
-            title="Generating Enhancements",
+        enhancements_label = (
+            "Generating enhanced localizations from DataForge…\n\n"
+            "This may take a few minutes on the first run."
         )
+
+        # Reuse the DataForge extraction dialog if it's still open — keeps
+        # the progress UI continuous through the extraction → enhancements
+        # chain so the user doesn't see a "where did the progress bar go?"
+        # gap between the snapshot completing and a fresh dialog opening.
+        # Falls back to a new dialog when called standalone (e.g. from
+        # the Enhancements tab's Generate button).
+        existing = getattr(self, "_forge_progress_dialog", None)
+        if existing is not None:
+            self._enhancements_progress_dialog = existing
+            self._forge_progress_dialog = None
+            existing.setWindowTitle("Generating Enhancements")
+            # Reset bar to indeterminate (0,0) with the new label so the
+            # stale "Snapshotting cache (28000/28000)" 100% bar from the
+            # extraction phase doesn't sit on screen until the first
+            # enhancement progress emit lands.
+            existing.set_progress(0, 0, enhancements_label)
+        else:
+            self._enhancements_progress_dialog = AnimatedProgressDialog(
+                enhancements_label,
+                parent=self,
+                title="Generating Enhancements",
+            )
 
         self._enhancements_worker.progress.connect(self.enhancements_tab.set_operation_progress)
         self._enhancements_worker.progress.connect(self.statusBar().showMessage)
@@ -3056,18 +3083,25 @@ class MainWindow(QMainWindow):
         logger.error(f"DataForge extraction error: {message}")
 
     def _on_dataforge_extract_finished(self, success: bool):
-        if getattr(self, "_forge_progress_dialog", None) is not None:
-            self._forge_progress_dialog.close()
-            self._forge_progress_dialog = None
         self._forge_worker.quit()
         self._forge_worker.wait()
         self._forge_worker = None
         self.enhancements_tab.refresh_forge_status()
 
         if success:
+            # Hand the progress dialog off to the enhancements phase rather
+            # than closing it here. Closing + re-opening leaves a visible
+            # gap between the snapshot completing and the new dialog
+            # appearing — long enough for users to wonder what the app is
+            # doing. _run_enhancements_generation reuses the existing
+            # dialog window if one is present, so the title/label change
+            # is the only thing the user sees.
             self.statusBar().showMessage("DataForge extracted — generating enhancements…")
             self._run_enhancements_generation()
         else:
+            if getattr(self, "_forge_progress_dialog", None) is not None:
+                self._forge_progress_dialog.close()
+                self._forge_progress_dialog = None
             self.enhancements_tab.set_operation_idle()
             self.statusBar().showMessage("DataForge extraction failed — check the Log tab for details")
 
