@@ -12,16 +12,30 @@ Developed by **Osiris DevWorks**, a one-man development studio dedicated to crea
 
 All Osiris DevWorks tools will be either **completely free** or have a **free tier**. We believe in creating value for gamers without paywalls or mandatory subscriptions.
 
+## ODW Team
+
+- **Osiris_x**
+- **Tichro**
+
+## Contributors
+
+Thanks to those who've contributed code to Smart Citizen:
+
+- **Ishikudeska**
+- **jonigirl**
+- **Coerwyn**
+
 ## Acknowledgements
 
-Thanks to the testers and contributors who helped shape Smart Citizen with their feedback:
+Thanks to the testers who helped shape Smart Citizen with their feedback:
 
 - **Boogie Man**
 - **Perseuscz**
-- **Tichro**
 - **Flat Earth**
 - **Lord Valium**
 - **Zero**
+- **Apolleon Phoibos**
+- **Epiq**
 
 ### Supporters
 
@@ -31,7 +45,7 @@ Thanks to those who've supported the project financially — your contributions 
 
 Smart Citizen also bundles upstream tooling from:
 
-- [**dolkensp/unp4k**](https://github.com/dolkensp/unp4k) — `unp4k.exe` and `unforge.exe`, used to unpack `Data.p4k` and convert DataForge to XML
+- [**Osiris-DevWorks/odw-fast-unp4k**](https://github.com/Osiris-DevWorks/odw-fast-unp4k) — `unp4k.exe` and `unforge.exe`, used to unpack `Data.p4k` and convert DataForge to XML. This is our fork of the original [**dolkensp/unp4k**](https://github.com/dolkensp/unp4k) with parallel extraction and other performance improvements.
 
 ## Key Features
 

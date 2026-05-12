@@ -89,6 +89,39 @@ _JOURNAL_TITLE_KEY_RE = _re_mod.compile(
     _re_mod.IGNORECASE,
 )
 
+# Frontend version chip (main-menu watermark). CIG ships a key called
+# ``Frontend_PU_Version`` whose value the main menu renders verbatim.
+# We append " | Localizations Enhanced with Smart Citizen vX.Y.Z" so
+# users (and their screenshots / support tickets) can see at a glance
+# that the localization has been customized. Idempotency works the same
+# way as the journal stamp: ``_FRONTEND_VERSION_STAMP_RE`` strips any
+# prior watermark before re-appending the current one, so successive
+# applies and version bumps don't accumulate suffixes. The regex is
+# intentionally permissive — it matches the current "Enhanced with"
+# phrasing as well as the two legacy phrasings ("Enhanced by",
+# "Enhanced with <3 by"), with or without a leading ``v`` on the
+# version, so installs that already have an older watermark on disk
+# roll forward cleanly on the next apply.
+_FRONTEND_VERSION_KEY = "Frontend_PU_Version"
+_FRONTEND_VERSION_STAMP_RE = _re_mod.compile(
+    r"\s*\|\s*(?:Localizations Enhanced (?:with|by)|Enhanced with <3 by)\s+Smart Citizen\s+v?[^\s|]+\s*$"
+)
+
+
+def _stamp_frontend_version(merged: dict) -> dict:
+    """Append the Smart Citizen watermark to Frontend_PU_Version in place.
+
+    Skips entirely if the key is not present in *merged* — we don't
+    fabricate the key when stock doesn't have it. Mutates and returns
+    *merged* so the call site reads symmetrically with the journal stamp.
+    """
+    if _FRONTEND_VERSION_KEY not in merged:
+        return merged
+    from src.utils.version import get_version
+    base = _FRONTEND_VERSION_STAMP_RE.sub("", merged[_FRONTEND_VERSION_KEY]).rstrip()
+    merged[_FRONTEND_VERSION_KEY] = f"{base} | Localizations Enhanced with Smart Citizen v{get_version()}"
+    return merged
+
 
 def _stamp_journal_entries(merged: dict, stock: dict | None = None) -> dict:
     """Append a Smart Citizen version stamp to Journal entries SC produced or modified.
@@ -1099,6 +1132,11 @@ class MainWindow(QMainWindow):
             stock_dict = sources_dict.get(AppSettings.SOURCE_GLOBAL, {})
             merged_dict = _stamp_journal_entries(merged_dict, stock_dict)
 
+            # Stamp the main-menu version chip so the game shows that
+            # Smart Citizen is active. Idempotent across re-applies and
+            # version bumps; skipped if stock doesn't ship the key.
+            merged_dict = _stamp_frontend_version(merged_dict)
+
             # Get a base file to use for structure preservation
             # Use the first source file from hierarchy
             base_file = None
@@ -1171,11 +1209,17 @@ class MainWindow(QMainWindow):
             from src.utils.user_ini_manager import save_user_ini
             user_count = save_user_ini(self.entries, AppSettings.get_user_ini_path())
 
-            # Count enhancement entries
-            enhancement_count = sum(
-                1 for entry in self.entries
+            # Count enhancement entries, broken down by category. Sorted
+            # descending by count so the dialog leads with the biggest
+            # buckets (typically Missions / Ship Items). "SCLE" was the
+            # legacy app name (SC Localization Editor); the label now
+            # matches the rebrand to "Smart Citizen".
+            from collections import Counter
+            enhancement_categories = Counter(
+                entry.category for entry in self.entries
                 if entry.source_file == "enhancements"
             )
+            enhancement_count = sum(enhancement_categories.values())
 
             # Ensure user.cfg has language setting
             from src.utils.user_cfg import ensure_user_cfg_language
@@ -1185,11 +1229,22 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(
                 f"Applied to game | {user_count} user edits | {enhancement_count} enhancements"
             )
+            if enhancement_categories:
+                breakdown = "\n".join(
+                    f"    {cat}: {count:,}"
+                    for cat, count in enhancement_categories.most_common()
+                )
+                enhancement_block = (
+                    f"  Smart Citizen enhancements ({enhancement_count:,} total):\n"
+                    f"{breakdown}"
+                )
+            else:
+                enhancement_block = f"  Smart Citizen enhancements: 0"
             QMessageBox.information(
                 self, "Success",
                 f"Applied to {target_path}\n\n"
-                f"  User edits: {user_count}\n"
-                f"  SCLE enhancements: {enhancement_count}"
+                f"  User edits: {user_count:,}\n\n"
+                f"{enhancement_block}"
             )
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to apply to game: {e}")
@@ -2919,6 +2974,12 @@ class MainWindow(QMainWindow):
     def _run_enhancements_generation(self, categories: set[str] | None = None):
         """Launch EnhancementsGeneratorWorker in the background with animated progress dialog."""
         if self._enhancements_worker is not None:
+            # Defensive: if extraction handed off but a stale enhancements
+            # worker is somehow still around, don't orphan the forge dialog.
+            stale = getattr(self, "_forge_progress_dialog", None)
+            if stale is not None:
+                stale.close()
+                self._forge_progress_dialog = None
             return  # already running
 
         # Use enabled categories from settings if none specified
@@ -2929,12 +2990,33 @@ class MainWindow(QMainWindow):
         self.enhancements_tab.set_operation_running("Generating enhancements…")
         self.statusBar().showMessage("Generating enhancements in background…")
 
-        # Show animated progress dialog
-        self._enhancements_progress_dialog = AnimatedProgressDialog(
-            "Generating enhanced localizations from DataForge…\n\nThis may take a few minutes on the first run.",
-            parent=self,
-            title="Generating Enhancements",
+        enhancements_label = (
+            "Generating enhanced localizations from DataForge…\n\n"
+            "This may take a few minutes on the first run."
         )
+
+        # Reuse the DataForge extraction dialog if it's still open — keeps
+        # the progress UI continuous through the extraction → enhancements
+        # chain so the user doesn't see a "where did the progress bar go?"
+        # gap between the snapshot completing and a fresh dialog opening.
+        # Falls back to a new dialog when called standalone (e.g. from
+        # the Enhancements tab's Generate button).
+        existing = getattr(self, "_forge_progress_dialog", None)
+        if existing is not None:
+            self._enhancements_progress_dialog = existing
+            self._forge_progress_dialog = None
+            existing.setWindowTitle("Generating Enhancements")
+            # Reset bar to indeterminate (0,0) with the new label so the
+            # stale "Snapshotting cache (28000/28000)" 100% bar from the
+            # extraction phase doesn't sit on screen until the first
+            # enhancement progress emit lands.
+            existing.set_progress(0, 0, enhancements_label)
+        else:
+            self._enhancements_progress_dialog = AnimatedProgressDialog(
+                enhancements_label,
+                parent=self,
+                title="Generating Enhancements",
+            )
 
         self._enhancements_worker.progress.connect(self.enhancements_tab.set_operation_progress)
         self._enhancements_worker.progress.connect(self.statusBar().showMessage)
@@ -3001,18 +3083,25 @@ class MainWindow(QMainWindow):
         logger.error(f"DataForge extraction error: {message}")
 
     def _on_dataforge_extract_finished(self, success: bool):
-        if getattr(self, "_forge_progress_dialog", None) is not None:
-            self._forge_progress_dialog.close()
-            self._forge_progress_dialog = None
         self._forge_worker.quit()
         self._forge_worker.wait()
         self._forge_worker = None
         self.enhancements_tab.refresh_forge_status()
 
         if success:
+            # Hand the progress dialog off to the enhancements phase rather
+            # than closing it here. Closing + re-opening leaves a visible
+            # gap between the snapshot completing and the new dialog
+            # appearing — long enough for users to wonder what the app is
+            # doing. _run_enhancements_generation reuses the existing
+            # dialog window if one is present, so the title/label change
+            # is the only thing the user sees.
             self.statusBar().showMessage("DataForge extracted — generating enhancements…")
             self._run_enhancements_generation()
         else:
+            if getattr(self, "_forge_progress_dialog", None) is not None:
+                self._forge_progress_dialog.close()
+                self._forge_progress_dialog = None
             self.enhancements_tab.set_operation_idle()
             self.statusBar().showMessage("DataForge extraction failed — check the Log tab for details")
 
@@ -3062,8 +3151,10 @@ class MainWindow(QMainWindow):
         # Auto-save overrides if there are unsaved edits
         if self.entries and not (self._loader_worker and self._loader_worker.isRunning()):
             try:
-                from src.utils.user_ini_manager import save_user_ini
-                save_user_ini(self.entries, AppSettings.get_user_ini_path())
+                from src.utils.user_ini_manager import save_user_ini, should_autosave_user_ini
+                user_ini_path = AppSettings.get_user_ini_path()
+                if should_autosave_user_ini(self.entries, user_ini_path):
+                    save_user_ini(self.entries, user_ini_path)
             except Exception as e:
                 logger.error(f"Failed to auto-save overrides on exit: {e}")
 

@@ -1,5 +1,5 @@
 """Generate commodity_crafting_enhancements.ini with blueprint usage data."""
-import xml.etree.ElementTree as ET
+from lxml import etree as ET
 from pathlib import Path
 from collections import defaultdict
 import subprocess, re, os, sys

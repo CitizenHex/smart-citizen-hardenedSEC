@@ -94,7 +94,8 @@ class ConfigTab(QWidget):
 
         game_input_layout = QHBoxLayout()
         self.game_path_input = QLineEdit()
-        self.game_path_input.setText(AppSettings.get_sc_install_root())
+        _initial_game_root = AppSettings.get_sc_install_root()
+        self.game_path_input.setText(os.path.normpath(_initial_game_root) if _initial_game_root else "")
         self.game_path_input.setPlaceholderText(
             r"C:\Program Files\Roberts Space Industries\StarCitizen"
         )
@@ -158,7 +159,7 @@ class ConfigTab(QWidget):
 
         data_input_layout = QHBoxLayout()
         self.data_dir_input = QLineEdit()
-        self.data_dir_input.setText(str(AppSettings.get_user_data_dir()))
+        self.data_dir_input.setText(os.path.normpath(str(AppSettings.get_user_data_dir())))
         self.data_dir_input.setToolTip(
             "Smart Citizen's app data root. Each channel gets its own subfolder "
             "inside this directory. Leave blank or click Reset to use Documents\\Smart Citizen."
@@ -234,7 +235,7 @@ class ConfigTab(QWidget):
         import_btn.clicked.connect(self.import_ini_requested.emit)
         button_layout.addWidget(import_btn)
 
-        preview_btn = QPushButton("Preview Merge")
+        preview_btn = QPushButton("Preview Apply")
         preview_btn.setMaximumWidth(150)
         preview_btn.clicked.connect(self.preview_merge)
         button_layout.addWidget(preview_btn)
@@ -289,6 +290,13 @@ class ConfigTab(QWidget):
         """Save the SC install root when editing finishes, and refresh the
         channel combo so per-channel enable/disable reflects the new root."""
         game_path = self.game_path_input.text().strip()
+        if game_path:
+            # Normalize to native separators (backslashes on Windows). Qt's
+            # QFileDialog returns POSIX-style forward slashes and Path.resolve()
+            # also yields forward slashes in some flows; without this the field
+            # toggles between styles depending on how the path arrived.
+            game_path = os.path.normpath(game_path)
+            self.game_path_input.setText(game_path)
         if game_path and not Path(game_path).exists():
             logger.warning(f"SC install root does not exist: {game_path}")
             return
@@ -315,6 +323,8 @@ class ConfigTab(QWidget):
         """Persist the Smart Citizen data folder override."""
         current_dir = AppSettings.get_user_data_dir()
         raw_path = self.data_dir_input.text().strip()
+        if raw_path:
+            raw_path = os.path.normpath(raw_path)
 
         try:
             if raw_path:
@@ -343,7 +353,7 @@ class ConfigTab(QWidget):
             self.data_dir_input.setText(str(current_dir))
             return
 
-        self.data_dir_input.setText(str(new_dir))
+        self.data_dir_input.setText(os.path.normpath(str(new_dir)))
         if new_dir != current_dir:
             logger.info(f"Smart Citizen data folder changed: {current_dir} → {new_dir}")
             self._refresh_p4k_status()
@@ -362,7 +372,7 @@ class ConfigTab(QWidget):
         current_dir = AppSettings.get_user_data_dir()
         AppSettings.set_user_data_dir(None)
         new_dir = AppSettings.get_user_data_dir()
-        self.data_dir_input.setText(str(new_dir))
+        self.data_dir_input.setText(os.path.normpath(str(new_dir)))
         if new_dir != current_dir:
             logger.info(f"Smart Citizen data folder reset to default: {new_dir}")
             self._refresh_p4k_status()
@@ -492,8 +502,15 @@ class ConfigTab(QWidget):
     # ── Preview ──────────────────────────────────────────────────────────────
 
     def preview_merge(self):
-        """Show a dry-run summary of the current merge configuration."""
+        """Show a dry-run summary of what Apply to Game would write.
+
+        Mirrors the post-Apply success dialog so the preview reads as
+        a "what will I get" forecast: per-source key counts, with the
+        Smart Citizen Enhancements row broken down by category, plus
+        a status (Modified / Enhanced / Unmodified / New) tally.
+        """
         try:
+            from collections import Counter
             from src.parser.ini_parser import load_sources_from_settings, load_source_files
 
             sources_dict, hierarchy, _enhancements_cats = load_sources_from_settings()
@@ -511,23 +528,54 @@ class ConfigTab(QWidget):
             # original baseline source. Without this, the User row in the
             # preview always reads 0 unless the user added a brand-new key.
             from src.utils.settings import AppSettings as _AS
-            source_counts = {}
+            source_counts: dict[str, int] = {}
+            # Per-category counter for the enhancements source so we can
+            # mirror the Apply-to-game dialog's breakdown. Other sources
+            # don't get the category split — they're either "Global" (the
+            # whole base) or "User" (always small enough to read at a
+            # glance).
+            enhancement_categories: Counter[str] = Counter()
+            ENHANCEMENTS_SRC = "enhancements"
             for entry in entries:
                 contributing = _AS.SOURCE_USER if entry.custom_value else entry.source_file
                 source_counts[contributing] = source_counts.get(contributing, 0) + 1
+                if contributing == ENHANCEMENTS_SRC:
+                    enhancement_categories[entry.category] += 1
 
-            text = "Merge Preview\n\nMerge Order (top to bottom):\n"
-            for i, name in enumerate(hierarchy, 1):
-                text += f"  {i}. {name.capitalize()} ({source_counts.get(name, 0)} keys)\n"
+            # Filter out zero-key entries before displaying — leftover
+            # `contracts` / `components` / `commodities` / `gear` source
+            # entries from pre-0.7.0 registry state can linger in the
+            # hierarchy even after `migrate_remove_retired_url_sources`
+            # ran, because that migrator only prunes URL-backed paths.
+            # Their content has been folded into the general
+            # enhancements pipeline, so showing them as "X (0 keys)"
+            # is just visual noise. Renumber remaining entries so the
+            # list reads 1, 2, 3, ... without gaps.
+            text = "Apply Preview\n\nMerge Order (top to bottom):\n"
+            visible_index = 0
+            for name in hierarchy:
+                count = source_counts.get(name, 0)
+                if count == 0:
+                    continue
+                visible_index += 1
+                if name == ENHANCEMENTS_SRC:
+                    text += f"  {visible_index}. Smart Citizen Enhancements ({count:,} keys total):\n"
+                    if enhancement_categories:
+                        for cat, ccount in enhancement_categories.most_common():
+                            text += f"       {cat}: {ccount:,}\n"
+                else:
+                    text += f"  {visible_index}. {name.capitalize()} ({count:,} keys)\n"
 
-            text += f"\nTotal Keys: {len(entries)}\nStatus Breakdown:\n"
-            status_counts = {}
+            text += f"\nTotal Keys: {len(entries):,}\nStatus Breakdown:\n"
+            status_counts: dict[str, int] = {}
             for entry in entries:
                 status_counts[entry.status] = status_counts.get(entry.status, 0) + 1
-            for status, count in status_counts.items():
-                text += f"  {status}: {count}\n"
+            # Sort descending by count so the largest bucket leads —
+            # consistent with the Apply dialog's most_common() ordering.
+            for status, count in sorted(status_counts.items(), key=lambda kv: -kv[1]):
+                text += f"  {status}: {count:,}\n"
 
-            QMessageBox.information(self, "Merge Preview", text)
+            QMessageBox.information(self, "Apply Preview", text)
 
         except Exception as e:
             logger.exception(f"Error previewing merge: {e}")

@@ -485,7 +485,16 @@ class AppSettings:
     # releases without being blocked by an earlier run's marker. Always bump
     # the version when expanding RETIRED_URL_SOURCE_NAMES — the prior marker
     # stays in the registry but is ignored.
-    RETIRED_URL_SOURCES_PRUNED = "_retired_url_sources_pruned_v2"
+    #
+    # v3 (1.3.1): re-runs to prune orphan hierarchy entries that v2 left
+    # behind. v2 correctly handled URL-backed and orphan-no-path entries
+    # in the same pass, but users who had a stored local path at v2-run
+    # time (later cleared, leaving an orphan hierarchy slot with no path)
+    # didn't get re-cleaned. v3 re-runs the (idempotent) prune so those
+    # tail-end orphans surface and get removed. Local-path overrides are
+    # still preserved — the URL-vs-local guard inside the migrator is
+    # unchanged.
+    RETIRED_URL_SOURCES_PRUNED = "_retired_url_sources_pruned_v3"
 
     # Sources that were retired in 0.7.0 when the app moved to local Data.p4k
     # extraction + locally-generated *_enhancements.ini files. New installs
@@ -1269,6 +1278,55 @@ class AppSettings:
         return backups_dir
 
     @staticmethod
+    def migrate_dataforge_cache_to_local() -> None:
+        r"""One-shot move of the DataForge XML cache from Documents → AppData\Local.
+
+        Pre-1.0 the DataForge cache lived inside get_cache_dir() (Documents\…),
+        putting ~1.4 GB of extracted XMLs into the OneDrive sync tree. Moving it
+        to AppData\Local eliminates per-file OneDrive / Defender / Indexer hooks
+        during extraction and keeps large build-artefact files out of cloud sync.
+
+        Idempotent: no-ops when the old path is already absent. If the new
+        location already has a valid stamp the old directory is cleaned up and
+        the migration is considered complete.
+        """
+        import shutil
+
+        old_dir = AppSettings.get_cache_dir() / "dataforge"
+        local_appdata = Path(
+            os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))
+        )
+        new_dir = (
+            local_appdata / "Smart Citizen"
+            / AppSettings.get_active_channel()
+            / "cache" / "dataforge"
+        )
+
+        if not old_dir.exists():
+            return
+
+        if (new_dir / ".p4k_mtime").exists():
+            logger.info(
+                f"DataForge cache already at new location; removing old copy at {old_dir}"
+            )
+            try:
+                shutil.rmtree(old_dir, ignore_errors=True)
+            except Exception as e:
+                logger.warning(f"Could not remove old DataForge cache at {old_dir}: {e}")
+            return
+
+        logger.info(f"Migrating DataForge cache: {old_dir} → {new_dir}")
+        try:
+            new_dir.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(old_dir), str(new_dir))
+            logger.info("DataForge cache migration complete")
+        except Exception as e:
+            logger.warning(
+                f"DataForge cache migration failed ({e}); "
+                "cache will be re-extracted on next use"
+            )
+
+    @staticmethod
     def migrate_data_to_documents() -> None:
         """Copy user data files from old AppData location to new Documents location.
 
@@ -1342,8 +1400,23 @@ class AppSettings:
 
     @staticmethod
     def get_dataforge_cache_dir() -> Path:
-        """Return the directory where DataForge entity XMLs are cached after unforge."""
-        return AppSettings.get_cache_dir() / 'dataforge'
+        """Return the directory where DataForge entity XMLs are cached after unforge.
+
+        Stored under AppData\\Local (never OneDrive-synced) rather than
+        Documents. The DataForge cache is ~1.4 GB of extracted XMLs — keeping
+        it out of the OneDrive tree eliminates per-file sync hooks during
+        extraction and avoids cloud-uploading large build artefacts.
+        """
+        local_appdata = Path(
+            os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))
+        )
+        cache_dir = (
+            local_appdata / "Smart Citizen"
+            / AppSettings.get_active_channel()
+            / "cache" / "dataforge"
+        )
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        return cache_dir
 
     @staticmethod
     def get_p4k_path() -> Path:

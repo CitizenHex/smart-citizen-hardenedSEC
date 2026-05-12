@@ -17,16 +17,19 @@ Usage:
   python scripts/generate_enhancements_ini.py [base_ini_path [dataforge_cache_dir]]
 """
 
+import io
 import logging
 import pickle
 import re
 import sys
-import xml.etree.ElementTree as ET
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, Optional
+from lxml import etree as ET
 
 logger = logging.getLogger(__name__)
+
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -60,9 +63,28 @@ def _get_default_cache_dir() -> Path:
         return _get_documents_dir() / "Smart Citizen" / "LIVE" / "cache"
 
 
+def _get_default_forge_dir() -> Path:
+    """Resolve the DataForge cache directory for standalone CLI defaults.
+
+    Mirrors AppSettings.get_dataforge_cache_dir() — AppData\\Local, not
+    Documents, so the ~1.4 GB XML cache stays out of OneDrive.
+    """
+    try:
+        if str(PROJECT_ROOT) not in sys.path:
+            sys.path.insert(0, str(PROJECT_ROOT))
+        from src.utils.settings import AppSettings
+        return AppSettings.get_dataforge_cache_dir()
+    except (ImportError, OSError) as e:
+        logger.debug(f"Falling back to LocalAppData forge default: {e}")
+        local_appdata = Path(
+            os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))
+        )
+        return local_appdata / "Smart Citizen" / "LIVE" / "cache" / "dataforge"
+
+
 APP_CACHE_DIR    = _get_default_cache_dir()
 DEFAULT_BASE_INI = APP_CACHE_DIR / "base.ini"
-DEFAULT_FORGE_DIR = APP_CACHE_DIR / "dataforge"
+DEFAULT_FORGE_DIR = _get_default_forge_dir()
 
 OUTPUT_DIR = APP_CACHE_DIR
 
@@ -87,8 +109,10 @@ def parse_ini(path: Path) -> dict[str, str]:
 
 def write_ini(path: Path, entries: dict[str, str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    lines = [f"{k}={v}" for k, v in sorted(entries.items())]
-    path.write_text("\n".join(lines), encoding="utf-8")
+    buf = io.StringIO()
+    for k, v in sorted(entries.items()):
+        buf.write(f"{k}={v}\n")
+    path.write_text(buf.getvalue(), encoding="utf-8")
     logger.info(f"Written {len(entries):,} entries -> {path}")
 
 
@@ -98,6 +122,44 @@ def write_ini(path: Path, entries: dict[str, str]) -> None:
 # them under cache/dataforge/.lookups/ keyed on the .p4k_mtime stamp written
 # by pak_extractor.py. When DataForge is re-extracted, the stamp changes and
 # the cache is invalidated automatically.
+
+# Per-cache builder version. Bump the value whenever the builder for that
+# cache changes its WHAT-it-collects semantics (new source dirs, schema
+# additions, etc.) so existing pickled results from before the change get
+# detected as stale and rebuilt — the .p4k_mtime fingerprint alone can't
+# catch this because the underlying DataForge data hasn't changed, only
+# our parsing of it has.
+#
+# History:
+#   blueprint_pools v2 (1.3.1) — walks all crafting/blueprintrewards/
+#     subdirs (was: only blueprintmissionpools/). Adds ~40 new pool
+#     records that 4.8 PTU references via 48blueprints/ + a new
+#     xenothreat2rewards/ dir.
+#   blueprint_pools v3 (1.3.1) — fallback name from blueprint XML
+#     filename when the entityClass UUID isn't __ref'd anywhere in
+#     the cache (PTU WIP state — blueprints shipped ahead of their
+#     entity records, e.g. fuel-nozzle blueprints in 4.8). Without
+#     this the pool's names list ended up empty and the entire pool
+#     was dropped, swallowing the [BP?] tag for those missions.
+#   blueprint_pools v4 (1.3.1) — second-tier filename-stem fallback
+#     (entity_names_by_filename) before falling through to the ugly
+#     filename-derived placeholder. Recovers real localized names
+#     ("Norfield", "Harkin", "RN-7s") for fuel-nozzle blueprints
+#     whose entityClass UUIDs are CIG-WIP-broken — the entity XML
+#     itself ships in entities/scitem/ with the matching stem and
+#     a clean Localization Name attribute, we just couldn't reach
+#     it via UUID. v3 produced "Nozzle Fuelgiver Grin Nozzlefast";
+#     v4 produces "Norfield".
+#   scitem_lookups v2 (1.3.1) — return tuple shape changed from
+#     (mag_lookup, entity_names) to (mag_lookup, entity_names,
+#     entity_names_by_filename) to feed the v4 blueprint_pools
+#     filename-stem fallback. v1 pickles will fail to unpack into
+#     the new 3-tuple, so we MUST invalidate them.
+_LOOKUP_VERSIONS: dict[str, str] = {
+    "blueprint_pools": "v4",
+    "scitem_lookups": "v2",
+}
+
 
 def _dataforge_cache_key(forge_dir: Path) -> str:
     """Return a stable fingerprint for the current DataForge cache.
@@ -121,21 +183,28 @@ def _dataforge_cache_key(forge_dir: Path) -> str:
 def _cached_lookup(forge_dir: Path, name: str, builder):
     """Memoize *builder*'s output to cache/dataforge/.lookups/{name}.pkl.
 
-    The cache is invalidated when _dataforge_cache_key() changes. On cache
-    hit the pickled result is returned; on miss we call builder() and write
-    the result back. Pickle errors silently fall back to rebuilding.
+    Cache key is ``{builder_version}:{dataforge_fingerprint}``. Either side
+    changing invalidates the cache: re-extracting Data.p4k changes the
+    fingerprint; updating the builder's collection logic bumps the version
+    in _LOOKUP_VERSIONS. Pickle errors silently fall back to rebuilding.
     """
     cache_dir = forge_dir / ".lookups"
     cache_file = cache_dir / f"{name}.pkl"
-    key = _dataforge_cache_key(forge_dir)
+    builder_version = _LOOKUP_VERSIONS.get(name, "v1")
+    key = f"{builder_version}:{_dataforge_cache_key(forge_dir)}"
 
     if cache_file.exists():
         try:
             with cache_file.open("rb") as f:
                 stored_key, value = pickle.load(f)
             if stored_key == key:
-                logger.info(f"Lookup cache hit: {name}")
+                logger.info(f"Lookup cache hit: {name} ({builder_version})")
                 return value
+            else:
+                logger.info(
+                    f"Lookup cache invalidated: {name} "
+                    f"(stored={stored_key!r}, expected={key!r})"
+                )
         except (pickle.PickleError, OSError, EOFError, ValueError):
             pass
 
@@ -147,6 +216,34 @@ def _cached_lookup(forge_dir: Path, name: str, builder):
     except (pickle.PickleError, OSError) as e:
         logger.debug(f"Could not write lookup cache {name}: {e}")
     return value
+
+
+def _build_xml_path_index(records_dir: Path) -> dict[str, list[str]]:
+    """Single-pass walk of records_dir → {rel_posix_subdir: [sorted_abs_path_str, ...]}.
+
+    Built once per DataForge cache version and pickled via _cached_lookup so
+    the OS directory walk only happens on a cold cache. Callers use
+    _index_rglob() to get the file list for a given directory subtree.
+    """
+    idx: dict[str, list[str]] = defaultdict(list)  # type: ignore[assignment]
+    for xml_file in records_dir.rglob("*.xml"):
+        key = xml_file.parent.relative_to(records_dir).as_posix()
+        idx[key].append(str(xml_file))
+    return {k: sorted(v) for k, v in idx.items()}
+
+
+def _index_rglob(xml_path_index: dict, entity_dir: Path, records_dir: Path) -> list[Path]:
+    """Return all XML paths under entity_dir using the pre-built index.
+
+    Equivalent to list(entity_dir.rglob("*.xml")) but O(#dirs) instead of
+    O(#files) when the index is already in memory.
+    """
+    prefix = entity_dir.relative_to(records_dir).as_posix()
+    result: list[Path] = []
+    for key, paths in xml_path_index.items():
+        if key == prefix or key.startswith(prefix + "/"):
+            result.extend(Path(p) for p in paths)
+    return result
 
 
 ENHANCEMENT_SEPARATOR = "\\n\\n--- STATS ---\\n"
@@ -1404,36 +1501,100 @@ def enhancements_mission(root: ET.Element, reputation_lookup: dict[str, int] | N
     return "\\n".join(lines) if lines else ""
 
 
+def _name_from_blueprint_filename(bp_xml: Path) -> str:
+    """Best-effort fallback display name from a blueprint XML's filename.
+
+    Used when the blueprint's entityClass UUID isn't resolvable in the
+    entity_names lookup (CIG sometimes ships blueprint references ahead
+    of the entity definitions in PTU patches). The result isn't pretty
+    but it's recognisable enough for users to know what reward category
+    a mission pays — much better than dropping the whole BP tag.
+
+    Examples:
+        bp_craft_nozzle_fuelgiver_grin_nozzlefast.xml
+            → "Nozzle Fuelgiver Grin Nozzlefast"
+        bp_craft_salvage_modifier_scraper_large.xml
+            → "Salvage Modifier Scraper Large"
+        bp_rewards_eckhartsecuritykillnpcboss.xml
+            → "Eckhartsecuritykillnpcboss"
+    """
+    stem = bp_xml.stem
+    # Strip common prefixes — bp_craft_, bp_rewards_, bp_ — so the
+    # surfaced part is the descriptive tail.
+    for prefix in ("bp_craft_", "bp_rewards_", "bp_"):
+        if stem.startswith(prefix):
+            stem = stem[len(prefix):]
+            break
+    # Replace separators with spaces and title-case.
+    return stem.replace("_", " ").replace("-", " ").title()
+
+
 def build_blueprint_pool_lookup(
     pool_dir: Path,
     bp_dir: Path,
     entity_names: dict[str, str],
+    entity_names_by_filename: dict[str, str] | None = None,
 ) -> dict[str, list[str]]:
     """Build mapping of blueprint pool UUID → list of craftable item display names.
 
+    Resolution chain for each blueprint:
+      1. Look up the blueprint's `entityClass` UUID in `entity_names`
+         (first-class path; works for the bulk of items in stable patches).
+      2. If 1 misses (CIG WIP — blueprint references an entityClass UUID
+         that isn't __ref'd anywhere yet), look up the blueprint XML's
+         filename stem (minus `bp_craft_` prefix) in
+         `entity_names_by_filename`. CIG's authored layout puts the
+         entity XML in `entities/scitem/...` with the same stem; the
+         entity's localized Name attribute resolves cleanly even if the
+         UUID linkage is broken. This recovers real product names like
+         "Norfield" or "Harkin" instead of falling all the way through
+         to filename-derived placeholders.
+      3. If 2 also misses, derive a name from the blueprint XML's filename
+         (`Nozzle Fuelgiver Grin Nozzlefast`-style — recognisable but
+         not pretty). Set as a backstop so the BP tag still fires.
+
     Args:
-        pool_dir: Directory containing BlueprintPoolRecord XMLs (blueprintmissionpools)
-        bp_dir: Directory containing CraftingBlueprintRecord XMLs (blueprints/crafting)
-        entity_names: UUID → display name lookup for resolving crafted item entities
+        pool_dir: Directory containing BlueprintPoolRecord XMLs.
+        bp_dir: Directory containing CraftingBlueprintRecord XMLs.
+        entity_names: UUID → display name (built from entities/scitem/).
+        entity_names_by_filename: filename-stem → display name (same
+            source). Optional — without it the resolver skips path 2.
 
     Returns:
         Dict mapping pool __ref UUID → sorted list of item display names
     """
+    entity_names_by_filename = entity_names_by_filename or {}
     if not pool_dir.exists() or not bp_dir.exists():
         return {}
 
-    # Index all blueprint files by __ref UUID → entityClass UUID
-    bp_entity: dict[str, str] = {}
+    # Index all blueprint files by __ref UUID → (entityClass UUID,
+    # entity-stem-for-filename-lookup, filename-derived backstop name).
+    # The resolver below tries entity_names[uuid] first, then
+    # entity_names_by_filename[stem-without-bp_craft_], then the
+    # filename-derived string as a last resort.
+    bp_entity: dict[str, tuple[str, str, str]] = {}
     for xml_file in bp_dir.rglob("*.xml"):
         try:
             root = ET.parse(xml_file).getroot()
             ref = root.get("__ref", "")
             if not ref:
                 continue
+            entity_class = ""
             for elem in root.iter():
                 if _poly_type(elem) == "CraftingProcess_Creation":
-                    bp_entity[ref] = elem.get("entityClass", "")
+                    entity_class = elem.get("entityClass", "")
                     break
+            # Derive the entity-stem from the bp filename for the
+            # filename-fallback lookup. CIG's convention is
+            # `bp_craft_<stem>.xml` for the blueprint and `<stem>.xml`
+            # for the entity (e.g. bp_craft_nozzle_fuelgiver_grin_nozzlefast
+            # ↔ nozzle_fuelgiver_grin_nozzlefast).
+            stem = xml_file.stem
+            for prefix in ("bp_craft_", "bp_rewards_", "bp_"):
+                if stem.startswith(prefix):
+                    stem = stem[len(prefix):]
+                    break
+            bp_entity[ref] = (entity_class, stem.lower(), _name_from_blueprint_filename(xml_file))
         except ET.ParseError:
             continue
 
@@ -1449,11 +1610,23 @@ def build_blueprint_pool_lookup(
             for elem in root.iter("BlueprintReward"):
                 bp_ref = elem.get("blueprintRecord", "")
                 if bp_ref and bp_ref in bp_entity:
-                    entity_ref = bp_entity[bp_ref]
+                    entity_ref, entity_stem, filename_fallback = bp_entity[bp_ref]
+                    # Tier 1: UUID match (best — gives the localized
+                    # display name from the entity's Localization Name
+                    # attribute, e.g. "Norfield" / "Harkin" / "RN-7s").
                     if entity_ref in entity_names:
                         name = entity_names[entity_ref]
-                        if name not in names:
-                            names.append(name)
+                    # Tier 2: filename-stem match. Recovers real product
+                    # names when CIG ships the blueprint ahead of the
+                    # entity-UUID linkage (PTU 4.8 fuel-nozzle pattern).
+                    elif entity_stem in entity_names_by_filename:
+                        name = entity_names_by_filename[entity_stem]
+                    # Tier 3: filename-derived placeholder. Ugly but
+                    # ensures the BP tag still surfaces.
+                    else:
+                        name = filename_fallback
+                    if name and name not in names:
+                        names.append(name)
             if names:
                 pool_items[pool_uuid] = sorted(names)
         except ET.ParseError:
@@ -1463,7 +1636,11 @@ def build_blueprint_pool_lookup(
     return pool_items
 
 
-def _build_template_lookup(templates_dir: Path) -> dict[str, tuple[str, str]]:
+def _build_template_lookup(
+    templates_dir: Path,
+    xml_path_index: dict | None = None,
+    records_dir: Path | None = None,
+) -> dict[str, tuple[str, str]]:
     """Build mapping of contract template UUID → (title_loc_key, desc_loc_key).
 
     Some contracts don't have inline ContractStringParam elements and instead
@@ -1473,7 +1650,12 @@ def _build_template_lookup(templates_dir: Path) -> dict[str, tuple[str, str]]:
     if not templates_dir.exists():
         return lookup
 
-    for xml_file in templates_dir.rglob("*.xml"):
+    _files = (
+        _index_rglob(xml_path_index, templates_dir, records_dir)
+        if xml_path_index is not None and records_dir is not None
+        else templates_dir.rglob("*.xml")
+    )
+    for xml_file in _files:
         try:
             root = ET.parse(xml_file).getroot()
             ref = root.get("__ref", "")
@@ -1529,6 +1711,8 @@ def scan_contract_generators(
     reputation_lookup: dict[str, int] | None = None,
     blueprint_pools: dict[str, list[str]] | None = None,
     entity_names: dict[str, str] | None = None,
+    xml_path_index: dict | None = None,
+    records_dir: Path | None = None,
 ):
     """Scan contract generator XMLs for mission variants with different systems.
 
@@ -1555,10 +1739,15 @@ def scan_contract_generators(
 
     # Build template lookup for contracts that inherit title/desc from templates
     templates_dir = contractgen_dir.parent / "contracttemplates"
-    template_lookup = _build_template_lookup(templates_dir)
+    template_lookup = _build_template_lookup(templates_dir, xml_path_index=xml_path_index, records_dir=records_dir)
 
+    _contractgen_files = (
+        _index_rglob(xml_path_index, contractgen_dir, records_dir)
+        if xml_path_index is not None and records_dir is not None
+        else contractgen_dir.rglob("*.xml")
+    )
     try:
-        for xml_file in contractgen_dir.rglob("*.xml"):
+        for xml_file in _contractgen_files:
             try:
                 root = ET.parse(xml_file).getroot()
             except ET.ParseError:
@@ -1809,12 +1998,21 @@ def scan_contract_generators(
     return missions, mission_blueprints, mission_bp_chance, mission_items
 
 
-def _resolve_resource_uuids(bp_dir: Path) -> set[str]:
+def _resolve_resource_uuids(
+    bp_dir: Path,
+    xml_path_index: dict | None = None,
+    records_dir: Path | None = None,
+) -> set[str]:
     """Collect all CraftingCost_Resource UUIDs referenced in blueprint XMLs."""
     uuids: set[str] = set()
     if not bp_dir.exists():
         return uuids
-    for xml_file in bp_dir.rglob("*.xml"):
+    _files = (
+        _index_rglob(xml_path_index, bp_dir, records_dir)
+        if xml_path_index is not None and records_dir is not None
+        else bp_dir.rglob("*.xml")
+    )
+    for xml_file in _files:
         try:
             root = ET.parse(xml_file).getroot()
             for elem in root.iter():
@@ -1861,12 +2059,22 @@ def _normalize_commodity_name(raw: str) -> str:
     return n
 
 
-def _build_uuid_to_commodity(uuids: set[str], carryables_dir: Path) -> dict[str, str]:
+def _build_uuid_to_commodity(
+    uuids: set[str],
+    carryables_dir: Path,
+    xml_path_index: dict | None = None,
+    records_dir: Path | None = None,
+) -> dict[str, str]:
     """Map resource UUIDs to commodity internal names by scanning carryable entity files."""
     uuid_names: dict[str, str] = {}
     if not carryables_dir.exists() or not uuids:
         return uuid_names
-    for xml_file in carryables_dir.rglob("*.xml"):
+    _files = (
+        _index_rglob(xml_path_index, carryables_dir, records_dir)
+        if xml_path_index is not None and records_dir is not None
+        else carryables_dir.rglob("*.xml")
+    )
+    for xml_file in _files:
         try:
             content = xml_file.read_text(encoding="utf-8", errors="ignore")
             matched_uuids = [u for u in uuids if u in content]
@@ -1917,7 +2125,6 @@ def _discover_commodity_loc_pairs(internal_name: str, loc: dict[str, str]) -> li
 
 def _condense_crafted_items(items_list: list[tuple[str, str]]) -> list[str]:
     """Condense crafted items into readable summary lines, grouped by blueprint category."""
-    from collections import defaultdict
     by_cat: dict[str, list[str]] = defaultdict(list)
     for cat, name in items_list:
         by_cat[cat].append(name)
@@ -1969,13 +2176,14 @@ def scan_crafting_blueprints(
     carryables_dir: Path,
     entity_names: dict[str, str],
     loc: dict[str, str],
+    xml_path_index: dict | None = None,
+    records_dir: Path | None = None,
 ) -> dict[str, str]:
     """Scan crafting blueprints and produce commodity_crafting_stats entries.
 
     Returns a dict of localization key → augmented value for commodity names and
     descriptions that are used as crafting materials.
     """
-    from collections import defaultdict
     import os
 
     if not bp_dir.exists():
@@ -1983,16 +2191,21 @@ def scan_crafting_blueprints(
         return {}
 
     # Step 1: Collect resource UUIDs from blueprints
-    resource_uuids = _resolve_resource_uuids(bp_dir)
+    resource_uuids = _resolve_resource_uuids(bp_dir, xml_path_index=xml_path_index, records_dir=records_dir)
     logger.info(f"Found {len(resource_uuids)} unique resource UUIDs in blueprints")
 
     # Step 2: Resolve UUIDs to commodity names via carryables
-    uuid_names = _build_uuid_to_commodity(resource_uuids, carryables_dir)
+    uuid_names = _build_uuid_to_commodity(resource_uuids, carryables_dir, xml_path_index=xml_path_index, records_dir=records_dir)
     logger.info(f"Resolved {len(uuid_names)} resource UUIDs to commodity names")
 
     # Step 3: Parse blueprints to build commodity → crafted items map
     commodity_items: dict[str, list[tuple[str, str]]] = defaultdict(list)
-    for xml_file in sorted(bp_dir.rglob("*.xml")):
+    _bp_files = (
+        sorted(_index_rglob(xml_path_index, bp_dir, records_dir))
+        if xml_path_index is not None and records_dir is not None
+        else sorted(bp_dir.rglob("*.xml"))
+    )
+    for xml_file in _bp_files:
         try:
             root = ET.parse(xml_file).getroot()
             rel = xml_file.relative_to(bp_dir)
@@ -2615,12 +2828,19 @@ def scan_spaceships(
     controller_lookup: dict,
     loc: dict,
     armor_lookup: dict | None = None,
+    xml_path_index: dict | None = None,
+    records_dir: Path | None = None,
 ) -> dict[str, str]:
     """Scan DataForge spaceship entities and generate ship stat descriptions."""
     out: dict[str, str] = {}
     matched = missed = skipped = 0
 
-    for xml_file in sorted(spaceships_dir.glob("*.xml")):
+    if xml_path_index is not None and records_dir is not None:
+        key = spaceships_dir.relative_to(records_dir).as_posix()
+        xml_file_list = sorted(Path(p) for p in xml_path_index.get(key, []))
+    else:
+        xml_file_list = sorted(spaceships_dir.glob("*.xml"))
+    for xml_file in xml_file_list:
         # Skip AI variants, templates, and unmanned variants
         stem = xml_file.stem.lower()
         if "_pu_ai_" in stem or "_ai_template" in stem or "_unmanned_" in stem:
@@ -2673,7 +2893,11 @@ def scan_spaceships(
 
 # ── Ammo lookup builder ───────────────────────────────────────────────────────
 
-def build_ammo_lookup(ammo_dir: Path) -> dict[str, ET.Element]:
+def build_ammo_lookup(
+    ammo_dir: Path,
+    xml_path_index: dict | None = None,
+    records_dir: Path | None = None,
+) -> dict[str, ET.Element]:
     """Parse all ammo XML files and index them by their __ref GUID.
 
     Falls back to root tag name if __ref is not available.
@@ -2681,7 +2905,12 @@ def build_ammo_lookup(ammo_dir: Path) -> dict[str, ET.Element]:
     lookup: dict[str, ET.Element] = {}
     if not ammo_dir.exists():
         return lookup
-    for xml_file in ammo_dir.rglob("*.xml"):
+    xml_files = (
+        _index_rglob(xml_path_index, ammo_dir, records_dir)
+        if xml_path_index is not None and records_dir is not None
+        else ammo_dir.rglob("*.xml")
+    )
+    for xml_file in xml_files:
         try:
             root = ET.parse(xml_file).getroot()
             # Primary: use __ref attribute (GUID)
@@ -2699,13 +2928,24 @@ def build_ammo_lookup(ammo_dir: Path) -> dict[str, ET.Element]:
 def build_scitem_lookups(
     scitem_dir: Path,
     loc: dict[str, str] | None = None,
-) -> tuple[dict[str, tuple[str, str]], dict[str, str]]:
-    """Single-pass scan of scitem XMLs that produces two lookups:
+    xml_path_index: dict | None = None,
+    records_dir: Path | None = None,
+) -> tuple[dict[str, tuple[str, str]], dict[str, str], dict[str, str]]:
+    """Single-pass scan of scitem XMLs that produces three lookups:
 
     * mag_lookup: magazine entity class name → (ammoParamsRecord, maxAmmoCount)
       — derived from SAmmoContainerComponentParams elements.
     * entity_names: __ref UUID → display name (resolved via loc)
       — first @-prefixed Name attribute on any element.
+    * entity_names_by_filename: XML filename stem → display name
+      — same name as above but indexed by the XML filename instead of
+      __ref UUID. Used as a second-tier fallback by
+      build_blueprint_pool_lookup when the blueprint references an
+      entityClass UUID that doesn't __ref any entity record (CIG WIP
+      pattern in PTU patches — blueprints land before the entity UUID
+      assignments are finalised). The blueprint's own filename minus
+      its `bp_craft_` / `bp_rewards_` prefix matches the entity XML's
+      filename in CIG's authored layout.
 
     Walking the scitem tree once instead of twice (magazines + entity names
     used to iterate independently) cuts ~30s off the run since there are
@@ -2713,12 +2953,18 @@ def build_scitem_lookups(
     """
     mag_lookup: dict[str, tuple[str, str]] = {}
     entity_names: dict[str, str] = {}
+    entity_names_by_filename: dict[str, str] = {}
     loc = loc or {}
     if not scitem_dir.exists():
-        return mag_lookup, entity_names
+        return mag_lookup, entity_names, entity_names_by_filename
 
     null_uuid = "00000000-0000-0000-0000-000000000000"
-    for xml_file in scitem_dir.rglob("*.xml"):
+    xml_files = (
+        _index_rglob(xml_path_index, scitem_dir, records_dir)
+        if xml_path_index is not None and records_dir is not None
+        else scitem_dir.rglob("*.xml")
+    )
+    for xml_file in xml_files:
         try:
             root = ET.parse(xml_file).getroot()
         except ET.ParseError:
@@ -2727,7 +2973,8 @@ def build_scitem_lookups(
         ref = root.get("__ref", "")
         entity_name = root.tag.split(".")[-1] if "." in root.tag else xml_file.stem
         found_mag = False
-        found_name = ref == ""  # skip name lookup entirely if no __ref
+        found_name = False
+        resolved_display_name: str | None = None
 
         for elem in root.iter():
             if not found_mag and _poly_type(elem) == "SAmmoContainerComponentParams":
@@ -2740,17 +2987,25 @@ def build_scitem_lookups(
                 name_attr = elem.get("Name", "")
                 if name_attr and name_attr.startswith("@"):
                     loc_key = name_attr.lstrip("@")
-                    entity_names[ref] = loc.get(loc_key, loc_key)
+                    resolved_display_name = loc.get(loc_key, loc_key)
+                    if ref:
+                        entity_names[ref] = resolved_display_name
                     found_name = True
             if found_mag and found_name:
                 break
 
-    return mag_lookup, entity_names
+        # Index by filename stem regardless of whether the entity has a
+        # __ref — the filename fallback in BP resolution doesn't care
+        # about the UUID, only the display name.
+        if resolved_display_name:
+            entity_names_by_filename[xml_file.stem.lower()] = resolved_display_name
+
+    return mag_lookup, entity_names, entity_names_by_filename
 
 
 def build_magazine_lookup(scitem_dir: Path) -> dict[str, tuple[str, str]]:
     """Back-compat wrapper around build_scitem_lookups — returns magazines only."""
-    mag_lookup, _ = build_scitem_lookups(scitem_dir)
+    mag_lookup, _, _ = build_scitem_lookups(scitem_dir)
     return mag_lookup
 
 
@@ -2766,6 +3021,8 @@ def scan_entity_dir(
     name_tag_fn = None,
     separator: str = ENHANCEMENT_SEPARATOR,
     capture_all: bool = False,
+    xml_path_index: dict | None = None,
+    records_dir: Path | None = None,
 ) -> dict[str, str]:
     """
     Scan all XML files in entity_dir, extract localization key + enhancements,
@@ -2784,7 +3041,12 @@ def scan_entity_dir(
     out: dict[str, str] = {}
     matched = missed = skipped = 0
 
-    for xml_file in entity_dir.rglob("*.xml"):
+    xml_files = (
+        _index_rglob(xml_path_index, entity_dir, records_dir)
+        if xml_path_index is not None and records_dir is not None
+        else entity_dir.rglob("*.xml")
+    )
+    for xml_file in xml_files:
         try:
             root = ET.parse(xml_file).getroot()
         except ET.ParseError:
@@ -2844,6 +3106,523 @@ def scan_entity_dir(
     return out
 
 
+# ── Process-pool entry points ─────────────────────────────────────────────────
+# Module-level (not closures) so they can be called cleanly from the thread pool
+# and reasoned about in isolation without capturing main()'s local scope.
+# Each receives the shared context dict built in main() and returns its output.
+# Progress ticks are intentionally omitted here — the main process ticks once
+# per future as it completes, keeping all Qt signal emission off subprocesses.
+
+def _run_gen_components(ctx: dict) -> dict[str, str]:
+    loc             = ctx["loc"]
+    ships_scitem    = ctx["ships_scitem"]
+    xml_path_index  = ctx.get("xml_path_index")
+    records         = ctx["records"]
+    out: dict[str, str] = {}
+    for subdir, fn in [
+        ("shieldgenerator", enhancements_shield),
+        ("cooler",          enhancements_cooler),
+        ("powerplant",      enhancements_powerplant),
+        ("quantumdrive",    enhancements_quantum_drive),
+    ]:
+        out.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc, generate_name_tags=True,
+                                   xml_path_index=xml_path_index, records_dir=records))
+    radar_dir = ships_scitem / "radar"
+    if radar_dir.exists():
+        out.update(scan_entity_dir(radar_dir, enhancements_radar, loc=loc, generate_name_tags=True,
+                                   xml_path_index=xml_path_index, records_dir=records))
+
+    comp_types = ("COOL", "SHLD", "POWR", "QDRV", "RADR")
+    sibling_count = 0
+    for key, value in list(out.items()):
+        if not key.endswith("_SCItem"):
+            continue
+        base_key = key[:-len("_SCItem")]
+
+        # Mirror to the bare-key variant (just strip ``_SCItem``). CIG
+        # ships some components with BOTH ``item_DescX_SCItem`` and a bare
+        # ``item_DescX`` holding the same stock description — e.g. the S3
+        # Juno Starwerk and ARCCorp QDRVs on PTU 4.8 (Agni / Vesta /
+        # Fissure / Impulse). The game can render either key, and without
+        # this mirror the bare-key variant shows stock text with no
+        # annotations / stats / [CLASS-Sx-grade] tag. Done BEFORE the
+        # comp_types underscore-variant check below so both legacy
+        # siblings get propagated if both exist in stock.
+        if base_key in loc and base_key not in out:
+            if base_key.startswith("item_Desc"):
+                base_value = loc[base_key]
+                if ENHANCEMENT_SEPARATOR in value:
+                    out[base_key] = base_value + value[value.index(ENHANCEMENT_SEPARATOR):]
+                else:
+                    out[base_key] = value
+            elif base_key.startswith("item_Name"):
+                tag_match = re.search(r"\s(\[[A-Z0-9\-]+\])\s*$", value)
+                if tag_match:
+                    out[base_key] = f"{loc[base_key]} {tag_match.group(1)}"
+                else:
+                    out[base_key] = value
+            else:
+                out[base_key] = value
+            sibling_count += 1
+
+        for ct in comp_types:
+            desc_prefix = f"item_Desc{ct}_"
+            if base_key.startswith(desc_prefix):
+                sibling = f"item_Desc_{ct}_{base_key[len(desc_prefix):]}"
+                if sibling not in out and sibling in loc:
+                    sibling_base = loc[sibling]
+                    if ENHANCEMENT_SEPARATOR in value:
+                        out[sibling] = sibling_base + value[value.index(ENHANCEMENT_SEPARATOR):]
+                    else:
+                        out[sibling] = value
+                    sibling_count += 1
+                break
+            name_prefix = f"item_name{ct}_"
+            if base_key.startswith(name_prefix):
+                sibling = f"item_Name_{ct}_{base_key[len(name_prefix):]}"
+                if sibling not in out and sibling in loc:
+                    out[sibling] = value
+                    sibling_count += 1
+                break
+
+    inv_sibling_count = 0
+    for key, value in list(out.items()):
+        for prefix_with, prefix_without in (
+            ("item_Desc_", "item_Desc"),
+            ("item_Name_", "item_Name"),
+        ):
+            if not key.startswith(prefix_with):
+                continue
+            rest = key[len(prefix_with):]
+            if not rest or "_" not in rest:
+                continue
+            head = rest.split("_", 1)[0]
+            if head not in comp_types:
+                continue
+            legacy_sibling = prefix_without + rest
+            if legacy_sibling in out or legacy_sibling not in loc:
+                continue
+            if prefix_with == "item_Desc_":
+                legacy_base = loc[legacy_sibling]
+                if ENHANCEMENT_SEPARATOR in value:
+                    out[legacy_sibling] = legacy_base + value[value.index(ENHANCEMENT_SEPARATOR):]
+                else:
+                    out[legacy_sibling] = value
+            else:
+                tag_match = re.search(r"\s(\[[A-Z0-9\-]+\])\s*$", value)
+                if tag_match:
+                    out[legacy_sibling] = f"{loc[legacy_sibling]} {tag_match.group(1)}"
+                else:
+                    out[legacy_sibling] = value
+            inv_sibling_count += 1
+            break
+
+    if sibling_count or inv_sibling_count:
+        logger.info(
+            f"Propagated enhancements to {sibling_count} _SCItem siblings "
+            f"and {inv_sibling_count} legacy no-underscore siblings"
+        )
+    return out
+
+
+def _run_gen_missiles(ctx: dict) -> dict[str, str]:
+    loc            = ctx["loc"]
+    ships_scitem   = ctx["ships_scitem"]
+    xml_path_index = ctx.get("xml_path_index")
+    records        = ctx["records"]
+    out: dict[str, str] = {}
+    weapons_dir = ships_scitem / "weapons"
+    for missile_dir in [weapons_dir / "missiles", weapons_dir / "rocket_pods"]:
+        if missile_dir.exists():
+            out.update(scan_entity_dir(
+                missile_dir, enhancements_missile,
+                loc=loc, generate_name_tags=True, name_tag_fn=_missile_name_tag,
+                xml_path_index=xml_path_index, records_dir=records,
+            ))
+    return out
+
+
+def _run_gen_ship_weapons(ctx: dict) -> dict[str, str]:
+    loc            = ctx["loc"]
+    ships_scitem   = ctx["ships_scitem"]
+    vehicle_ammo   = ctx["vehicle_ammo"]
+    xml_path_index = ctx.get("xml_path_index")
+    records        = ctx["records"]
+    out: dict[str, str] = {}
+    weapons_dir = ships_scitem / "weapons"
+    if weapons_dir.exists():
+        out = scan_entity_dir(
+            weapons_dir,
+            lambda root: enhancements_weapon(root, vehicle_ammo, loc),
+            loc=loc,
+            xml_path_index=xml_path_index, records_dir=records,
+        )
+    logger.info(f"Finished ship weapons ({len(out)} entries)")
+    return out
+
+
+def _run_gen_fps_weapons(ctx: dict) -> dict[str, str]:
+    loc            = ctx["loc"]
+    records        = ctx["records"]
+    fps_ammo       = ctx["fps_ammo"]
+    mag_lookup     = ctx["mag_lookup"]
+    xml_path_index = ctx.get("xml_path_index")
+    out: dict[str, str] = {}
+    fps_dir = records / "entities" / "scitem" / "weapons" / "fps_weapons"
+    if fps_dir.exists():
+        out = scan_entity_dir(
+            fps_dir,
+            lambda root: enhancements_weapon(root, fps_ammo, loc, mag_lookup),
+            loc=loc,
+            xml_path_index=xml_path_index, records_dir=records,
+        )
+    logger.info(f"Finished FPS weapons ({len(out)} entries)")
+    return out
+
+
+def _run_gen_ships(ctx: dict) -> dict[str, str]:
+    records           = ctx["records"]
+    loc               = ctx["loc"]
+    controller_lookup = ctx["controller_lookup"]
+    armor_lookup      = ctx["armor_lookup"]
+    xml_path_index    = ctx.get("xml_path_index")
+    spaceships_dir = records / "entities" / "spaceships"
+    out = scan_spaceships(spaceships_dir, controller_lookup, loc, armor_lookup,
+                          xml_path_index=xml_path_index, records_dir=records)
+    logger.info(f"Finished ships ({len(out)} entries)")
+    return out
+
+
+def _run_gen_missions(ctx: dict) -> dict[str, str]:
+    records           = ctx["records"]
+    forge_dir         = ctx["forge_dir"]
+    loc               = ctx["loc"]
+    entity_names      = ctx["entity_names"]
+    entity_names_by_filename = ctx.get("entity_names_by_filename", {})
+    reputation_lookup = ctx["reputation_lookup"]
+    xml_path_index    = ctx.get("xml_path_index")
+
+    out: dict[str, str] = {}
+    pu_missions_dir = records / "missionbroker" / "pu_missions"
+
+    if pu_missions_dir.exists():
+        out.update(scan_entity_dir(
+            pu_missions_dir,
+            lambda root: enhancements_mission(root, reputation_lookup),
+            loc=loc, loc_key_fn=_mission_loc_key,
+            separator=MISSION_SEPARATOR, capture_all=True,
+            xml_path_index=xml_path_index, records_dir=records,
+        ))
+
+    for mission_dir in [
+        records / "entities" / "missions",
+        records / "entities" / "contracts",
+        records / "entities" / "jobterminal",
+    ]:
+        if mission_dir.exists():
+            out.update(scan_entity_dir(
+                mission_dir,
+                lambda root: enhancements_mission(root, reputation_lookup),
+                loc=loc, separator=MISSION_SEPARATOR, capture_all=True,
+                xml_path_index=xml_path_index, records_dir=records,
+            ))
+
+    logger.info(f"Finished missions scan ({len(out)} entries)")
+
+    # Walk the parent `blueprintrewards/` directory (not just
+    # `blueprintmissionpools/`) so the rglob in build_blueprint_pool_lookup
+    # picks up CIG's 4.8-era sibling pool dirs (`48blueprints/`,
+    # `xenothreat2rewards/`, `collectorwikelo/`). Pre-fix, ~1,400 PTU
+    # BlueprintRewards references silently failed UUID resolution.
+    pool_dir = records / "crafting" / "blueprintrewards"
+    bp_dir   = records / "crafting" / "blueprints" / "crafting"
+    blueprint_pools = _cached_lookup(
+        forge_dir, "blueprint_pools",
+        lambda: build_blueprint_pool_lookup(
+            pool_dir, bp_dir, entity_names,
+            entity_names_by_filename=entity_names_by_filename,
+        ),
+    )
+
+    contractgen_dir = records / "contracts" / "contractgenerator"
+    contractgen_missions, mission_blueprints, mission_bp_chance, mission_items = scan_contract_generators(
+        contractgen_dir, reputation_lookup, blueprint_pools, entity_names,
+        xml_path_index=xml_path_index, records_dir=records,
+    )
+    logger.info(f"Processed {len(contractgen_missions)} contract generator mission variants")
+
+    mission_titles_augmented = 0
+    for title_key, variants in contractgen_missions.items():
+        base_title = (loc or {}).get(title_key)
+        if not base_title:
+            continue
+
+        seen_tiers: list[tuple[int, int]] = []
+        for _, sxp, fxp, _, _, _, _, _, _, _, _ in variants:
+            tier = (sxp, fxp)
+            if tier not in seen_tiers:
+                seen_tiers.append(tier)
+
+        unique_xp = sorted(set(sxp for sxp, _ in seen_tiers))
+        has_blueprints = title_key in mission_blueprints
+        _bp_variants = [v[8] for v in variants]
+        _all_have_bp = has_blueprints and all(_bp_variants)
+
+        desc_bucket_has_bp: dict[str, bool] = {}
+        desc_bucket_count: dict[str, int] = {}
+        for v in variants:
+            dk = v[3]
+            if not dk:
+                continue
+            desc_bucket_has_bp[dk] = desc_bucket_has_bp.get(dk, False) or v[8]
+            desc_bucket_count[dk] = desc_bucket_count.get(dk, 0) + 1
+        _total_bucketed = sum(desc_bucket_count.values())
+        _any_variant_has_bp = any(_bp_variants)
+        _has_dominant_no_bp_bucket = _total_bucketed > 0 and any(
+            not desc_bucket_has_bp[dk]
+            and desc_bucket_count[dk] / _total_bucketed > 0.5
+            for dk in desc_bucket_has_bp
+        )
+        _bp_partial = (
+            has_blueprints and _any_variant_has_bp and not _has_dominant_no_bp_bucket
+        )
+        augmented_title = base_title
+        if _all_have_bp:
+            augmented_title += " <EM4>[BP]</EM4>"
+        elif _bp_partial:
+            augmented_title += " <EM4>[BP?]</EM4>"
+        nonzero_xp = [x for x in unique_xp if x > 0]
+        if len(nonzero_xp) == 1:
+            augmented_title += f" <EM4>[{nonzero_xp[0]:,} XP]</EM4>"
+        elif len(nonzero_xp) > 1:
+            augmented_title += f" <EM4>[{min(nonzero_xp):,}\u2013{max(nonzero_xp):,} XP]</EM4>"
+        out[title_key] = augmented_title
+        mission_titles_augmented += 1
+
+        unique_desc_keys: list[str] = []
+        for v in variants:
+            dk = v[3]
+            if dk and dk in loc and dk not in unique_desc_keys:
+                unique_desc_keys.append(dk)
+
+        for desc_key in unique_desc_keys:
+            desc_variants = [v for v in variants if v[3] == desc_key]
+            base_desc = loc[desc_key]
+            all_flags: list[str] = []
+            max_enemies = max_not_enemies = 0
+            all_difficulties: list[str] = []
+            bp_variant_names: list[str] = []
+            all_variants_have_bp = True
+            any_variant_has_bp = False
+            variant_bp_chance = 0.0
+            desc_seen_tiers: list[tuple[int, int]] = []
+            for _, vsxp, vfxp, _, vflags, venemies, vnot, vdiff, vhas_bp, vbp_chance, vbp_variant in desc_variants:
+                for f in vflags:
+                    if f not in all_flags:
+                        all_flags.append(f)
+                max_enemies = max(max_enemies, venemies)
+                max_not_enemies = max(max_not_enemies, vnot)
+                if vdiff and vdiff not in all_difficulties:
+                    all_difficulties.append(vdiff)
+                if vhas_bp:
+                    any_variant_has_bp = True
+                    variant_bp_chance = max(variant_bp_chance, vbp_chance)
+                    short_name = _variant_label_short(vbp_variant)
+                    if short_name and short_name not in bp_variant_names:
+                        bp_variant_names.append(short_name)
+                else:
+                    all_variants_have_bp = False
+                tier = (vsxp, vfxp)
+                if tier not in desc_seen_tiers:
+                    desc_seen_tiers.append(tier)
+
+            details_lines = []
+            details_lines.append(f"<EM4>Mission Type:</EM4> {', '.join(all_flags) if all_flags else 'Standard'}")
+            if all_difficulties:
+                details_lines.append(f"<EM4>Difficulty (1-7):</EM4> {all_difficulties[0]}")
+            if max_enemies > 0:
+                details_lines.append(f"<EM4>Enemies:</EM4> {max_enemies}")
+            if max_not_enemies > 0:
+                details_lines.append(f"<EM4>Non-hostiles:</EM4> {max_not_enemies}")
+            nonzero_tiers = [(s, f) for s, f in desc_seen_tiers if s > 0]
+            if len(nonzero_tiers) == 1:
+                sxp, fxp = nonzero_tiers[0]
+                details_lines.append(f"<EM4>Reputation XP:</EM4> +{sxp:,}")
+                if fxp < 0:
+                    details_lines.append(f"<EM4>Failure Penalty:</EM4> {fxp:,} XP")
+            elif len(nonzero_tiers) > 1:
+                for i, (sxp, fxp) in enumerate(sorted(nonzero_tiers, key=lambda t: t[0]), 1):
+                    line = f"<EM4>Tier {i}:</EM4> +{sxp:,} XP"
+                    if fxp < 0:
+                        line += f" (Failure: {fxp:,})"
+                    details_lines.append(line)
+
+            sections: list[str] = [base_desc]
+            if any_variant_has_bp and has_blueprints:
+                chance_pct = int(variant_bp_chance * 100)
+                if all_variants_have_bp:
+                    bp_header = (
+                        f"<EM4>Blueprint Reward:</EM4> {chance_pct}% chance"
+                        if chance_pct < 100 else "<EM4>Blueprint Reward:</EM4> Guaranteed"
+                    )
+                else:
+                    variant_note = ", ".join(bp_variant_names) if bp_variant_names else "select variants"
+                    bp_header = f"<EM4>Blueprint Reward:</EM4> {chance_pct}% chance ({variant_note} only)"
+                details_lines.append(bp_header)
+
+                pools_by_system = mission_blueprints.get(title_key, {})
+                desc_systems = {v[0] for v in desc_variants if v[8]}
+                desc_pools = {s: items for s, items in pools_by_system.items() if s in desc_systems}
+                if not desc_pools:
+                    desc_pools = pools_by_system
+                unique_fps: dict = {}
+                for sys_name, items in desc_pools.items():
+                    fp = tuple(items)
+                    unique_fps.setdefault(fp, []).append(sys_name)
+                bp_body_parts: list[str] = []
+                if len(unique_fps) == 1:
+                    items = list(next(iter(unique_fps)))
+                    bp_body_parts.append("\\n".join(f"- {name}" for name in items))
+                else:
+                    for fp, systems in sorted(unique_fps.items(), key=lambda kv: sorted(kv[1])):
+                        label = ", ".join(sorted(systems))
+                        bp_body_parts.append(
+                            f"<EM4>[{label}]</EM4>\\n" + "\\n".join(f"- {name}" for name in fp)
+                        )
+                sections.append("<EM3>POTENTIAL BLUEPRINTS</EM3>\\n" + "\\n".join(bp_body_parts))
+
+            if title_key in mission_items:
+                item_list = "\\n".join(f"- {name}" for name in mission_items[title_key])
+                sections.append(f"<EM3>ITEM REWARDS</EM3>\\n{item_list}")
+
+            details_block = "\\n".join(details_lines)
+            if details_block:
+                sections.append(f"<EM3>MISSION DETAILS</EM3>\\n{details_block}")
+
+            if any_variant_has_bp and has_blueprints and not all_variants_have_bp:
+                if bp_variant_names:
+                    quoted = ", ".join(bp_variant_names)
+                    if len(bp_variant_names) == 1:
+                        sections.append(f"<EM4>? = only the {quoted} variant awards blueprints</EM4>")
+                    else:
+                        sections.append(f"<EM4>? = only the {quoted} variants award blueprints</EM4>")
+                else:
+                    sections.append("<EM4>? = only some variants award blueprints</EM4>")
+
+            new_text = "\\n\\n".join(sections)
+            new_has_bp = "<EM3>POTENTIAL BLUEPRINTS</EM3>" in new_text
+            existing = out.get(desc_key)
+            if existing is None:
+                out[desc_key] = new_text
+            elif new_has_bp and "<EM3>POTENTIAL BLUEPRINTS</EM3>" not in existing:
+                logger.debug(
+                    f"Upgrading desc_key {desc_key!r} — earlier title wrote "
+                    f"without blueprints, title_key {title_key!r} has them"
+                )
+                out[desc_key] = new_text
+            else:
+                logger.debug(
+                    f"Skipping shared desc_key {desc_key!r} for title_key {title_key!r}: "
+                    f"already written by a prior title_key (likely a game-side data bug)"
+                )
+
+    # Second pu_missions pass: XP for titles contractgen couldn't cover.
+    # Materialise the file list once so the third diagnostic pass can reuse it.
+    _pu_files: list[Path] = (
+        _index_rglob(xml_path_index, pu_missions_dir, records)
+        if xml_path_index is not None and pu_missions_dir.exists()
+        else (list(pu_missions_dir.rglob("*.xml")) if pu_missions_dir.exists() else [])
+    )
+    pu_title_xps: dict[str, list[int]] = {}
+    if pu_missions_dir.exists():
+        for xml_file in _pu_files:
+            try:
+                root = ET.parse(xml_file).getroot()
+                title_attr = root.get("title", "")
+                desc_attr  = root.get("description", "")
+                if not title_attr.startswith("@") or not desc_attr.startswith("@"):
+                    continue
+                if _is_sentinel_loc_ref(title_attr) or _is_sentinel_loc_ref(desc_attr):
+                    continue
+                title_key = title_attr.lstrip("@")
+                if not (loc or {}).get(title_key):
+                    continue
+                xp = _extract_mission_xp(root, reputation_lookup)
+                if xp > 0:
+                    pu_title_xps.setdefault(title_key, []).append(xp)
+            except (ET.ParseError, Exception):
+                continue
+
+    xp_tag_re = re.compile(r"<EM4>\[\d[\d,]*(?:[–\-]\d[\d,]*)?\s*XP\]</EM4>")
+    for title_key, xps in pu_title_xps.items():
+        base_title = (loc or {}).get(title_key)
+        if not base_title:
+            continue
+        current = out.get(title_key, base_title)
+        if xp_tag_re.search(current):
+            continue
+        unique_xp = sorted(set(xps))
+        if len(unique_xp) == 1:
+            current += f" <EM4>[{unique_xp[0]:,} XP]</EM4>"
+        else:
+            current += f" <EM4>[{min(unique_xp):,}\u2013{max(unique_xp):,} XP]</EM4>"
+        out[title_key] = current
+        mission_titles_augmented += 1
+
+    logger.info(f"Augmented {mission_titles_augmented} mission titles with XP")
+
+    titles_with_xp = {k for k in out if re.search(r'\[\d', out[k])}
+    desc_keys = {k for k in out if k not in titles_with_xp}
+    titles_skipped_no_xp = 0
+    titles_skipped_reasons: dict[str, list[str]] = {
+        "no_rep_data": [],
+        "no_base_title": [],
+    }
+    if pu_missions_dir.exists():
+        for xml_file in _pu_files:
+            try:
+                root = ET.parse(xml_file).getroot()
+                title_attr = root.get("title", "")
+                desc_attr = root.get("description", "")
+                if not title_attr.startswith("@") or not desc_attr.startswith("@"):
+                    continue
+                title_key = title_attr.lstrip("@")
+                if title_key in out:
+                    continue
+                if title_key in contractgen_missions:
+                    continue
+                titles_skipped_no_xp += 1
+                if _extract_mission_xp(root, reputation_lookup) <= 0:
+                    titles_skipped_reasons["no_rep_data"].append(title_key)
+                elif not (loc or {}).get(title_key):
+                    titles_skipped_reasons["no_base_title"].append(title_key)
+            except Exception:
+                continue
+
+    logger.info(
+        f"Mission XP coverage: {len(titles_with_xp)} titles augmented, "
+        f"{len(desc_keys)} descriptions augmented, "
+        f"{titles_skipped_no_xp} titles skipped"
+    )
+    for reason, keys in titles_skipped_reasons.items():
+        if keys:
+            logger.info(f"  Skipped ({reason}): {len(keys)} — e.g. {', '.join(keys[:5])}")
+
+    return out
+
+
+def _run_gen_commodity_journal(ctx: dict) -> tuple[dict[str, str], dict[str, str]]:
+    records        = ctx["records"]
+    scitem_dir     = ctx["scitem_dir"]
+    entity_names   = ctx["entity_names"]
+    loc            = ctx["loc"]
+    xml_path_index = ctx.get("xml_path_index")
+    bp_dir         = records / "crafting" / "blueprints" / "crafting"
+    carryables_dir = scitem_dir / "carryables"
+    return scan_crafting_blueprints(bp_dir, carryables_dir, entity_names, loc,
+                                    xml_path_index=xml_path_index, records_dir=records)
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main(base_ini_path: Path, forge_dir: Path | None = None,
@@ -2883,8 +3662,6 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         logger.info(f"Selective generation: {', '.join(sorted(categories))}")
     _flush()
 
-    if forge_dir is None:
-        forge_dir = DEFAULT_FORGE_DIR
 
     # Write output alongside the input base.ini. The module-level
     # OUTPUT_DIR constant is only used as a last-ditch fallback — it's
@@ -2911,6 +3688,17 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             f"DataForge cache not found at {forge_dir}\n"
             "Run 'Extract DataForge' in the app first (Enhancements tab)."
         )
+
+    # ── XML path index ────────────────────────────────────────────────────────
+    # Single rglob of the entire records tree, cached per DataForge version.
+    # All subsequent directory walks use _index_rglob() against this dict
+    # instead of repeated OS rglob calls.
+    xml_path_index: dict = _cached_lookup(
+        forge_dir, "xml_path_index",
+        lambda: _build_xml_path_index(records),
+    )
+    logger.info(f"XML path index: {sum(len(v) for v in xml_path_index.values()):,} files across {len(xml_path_index):,} dirs")
+    _flush()
 
     # ── Estimate total phases for determinate progress ────────────────────────
     # One tick per logical phase. The sink caps at total, so over-counting is
@@ -2952,7 +3740,10 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
     def _build_scitem_pair():
         return _cached_lookup(
             forge_dir, "scitem_lookups",
-            lambda: build_scitem_lookups(records / "entities" / "scitem", loc),
+            lambda: build_scitem_lookups(
+                records / "entities" / "scitem", loc,
+                xml_path_index=xml_path_index, records_dir=records,
+            ),
         )
 
     def _build_reputation():
@@ -2978,8 +3769,10 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
 
     lookup_jobs: dict[str, Callable] = {}
     if need_ammo:
-        lookup_jobs["vehicle_ammo"] = lambda: build_ammo_lookup(records / "ammoparams" / "vehicle")
-        lookup_jobs["fps_ammo"]     = lambda: build_ammo_lookup(records / "ammoparams" / "fps")
+        lookup_jobs["vehicle_ammo"] = lambda: build_ammo_lookup(
+            records / "ammoparams" / "vehicle", xml_path_index=xml_path_index, records_dir=records)
+        lookup_jobs["fps_ammo"]     = lambda: build_ammo_lookup(
+            records / "ammoparams" / "fps", xml_path_index=xml_path_index, records_dir=records)
     if need_mag or need_names:
         lookup_jobs["scitem"] = _build_scitem_pair
     if _want("ship_descs"):
@@ -3002,10 +3795,11 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             logger.info(f"Vehicle ammo: {len(vehicle_ammo)} records, FPS ammo: {len(fps_ammo)} records")
             _tick("Built ammo lookups")
         if "scitem" in results:
-            mag_lookup, entity_names = results["scitem"]
+            mag_lookup, entity_names, entity_names_by_filename = results["scitem"]
             logger.info(
                 f"Magazine lookup: {len(mag_lookup)} entries, "
-                f"Entity names: {len(entity_names)} entries"
+                f"Entity names: {len(entity_names)} entries, "
+                f"Entity-name-by-filename fallback: {len(entity_names_by_filename)} entries"
             )
             _tick("Built scitem lookups")
         if "controller" in results:
@@ -3019,591 +3813,67 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             _tick("Built reputation lookup")
 
     # ── Output-file generators (parallel wave) ────────────────────────────────
-    # Each closure captures the lookups it needs and returns its output dict(s).
-    # Internal sub-phases within a closure (e.g. the mission scan → blueprint
-    # pools → contractgen → title/desc augmentation → coverage report chain)
-    # stay serial because each step consumes the prior step's in-memory result.
-    # Across closures there is no shared mutable state — every output dict is
-    # owned by exactly one closure — so they run safely on independent threads.
+    # Generators run in a ThreadPoolExecutor. Each is a module-level function
+    # (not a closure) receiving shared read-only state via a context dict.
+    # Internal sub-phases within each generator stay serial since each step
+    # consumes the prior step's in-memory result. Across generators there is
+    # no shared mutable state, so they run safely on independent threads.
     ships_scitem = records / "entities" / "scitem" / "ships"
     scitem_dir   = records / "entities" / "scitem"
 
-    def _gen_components() -> dict[str, str]:
-        out: dict[str, str] = {}
-        logger.info("Processing ship components…")
-        _flush()
-        for subdir, fn in [
-            ("shieldgenerator", enhancements_shield),
-            ("cooler",          enhancements_cooler),
-            ("powerplant",      enhancements_powerplant),
-            ("quantumdrive",    enhancements_quantum_drive),
-        ]:
-            logger.info(f"Processing {subdir}...")
-            _flush()
-            out.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc, generate_name_tags=True))
-        radar_dir = ships_scitem / "radar"
-        if radar_dir.exists():
-            logger.info(f"Processing radars from {radar_dir}…")
-            out.update(scan_entity_dir(radar_dir, enhancements_radar, loc=loc, generate_name_tags=True))
-        else:
-            logger.info("No radar directory found in cache")
-        # Propagate stats from _SCItem keys to their non-SCItem siblings (base.ini
-        # carries both patterns: item_DescTYPE_..._SCItem and item_Desc_TYPE_...).
-        # Same treatment for name labels (item_nameTYPE → item_Name_TYPE).
-        comp_types = ("COOL", "SHLD", "POWR", "QDRV", "RADR")
-        sibling_count = 0
-        for key, value in list(out.items()):
-            if not key.endswith("_SCItem"):
-                continue
-            base_key = key[:-len("_SCItem")]
-            for ct in comp_types:
-                desc_prefix = f"item_Desc{ct}_"
-                if base_key.startswith(desc_prefix):
-                    sibling = f"item_Desc_{ct}_{base_key[len(desc_prefix):]}"
-                    if sibling not in out and sibling in loc:
-                        sibling_base = loc[sibling]
-                        stats_marker = ENHANCEMENT_SEPARATOR
-                        if stats_marker in value:
-                            stats_block = value[value.index(stats_marker):]
-                            out[sibling] = sibling_base + stats_block
-                        else:
-                            out[sibling] = value
-                        sibling_count += 1
-                    break
-                name_prefix = f"item_name{ct}_"
-                if base_key.startswith(name_prefix):
-                    sibling = f"item_Name_{ct}_{base_key[len(name_prefix):]}"
-                    if sibling not in out and sibling in loc:
-                        out[sibling] = value
-                        sibling_count += 1
-                    break
+    ctx = {
+        "records":           records,
+        "forge_dir":         forge_dir,
+        "scitem_dir":        scitem_dir,
+        "ships_scitem":      ships_scitem,
+        "loc":               loc,
+        "entity_names":      entity_names,
+        "entity_names_by_filename": entity_names_by_filename,
+        "mag_lookup":        mag_lookup,
+        "vehicle_ammo":      vehicle_ammo,
+        "fps_ammo":          fps_ammo,
+        "controller_lookup": controller_lookup,
+        "armor_lookup":      armor_lookup,
+        "reputation_lookup": reputation_lookup,
+        "xml_path_index":    xml_path_index,
+    }
 
-        # Inverse propagation: some entities (e.g. SHLD_SECO_S01_HEX) reference
-        # the underscored loc keys (item_Name_SHLD_*, item_Desc_SHLD_*) in the
-        # XML, but base.ini *also* carries an unused legacy no-underscore pair
-        # (item_NameSHLD_*, item_DescSHLD_*) which then shows up in the user's
-        # category table with no annotations. Mirror the augmented underscore
-        # value onto the no-underscore sibling so the Hex shield (and any
-        # others in the same shape) stay consistent.
-        inv_sibling_count = 0
-        for key, value in list(out.items()):
-            for prefix_with, prefix_without in (
-                ("item_Desc_", "item_Desc"),
-                ("item_Name_", "item_Name"),
-            ):
-                if not key.startswith(prefix_with):
-                    continue
-                rest = key[len(prefix_with):]
-                if not rest or "_" not in rest:
-                    continue
-                head = rest.split("_", 1)[0]
-                if head not in comp_types:
-                    continue
-                legacy_sibling = prefix_without + rest
-                if legacy_sibling in out or legacy_sibling not in loc:
-                    continue
-                if prefix_with == "item_Desc_":
-                    legacy_base = loc[legacy_sibling]
-                    stats_marker = ENHANCEMENT_SEPARATOR
-                    if stats_marker in value:
-                        out[legacy_sibling] = legacy_base + value[value.index(stats_marker):]
-                    else:
-                        out[legacy_sibling] = value
-                else:  # item_Name_
-                    tag_match = re.search(r"\s(\[[A-Z0-9\-]+\])\s*$", value)
-                    if tag_match:
-                        out[legacy_sibling] = f"{loc[legacy_sibling]} {tag_match.group(1)}"
-                    else:
-                        out[legacy_sibling] = value
-                inv_sibling_count += 1
-                break
-
-        if sibling_count or inv_sibling_count:
-            logger.info(
-                f"Propagated enhancements to {sibling_count} _SCItem siblings "
-                f"and {inv_sibling_count} legacy no-underscore siblings"
-            )
-        _tick("Generated component enhancements")
-        return out
-
-    def _gen_missiles() -> dict[str, str]:
-        out: dict[str, str] = {}
-        logger.info("Processing missile/rocket/bomb enhancements…")
-        weapons_dir = ships_scitem / "weapons"
-        for missile_dir in [
-            weapons_dir / "missiles",
-            weapons_dir / "rocket_pods",
-        ]:
-            if missile_dir.exists():
-                logger.info(f"Processing from {missile_dir}…")
-                out.update(scan_entity_dir(
-                    missile_dir,
-                    enhancements_missile,
-                    loc=loc,
-                    generate_name_tags=True,
-                    name_tag_fn=_missile_name_tag,
-                ))
-        _tick("Generated missile enhancements")
-        return out
-
-    def _gen_ship_weapons() -> dict[str, str]:
-        out: dict[str, str] = {}
-        weapons_dir = ships_scitem / "weapons"
-        if weapons_dir.exists():
-            out = scan_entity_dir(
-                weapons_dir,
-                lambda root: enhancements_weapon(root, vehicle_ammo, loc),
-                loc=loc,
-            )
-        logger.info(f"Finished ship weapons ({len(out)} entries)")
-        _tick("Generated ship weapon descriptions")
-        return out
-
-    def _gen_fps_weapons() -> dict[str, str]:
-        out: dict[str, str] = {}
-        fps_dir = records / "entities" / "scitem" / "weapons" / "fps_weapons"
-        if fps_dir.exists():
-            out = scan_entity_dir(
-                fps_dir,
-                lambda root: enhancements_weapon(root, fps_ammo, loc, mag_lookup),
-                loc=loc,
-            )
-        logger.info(f"Finished FPS weapons ({len(out)} entries)")
-        _tick("Generated FPS weapon descriptions")
-        return out
-
-    def _gen_ships() -> dict[str, str]:
-        spaceships_dir = records / "entities" / "spaceships"
-        out = scan_spaceships(spaceships_dir, controller_lookup, loc, armor_lookup)
-        logger.info(f"Finished ships ({len(out)} entries)")
-        _tick("Generated ship descriptions")
-        return out
-
-    def _gen_missions() -> dict[str, str]:
-        # Sequential chain: scan → bp pools → contractgen → title/desc
-        # augmentation → coverage report. Kept in one thread — each step
-        # consumes the prior step's in-memory result.
-        out: dict[str, str] = {}
-        pu_missions_dir = records / "missionbroker" / "pu_missions"
-        if pu_missions_dir.exists():
-            logger.info(f"Processing {pu_missions_dir.name}…")
-            _flush()
-            out.update(scan_entity_dir(
-                pu_missions_dir,
-                lambda root: enhancements_mission(root, reputation_lookup),
-                loc=loc,
-                loc_key_fn=_mission_loc_key,
-                separator=MISSION_SEPARATOR,
-                capture_all=True,
-            ))
-
-        for mission_dir in [
-            records / "entities" / "missions",
-            records / "entities" / "contracts",
-            records / "entities" / "jobterminal",
-        ]:
-            if mission_dir.exists():
-                logger.info(f"Processing {mission_dir.name}…")
-                _flush()
-                out.update(scan_entity_dir(
-                    mission_dir,
-                    lambda root: enhancements_mission(root, reputation_lookup),
-                    loc=loc,
-                    separator=MISSION_SEPARATOR,
-                    capture_all=True,
-                ))
-
-        logger.info(f"Finished missions scan ({len(out)} entries)")
-        _tick("Scanned missions")
-
-        # Blueprint pool lookup (needs entity_names from Group A)
-        pool_dir = records / "crafting" / "blueprintrewards" / "blueprintmissionpools"
-        bp_dir = records / "crafting" / "blueprints" / "crafting"
-        blueprint_pools = _cached_lookup(
-            forge_dir, "blueprint_pools",
-            lambda: build_blueprint_pool_lookup(pool_dir, bp_dir, entity_names),
-        )
-        _tick("Built blueprint pool lookup")
-
-        # Contract generator missions (multiple variants per title key)
-        contractgen_dir = records / "contracts" / "contractgenerator"
-        contractgen_missions, mission_blueprints, mission_bp_chance, mission_items = scan_contract_generators(
-            contractgen_dir, reputation_lookup, blueprint_pools, entity_names
-        )
-        logger.info(f"Processed {len(contractgen_missions)} contract generator mission variants, {len(mission_blueprints)} with blueprints, {len(mission_items)} with items")
-        _flush()
-
-        mission_titles_augmented = 0
-        for title_key, variants in contractgen_missions.items():
-            base_title = (loc or {}).get(title_key)
-            if not base_title:
-                continue
-
-            # Collect unique (success_xp, failure_xp) tiers, preserving order
-            seen_tiers: list[tuple[int, int]] = []
-            for _, sxp, fxp, _, _, _, _, _, _, _, _ in variants:
-                tier = (sxp, fxp)
-                if tier not in seen_tiers:
-                    seen_tiers.append(tier)
-
-            unique_xp = sorted(set(sxp for sxp, _ in seen_tiers))
-
-            # Title: [BP] when every variant awards a pool; [BP?] when at
-            # least one variant does AND no single no-BP desc-key bucket
-            # represents a majority (>50%) of variants. The majority check
-            # suppresses BHG-style data where a lone BP variant drowns in
-            # no-BP siblings (bhg_bounty_title_gen_001: 7 of 8 variants
-            # share one no-BP desc_key — 87.5% — so tagging would mislead
-            # that majority). Matches kraken_4.7.ini's [BP]* convention
-            # and the missions_4.7.177.csv ground truth, which tag even
-            # 50/50 splits like vaughn_assassination_FPS_UGF_legal_title_001
-            # (legal_desc_001: 1 no-BP variant, legal_boss_desc_001: 1 BP
-            # variant — 50% no-BP bucket, not a majority, so tagged).
-            has_blueprints = title_key in mission_blueprints
-            _bp_variants = [v[8] for v in variants]  # v[8] = contract_has_bp
-            _all_have_bp = has_blueprints and all(_bp_variants)
-
-            desc_bucket_has_bp: dict[str, bool] = {}
-            desc_bucket_count: dict[str, int] = {}
-            for v in variants:
-                dk = v[3]
-                if not dk:
-                    continue
-                desc_bucket_has_bp[dk] = desc_bucket_has_bp.get(dk, False) or v[8]
-                desc_bucket_count[dk] = desc_bucket_count.get(dk, 0) + 1
-            _total_bucketed = sum(desc_bucket_count.values())
-            _any_variant_has_bp = any(_bp_variants)
-            _has_dominant_no_bp_bucket = _total_bucketed > 0 and any(
-                not desc_bucket_has_bp[dk]
-                and desc_bucket_count[dk] / _total_bucketed > 0.5
-                for dk in desc_bucket_has_bp
-            )
-            _bp_partial = (
-                has_blueprints
-                and _any_variant_has_bp
-                and not _has_dominant_no_bp_bucket
-            )
-            augmented_title = base_title
-            if _all_have_bp:
-                augmented_title += " <EM4>[BP]</EM4>"
-            elif _bp_partial:
-                augmented_title += " <EM4>[BP?]</EM4>"
-            nonzero_xp = [x for x in unique_xp if x > 0]
-            if len(nonzero_xp) == 1:
-                augmented_title += f" <EM4>[{nonzero_xp[0]:,} XP]</EM4>"
-            elif len(nonzero_xp) > 1:
-                augmented_title += f" <EM4>[{min(nonzero_xp):,}\u2013{max(nonzero_xp):,} XP]</EM4>"
-            out[title_key] = augmented_title
-            mission_titles_augmented += 1
-
-            # Description: emit per unique desc_key. Skip desc_keys that a
-            # *different* title_key already wrote this run (game-side data
-            # bug: some contracts have broken desc_params pointing at
-            # another mission's loc-key — e.g. P2M4 → P2M1_Repeat_desc).
-            unique_desc_keys: list[str] = []
-            for v in variants:
-                dk = v[3]
-                if dk and dk in loc and dk not in unique_desc_keys:
-                    unique_desc_keys.append(dk)
-
-            for desc_key in unique_desc_keys:
-                desc_variants = [v for v in variants if v[3] == desc_key]
-                base_desc = loc[desc_key]
-
-                all_flags: list[str] = []
-                max_enemies = 0
-                max_not_enemies = 0
-                all_difficulties: list[str] = []
-                bp_variant_names: list[str] = []
-                all_variants_have_bp = True
-                any_variant_has_bp = False
-                variant_bp_chance = 0.0
-                desc_seen_tiers: list[tuple[int, int]] = []
-                for _, vsxp, vfxp, _, vflags, venemies, vnot, vdiff, vhas_bp, vbp_chance, vbp_variant in desc_variants:
-                    for f in vflags:
-                        if f not in all_flags:
-                            all_flags.append(f)
-                    max_enemies = max(max_enemies, venemies)
-                    max_not_enemies = max(max_not_enemies, vnot)
-                    if vdiff and vdiff not in all_difficulties:
-                        all_difficulties.append(vdiff)
-                    if vhas_bp:
-                        any_variant_has_bp = True
-                        variant_bp_chance = max(variant_bp_chance, vbp_chance)
-                        short_name = _variant_label_short(vbp_variant)
-                        if short_name and short_name not in bp_variant_names:
-                            bp_variant_names.append(short_name)
-                    else:
-                        all_variants_have_bp = False
-                    tier = (vsxp, vfxp)
-                    if tier not in desc_seen_tiers:
-                        desc_seen_tiers.append(tier)
-
-                details_lines = []
-                details_lines.append(f"<EM4>Mission Type:</EM4> {', '.join(all_flags) if all_flags else 'Standard'}")
-                if all_difficulties:
-                    details_lines.append(f"<EM4>Difficulty (1-7):</EM4> {all_difficulties[0]}")
-                if max_enemies > 0:
-                    details_lines.append(f"<EM4>Enemies:</EM4> {max_enemies}")
-                if max_not_enemies > 0:
-                    details_lines.append(f"<EM4>Non-hostiles:</EM4> {max_not_enemies}")
-
-                nonzero_tiers = [(s, f) for s, f in desc_seen_tiers if s > 0]
-                if len(nonzero_tiers) == 1:
-                    sxp, fxp = nonzero_tiers[0]
-                    details_lines.append(f"<EM4>Reputation XP:</EM4> +{sxp:,}")
-                    if fxp < 0:
-                        details_lines.append(f"<EM4>Failure Penalty:</EM4> {fxp:,} XP")
-                elif len(nonzero_tiers) > 1:
-                    for i, (sxp, fxp) in enumerate(sorted(nonzero_tiers, key=lambda t: t[0]), 1):
-                        line = f"<EM4>Tier {i}:</EM4> +{sxp:,} XP"
-                        if fxp < 0:
-                            line += f" (Failure: {fxp:,})"
-                        details_lines.append(line)
-
-                # Build sections: base → POTENTIAL BLUEPRINTS → ITEM REWARDS
-                # → MISSION DETAILS. base_desc comes from pristine loc, so no
-                # strip pass needed — assemble directly.
-                sections: list[str] = [base_desc]
-
-                if any_variant_has_bp and has_blueprints:
-                    chance_pct = int(variant_bp_chance * 100)
-                    if all_variants_have_bp:
-                        bp_header = f"<EM4>Blueprint Reward:</EM4> {chance_pct}% chance" if chance_pct < 100 else "<EM4>Blueprint Reward:</EM4> Guaranteed"
-                    else:
-                        variant_note = ", ".join(bp_variant_names) if bp_variant_names else "select variants"
-                        bp_header = f"<EM4>Blueprint Reward:</EM4> {chance_pct}% chance ({variant_note} only)"
-                    details_lines.append(bp_header)
-
-                    # Restrict rendered pools to the systems actually
-                    # represented among THIS desc_key's variants (a title may
-                    # have a wider per-system pool set than any one desc does).
-                    pools_by_system = mission_blueprints.get(title_key, {})
-                    desc_systems = {v[0] for v in desc_variants if v[8]}  # v[0]=system, v[8]=has_bp
-                    desc_pools = {
-                        s: items for s, items in pools_by_system.items()
-                        if s in desc_systems
-                    }
-                    if not desc_pools:
-                        # Fallback: no intersection (defensive — shouldn't
-                        # happen if any_variant_has_bp holds) — show whatever
-                        # pools this title has.
-                        desc_pools = pools_by_system
-                    # If distinct pools share identical item sets (same pool
-                    # UUID reused across systems), collapse to one section.
-                    unique_fps = {}
-                    for sys_name, items in desc_pools.items():
-                        fp = tuple(items)
-                        unique_fps.setdefault(fp, []).append(sys_name)
-
-                    bp_body_parts: list[str] = []
-                    if len(unique_fps) == 1:
-                        # One effective pool — render flat.
-                        items = list(next(iter(unique_fps)))
-                        bp_body_parts.append(
-                            "\\n".join(f"- {name}" for name in items)
-                        )
-                    else:
-                        # Multiple regional pools — one sub-section each,
-                        # sorted by system name for stable output.
-                        for fp, systems in sorted(
-                            unique_fps.items(), key=lambda kv: sorted(kv[1])
-                        ):
-                            label = ", ".join(sorted(systems))
-                            region_list = "\\n".join(
-                                f"- {name}" for name in fp
-                            )
-                            bp_body_parts.append(
-                                f"<EM4>[{label}]</EM4>\\n{region_list}"
-                            )
-                    sections.append(
-                        "<EM3>POTENTIAL BLUEPRINTS</EM3>\\n"
-                        + "\\n".join(bp_body_parts)
-                    )
-
-                if title_key in mission_items:
-                    item_list = "\\n".join(f"- {name}" for name in mission_items[title_key])
-                    sections.append(f"<EM3>ITEM REWARDS</EM3>\\n{item_list}")
-
-                details_block = "\\n".join(details_lines)
-                if details_block:
-                    sections.append(f"<EM3>MISSION DETAILS</EM3>\\n{details_block}")
-
-                if any_variant_has_bp and has_blueprints and not all_variants_have_bp:
-                    if bp_variant_names:
-                        quoted = ", ".join(bp_variant_names)
-                        if len(bp_variant_names) == 1:
-                            sections.append(f"<EM4>? = only the {quoted} variant awards blueprints</EM4>")
-                        else:
-                            sections.append(f"<EM4>? = only the {quoted} variants award blueprints</EM4>")
-                    else:
-                        sections.append("<EM4>? = only some variants award blueprints</EM4>")
-
-                new_text = "\\n\\n".join(sections)
-                new_has_bp = "<EM3>POTENTIAL BLUEPRINTS</EM3>" in new_text
-                existing = out.get(desc_key)
-                if existing is None:
-                    out[desc_key] = new_text
-                elif new_has_bp and "<EM3>POTENTIAL BLUEPRINTS</EM3>" not in existing:
-                    # Upgrade: an earlier title_key wrote this desc without a
-                    # blueprint section; overwrite with the version that has
-                    # one. Common when a desc loc-key is shared between a
-                    # titles-without-pool contract and a title-with-pool one
-                    # (e.g. bhg_bounty_desc_FPS_intro used by both
-                    # FPS_Stanton [no pool] and the PAF contract [has pool]).
-                    logger.debug(
-                        f"Upgrading desc_key {desc_key!r} — earlier title wrote "
-                        f"without blueprints, title_key {title_key!r} has them"
-                    )
-                    out[desc_key] = new_text
-                else:
-                    logger.debug(
-                        f"Skipping shared desc_key {desc_key!r} for title_key {title_key!r}: "
-                        f"already written by a prior title_key (likely a game-side data bug)"
-                    )
-
-        # Second pu_missions pass: aggregate XP values for titles the
-        # contractgen scan couldn't extract XP for (e.g. templated titles
-        # reusing one loc-key at many XP tiers, or ContractResult_CalculatedReward
-        # missions like Covalex Interstellar hauling).
-        pu_title_xps: dict[str, list[int]] = {}
-        if pu_missions_dir.exists():
-            for xml_file in pu_missions_dir.rglob("*.xml"):
-                try:
-                    root = ET.parse(xml_file).getroot()
-                    title_attr = root.get("title", "")
-                    desc_attr = root.get("description", "")
-                    if not title_attr.startswith("@") or not desc_attr.startswith("@"):
-                        continue
-                    # Skip CIG sentinels — would otherwise append " [N XP]"
-                    # onto LOC_UNINITIALIZED / LOC_PLACEHOLDER.
-                    if _is_sentinel_loc_ref(title_attr) or _is_sentinel_loc_ref(desc_attr):
-                        continue
-                    title_key = title_attr.lstrip("@")
-                    if not (loc or {}).get(title_key):
-                        continue
-                    xp = _extract_mission_xp(root, reputation_lookup)
-                    if xp > 0:
-                        pu_title_xps.setdefault(title_key, []).append(xp)
-                except (ET.ParseError, Exception):
-                    continue
-
-        xp_tag_re = re.compile(r"<EM4>\[\d[\d,]*(?:[–\-]\d[\d,]*)?\s*XP\]</EM4>")
-        for title_key, xps in pu_title_xps.items():
-            base_title = (loc or {}).get(title_key)
-            if not base_title:
-                continue
-            current = out.get(title_key, base_title)
-            if xp_tag_re.search(current):
-                continue
-            unique_xp = sorted(set(xps))
-            if len(unique_xp) == 1:
-                current += f" <EM4>[{unique_xp[0]:,} XP]</EM4>"
-            else:
-                current += f" <EM4>[{min(unique_xp):,}\u2013{max(unique_xp):,} XP]</EM4>"
-            out[title_key] = current
-            mission_titles_augmented += 1
-
-        logger.info(f"Augmented {mission_titles_augmented} mission titles with XP")
-        _tick("Augmented missions with XP + blueprint rewards")
-
-        # Mission XP coverage report
-        titles_with_xp = {k for k in out if re.search(r'\[\d', out[k])}
-        desc_keys = {k for k in out if k not in titles_with_xp}
-        titles_skipped_no_xp = 0
-        titles_skipped_reasons: dict[str, list[str]] = {
-            "no_rep_data": [],
-            "no_base_title": [],
-        }
-        if pu_missions_dir.exists():
-            for xml_file in pu_missions_dir.rglob("*.xml"):
-                try:
-                    root = ET.parse(xml_file).getroot()
-                    title_attr = root.get("title", "")
-                    desc_attr = root.get("description", "")
-                    if not title_attr.startswith("@") or not desc_attr.startswith("@"):
-                        continue
-                    title_key = title_attr.lstrip("@")
-                    if title_key in out:
-                        continue  # Already augmented
-                    if title_key in contractgen_missions:
-                        continue  # Handled by contract generator
-                    titles_skipped_no_xp += 1
-                    if _extract_mission_xp(root, reputation_lookup) <= 0:
-                        titles_skipped_reasons["no_rep_data"].append(title_key)
-                    elif not (loc or {}).get(title_key):
-                        titles_skipped_reasons["no_base_title"].append(title_key)
-                except Exception:
-                    continue
-
-        logger.info(
-            f"Mission XP coverage: {len(titles_with_xp)} titles augmented, "
-            f"{len(desc_keys)} descriptions augmented, "
-            f"{titles_skipped_no_xp} titles skipped"
-        )
-        for reason, keys in titles_skipped_reasons.items():
-            if keys:
-                logger.info(f"  Skipped ({reason}): {len(keys)} — e.g. {', '.join(keys[:5])}")
-        _flush()
-        return out
-
-    def _gen_commodity_journal() -> tuple[dict[str, str], dict[str, str]]:
-        logger.info("Processing crafting blueprints…")
-        _flush()
-        bp_dir = records / "crafting" / "blueprints" / "crafting"
-        carryables_dir = scitem_dir / "carryables"
-        out_c, out_j = scan_crafting_blueprints(bp_dir, carryables_dir, entity_names, loc)
-        _tick("Generated commodity & journal enhancements")
-        return out_c, out_j
-
-    # ── Submit enabled generators to a thread pool ────────────────────────────
     gen_jobs: dict[str, Callable] = {}
-    if _want("component_descs"):
-        gen_jobs["components"] = _gen_components
-    if _want("missile_enhancements"):
-        gen_jobs["missiles"] = _gen_missiles
-    if _want("ship_weapon_descs"):
-        gen_jobs["ship_weapons"] = _gen_ship_weapons
-    if _want("fps_weapon_descs"):
-        gen_jobs["fps_weapons"] = _gen_fps_weapons
-    if _want("ship_descs"):
-        gen_jobs["ships"] = _gen_ships
-    if _want("mission_rewards"):
-        gen_jobs["missions"] = _gen_missions
+    if _want("component_descs"):      gen_jobs["components"]        = _run_gen_components
+    if _want("missile_enhancements"): gen_jobs["missiles"]          = _run_gen_missiles
+    if _want("ship_weapon_descs"):    gen_jobs["ship_weapons"]      = _run_gen_ship_weapons
+    if _want("fps_weapon_descs"):     gen_jobs["fps_weapons"]       = _run_gen_fps_weapons
+    if _want("ship_descs"):           gen_jobs["ships"]             = _run_gen_ships
+    if _want("mission_rewards"):      gen_jobs["missions"]          = _run_gen_missions
     if _want("commodity_crafting") or _want("journal"):
-        gen_jobs["commodity_journal"] = _gen_commodity_journal
+                                      gen_jobs["commodity_journal"] = _run_gen_commodity_journal
 
-    out_components: dict[str, str] = {}
-    out_missiles: dict[str, str] = {}
+    out_components:  dict[str, str] = {}
+    out_missiles:    dict[str, str] = {}
     out_ship_weapons: dict[str, str] = {}
     out_fps_weapons: dict[str, str] = {}
-    out_ships: dict[str, str] = {}
-    out_missions: dict[str, str] = {}
+    out_ships:       dict[str, str] = {}
+    out_missions:    dict[str, str] = {}
     out_commodities: dict[str, str] = {}
-    out_journal: dict[str, str] = {}
+    out_journal:     dict[str, str] = {}
 
     if gen_jobs:
-        logger.info(f"Running {len(gen_jobs)} output generators in parallel (workers={min(max_workers, len(gen_jobs))})…")
+        n_workers = min(max_workers, len(gen_jobs))
+        logger.info(f"Running {len(gen_jobs)} output generators in parallel (workers={n_workers}, pool=thread)…")
         _flush()
-        with ThreadPoolExecutor(max_workers=min(max_workers, len(gen_jobs)),
+        with ThreadPoolExecutor(max_workers=n_workers,
                                 thread_name_prefix="gen") as pool:
-            futs = {name: pool.submit(fn) for name, fn in gen_jobs.items()}
+            futs = {name: pool.submit(fn, ctx) for name, fn in gen_jobs.items()}
             for name, fut in futs.items():
                 result = fut.result()
-                if name == "components":
-                    out_components = result
-                elif name == "missiles":
-                    out_missiles = result
-                elif name == "ship_weapons":
-                    out_ship_weapons = result
-                elif name == "fps_weapons":
-                    out_fps_weapons = result
-                elif name == "ships":
-                    out_ships = result
-                elif name == "missions":
-                    out_missions = result
-                elif name == "commodity_journal":
-                    out_commodities, out_journal = result
+                _tick(f"Finished {name}")
+                if name == "components":          out_components   = result
+                elif name == "missiles":          out_missiles     = result
+                elif name == "ship_weapons":      out_ship_weapons = result
+                elif name == "fps_weapons":       out_fps_weapons  = result
+                elif name == "ships":             out_ships        = result
+                elif name == "missions":          out_missions     = result
+                elif name == "commodity_journal": out_commodities, out_journal = result
 
     # ── Apply loc-string workarounds for CIG data bugs ────────────────────────
     # XML patches we ran before this script realigned the enhancement

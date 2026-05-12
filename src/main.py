@@ -5,6 +5,13 @@ import os
 import sys
 from pathlib import Path
 
+# Ensure the project root is on sys.path so `from src.*` imports work when
+# the script is invoked directly as `python src/main.py` (Python only adds
+# the script's own directory — src/ — not the project root).
+_project_root = str(Path(__file__).parent.parent)
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
 # ── Force Qt to look for platform plugins in OUR bundled Qt6/plugins directory
 # ── BEFORE we import anything from PyQt6. The most common source of the
 # ── "No Qt platform plugin could be initialized" crash on user machines is a
@@ -90,6 +97,10 @@ def main():
         # filesystem: Documents\Smart Citizen\{base.ini,cache,backups,user.ini,...}
         # → Documents\Smart Citizen\LIVE\{...}). One-shot, marker-gated.
         AppSettings.migrate_game_path_to_channel_layout()
+
+        # Move DataForge XML cache from Documents → AppData\Local (idempotent).
+        # Runs after channel-layout migration so get_active_channel() is settled.
+        AppSettings.migrate_dataforge_cache_to_local()
 
         # Move user data files from old AppData location to Documents (idempotent)
         AppSettings.migrate_data_to_documents()
