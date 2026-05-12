@@ -12,16 +12,30 @@ Developed by **Osiris DevWorks**, a one-man development studio dedicated to crea
 
 All Osiris DevWorks tools will be either **completely free** or have a **free tier**. We believe in creating value for gamers without paywalls or mandatory subscriptions.
 
+## ODW Team
+
+- **Osiris_x**
+- **Tichro**
+
+## Contributors
+
+Thanks to those who've contributed code to Smart Citizen:
+
+- **Ishikudeska**
+- **jonigirl**
+- **Coerwyn**
+
 ## Acknowledgements
 
-Thanks to the testers and contributors who helped shape Smart Citizen with their feedback:
+Thanks to the testers who helped shape Smart Citizen with their feedback:
 
 - **Boogie Man**
 - **Perseuscz**
-- **Tichro**
 - **Flat Earth**
 - **Lord Valium**
 - **Zero**
+- **Apolleon Phoibos**
+- **Epiq**
 
 ### Supporters
 
