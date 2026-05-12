@@ -3138,6 +3138,33 @@ def _run_gen_components(ctx: dict) -> dict[str, str]:
         if not key.endswith("_SCItem"):
             continue
         base_key = key[:-len("_SCItem")]
+
+        # Mirror to the bare-key variant (just strip ``_SCItem``). CIG
+        # ships some components with BOTH ``item_DescX_SCItem`` and a bare
+        # ``item_DescX`` holding the same stock description — e.g. the S3
+        # Juno Starwerk and ARCCorp QDRVs on PTU 4.8 (Agni / Vesta /
+        # Fissure / Impulse). The game can render either key, and without
+        # this mirror the bare-key variant shows stock text with no
+        # annotations / stats / [CLASS-Sx-grade] tag. Done BEFORE the
+        # comp_types underscore-variant check below so both legacy
+        # siblings get propagated if both exist in stock.
+        if base_key in loc and base_key not in out:
+            if base_key.startswith("item_Desc"):
+                base_value = loc[base_key]
+                if ENHANCEMENT_SEPARATOR in value:
+                    out[base_key] = base_value + value[value.index(ENHANCEMENT_SEPARATOR):]
+                else:
+                    out[base_key] = value
+            elif base_key.startswith("item_Name"):
+                tag_match = re.search(r"\s(\[[A-Z0-9\-]+\])\s*$", value)
+                if tag_match:
+                    out[base_key] = f"{loc[base_key]} {tag_match.group(1)}"
+                else:
+                    out[base_key] = value
+            else:
+                out[base_key] = value
+            sibling_count += 1
+
         for ct in comp_types:
             desc_prefix = f"item_Desc{ct}_"
             if base_key.startswith(desc_prefix):
