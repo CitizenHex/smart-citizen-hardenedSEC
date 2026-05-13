@@ -19,22 +19,20 @@ _LANGUAGE_KV_RE = re.compile(
 )
 
 
-def ensure_user_cfg_language() -> bool:
-    """Ensure Star Citizen's user.cfg has g_language = english setting.
+def ensure_user_cfg_language(language: str | None = None) -> bool:
+    """Ensure Star Citizen's user.cfg has the correct g_language setting.
 
-    Writes to the **active channel's** ``user.cfg`` — whichever of
-    LIVE/PTU/EPTU/HOTFIX/TECH-PREVIEW is currently selected. Creates the
-    file if absent, or adds the language line if the key is entirely
-    missing. If ``g_language`` is already set — to any value, in any
-    spacing/casing — the file is left untouched; we don't silently
-    overwrite a user's intentional choice (e.g. a non-English locale).
-    Non-English values get an INFO log so the user has a breadcrumb if
-    their localization customizations aren't showing up.
+    Uses *language* if provided, otherwise reads :meth:`AppSettings.get_selected_language`.
+    Creates the file if absent, adds the key if missing, or updates it if
+    the existing value differs from the desired language.
 
     Returns:
         True if successful, False if the channel's install dir isn't
         accessible (channel not installed, path misconfigured, etc.).
     """
+    if language is None:
+        language = AppSettings.get_selected_language()
+
     channel_path = AppSettings.get_game_install_path()
     if not channel_path:
         logger.warning("Game install path not configured — skipping user.cfg setup")
@@ -49,7 +47,7 @@ def ensure_user_cfg_language() -> bool:
         return False
 
     user_cfg_path = channel_dir / "user.cfg"
-    language_line = "g_language = english"
+    language_line = f"g_language = {language}"
 
     try:
         if not user_cfg_path.exists():
@@ -67,14 +65,20 @@ def ensure_user_cfg_language() -> bool:
                 break
 
         if existing_value is not None:
-            if existing_value.lower() != "english":
-                logger.info(
-                    f"user.cfg already sets g_language to {existing_value!r} — "
-                    f"leaving as-is. Smart Citizen's English customizations won't "
-                    f"show in-game unless this is set to 'english'."
-                )
-            else:
-                logger.info("user.cfg already has g_language=english; not modifying")
+            if existing_value.lower() == language.lower():
+                logger.info(f"user.cfg already has g_language={language}; not modifying")
+                return True
+            # Update the existing line to the selected language.
+            logger.info(
+                f"Updating user.cfg g_language: {existing_value!r} → {language!r}"
+            )
+            new_lines = []
+            for line in content.splitlines():
+                if _LANGUAGE_KEY_RE.match(line):
+                    new_lines.append(language_line)
+                else:
+                    new_lines.append(line)
+            user_cfg_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
             return True
 
         logger.info(f"Adding language setting to {user_cfg_path}")

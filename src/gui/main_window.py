@@ -378,6 +378,7 @@ class MainWindow(QMainWindow):
         self.config_tab.p4k_extract_requested.connect(self._run_p4k_extraction)
         self.config_tab.import_ini_requested.connect(self._handle_import_ini)
         self.config_tab.channel_changed.connect(self._on_channel_changed)
+        self.config_tab.language_changed.connect(self._on_language_changed)
         self.config_tab.check_updates_requested.connect(self._on_check_updates_clicked)
         self.config_tab.data_dir_changed.connect(self._on_data_dir_changed)
         self._config_tab_index = self.tabs.addTab(self.config_tab, "Config")
@@ -1221,7 +1222,21 @@ class MainWindow(QMainWindow):
             )
             enhancement_count = sum(enhancement_categories.values())
 
-            # Ensure user.cfg has language setting
+            # Copy languages.ini to {channel}/data/languages.ini if available
+            import shutil as _shutil
+            lang_ini_src = AppSettings.get_language_languages_ini_path()
+            if lang_ini_src is not None:
+                lang_ini_dest = AppSettings.get_languages_ini_dest_path()
+                lang_ini_dest.parent.mkdir(parents=True, exist_ok=True)
+                _shutil.copy2(lang_ini_src, lang_ini_dest)
+                logger.info(f"Copied languages.ini to {lang_ini_dest}")
+            else:
+                logger.debug(
+                    f"No languages.ini found for language "
+                    f"'{AppSettings.get_selected_language()}'; skipping copy"
+                )
+
+            # Ensure user.cfg has the selected language
             from src.utils.user_cfg import ensure_user_cfg_language
             ensure_user_cfg_language()
 
@@ -2471,6 +2486,17 @@ class MainWindow(QMainWindow):
         self._maybe_prompt_dataforge_refresh()
 
         self.statusBar().showMessage(f"Switched to {channel} — reloading sources…")
+        self.perform_merge_and_reload()
+
+    @pyqtSlot(str)
+    def _on_language_changed(self, language: str) -> None:
+        """Handle a language switch from the Config tab.
+
+        Re-runs the merge + reload so the table shows strings from the new
+        language (with English fallback for any missing keys).
+        """
+        logger.info(f"MainWindow reacting to language change → {language}")
+        self.statusBar().showMessage(f"Language changed to {language} — reloading sources…")
         self.perform_merge_and_reload()
 
     @pyqtSlot(str)

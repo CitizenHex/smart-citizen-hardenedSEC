@@ -33,6 +33,9 @@ class ConfigTab(QWidget):
     # Emitted after the Smart Citizen data folder override has been saved.
     # MainWindow re-syncs source paths and reloads against the new location.
     data_dir_changed = pyqtSignal(str)
+    # Emitted when the user picks a different language. MainWindow listens and
+    # triggers a merge+reload so the table reflects the new language strings.
+    language_changed = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -140,6 +143,25 @@ class ConfigTab(QWidget):
         # Wire AFTER populate so the initial setCurrentIndex inside
         # _populate_channel_combo doesn't emit a phantom change signal.
         self.channel_combo.currentIndexChanged.connect(self._on_channel_changed)
+
+        # ── Language selector ────────────────────────────────────────────────
+        language_row = QHBoxLayout()
+        language_label = QLabel("Language:")
+        language_label.setStyleSheet("font-size: 11px;")
+        language_row.addWidget(language_label)
+
+        self.language_combo = QComboBox()
+        self.language_combo.setMaximumWidth(180)
+        self.language_combo.setToolTip(
+            "Language to apply to the game. Keys missing from the translation "
+            "fall back to English automatically."
+        )
+        language_row.addWidget(self.language_combo)
+        language_row.addStretch()
+        game_layout.addLayout(language_row)
+
+        self._populate_language_combo()
+        self.language_combo.currentIndexChanged.connect(self._on_language_changed)
 
         layout.addWidget(game_group)
 
@@ -455,6 +477,35 @@ class ConfigTab(QWidget):
         AppSettings.set_game_install_path(AppSettings.get_channel_install_path())
         self._refresh_p4k_status()
         self.channel_changed.emit(channel)
+
+    # ── Language selector ────────────────────────────────────────────────────
+
+    def _populate_language_combo(self):
+        """Rebuild the language combo from the bundled languages/ directory."""
+        if not hasattr(self, "language_combo"):
+            return
+        blocker = self.language_combo.blockSignals(True)
+        try:
+            self.language_combo.clear()
+            for lang in AppSettings.get_available_languages():
+                self.language_combo.addItem(lang.title(), userData=lang)
+            current = AppSettings.get_selected_language()
+            idx = self.language_combo.findData(current)
+            if idx >= 0:
+                self.language_combo.setCurrentIndex(idx)
+        finally:
+            self.language_combo.blockSignals(blocker)
+
+    def _on_language_changed(self, index: int):
+        """Persist the new language and notify the main window."""
+        if index < 0:
+            return
+        language = self.language_combo.itemData(index)
+        if not language or language == AppSettings.get_selected_language():
+            return
+        AppSettings.set_selected_language(language)
+        logger.info(f"Language changed to: {language}")
+        self.language_changed.emit(language)
 
     # ── P4K status ───────────────────────────────────────────────────────────
 

@@ -69,6 +69,10 @@ class AppSettings:
     )
     DEFAULT_CHANNEL = CHANNEL_LIVE
 
+    # Settings key - Language selection
+    SELECTED_LANGUAGE = "selected_language"
+    DEFAULT_LANGUAGE = "english"
+
     # Enhancements cache filenames (written by generate_enhancements_ini.py into cache dir)
     ENHANCEMENTS_FILES = {
         "ship_descs":          "ships_desc_enhancements.ini",
@@ -197,6 +201,60 @@ class AppSettings:
     def set_theme(theme: str) -> None:
         """Persist UI theme name."""
         AppSettings.settings().setValue(AppSettings.THEME, theme)
+
+    @staticmethod
+    def get_selected_language() -> str:
+        """Return the active language name (default: 'english')."""
+        return AppSettings.settings().value(
+            AppSettings.SELECTED_LANGUAGE, AppSettings.DEFAULT_LANGUAGE
+        )
+
+    @staticmethod
+    def set_selected_language(language: str) -> None:
+        """Persist the active language name."""
+        AppSettings.settings().setValue(AppSettings.SELECTED_LANGUAGE, language)
+
+    @staticmethod
+    def get_languages_dir() -> "Path":
+        """Return the bundled languages/ directory (dev or PyInstaller-frozen)."""
+        from src.utils.resource_path import get_resource_path
+        return Path(get_resource_path("languages"))
+
+    @staticmethod
+    def get_available_languages() -> list:
+        """Return sorted list of language names found in the bundled languages/ dir."""
+        lang_dir = AppSettings.get_languages_dir()
+        if not lang_dir.exists():
+            return [AppSettings.DEFAULT_LANGUAGE]
+        names = sorted(d.name for d in lang_dir.iterdir() if d.is_dir())
+        return names if names else [AppSettings.DEFAULT_LANGUAGE]
+
+    @staticmethod
+    def get_language_global_ini_path(language: str | None = None) -> "Path | None":
+        """Return path to languages/<lang>/global.ini, or None if absent."""
+        if language is None:
+            language = AppSettings.get_selected_language()
+        path = AppSettings.get_languages_dir() / language / "global.ini"
+        return path if path.exists() else None
+
+    @staticmethod
+    def get_language_languages_ini_path(language: str | None = None) -> "Path | None":
+        """Return path to languages/<lang>/languages.ini, or None if absent."""
+        if language is None:
+            language = AppSettings.get_selected_language()
+        path = AppSettings.get_languages_dir() / language / "languages.ini"
+        return path if path.exists() else None
+
+    @staticmethod
+    def get_languages_ini_dest_path() -> "Path":
+        """Return the game-side destination for languages.ini: {channel}/data/languages.ini."""
+        channel_path = AppSettings.get_channel_install_path()
+        if channel_path:
+            return Path(channel_path) / "data" / "languages.ini"
+        game_path = Path(AppSettings.get_game_install_path())
+        if game_path.name.upper() in {c.upper() for c in AppSettings.AVAILABLE_CHANNELS}:
+            return game_path / "data" / "languages.ini"
+        return game_path / AppSettings.get_active_channel() / "data" / "languages.ini"
         AppSettings.settings().sync()
 
     @staticmethod
@@ -1442,23 +1500,25 @@ class AppSettings:
     def get_global_ini_path() -> Path:
         r"""Return the active channel's applied ``global.ini`` location.
 
-        Equivalent to ``{sc_install_root}\{active_channel}\data\Localization\english\global.ini``
+        Equivalent to ``{sc_install_root}\{active_channel}\data\Localization\{language}\global.ini``
         — the file "Apply to Game" writes and "Clear Localization" deletes.
+        The language directory reflects :meth:`get_selected_language`.
         Callers should use this instead of reconstructing the path from
         :meth:`get_game_install_path`, which the pre-0.9.3 code did with
         scattered ``if name == "LIVE"`` branches that don't cover the new
         channels.
         """
+        language = AppSettings.get_selected_language()
         channel_path = AppSettings.get_channel_install_path()
         if channel_path:
-            return Path(channel_path) / "data" / "Localization" / "english" / "global.ini"
+            return Path(channel_path) / "data" / "Localization" / language / "global.ini"
 
         game_path = Path(AppSettings.get_game_install_path())
         if game_path.name.upper() in {c.upper() for c in AppSettings.AVAILABLE_CHANNELS}:
-            return game_path / "data" / "Localization" / "english" / "global.ini"
+            return game_path / "data" / "Localization" / language / "global.ini"
         return (
             game_path / AppSettings.get_active_channel()
-            / "data" / "Localization" / "english" / "global.ini"
+            / "data" / "Localization" / language / "global.ini"
         )
 
     @staticmethod

@@ -11,6 +11,7 @@ a = Analysis(
         ('HELP.md', '.'),
         ('assets', 'assets'),
         ('patches', 'patches'),
+        ('languages', 'languages'),
         ('scripts/generate_enhancements_ini.py', 'scripts'),
     ],
     # `scripts/generate_enhancements_ini.py` is bundled as a data file (not

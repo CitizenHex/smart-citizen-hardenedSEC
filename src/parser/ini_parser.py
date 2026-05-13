@@ -115,6 +115,7 @@ def load_source_files(
         # Map source types to their relevant categories
         source_category_filters = {
             AppSettings.SOURCE_GLOBAL: None,           # No filtering - load all
+            "language": None,                           # No filtering - language overlay
             "enhancements": None,                       # No filtering
         }
 
@@ -308,6 +309,32 @@ def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str], 
                 logger.info(f"Loaded {len(source_data)} entries from {source_name}")
         except Exception as e:
             logger.exception(f"Failed to load source {source_name} from {source_path}: {e}")
+
+    # ── Language overlay ─────────────────────────────────────────────────────
+    # If a non-English language is selected, load its global.ini on top of the
+    # English base so keys missing from the translation fall back to English.
+    # The language source is inserted just before the user source (or at the
+    # end of the base hierarchy if there is no user entry).
+    _SOURCE_LANGUAGE = "language"
+    selected_language = AppSettings.get_selected_language()
+    if selected_language != AppSettings.DEFAULT_LANGUAGE:
+        lang_path = AppSettings.get_language_global_ini_path(selected_language)
+        if lang_path is not None:
+            lang_data = parse_ini_file(lang_path)
+            if lang_data:
+                sources_dict[_SOURCE_LANGUAGE] = lang_data
+                logger.info(
+                    f"Loaded {len(lang_data)} entries from language overlay: {selected_language}"
+                )
+                if AppSettings.SOURCE_USER in hierarchy:
+                    idx = hierarchy.index(AppSettings.SOURCE_USER)
+                    hierarchy = hierarchy[:idx] + [_SOURCE_LANGUAGE] + hierarchy[idx:]
+                else:
+                    hierarchy = hierarchy + [_SOURCE_LANGUAGE]
+        else:
+            logger.warning(
+                f"Language global.ini not found for '{selected_language}'; using English only"
+            )
 
     # ── Enhancements ────────────────────────────────────────────────────────
     # Map enhancements file labels to the category their keys should be assigned to
