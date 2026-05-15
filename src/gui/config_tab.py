@@ -488,7 +488,7 @@ class ConfigTab(QWidget):
         try:
             self.language_combo.clear()
             for lang in AppSettings.get_available_languages():
-                self.language_combo.addItem(lang.title(), userData=lang)
+                self.language_combo.addItem(lang.replace("_", " ").title(), userData=lang)
             current = AppSettings.get_selected_language()
             idx = self.language_combo.findData(current)
             if idx >= 0:
