@@ -2162,6 +2162,7 @@ class MainWindow(QMainWindow):
             "welcome":      {"target": lambda: None,                                            "pre_action": None},
             "extract":      {"target": lambda: self.config_tab._extract_btn,                    "pre_action": _switch_to(config_tab)},
             "edit":         {"target": lambda: self.table,                                      "pre_action": _switch_to(strings_tab)},
+            "filter_row":   {"target": lambda: self.filter_header,                               "pre_action": _switch_to(strings_tab)},
             "editor":       {"target": lambda: self.editor_btn,                                  "pre_action": _switch_to(strings_tab)},
             "preview":      {"target": lambda: self.preview_pane,                               "pre_action": _switch_to(strings_tab)},
             "apply":        {"target": lambda: self.apply_btn,                                  "pre_action": None},
