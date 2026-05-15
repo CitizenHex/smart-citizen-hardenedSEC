@@ -30,6 +30,28 @@ from lxml import etree as ET
 
 logger = logging.getLogger(__name__)
 
+# Tag-builder is in src.utils, which may not be on sys.path when this script
+# runs as a standalone CLI from the scripts/ directory. Add the project root
+# and fall through to the (now-only) defaults if the import still fails —
+# keeps CLI use unchanged and the generator self-contained.
+try:
+    if str(PROJECT_ROOT) not in sys.path:  # type: ignore[name-defined]  # PROJECT_ROOT defined below
+        pass
+except NameError:
+    pass
+try:
+    _gen_root = Path(__file__).parent.parent
+    if str(_gen_root) not in sys.path:
+        sys.path.insert(0, str(_gen_root))
+    from src.utils.tag_builder import (
+        DAMAGE_LABEL_TO_MAPPING_KEY, DEFAULT_TAG_CONFIGS, TagConfig, render_tag,
+    )
+except ImportError:  # pragma: no cover — only triggers if src/ is removed
+    DAMAGE_LABEL_TO_MAPPING_KEY = {}  # type: ignore[assignment]
+    DEFAULT_TAG_CONFIGS = {}  # type: ignore[assignment]
+    TagConfig = None  # type: ignore[assignment]
+    render_tag = None  # type: ignore[assignment]
+
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -380,83 +402,151 @@ def _loc_name_key(root: ET.Element) -> str | None:
     return None
 
 
-# Classification abbreviations for component name tags
-_CLASS_ABBREV = {
-    "Competition": "CMP",
-    "Military":    "MIL",
-    "Civilian":    "CIV",
-    "Industrial":  "IND",
-    "Stealth":     "STH",
-}
+# ── Tag emitters ─────────────────────────────────────────────────────────────
+# Each emitter pulls structured data off the description text and/or XML and
+# hands it to render_tag(). Format strings, ordering, separators, and the
+# class/ordinance/damage label mapping all come from the TagConfig passed
+# in — the function only knows how to extract the *values*, not how to lay
+# them out. Default behavior (when no config is passed) matches the
+# pre-refactor hardcoded output byte-for-byte; locked by
+# tests/test_tag_builder.py::TestDefaultBackwardsCompat.
+
+# CIG's internal trackingSignalType values → mapping-key form used by the
+# missile TagConfig.class_mapping dict.
+_MISSILE_TRACKING_RAW = ("CrossSection", "Electromagnetic", "Infrared")
 
 
-def _component_name_tag(desc_value: str, root: ET.Element | None = None) -> str | None:
-    """Extract [CLASS-S{size}-{grade}] tag from a component description string.
+def _component_name_tag(desc_value: str, root: ET.Element | None = None,
+                        config: "TagConfig | None" = None) -> str | None:
+    """Render the [CLASS-S{size}-{grade}] tag for a component.
 
-    Parses the structured header lines (Size: N, Grade: X, Class: Y) that appear
-    at the top of ship component descriptions in the base localization.
-
-    Returns:
-        Tag string like "[MIL-S1-A]" or None if parsing fails.
+    Parses the structured header lines (Size: N, Grade: X, Class: Y) that
+    appear at the top of ship component descriptions in the base
+    localization, then hands the values to render_tag(). Returns None when
+    parsing fails — the caller treats that as "no tag for this entry".
     """
-    import re
     size_m = re.search(r"Size:\s*(\d+)", desc_value)
     grade_m = re.search(r"Grade:\s*([A-D])", desc_value)
     class_m = re.search(r"Class:\s*(\w+)", desc_value)
     if not (size_m and grade_m and class_m):
         return None
-    abbrev = _CLASS_ABBREV.get(class_m.group(1))
-    if not abbrev:
+    cfg = config or DEFAULT_TAG_CONFIGS.get("components")
+    if cfg is None or render_tag is None:
         return None
-    return f"[{abbrev}-S{size_m.group(1)}-{grade_m.group(1)}]"
+    out = render_tag(cfg, {
+        "class": class_m.group(1),
+        "size":  size_m.group(1),
+        "grade": grade_m.group(1),
+    })
+    return out or None
 
 
-# CIG's internal trackingSignalType values → in-game community shorthand.
-_MISSILE_TRACKING_ABBREV = {
-    "CrossSection":   "CS",
-    "Electromagnetic": "EM",
-    "Infrared":       "IR",
-}
+def _missile_name_tag(desc_value: str, root: ET.Element | None = None,
+                      config: "TagConfig | None" = None) -> str | None:
+    """Render the missile/torpedo/bomb tag.
 
-
-def _missile_name_tag(desc_value: str, root: ET.Element | None = None) -> str | None:
-    """Extract [S{size}-{seeker}] tag for guided missiles (e.g. [S1-CS]).
-
-    Prefers the XML's ``trackingSignalType`` attribute (on ``<targetingParams>``)
-    over the loc-text "Tracking Signal: …" line so we stay correct even if a
-    description is edited or translated. Bombs (no guidance) fall through to a
-    plain [S{size}] tag.
+    Prefers the XML's ``trackingSignalType`` attribute (on
+    ``<targetingParams>``) over the loc-text "Tracking Signal: …" line so we
+    stay correct even if a description is edited or translated. Bombs (no
+    guidance) yield an empty ordinance value — render_tag's empty-drop then
+    falls through to the size element alone (e.g. ``[S2]``).
     """
-    import re
     size_m = re.search(r"Size:\s*(\d+)", desc_value)
     if not size_m:
         return None
     size = size_m.group(1)
 
-    seeker_abbrev = None
+    seeker_raw = None
     if root is not None:
         for el in root.iter():
             if el.tag.endswith("targetingParams") or el.tag.endswith("TargetingParams"):
                 raw = el.get("trackingSignalType")
-                if raw and raw in _MISSILE_TRACKING_ABBREV:
-                    seeker_abbrev = _MISSILE_TRACKING_ABBREV[raw]
+                if raw in _MISSILE_TRACKING_RAW:
+                    seeker_raw = raw
                     break
-    if seeker_abbrev is None:
+    if seeker_raw is None:
         m = re.search(r"Tracking Signal:\s*([A-Za-z ]+?)(?:\\n|\n|$)", desc_value)
         if m:
             normalized = m.group(1).replace(" ", "")
-            for raw, abbrev in _MISSILE_TRACKING_ABBREV.items():
+            for raw in _MISSILE_TRACKING_RAW:
                 if normalized.lower() == raw.lower():
-                    seeker_abbrev = abbrev
+                    seeker_raw = raw
                     break
 
-    # Guided missiles get just the seeker abbreviation ([CS]/[EM]/[IR]) so
-    # the tag stays compact in-game — the size is already encoded in the
-    # missile's display name. Bombs (no seeker) keep [S{size}] since that's
-    # the only differentiator they have.
-    if seeker_abbrev:
-        return f"[{seeker_abbrev}]"
-    return f"[S{size}]"
+    cfg = config or DEFAULT_TAG_CONFIGS.get("missiles")
+    if cfg is None or render_tag is None:
+        return None
+    # Feed raw values; render_tag's empty-value drop handles both branches.
+    # Guided missiles (seeker_raw set) keep size enabled by default →
+    # [IRS2]; bombs (seeker_raw "") collapse ordinance → [S2]. The new
+    # [IRS2] default is a deliberate change from the pre-refactor [IR]
+    # output — issue thread feedback asked for size to be visible on
+    # guided missiles ("might have multiple IR missiles and have to wait
+    # for the name to scroll to identify what size it is"). Users who
+    # prefer the old behavior can disable Size in the Tag Builder UI.
+    out = render_tag(cfg, {"ordinance": seeker_raw or "", "size": size})
+    return out or None
+
+
+def _ship_weapon_name_tag_factory(ammo_lookup: dict, config: "TagConfig | None" = None):
+    """Build a closure-tagger for ship weapons.
+
+    Needs the ammo_lookup to resolve the dominant damage type, so it can't
+    use the bare ``(desc, root)`` shape the other taggers use. Returns a
+    function with the standard ``(desc_value, root)`` signature for
+    ``scan_entity_dir``.
+    """
+    cfg = config or DEFAULT_TAG_CONFIGS.get("ship_weapons")
+
+    def _tag(desc_value: str, root: ET.Element | None = None) -> str | None:
+        if cfg is None or render_tag is None or root is None:
+            return None
+
+        # Size: prefer the entity class name attribute on root (matches
+        # how _extract_item_size works elsewhere in this script). Fall
+        # back to a Size: N line in the description.
+        size = None
+        name_attr = root.get("Name") or root.get("name") or ""
+        m = re.search(r"_S0*(\d+)_", name_attr)
+        if m:
+            size = str(int(m.group(1)))
+        if not size:
+            ds = re.search(r"Size:\s*(\d+)", desc_value)
+            if ds:
+                size = ds.group(1)
+
+        # Damage type: largest non-zero damage entry in the ammo record.
+        # ammo_lookup is keyed by ammoParamsRecord GUID; SAmmoContainer-
+        # ComponentParams on the weapon root holds the GUID.
+        damage_label = ""
+        try:
+            ammo_container = root.find(".//SAmmoContainerComponentParams")
+        except Exception:
+            ammo_container = None
+        ammo_id = ammo_container.get("ammoParamsRecord") if ammo_container is not None else None
+        if ammo_id and ammo_id != "00000000-0000-0000-0000-000000000000":
+            ammo_root = ammo_lookup.get(ammo_id)
+            if ammo_root is not None:
+                try:
+                    total, breakdown = _ammo_damage_breakdown(ammo_root)
+                except Exception:
+                    breakdown = {}
+                if breakdown:
+                    damage_label = max(breakdown.items(), key=lambda kv: kv[1])[0]
+                    # Translate the generator's compact label ("Phys",
+                    # "Distort", "Bio") into the full English mapping key
+                    # ("Physical", "Distortion", "Biochemical") that the
+                    # Tag Builder's mapping editor exposes to users.
+                    damage_label = DAMAGE_LABEL_TO_MAPPING_KEY.get(
+                        damage_label, damage_label
+                    )
+
+        if not size and not damage_label:
+            return None
+        out = render_tag(cfg, {"damage": damage_label, "size": size or ""})
+        return out or None
+
+    return _tag
 
 
 def _mission_loc_key(root: ET.Element) -> str | None:
@@ -3019,6 +3109,7 @@ def scan_entity_dir(
     loc_key_fn = None,
     generate_name_tags: bool = False,
     name_tag_fn = None,
+    name_tag_placement: str = "prepend",
     separator: str = ENHANCEMENT_SEPARATOR,
     capture_all: bool = False,
     xml_path_index: dict | None = None,
@@ -3096,11 +3187,21 @@ def scan_entity_dir(
                     tagger = name_tag_fn or _component_name_tag
                     tag = tagger(base_value, root)
                     if tag:
-                        out[name_key] = f"{name_value} {tag}"
+                        # `placement` is the user-configurable choice on the
+                        # Tag Builder; default "prepend" puts the tag in
+                        # front of the name so it sorts/scans naturally
+                        # next to its neighbors.
+                        if name_tag_placement == "append":
+                            out[name_key] = f"{name_value} {tag}"
+                        else:
+                            out[name_key] = f"{tag} {name_value}"
                         short_key = f"{name_key}_short"
                         short_value = loc.get(short_key)
                         if short_value:
-                            out[short_key] = f"{short_value} {tag}"
+                            if name_tag_placement == "append":
+                                out[short_key] = f"{short_value} {tag}"
+                            else:
+                                out[short_key] = f"{tag} {short_value}"
 
     logger.info(f"{entity_dir.name}: {matched} matched, {missed} no enhancements, {skipped} no loc key")
     return out
@@ -3118,6 +3219,15 @@ def _run_gen_components(ctx: dict) -> dict[str, str]:
     ships_scitem    = ctx["ships_scitem"]
     xml_path_index  = ctx.get("xml_path_index")
     records         = ctx["records"]
+    tag_configs     = ctx.get("tag_configs") or {}
+    comp_cfg        = tag_configs.get("components") or DEFAULT_TAG_CONFIGS.get("components")
+    comp_placement  = getattr(comp_cfg, "placement", "prepend") if comp_cfg else "prepend"
+    # Closure tagger so the (desc, root) call shape in scan_entity_dir
+    # stays uniform across categories — render_tag's user config is
+    # captured here instead of threaded through scan_entity_dir.
+    def _comp_tagger(desc_value: str, root: ET.Element | None = None) -> str | None:
+        return _component_name_tag(desc_value, root, config=comp_cfg)
+
     out: dict[str, str] = {}
     for subdir, fn in [
         ("shieldgenerator", enhancements_shield),
@@ -3126,10 +3236,14 @@ def _run_gen_components(ctx: dict) -> dict[str, str]:
         ("quantumdrive",    enhancements_quantum_drive),
     ]:
         out.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc, generate_name_tags=True,
+                                   name_tag_fn=_comp_tagger,
+                                   name_tag_placement=comp_placement,
                                    xml_path_index=xml_path_index, records_dir=records))
     radar_dir = ships_scitem / "radar"
     if radar_dir.exists():
         out.update(scan_entity_dir(radar_dir, enhancements_radar, loc=loc, generate_name_tags=True,
+                                   name_tag_fn=_comp_tagger,
+                                   name_tag_placement=comp_placement,
                                    xml_path_index=xml_path_index, records_dir=records))
 
     comp_types = ("COOL", "SHLD", "POWR", "QDRV", "RADR")
@@ -3230,13 +3344,20 @@ def _run_gen_missiles(ctx: dict) -> dict[str, str]:
     ships_scitem   = ctx["ships_scitem"]
     xml_path_index = ctx.get("xml_path_index")
     records        = ctx["records"]
+    tag_configs    = ctx.get("tag_configs") or {}
+    missile_cfg    = tag_configs.get("missiles") or DEFAULT_TAG_CONFIGS.get("missiles")
+    missile_placement = getattr(missile_cfg, "placement", "prepend") if missile_cfg else "prepend"
+    def _missile_tagger(desc_value: str, root: ET.Element | None = None) -> str | None:
+        return _missile_name_tag(desc_value, root, config=missile_cfg)
+
     out: dict[str, str] = {}
     weapons_dir = ships_scitem / "weapons"
     for missile_dir in [weapons_dir / "missiles", weapons_dir / "rocket_pods"]:
         if missile_dir.exists():
             out.update(scan_entity_dir(
                 missile_dir, enhancements_missile,
-                loc=loc, generate_name_tags=True, name_tag_fn=_missile_name_tag,
+                loc=loc, generate_name_tags=True, name_tag_fn=_missile_tagger,
+                name_tag_placement=missile_placement,
                 xml_path_index=xml_path_index, records_dir=records,
             ))
     return out
@@ -3248,6 +3369,15 @@ def _run_gen_ship_weapons(ctx: dict) -> dict[str, str]:
     vehicle_ammo   = ctx["vehicle_ammo"]
     xml_path_index = ctx.get("xml_path_index")
     records        = ctx["records"]
+    tag_configs    = ctx.get("tag_configs") or {}
+    ship_weapon_cfg = tag_configs.get("ship_weapons") or DEFAULT_TAG_CONFIGS.get("ship_weapons")
+    ship_weapon_placement = (
+        getattr(ship_weapon_cfg, "placement", "prepend") if ship_weapon_cfg else "prepend"
+    )
+    # Ship weapons gain name tags in 1.3.x (issue #31). The factory captures
+    # ammo_lookup so the tagger can resolve the dominant damage type.
+    ship_weapon_tagger = _ship_weapon_name_tag_factory(vehicle_ammo, config=ship_weapon_cfg)
+
     out: dict[str, str] = {}
     weapons_dir = ships_scitem / "weapons"
     if weapons_dir.exists():
@@ -3255,6 +3385,8 @@ def _run_gen_ship_weapons(ctx: dict) -> dict[str, str]:
             weapons_dir,
             lambda root: enhancements_weapon(root, vehicle_ammo, loc),
             loc=loc,
+            generate_name_tags=True, name_tag_fn=ship_weapon_tagger,
+            name_tag_placement=ship_weapon_placement,
             xml_path_index=xml_path_index, records_dir=records,
         )
     logger.info(f"Finished ship weapons ({len(out)} entries)")
@@ -3629,7 +3761,8 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
          categories: set[str] | None = None,
          progress_callback: Optional[Callable[[int, int, str], None]] = None,
          max_workers: int = 6,
-         patches_dir: Path | None = None) -> None:
+         patches_dir: Path | None = None,
+         tag_configs: "dict | None" = None) -> None:
     import sys as sys_mod
     # Deferred import — the script is loaded by both the app worker (where
     # src.utils is on the path) and as a standalone CLI, so we swallow an
@@ -3836,6 +3969,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         "armor_lookup":      armor_lookup,
         "reputation_lookup": reputation_lookup,
         "xml_path_index":    xml_path_index,
+        "tag_configs":       tag_configs or {},
     }
 
     gen_jobs: dict[str, Callable] = {}

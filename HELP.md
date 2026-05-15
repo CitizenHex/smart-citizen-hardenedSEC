@@ -80,6 +80,7 @@ When Star Citizen updates, your edits are preserved in `<data folder>\<channel>\
 - Toggle stat overlays that append numerical stats to descriptions — SCM speed, shield HP, DPS, cargo capacity, blueprint pools, mission XP, and more.
 - Enable or disable each enhancement category independently.
 - Configure the ship favorites prefix character.
+- **Tag Builder** — customize the bracketed tags placed on component, missile, and ship-weapon names. Reorder elements with ▲/▼, toggle individual elements off, change abbreviation length (`M` / `MIL` / `Military`), pick separator (none, hyphen, space, etc.) and brackets (square, round, none, etc.), and choose whether the tag appears before or after the name. Click **Apply Tag Builder** to save and regenerate.
 - Click **Generate Enhancements** to extract DataForge data from `Data.p4k` and rebuild the enhancement INI files. Declarative patches under `patches/` are re-applied idempotently on every regen so known CIG data bugs stay fixed without waiting for a game patch.
 
 ## Config Tab

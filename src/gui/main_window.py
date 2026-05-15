@@ -2986,7 +2986,14 @@ class MainWindow(QMainWindow):
         if categories is None:
             categories = AppSettings.get_enabled_enhancement_categories()
 
-        self._enhancements_worker = EnhancementsGeneratorWorker(categories=categories)
+        # Tag-builder config (issue #31): read once here on the main thread
+        # and hand the worker a plain dict, so the generator's worker
+        # thread/subprocess never touches a live QSettings handle.
+        tag_configs = AppSettings.get_all_tag_configs()
+
+        self._enhancements_worker = EnhancementsGeneratorWorker(
+            categories=categories, tag_configs=tag_configs
+        )
         self.enhancements_tab.set_operation_running("Generating enhancements…")
         self.statusBar().showMessage("Generating enhancements in background…")
 
