@@ -478,16 +478,20 @@ begin
       after a user reported the data-dir choice not carrying over. }
     WriteInstallerChoicesToRegistry();
 
-    { Catch-all sanity check: by ssPostInstall, Inno has written its
-      generated unins000.exe to {app}. If it isn't there, something
-      removed it between [Files] completion and now — most likely the
-      upgrade-uninstall race (WaitForUninstallToFinish timeout fired and
-      the old uninstaller's temp copy nuked our new one) or a Smart App
-      Control / Defender quarantine of the unsigned uninstaller binary.
-      Tell the user explicitly rather than letting them discover it days
-      later when Apps & Features has no entry. The install itself is
-      kept — the app works fine without unins000.exe; only removal is
-      affected. }
+    (* Catch-all sanity check: by ssPostInstall, Inno has written its
+       generated unins000.exe to the install dir. If it isn't there,
+       something removed it between [Files] completion and now — most
+       likely the upgrade-uninstall race (WaitForUninstallToFinish
+       timeout fired and the old uninstaller's temp copy nuked our new
+       one) or a Smart App Control / Defender quarantine of the unsigned
+       uninstaller binary. Tell the user explicitly rather than letting
+       them discover it days later when Apps & Features has no entry.
+       The install itself is kept — the app works fine without
+       unins000.exe; only removal is affected.
+       Note: this comment uses the (* ... *) form instead of { ... } so
+       the {app} constant reference in the FileExists call below can sit
+       inside a comment without the } in {app} prematurely closing it
+       (Pascal block comments don't nest). *)
     if not FileExists(ExpandConstant('{app}\unins000.exe')) then
     begin
       Log('ERROR: unins000.exe missing from {app} post-install. Install completed but uninstall is broken.');
