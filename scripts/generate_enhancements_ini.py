@@ -30,6 +30,30 @@ from lxml import etree as ET
 
 logger = logging.getLogger(__name__)
 
+# Tag-builder is in src.utils, which may not be on sys.path when this script
+# runs as a standalone CLI from the scripts/ directory. Add the project root
+# and fall through to the (now-only) defaults if the import still fails —
+# keeps CLI use unchanged and the generator self-contained.
+try:
+    if str(PROJECT_ROOT) not in sys.path:  # type: ignore[name-defined]  # PROJECT_ROOT defined below
+        pass
+except NameError:
+    pass
+try:
+    _gen_root = Path(__file__).parent.parent
+    if str(_gen_root) not in sys.path:
+        sys.path.insert(0, str(_gen_root))
+    from src.utils.tag_builder import (
+        DAMAGE_LABEL_TO_MAPPING_KEY, DEFAULT_COMPONENT_CLASS_MAPPING,
+        DEFAULT_TAG_CONFIGS, TagConfig, render_tag,
+    )
+except ImportError:  # pragma: no cover — only triggers if src/ is removed
+    DAMAGE_LABEL_TO_MAPPING_KEY = {}  # type: ignore[assignment]
+    DEFAULT_COMPONENT_CLASS_MAPPING = {}  # type: ignore[assignment]
+    DEFAULT_TAG_CONFIGS = {}  # type: ignore[assignment]
+    TagConfig = None  # type: ignore[assignment]
+    render_tag = None  # type: ignore[assignment]
+
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -409,14 +433,18 @@ def _loc_name_key(root: ET.Element) -> str | None:
     return None
 
 
-# Classification abbreviations for component name tags
-_CLASS_ABBREV = {
-    "Competition": "CMP",
-    "Military":    "MIL",
-    "Civilian":    "CIV",
-    "Industrial":  "IND",
-    "Stealth":     "STH",
-}
+# ── Tag emitters ─────────────────────────────────────────────────────────────
+# Each emitter pulls structured data off the description text and/or XML and
+# hands it to render_tag(). Format strings, ordering, separators, and the
+# class/ordinance/damage label mapping all come from the TagConfig passed
+# in — the function only knows how to extract the *values*, not how to lay
+# them out. Default behavior (when no config is passed) matches the
+# pre-refactor hardcoded output byte-for-byte; locked by
+# tests/test_tag_builder.py::TestDefaultBackwardsCompat.
+
+# CIG's internal trackingSignalType values → mapping-key form used by the
+# missile TagConfig.class_mapping dict.
+_MISSILE_TRACKING_RAW = ("CrossSection", "Electromagnetic", "Infrared")
 
 # Item Type → abbreviation, used as a Class: fallback when the description
 # omits the Class: line. CIG authors ship components with the full
@@ -430,22 +458,30 @@ _ITEM_TYPE_ABBREV = {
 }
 
 
-def _component_name_tag(desc_value: str, root: ET.Element | None = None) -> str | None:
+def _component_name_tag(desc_value: str, root: ET.Element | None = None,
+                        config: "TagConfig | None" = None) -> str | None:
     """Build a bracket annotation tag from a component-style description.
 
     Two paths, both producing the same ``[…]`` shape:
 
-      Strict — Size: N + Grade: A-D + Class: <recognised> → "[CLASS-Sx-grade]"
-        e.g. "Size: 1\\nGrade: A\\nClass: Military"  →  "[MIL-S1-A]"
+      Strict — Size: N + Grade: A-D + Class: <recognised> → e.g. "[MIL-S1-A]"
         Ship components (shield, cooler, powerplant, qdrive, radar) all
-        author this trio. Preserved from the original implementation.
+        author this trio. Routed through ``render_tag`` so the user's
+        component TagConfig (mapping / separator / enclosing / element
+        ordering) is honoured. A defensive non-render_tag path preserves
+        the legacy ``[CLASS-Sx-grade]`` output bit-for-bit when
+        ``tag_builder`` isn't importable.
 
       Fallback — Size: present + at least one of {recognised Item Type,
-      Grade A-D}. Class: is optional and the size may be written either as
-      bare "N" or as the mining-style "SN" (S0, S00). Output shape:
+      Grade A-D}. Class: is optional and the size may be written either
+      as bare "N" or as the mining-style "SN" (S0, S00). Output shape:
         [TYPE-Sx-grade]  (e.g. "[MIN-S0-B]" — Helix, Hofstede)
         [TYPE-Sx]        (e.g. "[MIN-S0]"   — Arbor MHV with no Grade)
         [Sx-grade]       (Grade present but Item Type not in the abbreviation map)
+      The fallback path skips ``render_tag`` — these items aren't the
+      user-customisable ship-component case Tag Builder targets, and the
+      partial output shapes don't align with the element-ordered render
+      pipeline.
 
     Requiring at least one of {type_abbrev, grade_m} on the fallback path
     keeps a bare ``[Sx]`` from leaking onto anything that happens to have
@@ -456,7 +492,6 @@ def _component_name_tag(desc_value: str, root: ET.Element | None = None) -> str 
     Returns ``None`` when Size: itself is missing OR when the fallback's
     minimum-information bar isn't met. Those items pass through bare.
     """
-    import re
     # Optional leading 'S' on the size value covers mining heads (Size: S0,
     # Size: S00) without breaking the bare-digit form ship components use
     # (Size: 0, Size: 1). The capture is the digits only; "S0" → "0",
@@ -469,14 +504,24 @@ def _component_name_tag(desc_value: str, root: ET.Element | None = None) -> str 
     grade_m = re.search(r"Grade:\s*([A-D])", desc_value)
     class_m = re.search(r"Class:\s*(\w+)", desc_value)
 
-    # Strict path: preserve the original "[CLASS-Sx-grade]" output exactly
-    # when the full trio is present and the class is one of the five
-    # recognised ship-component classifications. Anything that doesn't
-    # qualify drops through to the fallback.
-    if grade_m and class_m:
-        class_abbrev = _CLASS_ABBREV.get(class_m.group(1))
-        if class_abbrev:
-            return f"[{class_abbrev}-S{size}-{grade_m.group(1)}]"
+    # Strict path: full ship-component trio with a recognised class →
+    # render via the Tag Builder pipeline so user customisation applies.
+    if grade_m and class_m and class_m.group(1) in DEFAULT_COMPONENT_CLASS_MAPPING:
+        cfg = config or DEFAULT_TAG_CONFIGS.get("components")
+        if cfg is not None and render_tag is not None:
+            out = render_tag(cfg, {
+                "class": class_m.group(1),
+                "size":  size,
+                "grade": grade_m.group(1),
+            })
+            if out:
+                return out
+        # Defensive fallback when tag_builder isn't importable (e.g. tests
+        # in environments without src/ on the path). Preserves the legacy
+        # hardcoded output shape.
+        abbrev_tuple = DEFAULT_COMPONENT_CLASS_MAPPING.get(class_m.group(1))
+        if abbrev_tuple:
+            return f"[{abbrev_tuple[1]}-S{size}-{grade_m.group(1)}]"
 
     # Fallback path: classify by Item Type when Class: is missing or
     # unrecognised. The character class excludes backslash so the capture
@@ -491,7 +536,7 @@ def _component_name_tag(desc_value: str, root: ET.Element | None = None) -> str 
     if not (type_abbrev or grade_m):
         return None
 
-    parts = []
+    parts: list[str] = []
     if type_abbrev:
         parts.append(type_abbrev)
     parts.append(f"S{size}")
@@ -500,52 +545,112 @@ def _component_name_tag(desc_value: str, root: ET.Element | None = None) -> str 
     return f"[{'-'.join(parts)}]"
 
 
-# CIG's internal trackingSignalType values → in-game community shorthand.
-_MISSILE_TRACKING_ABBREV = {
-    "CrossSection":   "CS",
-    "Electromagnetic": "EM",
-    "Infrared":       "IR",
-}
+def _missile_name_tag(desc_value: str, root: ET.Element | None = None,
+                      config: "TagConfig | None" = None) -> str | None:
+    """Render the missile/torpedo/bomb tag.
 
-
-def _missile_name_tag(desc_value: str, root: ET.Element | None = None) -> str | None:
-    """Extract [S{size}-{seeker}] tag for guided missiles (e.g. [S1-CS]).
-
-    Prefers the XML's ``trackingSignalType`` attribute (on ``<targetingParams>``)
-    over the loc-text "Tracking Signal: …" line so we stay correct even if a
-    description is edited or translated. Bombs (no guidance) fall through to a
-    plain [S{size}] tag.
+    Prefers the XML's ``trackingSignalType`` attribute (on
+    ``<targetingParams>``) over the loc-text "Tracking Signal: …" line so we
+    stay correct even if a description is edited or translated. Bombs (no
+    guidance) yield an empty ordinance value — render_tag's empty-drop then
+    falls through to the size element alone (e.g. ``[S2]``).
     """
-    import re
     size_m = re.search(r"Size:\s*(\d+)", desc_value)
     if not size_m:
         return None
     size = size_m.group(1)
 
-    seeker_abbrev = None
+    seeker_raw = None
     if root is not None:
         for el in root.iter():
             if el.tag.endswith("targetingParams") or el.tag.endswith("TargetingParams"):
                 raw = el.get("trackingSignalType")
-                if raw and raw in _MISSILE_TRACKING_ABBREV:
-                    seeker_abbrev = _MISSILE_TRACKING_ABBREV[raw]
+                if raw in _MISSILE_TRACKING_RAW:
+                    seeker_raw = raw
                     break
-    if seeker_abbrev is None:
+    if seeker_raw is None:
         m = re.search(r"Tracking Signal:\s*([A-Za-z ]+?)(?:\\n|\n|$)", desc_value)
         if m:
             normalized = m.group(1).replace(" ", "")
-            for raw, abbrev in _MISSILE_TRACKING_ABBREV.items():
+            for raw in _MISSILE_TRACKING_RAW:
                 if normalized.lower() == raw.lower():
-                    seeker_abbrev = abbrev
+                    seeker_raw = raw
                     break
 
-    # Guided missiles get just the seeker abbreviation ([CS]/[EM]/[IR]) so
-    # the tag stays compact in-game — the size is already encoded in the
-    # missile's display name. Bombs (no seeker) keep [S{size}] since that's
-    # the only differentiator they have.
-    if seeker_abbrev:
-        return f"[{seeker_abbrev}]"
-    return f"[S{size}]"
+    cfg = config or DEFAULT_TAG_CONFIGS.get("missiles")
+    if cfg is None or render_tag is None:
+        return None
+    # Feed raw values; render_tag's empty-value drop handles both branches.
+    # Guided missiles (seeker_raw set) keep size enabled by default →
+    # [IRS2]; bombs (seeker_raw "") collapse ordinance → [S2]. The new
+    # [IRS2] default is a deliberate change from the pre-refactor [IR]
+    # output — issue thread feedback asked for size to be visible on
+    # guided missiles ("might have multiple IR missiles and have to wait
+    # for the name to scroll to identify what size it is"). Users who
+    # prefer the old behavior can disable Size in the Tag Builder UI.
+    out = render_tag(cfg, {"ordinance": seeker_raw or "", "size": size})
+    return out or None
+
+
+def _ship_weapon_name_tag_factory(ammo_lookup: dict, config: "TagConfig | None" = None):
+    """Build a closure-tagger for ship weapons.
+
+    Needs the ammo_lookup to resolve the dominant damage type, so it can't
+    use the bare ``(desc, root)`` shape the other taggers use. Returns a
+    function with the standard ``(desc_value, root)`` signature for
+    ``scan_entity_dir``.
+    """
+    cfg = config or DEFAULT_TAG_CONFIGS.get("ship_weapons")
+
+    def _tag(desc_value: str, root: ET.Element | None = None) -> str | None:
+        if cfg is None or render_tag is None or root is None:
+            return None
+
+        # Size: prefer the entity class name attribute on root (matches
+        # how _extract_item_size works elsewhere in this script). Fall
+        # back to a Size: N line in the description.
+        size = None
+        name_attr = root.get("Name") or root.get("name") or ""
+        m = re.search(r"_S0*(\d+)_", name_attr)
+        if m:
+            size = str(int(m.group(1)))
+        if not size:
+            ds = re.search(r"Size:\s*(\d+)", desc_value)
+            if ds:
+                size = ds.group(1)
+
+        # Damage type: largest non-zero damage entry in the ammo record.
+        # ammo_lookup is keyed by ammoParamsRecord GUID; SAmmoContainer-
+        # ComponentParams on the weapon root holds the GUID.
+        damage_label = ""
+        try:
+            ammo_container = root.find(".//SAmmoContainerComponentParams")
+        except Exception:
+            ammo_container = None
+        ammo_id = ammo_container.get("ammoParamsRecord") if ammo_container is not None else None
+        if ammo_id and ammo_id != "00000000-0000-0000-0000-000000000000":
+            ammo_root = ammo_lookup.get(ammo_id)
+            if ammo_root is not None:
+                try:
+                    total, breakdown = _ammo_damage_breakdown(ammo_root)
+                except Exception:
+                    breakdown = {}
+                if breakdown:
+                    damage_label = max(breakdown.items(), key=lambda kv: kv[1])[0]
+                    # Translate the generator's compact label ("Phys",
+                    # "Distort", "Bio") into the full English mapping key
+                    # ("Physical", "Distortion", "Biochemical") that the
+                    # Tag Builder's mapping editor exposes to users.
+                    damage_label = DAMAGE_LABEL_TO_MAPPING_KEY.get(
+                        damage_label, damage_label
+                    )
+
+        if not size and not damage_label:
+            return None
+        out = render_tag(cfg, {"damage": damage_label, "size": size or ""})
+        return out or None
+
+    return _tag
 
 
 def _mission_loc_key(root: ET.Element) -> str | None:
@@ -1305,6 +1410,200 @@ def enhancements_quantum_drive(root: ET.Element) -> str:
     if distort is not None:
         lines.append(f"Max Distortion: {_fmt(distort)}")
     return "\\n".join(lines)
+
+
+def enhancements_mining_laser(root: ET.Element) -> str:
+    """Extract stats for ship-mounted mining laser entities.
+
+    Covers Arbor, Lancet, Helix, Hofstede, Klein, Impact (under
+    ``ships/weapons/mining_laser_*.xml``). CIG's stock descriptions
+    already author the headline numbers (Mining Laser Power, Optimal /
+    Maximum Range, Module Slots, Resistance / Instability modifiers),
+    so this function focuses on stats that DON'T appear in the
+    description today: component HP, damage resistances, fire-beam
+    energy draw + heat + wear, distortion threshold, and the per-mode
+    damage-per-second values from the fire actions.
+
+    The mining-laser modifier block (``SEntityComponentMiningLaserParams``)
+    holds the laserInstability / chargeWindow / resistance / filter
+    modifier values. Those duplicate what CIG already prints, but the
+    user-confirmed convention for this gear category is "append always
+    — CIG sometimes forgets to update the description after a balance
+    pass", so they're emitted here too.
+
+    Mining lasers that reference a globalParams record by UUID for
+    their BASE values (mining-laser power range, optimal range, etc.)
+    don't have those base values resolved here in v1 — local extraction
+    only. That's a v2 enhancement; for now CIG's description is the
+    source of truth for the base values and this function adds the
+    overlay-style stats the user can't see elsewhere.
+    """
+    lines: list[str] = []
+
+    # Per-fire-action damage-per-second + beam ranges + energy draw + heat.
+    # Mining lasers have two fire actions in their <fireActions> wrapper:
+    # the fracture beam (mining damage type) and the extraction beam.
+    # Each carries its own DamageEnergy, full/zero range, and energy curve.
+    fire_actions = root.findall(".//fireActions/SWeaponActionFireBeamParams")
+    if not fire_actions:
+        fire_actions = root.findall(".//SWeaponActionFireBeamParams")
+    for idx, fa in enumerate(fire_actions, 1):
+        # Mode label from mannequinTag (laser/tractor) → human label.
+        mannequin = fa.find("mannequinTag")
+        mtag = mannequin.get("tag") if mannequin is not None else ""
+        mode = {"laser": "Fracture", "tractor": "Extraction"}.get(mtag, f"Beam {idx}")
+
+        dps_el = fa.find("damagePerSecond/DamageInfo")
+        dps = dps_el.get("DamageEnergy") if dps_el is not None else None
+        full_r = fa.get("fullDamageRange")
+        zero_r = fa.get("zeroDamageRange")
+        e_min  = fa.get("minEnergyDraw")
+        e_max  = fa.get("maxEnergyDraw")
+        heat_s = fa.get("heatPerSecond")
+        wear_s = fa.get("wearPerSecond")
+
+        # Only emit a line if at least one numeric is non-zero; templates
+        # ship with zeroed defaults that aren't worth showing.
+        nonzero = any(
+            v not in (None, "", "0", "0.0") for v in (dps, full_r, zero_r, e_min, e_max, heat_s, wear_s)
+        )
+        if not nonzero:
+            continue
+        parts: list[str] = []
+        if dps not in (None, "0", "0.0"):
+            parts.append(f"DPS: {_fmt(dps)}")
+        if full_r not in (None, "0", "0.0") or zero_r not in (None, "0", "0.0"):
+            parts.append(f"Range: {_fmt(full_r, 'm')}→{_fmt(zero_r, 'm')}")
+        if e_max not in (None, "0", "0.0"):
+            if e_min and e_min != e_max and e_min not in ("0", "0.0"):
+                parts.append(f"Energy: {_fmt(e_min)}–{_fmt(e_max)} PU/s")
+            else:
+                parts.append(f"Energy: {_fmt(e_max)} PU/s")
+        if heat_s not in (None, "0", "0.0"):
+            parts.append(f"Heat: {_fmt(heat_s)}/s")
+        if wear_s not in (None, "0", "0.0"):
+            parts.append(f"Wear: {wear_s}/s")
+        if parts:
+            lines.append(f"<EM4>{mode}:</EM4>  " + "  |  ".join(parts))
+
+    # Mining-laser modifier overlay. CIG's description has these but the
+    # user wants them re-emitted from XML so balance updates surface even
+    # when the description text rots.
+    mlp = _find(root, "SEntityComponentMiningLaserParams")
+    if mlp is not None:
+        modifiers = mlp.find("miningLaserModifiers")
+        if modifiers is not None:
+            mod_parts: list[str] = []
+            for child_tag, label in (
+                ("laserInstability",                "Instability"),
+                ("optimalChargeWindowSizeModifier","Optimal Charge Window"),
+                ("resistanceModifier",             "Resistance"),
+            ):
+                fm = modifiers.find(f"{child_tag}/FloatModifierMultiplicative")
+                if fm is not None:
+                    val = fm.get("value")
+                    if val and val not in ("0", "0.0"):
+                        sign = "+" if float(val) > 0 else ""
+                        mod_parts.append(f"{label}: {sign}{val}%")
+            filter_fm = mlp.find("filterParams/filterModifier/FloatModifierMultiplicative")
+            if filter_fm is not None:
+                fval = filter_fm.get("value")
+                if fval and fval not in ("0", "0.0"):
+                    sign = "+" if float(fval) > 0 else ""
+                    mod_parts.append(f"Inert Filter: {sign}{fval}%")
+            if mod_parts:
+                lines.append("<EM4>Modifiers:</EM4>  " + "  |  ".join(mod_parts))
+
+    # Structural stats — component HP + distortion + ship-component-style
+    # signatures if they happen to be present on a ship-mountable laser.
+    comp_hp = _attr(root, "SHealthComponentParams", "Health")
+    if comp_hp is not None:
+        lines.append(f"<EM4>Component HP:</EM4> {_fmt(comp_hp)}")
+    distort = _attr(root, "SDistortionParams", "Maximum")
+    if distort is not None and distort not in ("0", "0.0"):
+        lines.append(f"<EM4>Max Distortion:</EM4> {_fmt(distort)}")
+    em_sig = _attr(root, "EMSignature", "nominalSignature")
+    ir_sig = _attr(root, "IRSignature", "nominalSignature")
+    if em_sig is not None or ir_sig is not None:
+        sig_parts: list[str] = []
+        if em_sig is not None and em_sig not in ("0", "0.0"):
+            sig_parts.append(f"EM: {_fmt(em_sig)}")
+        if ir_sig is not None and ir_sig not in ("0", "0.0"):
+            sig_parts.append(f"IR: {_fmt(ir_sig)}")
+        if sig_parts:
+            lines.append("<EM4>Signatures:</EM4>  " + "  |  ".join(sig_parts))
+
+    return "\\n".join(lines) if lines else ""
+
+
+def enhancements_salvage_tool(root: ET.Element) -> str:
+    """Extract stats for handheld salvage tools.
+
+    Covers the Renovar XTR (``weapons/fps_weapons/grin_salvage_repair_01.xml``)
+    and the multitool's salvage_repair mode
+    (``weapons/fps_weapons/grin_multitool_01_default_salvage_repair.xml``).
+    Both expose a pair of ``SWeaponActionFireSalvageRepairParams`` —
+    one for Repair mode, one for Salvage mode — each carrying its own
+    repair-rate / efficiency / ramp-up curve. Renders both modes side
+    by side so a player can compare a single tool's two halves without
+    leaving the description.
+
+    Skipped: ship-mounted salvage equipment under ``ships/salvagemunching``
+    is currently placeholder XMLs with ``Name="@LOC_PLACEHOLDER"`` — no
+    real stats to extract until CIG fleshes those records out.
+    """
+    lines: list[str] = []
+
+    fire_actions = root.findall(".//SWeaponActionFireSalvageRepairParams")
+    for fa in fire_actions:
+        # Mode is encoded on the element itself via the `salvageRepairMode`
+        # attribute ("Repair" / "Salvage"). Use it as the EM4-tagged header.
+        mode = fa.get("salvageRepairMode") or fa.get("name") or "Mode"
+        eff      = fa.get("materialEfficiency")
+        hp_rate  = fa.get("maxHealthRepairRate")
+        dmg_rate = fa.get("maxDamageMapRepairRate")
+        h2a      = fa.get("healthToAmmoRatio")
+        ramp_up  = fa.get("rampUpTime")
+        ramp_dn  = fa.get("rampDownTime")
+        e_min    = fa.get("minEnergyDraw")
+        e_max    = fa.get("maxEnergyDraw")
+        heat_s   = fa.get("heatPerSecond")
+        wear_s   = fa.get("wearPerSecond")
+
+        parts: list[str] = []
+        if hp_rate not in (None, "0", "0.0"):
+            parts.append(f"HP Rate: {_fmt(hp_rate)}/s")
+        if dmg_rate not in (None, "0", "0.0"):
+            parts.append(f"Damage-Map Rate: {_fmt(dmg_rate)}/s")
+        if eff not in (None, "1", "1.0"):
+            # 1.0 is the default no-op — only emit when CIG actually tunes
+            # below unity (Renovar Salvage mode runs at 0.7 efficiency).
+            parts.append(f"Material Efficiency: {_fmt(eff, '', 2)}")
+        if h2a not in (None, "0", "0.0"):
+            parts.append(f"HP/Ammo: {_fmt(h2a, '', 2)}")
+        if ramp_up not in (None, "0", "0.0") or ramp_dn not in (None, "0", "0.0"):
+            parts.append(f"Ramp: {_fmt(ramp_up, 's', 1)}↑ {_fmt(ramp_dn, 's', 1)}↓")
+        if e_max not in (None, "0", "0.0"):
+            if e_min and e_min != e_max and e_min not in ("0", "0.0"):
+                parts.append(f"Energy: {_fmt(e_min)}–{_fmt(e_max)} PU/s")
+            else:
+                parts.append(f"Energy: {_fmt(e_max)} PU/s")
+        if heat_s not in (None, "0", "0.0"):
+            parts.append(f"Heat: {_fmt(heat_s)}/s")
+        if wear_s not in (None, "0", "0.0"):
+            parts.append(f"Wear: {wear_s}/s")
+        if parts:
+            lines.append(f"<EM4>{mode}:</EM4>  " + "  |  ".join(parts))
+
+    # Structural stats (durability / wear) — same pattern as mining lasers.
+    comp_hp = _attr(root, "SHealthComponentParams", "Health")
+    if comp_hp is not None and comp_hp not in ("0", "0.0"):
+        lines.append(f"<EM4>Component HP:</EM4> {_fmt(comp_hp)}")
+    wear_max = _attr(root, "SWearAccumulatorParams", "MaxLifetimeHours")
+    if wear_max is not None and wear_max not in ("0", "0.0"):
+        lines.append(f"<EM4>Max Lifetime:</EM4> {_fmt(wear_max, 'h', 1)}")
+
+    return "\\n".join(lines) if lines else ""
 
 
 def _extract_mission_xp(root: ET.Element, reputation_lookup: dict[str, int] | None = None) -> int:
@@ -3279,6 +3578,7 @@ def scan_entity_dir(
     loc_key_fn = None,
     generate_name_tags: bool = False,
     name_tag_fn = None,
+    name_tag_placement: str = "prepend",
     separator: str = ENHANCEMENT_SEPARATOR,
     capture_all: bool = False,
     xml_path_index: dict | None = None,
@@ -3356,11 +3656,21 @@ def scan_entity_dir(
                     tagger = name_tag_fn or _component_name_tag
                     tag = tagger(base_value, root)
                     if tag:
-                        out[name_key] = f"{name_value} {tag}"
+                        # `placement` is the user-configurable choice on the
+                        # Tag Builder; default "prepend" puts the tag in
+                        # front of the name so it sorts/scans naturally
+                        # next to its neighbors.
+                        if name_tag_placement == "append":
+                            out[name_key] = f"{name_value} {tag}"
+                        else:
+                            out[name_key] = f"{tag} {name_value}"
                         short_key = f"{name_key}_short"
                         short_value = loc.get(short_key)
                         if short_value:
-                            out[short_key] = f"{short_value} {tag}"
+                            if name_tag_placement == "append":
+                                out[short_key] = f"{short_value} {tag}"
+                            else:
+                                out[short_key] = f"{tag} {short_value}"
 
     logger.info(f"{entity_dir.name}: {matched} matched, {missed} no enhancements, {skipped} no loc key")
     return out
@@ -3378,6 +3688,15 @@ def _run_gen_components(ctx: dict) -> dict[str, str]:
     ships_scitem    = ctx["ships_scitem"]
     xml_path_index  = ctx.get("xml_path_index")
     records         = ctx["records"]
+    tag_configs     = ctx.get("tag_configs") or {}
+    comp_cfg        = tag_configs.get("components") or DEFAULT_TAG_CONFIGS.get("components")
+    comp_placement  = getattr(comp_cfg, "placement", "prepend") if comp_cfg else "prepend"
+    # Closure tagger so the (desc, root) call shape in scan_entity_dir
+    # stays uniform across categories — render_tag's user config is
+    # captured here instead of threaded through scan_entity_dir.
+    def _comp_tagger(desc_value: str, root: ET.Element | None = None) -> str | None:
+        return _component_name_tag(desc_value, root, config=comp_cfg)
+
     out: dict[str, str] = {}
     for subdir, fn in [
         ("shieldgenerator", enhancements_shield),
@@ -3386,10 +3705,14 @@ def _run_gen_components(ctx: dict) -> dict[str, str]:
         ("quantumdrive",    enhancements_quantum_drive),
     ]:
         out.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc, generate_name_tags=True,
+                                   name_tag_fn=_comp_tagger,
+                                   name_tag_placement=comp_placement,
                                    xml_path_index=xml_path_index, records_dir=records))
     radar_dir = ships_scitem / "radar"
     if radar_dir.exists():
         out.update(scan_entity_dir(radar_dir, enhancements_radar, loc=loc, generate_name_tags=True,
+                                   name_tag_fn=_comp_tagger,
+                                   name_tag_placement=comp_placement,
                                    xml_path_index=xml_path_index, records_dir=records))
 
     comp_types = ("COOL", "SHLD", "POWR", "QDRV", "RADR")
@@ -3490,16 +3813,54 @@ def _run_gen_missiles(ctx: dict) -> dict[str, str]:
     ships_scitem   = ctx["ships_scitem"]
     xml_path_index = ctx.get("xml_path_index")
     records        = ctx["records"]
+    tag_configs    = ctx.get("tag_configs") or {}
+    missile_cfg    = tag_configs.get("missiles") or DEFAULT_TAG_CONFIGS.get("missiles")
+    missile_placement = getattr(missile_cfg, "placement", "prepend") if missile_cfg else "prepend"
+    def _missile_tagger(desc_value: str, root: ET.Element | None = None) -> str | None:
+        return _missile_name_tag(desc_value, root, config=missile_cfg)
+
     out: dict[str, str] = {}
     weapons_dir = ships_scitem / "weapons"
     for missile_dir in [weapons_dir / "missiles", weapons_dir / "rocket_pods"]:
         if missile_dir.exists():
             out.update(scan_entity_dir(
                 missile_dir, enhancements_missile,
-                loc=loc, generate_name_tags=True, name_tag_fn=_missile_name_tag,
+                loc=loc, generate_name_tags=True, name_tag_fn=_missile_tagger,
+                name_tag_placement=missile_placement,
                 xml_path_index=xml_path_index, records_dir=records,
             ))
     return out
+
+
+def _ship_weapon_dispatch(root: ET.Element, vehicle_ammo: dict, loc: dict) -> str:
+    """Polymorphic dispatch for entities in ``ships/weapons/``.
+
+    The directory mixes combat weapons (cannons, repeaters, scatterguns)
+    with non-combat ship-mounted gear (mining lasers — and likely
+    tractor / salvage beams in the future). Pick the right extractor
+    based on a marker element present only on the specialised entity:
+
+      - SEntityComponentMiningLaserParams → mining laser → enhancements_mining_laser
+      - everything else                  → enhancements_weapon (combat)
+
+    Keeps the single-pass scan_entity_dir wiring intact while letting
+    each entity class get the stats most relevant to it.
+    """
+    if _find(root, "SEntityComponentMiningLaserParams") is not None:
+        return enhancements_mining_laser(root)
+    return enhancements_weapon(root, vehicle_ammo, loc)
+
+
+def _fps_weapon_dispatch(root: ET.Element, fps_ammo: dict, loc: dict, mag_lookup: dict) -> str:
+    """Polymorphic dispatch for entities in ``weapons/fps_weapons/``.
+
+    Same shape as ``_ship_weapon_dispatch``: handheld salvage tools
+    (Renovar XTR + multitool salvage mode) need a different extractor
+    than combat FPS weapons, but they live in the same directory.
+    """
+    if _find(root, "SWeaponActionFireSalvageRepairParams") is not None:
+        return enhancements_salvage_tool(root)
+    return enhancements_weapon(root, fps_ammo, loc, mag_lookup)
 
 
 def _run_gen_ship_weapons(ctx: dict) -> dict[str, str]:
@@ -3508,13 +3869,24 @@ def _run_gen_ship_weapons(ctx: dict) -> dict[str, str]:
     vehicle_ammo   = ctx["vehicle_ammo"]
     xml_path_index = ctx.get("xml_path_index")
     records        = ctx["records"]
+    tag_configs    = ctx.get("tag_configs") or {}
+    ship_weapon_cfg = tag_configs.get("ship_weapons") or DEFAULT_TAG_CONFIGS.get("ship_weapons")
+    ship_weapon_placement = (
+        getattr(ship_weapon_cfg, "placement", "prepend") if ship_weapon_cfg else "prepend"
+    )
+    # Ship weapons gain name tags in 1.3.x (issue #31). The factory captures
+    # ammo_lookup so the tagger can resolve the dominant damage type.
+    ship_weapon_tagger = _ship_weapon_name_tag_factory(vehicle_ammo, config=ship_weapon_cfg)
+
     out: dict[str, str] = {}
     weapons_dir = ships_scitem / "weapons"
     if weapons_dir.exists():
         out = scan_entity_dir(
             weapons_dir,
-            lambda root: enhancements_weapon(root, vehicle_ammo, loc),
+            lambda root: _ship_weapon_dispatch(root, vehicle_ammo, loc),
             loc=loc,
+            generate_name_tags=True, name_tag_fn=ship_weapon_tagger,
+            name_tag_placement=ship_weapon_placement,
             xml_path_index=xml_path_index, records_dir=records,
         )
     logger.info(f"Finished ship weapons ({len(out)} entries)")
@@ -3532,7 +3904,7 @@ def _run_gen_fps_weapons(ctx: dict) -> dict[str, str]:
     if fps_dir.exists():
         out = scan_entity_dir(
             fps_dir,
-            lambda root: enhancements_weapon(root, fps_ammo, loc, mag_lookup),
+            lambda root: _fps_weapon_dispatch(root, fps_ammo, loc, mag_lookup),
             loc=loc,
             xml_path_index=xml_path_index, records_dir=records,
         )
@@ -3918,7 +4290,8 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
          categories: set[str] | None = None,
          progress_callback: Optional[Callable[[int, int, str], None]] = None,
          max_workers: int = 6,
-         patches_dir: Path | None = None) -> None:
+         patches_dir: Path | None = None,
+         tag_configs: "dict | None" = None) -> None:
     import sys as sys_mod
     # Deferred import — the script is loaded by both the app worker (where
     # src.utils is on the path) and as a standalone CLI, so we swallow an
@@ -4129,6 +4502,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         "armor_lookup":      armor_lookup,
         "reputation_lookup": reputation_lookup,
         "xml_path_index":    xml_path_index,
+        "tag_configs":       tag_configs or {},
     }
 
     gen_jobs: dict[str, Callable] = {}

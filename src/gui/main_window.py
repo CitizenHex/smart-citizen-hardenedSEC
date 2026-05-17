@@ -2162,6 +2162,7 @@ class MainWindow(QMainWindow):
             "welcome":      {"target": lambda: None,                                            "pre_action": None},
             "extract":      {"target": lambda: self.config_tab._extract_btn,                    "pre_action": _switch_to(config_tab)},
             "edit":         {"target": lambda: self.table,                                      "pre_action": _switch_to(strings_tab)},
+            "filter_row":   {"target": lambda: self.filter_header,                               "pre_action": _switch_to(strings_tab)},
             "editor":       {"target": lambda: self.editor_btn,                                  "pre_action": _switch_to(strings_tab)},
             "preview":      {"target": lambda: self.preview_pane,                               "pre_action": _switch_to(strings_tab)},
             "apply":        {"target": lambda: self.apply_btn,                                  "pre_action": None},
@@ -2986,7 +2987,14 @@ class MainWindow(QMainWindow):
         if categories is None:
             categories = AppSettings.get_enabled_enhancement_categories()
 
-        self._enhancements_worker = EnhancementsGeneratorWorker(categories=categories)
+        # Tag-builder config (issue #31): read once here on the main thread
+        # and hand the worker a plain dict, so the generator's worker
+        # thread/subprocess never touches a live QSettings handle.
+        tag_configs = AppSettings.get_all_tag_configs()
+
+        self._enhancements_worker = EnhancementsGeneratorWorker(
+            categories=categories, tag_configs=tag_configs
+        )
         self.enhancements_tab.set_operation_running("Generating enhancements…")
         self.statusBar().showMessage("Generating enhancements in background…")
 
