@@ -54,7 +54,13 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     permissions:
+      # contents: read — checkout the PR branch.
+      # pull-requests: write — required for the final `gh pr comment` step
+      # to post the download link back to the PR. Without it, gh fails
+      # with "GraphQL: Resource not accessible by integration (addComment)"
+      # even though everything else (build, artifact upload) succeeded.
       contents: read
+      pull-requests: write
 
     steps:
       - uses: actions/checkout@v4
