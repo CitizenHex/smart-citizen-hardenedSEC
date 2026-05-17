@@ -155,9 +155,19 @@ def write_ini(path: Path, entries: dict[str, str]) -> None:
 #     entity_names_by_filename) to feed the v4 blueprint_pools
 #     filename-stem fallback. v1 pickles will fail to unpack into
 #     the new 3-tuple, so we MUST invalidate them.
+#   scitem_lookups v3 (1.4.0) — added a fourth tuple slot
+#     (entity_name_tags: ref → "[CLASS-Sx-grade]") so blueprint pool
+#     items get the same annotation components do in their stock title.
+#     v2 pickles unpack as 3-tuples and would crash on the new 4-tuple
+#     consumer, so bump invalidates them.
+#   blueprint_pools v5 (1.4.0) — pool item names now carry the inline
+#     [CLASS-Sx-grade] tag when the underlying entity is a tagged
+#     component (shield/cooler/powerplant/qdrive/radar). Old v4 pickles
+#     stored the un-annotated strings, so reusing them would silently
+#     undo the new annotation on cache hit.
 _LOOKUP_VERSIONS: dict[str, str] = {
-    "blueprint_pools": "v4",
-    "scitem_lookups": "v2",
+    "blueprint_pools": "v5",
+    "scitem_lookups": "v3",
 }
 
 
@@ -1534,6 +1544,7 @@ def build_blueprint_pool_lookup(
     bp_dir: Path,
     entity_names: dict[str, str],
     entity_names_by_filename: dict[str, str] | None = None,
+    entity_name_tags: dict[str, str] | None = None,
 ) -> dict[str, list[str]]:
     """Build mapping of blueprint pool UUID → list of craftable item display names.
 
@@ -1553,17 +1564,29 @@ def build_blueprint_pool_lookup(
          (`Nozzle Fuelgiver Grin Nozzlefast`-style — recognisable but
          not pretty). Set as a backstop so the BP tag still fires.
 
+    When ``entity_name_tags`` is supplied AND the tier-1 (UUID) match
+    hits, the matching ``[CLASS-Sx-grade]`` tag is appended to the
+    display name — mirroring the tag the components pipeline writes
+    onto stock component titles. Tier-2 / tier-3 fallbacks intentionally
+    skip the tag: the tag dict is keyed by entityClass UUID, which
+    is exactly the linkage that's missing in those code paths, so
+    there's nothing to look up. FPS gear / weapons / ships never get
+    a tag entry, so they pass through bare even on a UUID hit.
+
     Args:
         pool_dir: Directory containing BlueprintPoolRecord XMLs.
         bp_dir: Directory containing CraftingBlueprintRecord XMLs.
         entity_names: UUID → display name (built from entities/scitem/).
         entity_names_by_filename: filename-stem → display name (same
             source). Optional — without it the resolver skips path 2.
+        entity_name_tags: UUID → ``[CLASS-Sx-grade]`` tag. Optional —
+            without it items render without the inline component tag.
 
     Returns:
         Dict mapping pool __ref UUID → sorted list of item display names
     """
     entity_names_by_filename = entity_names_by_filename or {}
+    entity_name_tags = entity_name_tags or {}
     if not pool_dir.exists() or not bp_dir.exists():
         return {}
 
@@ -1616,6 +1639,14 @@ def build_blueprint_pool_lookup(
                     # attribute, e.g. "Norfield" / "Harkin" / "RN-7s").
                     if entity_ref in entity_names:
                         name = entity_names[entity_ref]
+                        # Mirror the components-pipeline annotation:
+                        # ship components get an inline [CLASS-Sx-grade]
+                        # tag (e.g. "Norfield [MIL-S1-A]"). FPS gear and
+                        # other non-component blueprints have no tag
+                        # entry and pass through bare.
+                        tag = entity_name_tags.get(entity_ref)
+                        if tag:
+                            name = f"{name} {tag}"
                     # Tier 2: filename-stem match. Recovers real product
                     # names when CIG ships the blueprint ahead of the
                     # entity-UUID linkage (PTU 4.8 fuel-nozzle pattern).
@@ -1885,6 +1916,20 @@ def scan_contract_generators(
                             # Pyro Intro both use
                             # Shubin_Industrial_HandMining_Intro_Local_Desc_001
                             # but award different pools).
+                            #
+                            # A single contract can carry MULTIPLE
+                            # ``BlueprintRewards`` elements pointing at
+                            # distinct pools — e.g. the 4.8-era Adagio
+                            # mining missions reward FPS gear via one pool
+                            # AND ship components via another in the same
+                            # contract. Earlier code used ``if system_name
+                            # not in per_system: per_system[...] = pool_items``,
+                            # which kept only the first pool and silently
+                            # dropped the rest. Merge with order-preserving
+                            # de-dup so every pool's items surface, while
+                            # still suppressing duplicates when the same
+                            # title_key is hit again later in the loop with
+                            # the identical pool set.
                             contract_has_bp = False
                             contract_bp_chance = 0.0
                             contract_bp_variant = contract.get("debugName", "")
@@ -1895,8 +1940,10 @@ def scan_contract_generators(
                                     contract_has_bp = True
                                     pool_items = blueprint_pools[pool_uuid]
                                     per_system = mission_blueprints.setdefault(title_key, {})
-                                    if system_name not in per_system:
-                                        per_system[system_name] = pool_items
+                                    existing_items = per_system.setdefault(system_name, [])
+                                    for item in pool_items:
+                                        if item not in existing_items:
+                                            existing_items.append(item)
                                     try:
                                         contract_bp_chance = float(bp_elem.get("chance", "1"))
                                     except (ValueError, TypeError):
@@ -2930,8 +2977,8 @@ def build_scitem_lookups(
     loc: dict[str, str] | None = None,
     xml_path_index: dict | None = None,
     records_dir: Path | None = None,
-) -> tuple[dict[str, tuple[str, str]], dict[str, str], dict[str, str]]:
-    """Single-pass scan of scitem XMLs that produces three lookups:
+) -> tuple[dict[str, tuple[str, str]], dict[str, str], dict[str, str], dict[str, str]]:
+    """Single-pass scan of scitem XMLs that produces four lookups:
 
     * mag_lookup: magazine entity class name → (ammoParamsRecord, maxAmmoCount)
       — derived from SAmmoContainerComponentParams elements.
@@ -2946,6 +2993,16 @@ def build_scitem_lookups(
       assignments are finalised). The blueprint's own filename minus
       its `bp_craft_` / `bp_rewards_` prefix matches the entity XML's
       filename in CIG's authored layout.
+    * entity_name_tags: __ref UUID → ``[CLASS-Sx-grade]`` tag (e.g.
+      ``[MIL-S1-A]``) when the entity is a ship component whose
+      description carries the Size:/Grade:/Class: header trio.
+      Only populated for components that ``_component_name_tag``
+      can classify — FPS gear, weapons, ships, missiles, ammo, etc.
+      get no entry. Used by blueprint pool resolution to apply the
+      same annotation to blueprint reward names that the components
+      pipeline applies to stock component titles, so a mission's
+      "POTENTIAL BLUEPRINTS" list reads e.g. "Norfield [MIL-S1-A]"
+      instead of bare "Norfield".
 
     Walking the scitem tree once instead of twice (magazines + entity names
     used to iterate independently) cuts ~30s off the run since there are
@@ -2954,9 +3011,10 @@ def build_scitem_lookups(
     mag_lookup: dict[str, tuple[str, str]] = {}
     entity_names: dict[str, str] = {}
     entity_names_by_filename: dict[str, str] = {}
+    entity_name_tags: dict[str, str] = {}
     loc = loc or {}
     if not scitem_dir.exists():
-        return mag_lookup, entity_names, entity_names_by_filename
+        return mag_lookup, entity_names, entity_names_by_filename, entity_name_tags
 
     null_uuid = "00000000-0000-0000-0000-000000000000"
     xml_files = (
@@ -2974,7 +3032,9 @@ def build_scitem_lookups(
         entity_name = root.tag.split(".")[-1] if "." in root.tag else xml_file.stem
         found_mag = False
         found_name = False
+        found_desc = False
         resolved_display_name: str | None = None
+        desc_loc_key: str | None = None
 
         for elem in root.iter():
             if not found_mag and _poly_type(elem) == "SAmmoContainerComponentParams":
@@ -2991,7 +3051,12 @@ def build_scitem_lookups(
                     if ref:
                         entity_names[ref] = resolved_display_name
                     found_name = True
-            if found_mag and found_name:
+            if not found_desc:
+                desc_attr = elem.get("Description", "")
+                if desc_attr and desc_attr.startswith("@") and not _is_sentinel_loc_ref(desc_attr):
+                    desc_loc_key = desc_attr.lstrip("@")
+                    found_desc = True
+            if found_mag and found_name and found_desc:
                 break
 
         # Index by filename stem regardless of whether the entity has a
@@ -3000,12 +3065,25 @@ def build_scitem_lookups(
         if resolved_display_name:
             entity_names_by_filename[xml_file.stem.lower()] = resolved_display_name
 
-    return mag_lookup, entity_names, entity_names_by_filename
+        # Component name-tag derivation. ``_component_name_tag`` returns
+        # None for anything other than a ship component with the Size:/
+        # Grade:/Class: header trio, so non-component entities (FPS gear,
+        # weapons, ships, ammo …) silently fall out here without polluting
+        # the dict. Requires both a __ref to key on and a resolvable
+        # description loc-key — the rendering side looks up by ref.
+        if ref and desc_loc_key:
+            desc_value = loc.get(desc_loc_key, "")
+            if desc_value:
+                tag = _component_name_tag(desc_value, root)
+                if tag:
+                    entity_name_tags[ref] = tag
+
+    return mag_lookup, entity_names, entity_names_by_filename, entity_name_tags
 
 
 def build_magazine_lookup(scitem_dir: Path) -> dict[str, tuple[str, str]]:
     """Back-compat wrapper around build_scitem_lookups — returns magazines only."""
-    mag_lookup, _, _ = build_scitem_lookups(scitem_dir)
+    mag_lookup, _, _, _ = build_scitem_lookups(scitem_dir)
     return mag_lookup
 
 
@@ -3299,6 +3377,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     loc               = ctx["loc"]
     entity_names      = ctx["entity_names"]
     entity_names_by_filename = ctx.get("entity_names_by_filename", {})
+    entity_name_tags  = ctx.get("entity_name_tags", {})
     reputation_lookup = ctx["reputation_lookup"]
     xml_path_index    = ctx.get("xml_path_index")
 
@@ -3341,6 +3420,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         lambda: build_blueprint_pool_lookup(
             pool_dir, bp_dir, entity_names,
             entity_names_by_filename=entity_names_by_filename,
+            entity_name_tags=entity_name_tags,
         ),
     )
 
@@ -3733,6 +3813,8 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
     fps_ammo: dict = {}
     mag_lookup: dict = {}
     entity_names: dict[str, str] = {}
+    entity_names_by_filename: dict[str, str] = {}
+    entity_name_tags: dict[str, str] = {}
     controller_lookup: dict = {}
     armor_lookup: dict = {}
     reputation_lookup: dict[str, int] = {}
@@ -3795,11 +3877,12 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             logger.info(f"Vehicle ammo: {len(vehicle_ammo)} records, FPS ammo: {len(fps_ammo)} records")
             _tick("Built ammo lookups")
         if "scitem" in results:
-            mag_lookup, entity_names, entity_names_by_filename = results["scitem"]
+            mag_lookup, entity_names, entity_names_by_filename, entity_name_tags = results["scitem"]
             logger.info(
                 f"Magazine lookup: {len(mag_lookup)} entries, "
                 f"Entity names: {len(entity_names)} entries, "
-                f"Entity-name-by-filename fallback: {len(entity_names_by_filename)} entries"
+                f"Entity-name-by-filename fallback: {len(entity_names_by_filename)} entries, "
+                f"Entity name-tags: {len(entity_name_tags)} entries"
             )
             _tick("Built scitem lookups")
         if "controller" in results:
@@ -3829,6 +3912,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         "loc":               loc,
         "entity_names":      entity_names,
         "entity_names_by_filename": entity_names_by_filename,
+        "entity_name_tags":  entity_name_tags,
         "mag_lookup":        mag_lookup,
         "vehicle_ammo":      vehicle_ammo,
         "fps_ammo":          fps_ammo,
