@@ -24,6 +24,11 @@ DisableDirPage=no
 AllowUNCPath=no
 PrivilegesRequired=admin
 SetupIconFile=assets\logo.ico
+; Write a per-run install log to %TEMP%\Setup Log YYYY-MM-DD #NNN.txt.
+; Critical for diagnosing the upgrade-uninstall race (see UnInstallOldVersion):
+; without this, the WARNING from a WaitForUninstallToFinish timeout goes nowhere
+; and a tester reporting "uninstall.exe was deleted" gives us nothing to grep.
+SetupLogging=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -204,9 +209,24 @@ begin
       Files execute. Its final-act registry+file cleanup would then delete
       the *new* unins000.exe in the app dir and clear the freshly-written
       AppId_is1 entry under Uninstall — leaving users with an installed
-      app and no way to uninstall it. Reported upgrading 1.1.0 -> 1.2.0. }
-    if not WaitForUninstallToFinish(90) then
-      Log('WARNING: timed out waiting for old uninstaller to finish (90s). The new install may produce a broken uninstaller; user should uninstall + reinstall manually if the Apps & Features entry is missing.');
+      app and no way to uninstall it. Reported upgrading 1.1.0 -> 1.2.0.
+
+      Timeout bumped 90 -> 180 s to cover slow-disk + actively-syncing-
+      OneDrive + Defender-on-access environments where the old uninstaller
+      temp copy's final cleanup pass routinely runs 60–120 s. When the
+      timeout *does* fire, surface a wizard error dialog instead of only
+      logging — the original log-only warning meant users discovered the
+      broken state days later when they tried to uninstall and found
+      nothing in Apps & Features. }
+    if not WaitForUninstallToFinish(180) then
+    begin
+      Log('WARNING: timed out waiting for old uninstaller to finish (180s). The new install may produce a broken uninstaller; user should uninstall + reinstall manually if the Apps & Features entry is missing.');
+      MsgBox('The previous version''s uninstaller did not finish within 3 minutes.' + #13#10 + #13#10 +
+             'The install will continue, but the new uninstaller file (unins000.exe) may be deleted by the old uninstaller''s delayed cleanup. If that happens, Smart Citizen will install successfully but will not appear in Apps & Features.' + #13#10 + #13#10 +
+             'If you later cannot uninstall Smart Citizen, re-run this installer and choose the Uninstall option, or delete the install folder manually.' + #13#10 + #13#10 +
+             'Closing other apps (especially OneDrive sync, antivirus scans, and the Search Indexer) before the install can avoid this.',
+             mbError, MB_OK);
+    end;
     Result := 3;
   end
   else
@@ -457,6 +477,30 @@ begin
       first launch instead of their pick. Discovered post-1.3.0 release
       after a user reported the data-dir choice not carrying over. }
     WriteInstallerChoicesToRegistry();
+
+    { Catch-all sanity check: by ssPostInstall, Inno has written its
+      generated unins000.exe to {app}. If it isn't there, something
+      removed it between [Files] completion and now — most likely the
+      upgrade-uninstall race (WaitForUninstallToFinish timeout fired and
+      the old uninstaller's temp copy nuked our new one) or a Smart App
+      Control / Defender quarantine of the unsigned uninstaller binary.
+      Tell the user explicitly rather than letting them discover it days
+      later when Apps & Features has no entry. The install itself is
+      kept — the app works fine without unins000.exe; only removal is
+      affected. }
+    if not FileExists(ExpandConstant('{app}\unins000.exe')) then
+    begin
+      Log('ERROR: unins000.exe missing from {app} post-install. Install completed but uninstall is broken.');
+      MsgBox('Smart Citizen installed successfully, but the uninstaller file (unins000.exe) is missing from:' + #13#10 + #13#10 +
+             '  ' + ExpandConstant('{app}') + #13#10 + #13#10 +
+             'Smart Citizen will not appear in Apps & Features. The app itself works normally — only uninstall is affected.' + #13#10 + #13#10 +
+             'Likely causes:' + #13#10 +
+             '  - Windows Smart App Control or Defender quarantined the unsigned uninstaller' + #13#10 +
+             '    (check Windows Security -> Protection history)' + #13#10 +
+             '  - A previous version''s uninstaller finished cleanup after this install wrote its files' + #13#10 + #13#10 +
+             'To remove Smart Citizen later: re-run this installer and choose the Uninstall option, or delete the install folder manually.',
+             mbError, MB_OK);
+    end;
   end;
 end;
 
