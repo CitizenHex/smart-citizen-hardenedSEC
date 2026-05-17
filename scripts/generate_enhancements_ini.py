@@ -178,8 +178,14 @@ def write_ini(path: Path, entries: dict[str, str]) -> None:
 #     (Arbor MHV). Both lookups stored values produced by the strict-only
 #     tagger and would silently keep mining heads / lasers untagged on
 #     cache hit, so both invalidate together.
+#   blueprint_pools v8 (1.4.0) — return tuple shape changed from
+#     ``dict[uuid, items]`` to ``(dict[uuid, items], dict[uuid, name])``
+#     so downstream rendering can derive rank-tier labels (Rank 0–1,
+#     Rank 2–3, Rank 4) from the pool filename and emit them in the
+#     POTENTIAL BLUEPRINTS sub-section headers. v7 pickles unpack as
+#     a bare dict and crash the new 2-tuple consumer, so bump invalidates.
 _LOOKUP_VERSIONS: dict[str, str] = {
-    "blueprint_pools": "v7",
+    "blueprint_pools": "v8",
     "scitem_lookups": "v4",
 }
 
@@ -1604,6 +1610,49 @@ def _strip_cig_size_prefix(name: str) -> str:
     return _CIG_SIZE_PREFIX_RE.sub("", name, count=1)
 
 
+# Rank-tier markers in blueprint pool filenames. CIG names progression-
+# gated pools with a `RankN` or `RankNtoM` suffix (e.g. bp_rewards_shubinrank0to1
+# / shubinrank2to3 / shubinrank4). Surfacing those as a sub-section label
+# in POTENTIAL BLUEPRINTS lets a player tell at a glance which rewards
+# correspond to which reputation tier — without the label, three tiers
+# get merged into one wall of items and it's ambiguous which actually
+# rolls for the player's current rank.
+#
+# Two patterns to recognise:
+#   `RankNtoM` → "Rank N–M"   (e.g. Rank0to1 → "Rank 0–1")
+#   `RankN`    → "Rank N"     (e.g. Rank4    → "Rank 4")
+# Case-insensitive because filenames are lowercased; `(?i)` covers both
+# "rank0to1" (raw filename) and "Rank0to1" (if anyone passes a __ref-cased
+# name). Non-matching pool names return empty string and the sub-section
+# falls back to the system-only header it had before this feature.
+_POOL_RANK_RANGE_RE  = re.compile(r"(?i)rank(\d+)to(\d+)")
+_POOL_RANK_SINGLE_RE = re.compile(r"(?i)rank(\d+)(?!\d|to)")
+
+
+def _pool_rank_label(pool_name: str) -> str:
+    """Derive a human-readable rank-tier label from a blueprint pool's filename.
+
+    Examples:
+      "bp_rewards_shubinrank0to1"  → "Rank 0–1"
+      "bp_rewards_shubinrank4"     → "Rank 4"
+      "bp_rewards_shubinrank2to3"  → "Rank 2–3"
+      "bp_rewards_headhuntersmercenaryshipregionc" → ""  (region, not rank)
+
+    Returns empty string when no rank token matches — callers should
+    treat that as "no label" and render the sub-section header without
+    a rank suffix.
+    """
+    if not pool_name:
+        return ""
+    m = _POOL_RANK_RANGE_RE.search(pool_name)
+    if m:
+        return f"Rank {m.group(1)}–{m.group(2)}"  # en-dash
+    m = _POOL_RANK_SINGLE_RE.search(pool_name)
+    if m:
+        return f"Rank {m.group(1)}"
+    return ""
+
+
 def _name_from_blueprint_filename(bp_xml: Path) -> str:
     """Best-effort fallback display name from a blueprint XML's filename.
 
@@ -1638,7 +1687,7 @@ def build_blueprint_pool_lookup(
     entity_names: dict[str, str],
     entity_names_by_filename: dict[str, str] | None = None,
     entity_name_tags: dict[str, str] | None = None,
-) -> dict[str, list[str]]:
+) -> tuple[dict[str, list[str]], dict[str, str]]:
     """Build mapping of blueprint pool UUID → list of craftable item display names.
 
     Resolution chain for each blueprint:
@@ -1676,12 +1725,20 @@ def build_blueprint_pool_lookup(
             without it items render without the inline component tag.
 
     Returns:
-        Dict mapping pool __ref UUID → sorted list of item display names
+        Tuple of:
+          - pool_items: ``{pool __ref UUID: sorted list of item display names}``
+          - pool_names: ``{pool __ref UUID: filename stem}``. The stem is the
+            CIG-authored filename minus the ``bp_rewards_`` / ``bp_`` prefix
+            (e.g. ``shubinrank0to1``). Downstream uses this to derive
+            sub-section labels via ``_pool_rank_label`` so the rendered
+            POTENTIAL BLUEPRINTS block can show ``[Stanton, Rank 0–1]``
+            headers without re-reading the pool XMLs. Empty for any pool
+            that didn't produce items (kept in lockstep with ``pool_items``).
     """
     entity_names_by_filename = entity_names_by_filename or {}
     entity_name_tags = entity_name_tags or {}
     if not pool_dir.exists() or not bp_dir.exists():
-        return {}
+        return {}, {}
 
     # Index all blueprint files by __ref UUID → (entityClass UUID,
     # entity-stem-for-filename-lookup, filename-derived backstop name).
@@ -1714,8 +1771,13 @@ def build_blueprint_pool_lookup(
         except ET.ParseError:
             continue
 
-    # Build pool UUID → item names
+    # Build pool UUID → item names AND pool UUID → filename stem.
+    # The stem is stored in lowercase since downstream rank-label parsing
+    # is case-insensitive and the filename casing is already lowercased
+    # by CIG. Stripping the bp_rewards_ / bp_ prefix keeps the stem
+    # focused on the meaningful part of the name.
     pool_items: dict[str, list[str]] = {}
+    pool_names: dict[str, str] = {}
     for xml_file in pool_dir.rglob("*.xml"):
         try:
             root = ET.parse(xml_file).getroot()
@@ -1753,11 +1815,17 @@ def build_blueprint_pool_lookup(
                         names.append(name)
             if names:
                 pool_items[pool_uuid] = sorted(names)
+                stem = xml_file.stem.lower()
+                for prefix in ("bp_rewards_", "bp_"):
+                    if stem.startswith(prefix):
+                        stem = stem[len(prefix):]
+                        break
+                pool_names[pool_uuid] = stem
         except ET.ParseError:
             continue
 
     logger.info(f"Blueprint pool lookup: {len(pool_items)} pools with items")
-    return pool_items
+    return pool_items, pool_names
 
 
 def _build_template_lookup(
@@ -1837,27 +1905,39 @@ def scan_contract_generators(
     entity_names: dict[str, str] | None = None,
     xml_path_index: dict | None = None,
     records_dir: Path | None = None,
+    pool_names: dict[str, str] | None = None,
 ):
     """Scan contract generator XMLs for mission variants with different systems.
 
     Returns tuple of:
         - missions: dict mapping title_key → [(system_name, success_xp, failure_xp, desc_key, flags, num_enemies, num_not_enemies), ...]
-        - mission_blueprints: dict title_key → dict system_name → list of craftable item display names.
-          Multiple entries indicate per-region pools (e.g. Stanton vs Pyro Shubin HandMining). A single entry is rendered flat.
+        - mission_blueprints: dict title_key → dict system_name → dict pool_label → list of craftable item display names.
+          The pool_label dimension preserves rank-tier sub-grouping derived from the
+          pool filename (e.g. ``Rank 0–1`` / ``Rank 2–3`` / ``Rank 4`` from Shubin
+          progression pools). Empty string label is used for pools whose names don't
+          encode a rank — those render with the original system-only header.
+          Multiple system entries indicate per-region pools (e.g. Stanton vs Pyro
+          Shubin HandMining); multiple label entries within a system indicate
+          rank-tiered pools the same contract pulls from at different ranks.
         - mission_items: dict mapping title_key → list of reward item display names
     Sorted by system name for consistent output.
     """
     if not contractgen_dir.exists():
-        return {}, {}, {}
+        return {}, {}, {}, {}
 
     reputation_lookup = reputation_lookup or {}
     blueprint_pools = blueprint_pools or {}
     entity_names = entity_names or {}
+    pool_names = pool_names or {}
     # Variant tuple: (system_name, success_xp, failure_xp, desc_key, flags, num_enemies, num_not_enemies)
     missions: dict[str, list[tuple[str, int, int, str, list[str], int, int]]] = {}
-    # Per-system pool items, so desc output can render regional sub-sections
-    # when a title_key has distinct pools for different systems.
-    mission_blueprints: dict[str, dict[str, list[str]]] = {}
+    # Per-system, per-pool-label item lists. The extra label dimension keeps
+    # items from different rank-tier pools separate inside one system so the
+    # renderer can show ``[Stanton, Rank 0–1]`` / ``[Stanton, Rank 2–3]`` /
+    # ``[Stanton, Rank 4]`` instead of one merged blob. Pools whose names
+    # don't carry a rank token use an empty-string label and render with
+    # the original system-only header.
+    mission_blueprints: dict[str, dict[str, dict[str, list[str]]]] = {}
     mission_bp_chance: dict[str, float] = {}
     mission_items: dict[str, list[str]] = {}
 
@@ -2032,8 +2112,17 @@ def scan_contract_generators(
                                 if pool_uuid and pool_uuid != null_uuid and pool_uuid in blueprint_pools:
                                     contract_has_bp = True
                                     pool_items = blueprint_pools[pool_uuid]
+                                    # Derive the rank-tier label from the pool's
+                                    # filename. Pools without a rank token (most
+                                    # one-off pools, plus region-based pools whose
+                                    # geographic label is already covered by the
+                                    # system_name dimension) produce empty string,
+                                    # which keeps their sub-section header at the
+                                    # bare ``[system_name]`` shape.
+                                    pool_label = _pool_rank_label(pool_names.get(pool_uuid, ""))
                                     per_system = mission_blueprints.setdefault(title_key, {})
-                                    existing_items = per_system.setdefault(system_name, [])
+                                    per_label = per_system.setdefault(system_name, {})
+                                    existing_items = per_label.setdefault(pool_label, [])
                                     for item in pool_items:
                                         if item not in existing_items:
                                             existing_items.append(item)
@@ -3508,7 +3597,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     # BlueprintRewards references silently failed UUID resolution.
     pool_dir = records / "crafting" / "blueprintrewards"
     bp_dir   = records / "crafting" / "blueprints" / "crafting"
-    blueprint_pools = _cached_lookup(
+    blueprint_pools, pool_names = _cached_lookup(
         forge_dir, "blueprint_pools",
         lambda: build_blueprint_pool_lookup(
             pool_dir, bp_dir, entity_names,
@@ -3521,6 +3610,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     contractgen_missions, mission_blueprints, mission_bp_chance, mission_items = scan_contract_generators(
         contractgen_dir, reputation_lookup, blueprint_pools, entity_names,
         xml_path_index=xml_path_index, records_dir=records,
+        pool_names=pool_names,
     )
     logger.info(f"Processed {len(contractgen_missions)} contract generator mission variants")
 
@@ -3645,22 +3735,41 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
 
                 pools_by_system = mission_blueprints.get(title_key, {})
                 desc_systems = {v[0] for v in desc_variants if v[8]}
-                desc_pools = {s: items for s, items in pools_by_system.items() if s in desc_systems}
+                desc_pools = {s: by_label for s, by_label in pools_by_system.items() if s in desc_systems}
                 if not desc_pools:
                     desc_pools = pools_by_system
+                # Flatten the per-system, per-rank-label structure into one
+                # row per (system, label) pair so equal-item-list pairs can
+                # dedupe under one header (e.g. Stanton + Pyro both award the
+                # same Rank0to1 pool → one "[Stanton, Pyro, Rank 0–1]" header
+                # instead of two). The de-dup key is the item-list tuple as
+                # before; only the header construction grows a label axis.
                 unique_fps: dict = {}
-                for sys_name, items in desc_pools.items():
-                    fp = tuple(items)
-                    unique_fps.setdefault(fp, []).append(sys_name)
+                for sys_name, by_label in desc_pools.items():
+                    for pool_label, items in by_label.items():
+                        fp = tuple(items)
+                        unique_fps.setdefault(fp, []).append((sys_name, pool_label))
                 bp_body_parts: list[str] = []
                 if len(unique_fps) == 1:
                     items = list(next(iter(unique_fps)))
-                    bp_body_parts.append("\\n".join(f"- {name}" for name in items))
-                else:
-                    for fp, systems in sorted(unique_fps.items(), key=lambda kv: sorted(kv[1])):
-                        label = ", ".join(sorted(systems))
+                    only_keys = next(iter(unique_fps.values()))
+                    only_labels = sorted({l for _, l in only_keys if l})
+                    if only_labels:
+                        only_systems = sorted({s for s, _ in only_keys})
+                        header = f"{', '.join(only_systems)}, {', '.join(only_labels)}"
                         bp_body_parts.append(
-                            f"<EM4>[{label}]</EM4>\\n" + "\\n".join(f"- {name}" for name in fp)
+                            f"<EM4>[{header}]</EM4>\\n" + "\\n".join(f"- {name}" for name in items)
+                        )
+                    else:
+                        bp_body_parts.append("\\n".join(f"- {name}" for name in items))
+                else:
+                    for fp, keys in sorted(unique_fps.items(), key=lambda kv: sorted(kv[1])):
+                        systems = sorted({s for s, _ in keys})
+                        labels = sorted({l for _, l in keys if l})
+                        sys_str = ", ".join(systems)
+                        header = f"{sys_str}, {', '.join(labels)}" if labels else sys_str
+                        bp_body_parts.append(
+                            f"<EM4>[{header}]</EM4>\\n" + "\\n".join(f"- {name}" for name in fp)
                         )
                 # Join regional sub-sections with a blank line between them
                 # (two `\n` literals = one empty line in CIG's renderer) so

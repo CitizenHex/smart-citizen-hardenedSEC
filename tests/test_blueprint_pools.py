@@ -102,8 +102,12 @@ class TestMultiSourcePoolMerge:
         per_system = mission_blueprints["adagio_mining_title"]
         assert "Stanton" in per_system, f"expected 'Stanton' system, got {list(per_system)}"
 
-        items = per_system["Stanton"]
-        # Both pools' items must appear — the bug was the second pool getting dropped.
+        # mission_blueprints is now {title: {system: {pool_label: [items]}}}.
+        # No rank-tier names supplied here, so the items land under the
+        # empty-label bucket. The bug guarded against was the second pool's
+        # items being silently dropped — gather across all labels to assert
+        # both pools' items survived.
+        items = [it for items_list in per_system["Stanton"].values() for it in items_list]
         assert "Pyro Pickaxe" in items
         assert "FPS Mining Helmet" in items
         assert "Norfield Power Plant" in items
@@ -138,7 +142,9 @@ class TestMultiSourcePoolMerge:
             contractgen_dir, reputation_lookup={},
             blueprint_pools=blueprint_pools, entity_names={},
         )
-        items = mission_blueprints["dupe_title"]["Stanton"]
+        # Both pools share the empty-label bucket (no rank info supplied),
+        # so the merge+dedup happens within that bucket as before.
+        items = mission_blueprints["dupe_title"]["Stanton"][""]
         assert items.count("Shared Item") == 1, (
             f"de-dup failed — 'Shared Item' appears {items.count('Shared Item')}× in {items}"
         )
@@ -166,7 +172,7 @@ class TestMultiSourcePoolMerge:
             blueprint_pools={"pool-only": ["Only Item"]},
             entity_names={},
         )
-        assert mission_blueprints["single_title"]["Stanton"] == ["Only Item"]
+        assert mission_blueprints["single_title"]["Stanton"][""] == ["Only Item"]
         assert mission_bp_chance["single_title"] == pytest.approx(0.5)
 
 
@@ -275,7 +281,7 @@ class TestBlueprintNameTags:
             # No entry for pickaxe — FPS gear has no component tag.
         }
 
-        pools = gen_module.build_blueprint_pool_lookup(
+        pools, _pool_names = gen_module.build_blueprint_pool_lookup(
             pool_dir, bp_dir, entity_names,
             entity_name_tags=entity_name_tags,
         )
@@ -425,7 +431,7 @@ class TestBlueprintNameTags:
             # the CIG-baked "S0 " prefix should still come off.
         }
 
-        pools = gen_module.build_blueprint_pool_lookup(
+        pools, _pool_names = gen_module.build_blueprint_pool_lookup(
             pool_dir, bp_dir, entity_names,
             entity_name_tags=entity_name_tags,
         )
@@ -458,7 +464,136 @@ class TestBlueprintNameTags:
         )
 
         # No entity_name_tags argument → no tag, even though we could've matched.
-        pools = gen_module.build_blueprint_pool_lookup(
+        pools, _pool_names = gen_module.build_blueprint_pool_lookup(
             pool_dir, bp_dir, {"ent-uuid": "Thing"},
         )
         assert pools["pool-uuid"] == ["Thing"]
+
+
+class TestPoolRankLabels:
+    """1.4.0 sub-section labels: progression-gated pool filenames
+    (Shubin / Headhunters style with ``RankN`` or ``RankNtoM`` suffixes)
+    surface in the POTENTIAL BLUEPRINTS sub-section headers via
+    ``_pool_rank_label``. Pools whose names don't carry a rank token
+    return empty string and render with the bare system-only header
+    they had before."""
+
+    def test_rank_label_helper(self, gen_module):
+        f = gen_module._pool_rank_label
+        # Range patterns
+        assert f("shubinrank0to1") == "Rank 0–1"
+        assert f("shubinrank2to3") == "Rank 2–3"
+        # Single-rank patterns
+        assert f("shubinrank4") == "Rank 4"
+        assert f("shubinrank0") == "Rank 0"
+        # Case insensitivity (filenames are lowercased but __ref names may not be)
+        assert f("ShubinRank4") == "Rank 4"
+        assert f("SHUBINRANK0TO1") == "Rank 0–1"
+        # No rank token → empty string (region pools, one-off pools)
+        assert f("headhuntersmercenaryshipregionc") == ""
+        assert f("collectorwikelo") == ""
+        assert f("") == ""
+        # Range takes precedence — "rank2to3" is a range, not "rank2" alone
+        assert f("shubinrank2to3") == "Rank 2–3"
+
+    def test_pool_lookup_exposes_filename_stem(self, gen_module, tmp_path):
+        """``build_blueprint_pool_lookup`` returns a second dict mapping
+        pool UUID → filename stem, with the ``bp_rewards_`` prefix stripped."""
+        pool_dir = tmp_path / "blueprintrewards"
+        bp_dir = tmp_path / "blueprints" / "crafting"
+        pool_dir.mkdir(parents=True)
+        bp_dir.mkdir(parents=True)
+
+        (pool_dir / "bp_rewards_shubinrank4.xml").write_text(
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<BlueprintPoolRecord __ref="pool-rank4">\n'
+            '  <BlueprintReward blueprintRecord="bp-uuid"/>\n'
+            '</BlueprintPoolRecord>\n',
+            encoding="utf-8",
+        )
+        (bp_dir / "bp_craft_thing.xml").write_text(
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<CraftingBlueprintRecord __ref="bp-uuid">\n'
+            '  <CraftingProcess_Creation entityClass="ent-uuid"/>\n'
+            '</CraftingBlueprintRecord>\n',
+            encoding="utf-8",
+        )
+
+        pools, pool_names = gen_module.build_blueprint_pool_lookup(
+            pool_dir, bp_dir, {"ent-uuid": "Thing"},
+        )
+        assert pools["pool-rank4"] == ["Thing"]
+        # Stem stored with bp_rewards_ stripped, lowercased.
+        assert pool_names["pool-rank4"] == "shubinrank4"
+        # Round-trip through the label helper.
+        assert gen_module._pool_rank_label(pool_names["pool-rank4"]) == "Rank 4"
+
+    def test_scan_groups_items_by_rank_label(self, gen_module, tmp_path):
+        """``scan_contract_generators`` groups per-pool items under a
+        rank-label sub-key when ``pool_names`` is supplied, so distinct
+        rank tiers don't get blended into one merged blob."""
+        contractgen_dir = tmp_path / "contractgenerator"
+        contractgen_dir.mkdir()
+        contract_xml = '''
+<ContractGeneratorHandler_List debugName="ShubinTest_Stanton">
+    <Contract debugName="ShubinTest_Stanton_T1">
+        <Title>
+            <ContractStringParam param="Title" value="@shubin_title"/>
+            <ContractStringParam param="Description" value="@shubin_desc"/>
+        </Title>
+        <BlueprintRewards blueprintPool="pool-rank0to1" chance="1.0"/>
+        <BlueprintRewards blueprintPool="pool-rank4" chance="1.0"/>
+    </Contract>
+</ContractGeneratorHandler_List>
+'''
+        _write_contractgen_xml(contractgen_dir, "shubin.xml", contract_xml)
+
+        _, mission_blueprints, _, _ = gen_module.scan_contract_generators(
+            contractgen_dir,
+            reputation_lookup={},
+            blueprint_pools={
+                "pool-rank0to1": ["Surveyor-Go [IND-S0-C]", "Lawson Mining Laser"],
+                "pool-rank4":    ["FullSpec [IND-S2-A]", "Arbor MH2 Mining Laser"],
+            },
+            entity_names={},
+            pool_names={
+                "pool-rank0to1": "shubinrank0to1",
+                "pool-rank4":    "shubinrank4",
+            },
+        )
+
+        per_system = mission_blueprints["shubin_title"]["Stanton"]
+        # Two distinct rank-label buckets, NOT merged into one.
+        assert "Rank 0–1" in per_system
+        assert "Rank 4" in per_system
+        assert per_system["Rank 0–1"] == ["Surveyor-Go [IND-S0-C]", "Lawson Mining Laser"]
+        assert per_system["Rank 4"] == ["FullSpec [IND-S2-A]", "Arbor MH2 Mining Laser"]
+
+    def test_scan_falls_back_to_empty_label_when_pool_names_missing(self, gen_module, tmp_path):
+        """When pool_names isn't supplied (or doesn't cover a pool UUID),
+        items land under the empty-label bucket — preserving the pre-1.4.0
+        rendering shape for non-rank pools."""
+        contractgen_dir = tmp_path / "contractgenerator"
+        contractgen_dir.mkdir()
+        contract_xml = '''
+<ContractGeneratorHandler_List debugName="NoLabelTest_Stanton">
+    <Contract debugName="NoLabelTest_Stanton_T1">
+        <Title>
+            <ContractStringParam param="Title" value="@nolabel_title"/>
+            <ContractStringParam param="Description" value="@nolabel_desc"/>
+        </Title>
+        <BlueprintRewards blueprintPool="pool-x" chance="1.0"/>
+    </Contract>
+</ContractGeneratorHandler_List>
+'''
+        _write_contractgen_xml(contractgen_dir, "nolabel.xml", contract_xml)
+
+        _, mission_blueprints, _, _ = gen_module.scan_contract_generators(
+            contractgen_dir, reputation_lookup={},
+            blueprint_pools={"pool-x": ["Item A", "Item B"]},
+            entity_names={},
+            # pool_names omitted → all pools resolve to empty label
+        )
+        per_system = mission_blueprints["nolabel_title"]["Stanton"]
+        assert list(per_system.keys()) == [""], f"expected empty-label-only, got {per_system}"
+        assert per_system[""] == ["Item A", "Item B"]
