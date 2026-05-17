@@ -165,8 +165,14 @@ def write_ini(path: Path, entries: dict[str, str]) -> None:
 #     component (shield/cooler/powerplant/qdrive/radar). Old v4 pickles
 #     stored the un-annotated strings, so reusing them would silently
 #     undo the new annotation on cache hit.
+#   blueprint_pools v6 (1.4.0) — strip the leading CIG-baked size prefix
+#     (``S0 ``, ``S00 ``, ``S1 ``…) from blueprint-list display names
+#     so mining-head entries like "S0 Helix" render as "Helix" alongside
+#     tagger-classified items, instead of carrying a second size
+#     convention CIG embedded in the loc-name attribute. v5 pickles
+#     hold the un-stripped names, so reusing them would defeat the strip.
 _LOOKUP_VERSIONS: dict[str, str] = {
-    "blueprint_pools": "v5",
+    "blueprint_pools": "v6",
     "scitem_lookups": "v3",
 }
 
@@ -1511,6 +1517,26 @@ def enhancements_mission(root: ET.Element, reputation_lookup: dict[str, int] | N
     return "\\n".join(lines) if lines else ""
 
 
+# Matches a leading CIG-baked size designator in an entity display name —
+# "S0 Helix", "S00 Hofstede", "S1 …" etc. Mining heads and a handful of
+# other entity classes carry the size as a prefix on the loc-name attribute
+# itself (rather than in the description's Size: header field that
+# `_component_name_tag` reads). When such a name appears in a blueprint
+# reward list, the result sits next to entries the tagger DID classify
+# (e.g. "Surveyor-Go [IND-S0-C]"), producing two different size-indicator
+# conventions stacked together. Strip the prefix in blueprint-list output
+# so the rendered list reads with one convention: bare name for items the
+# tagger couldn't classify, "name [CLASS-Sx-grade]" for items it could.
+# Anchor on word boundary so legitimate names starting with "S" + letters
+# (Sasquatch, Slicer) aren't touched — the regex requires digits after S.
+_CIG_SIZE_PREFIX_RE = re.compile(r"^S\d+\s+")
+
+
+def _strip_cig_size_prefix(name: str) -> str:
+    """Remove a leading 'S0 ' / 'S00 ' / 'S1 ' size prefix from a display name."""
+    return _CIG_SIZE_PREFIX_RE.sub("", name, count=1)
+
+
 def _name_from_blueprint_filename(bp_xml: Path) -> str:
     """Best-effort fallback display name from a blueprint XML's filename.
 
@@ -1638,7 +1664,7 @@ def build_blueprint_pool_lookup(
                     # display name from the entity's Localization Name
                     # attribute, e.g. "Norfield" / "Harkin" / "RN-7s").
                     if entity_ref in entity_names:
-                        name = entity_names[entity_ref]
+                        name = _strip_cig_size_prefix(entity_names[entity_ref])
                         # Mirror the components-pipeline annotation:
                         # ship components get an inline [CLASS-Sx-grade]
                         # tag (e.g. "Norfield [MIL-S1-A]"). FPS gear and
@@ -1651,7 +1677,7 @@ def build_blueprint_pool_lookup(
                     # names when CIG ships the blueprint ahead of the
                     # entity-UUID linkage (PTU 4.8 fuel-nozzle pattern).
                     elif entity_stem in entity_names_by_filename:
-                        name = entity_names_by_filename[entity_stem]
+                        name = _strip_cig_size_prefix(entity_names_by_filename[entity_stem])
                     # Tier 3: filename-derived placeholder. Ugly but
                     # ensures the BP tag still surfaces.
                     else:

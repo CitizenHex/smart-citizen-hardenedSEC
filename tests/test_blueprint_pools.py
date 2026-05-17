@@ -289,6 +289,78 @@ class TestBlueprintNameTags:
             f"FPS gear should not get a [CLASS-Sx-grade] tag: {items}"
         )
 
+    def test_strip_cig_size_prefix_helper(self, gen_module):
+        """The strip helper removes ``S0 `` / ``S00 `` / ``S1 ``… prefixes
+        but leaves names that start with ``S`` + letters (Sasquatch, etc.)."""
+        f = gen_module._strip_cig_size_prefix
+        assert f("S0 Helix") == "Helix"
+        assert f("S00 Hofstede") == "Hofstede"
+        assert f("S1 ExampleHead") == "ExampleHead"
+        assert f("S15 BiggerHead") == "BiggerHead"
+        # Names that begin with 'S' but not 'S{digit}' are untouched.
+        assert f("Sasquatch") == "Sasquatch"
+        assert f("Slicer Pistol") == "Slicer Pistol"
+        assert f("Surveyor-Go") == "Surveyor-Go"
+        # No prefix → unchanged.
+        assert f("Norfield") == "Norfield"
+        # Strip only the LEADING occurrence — a literal "S0" elsewhere stays.
+        assert f("Foo S0 Bar") == "Foo S0 Bar"
+        # Sanity: a name that's only the prefix collapses to empty (edge case;
+        # unlikely in real data but worth pinning behavior).
+        assert f("S0 ") == ""
+
+    def test_blueprint_pool_strips_cig_size_prefix_on_uuid_hit(self, gen_module, tmp_path):
+        """Tier-1 (UUID-resolved) names should have the CIG-baked size
+        prefix stripped before reaching the blueprint list — eliminates
+        the visual inconsistency of "S0 Helix" sitting next to
+        "Surveyor [IND-S2-C]" in the same rendered list."""
+        pool_dir = tmp_path / "blueprintrewards"
+        bp_dir = tmp_path / "blueprints" / "crafting"
+        pool_dir.mkdir(parents=True)
+        bp_dir.mkdir(parents=True)
+
+        (pool_dir / "pool.xml").write_text(
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<BlueprintPoolRecord __ref="pool-uuid">\n'
+            '  <BlueprintReward blueprintRecord="bp-helix-uuid"/>\n'
+            '  <BlueprintReward blueprintRecord="bp-norfield-uuid"/>\n'
+            '</BlueprintPoolRecord>\n',
+            encoding="utf-8",
+        )
+        (bp_dir / "bp_craft_helix.xml").write_text(
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<CraftingBlueprintRecord __ref="bp-helix-uuid">\n'
+            '  <CraftingProcess_Creation entityClass="ent-helix-uuid"/>\n'
+            '</CraftingBlueprintRecord>\n',
+            encoding="utf-8",
+        )
+        (bp_dir / "bp_craft_norfield.xml").write_text(
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<CraftingBlueprintRecord __ref="bp-norfield-uuid">\n'
+            '  <CraftingProcess_Creation entityClass="ent-norfield-uuid"/>\n'
+            '</CraftingBlueprintRecord>\n',
+            encoding="utf-8",
+        )
+
+        entity_names = {
+            "ent-helix-uuid": "S0 Helix",
+            "ent-norfield-uuid": "Norfield",
+        }
+        entity_name_tags = {
+            "ent-norfield-uuid": "[MIL-S1-A]",
+            # Helix doesn't get a tag (its description lacks Class:) — but
+            # the CIG-baked "S0 " prefix should still come off.
+        }
+
+        pools = gen_module.build_blueprint_pool_lookup(
+            pool_dir, bp_dir, entity_names,
+            entity_name_tags=entity_name_tags,
+        )
+        items = pools["pool-uuid"]
+        assert "Helix" in items, f"prefix should be stripped: {items}"
+        assert "S0 Helix" not in items, f"unstripped name should not appear: {items}"
+        assert "Norfield [MIL-S1-A]" in items, f"tagged name should still work: {items}"
+
     def test_blueprint_pool_omits_tag_when_dict_unset(self, gen_module, tmp_path):
         """Back-compat: callers that don't pass entity_name_tags get
         un-annotated names (pre-1.4.0 behavior)."""
