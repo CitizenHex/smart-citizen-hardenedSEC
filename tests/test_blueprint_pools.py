@@ -289,6 +289,79 @@ class TestBlueprintNameTags:
             f"FPS gear should not get a [CLASS-Sx-grade] tag: {items}"
         )
 
+    def test_tagger_strict_path_unchanged(self, gen_module):
+        """Full Size:/Grade:/Class: trio still produces the legacy
+        '[CLASS-Sx-grade]' shape — the new fallback must not perturb
+        this output for any ship component the strict path already handled."""
+        tag = gen_module._component_name_tag
+        assert tag("Size: 1\\nGrade: A\\nClass: Military") == "[MIL-S1-A]"
+        assert tag("Item Type: Radar\\nSize: 2\\nGrade: C\\nClass: Industrial") == "[IND-S2-C]"
+        assert tag("Size: 0\\nGrade: B\\nClass: Stealth") == "[STH-S0-B]"
+
+    def test_tagger_fallback_mining_head_full(self, gen_module):
+        """Helix / Hofstede / Lawson — Size: S0 + Grade: + Item Type:
+        Mining Laser, no Class:. Should emit [MIN-S0-{grade}]."""
+        tag = gen_module._component_name_tag
+        helix_desc = (
+            "Manufacturer: Thermyte Concern\\n"
+            "Item Type: Mining Laser\\n"
+            "Size: S0\\n"
+            "Grade: B\\n"
+            " \\nOptimal Range: 30 m"
+        )
+        assert tag(helix_desc) == "[MIN-S0-B]"
+
+        lawson_desc = (
+            "Manufacturer: Argo Astronautics\\n"
+            "Item Type: Mining Laser\\n"
+            "Size: S0\\n"
+            "Grade: C\\n"
+        )
+        assert tag(lawson_desc) == "[MIN-S0-C]"
+
+    def test_tagger_fallback_mining_head_size_double_zero(self, gen_module):
+        """S00 (sub-size-0) preserves both zeros in the tag."""
+        tag = gen_module._component_name_tag
+        desc = "Item Type: Mining Laser\\nSize: S00\\nGrade: A\\n"
+        assert tag(desc) == "[MIN-S00-A]"
+
+    def test_tagger_fallback_mining_laser_size_only(self, gen_module):
+        """Arbor MHV — bare 'Size: 0' + 'Item Type: Mining Laser ' (note
+        the trailing space CIG writes), no Grade, no Class. Emits the
+        type+size shape with no trailing grade."""
+        tag = gen_module._component_name_tag
+        arbor_desc = (
+            "Manufacturer: Greycat Industrial\\n"
+            "Item Type: Mining Laser \\n"
+            "Size: 0\\n\\nOptimal Range: 15m"
+        )
+        assert tag(arbor_desc) == "[MIN-S0]"
+
+    def test_tagger_fallback_grade_only_no_known_item_type(self, gen_module):
+        """An item with Size + Grade but an Item Type we haven't added to
+        the abbreviation map still gets a usable tag — just without the
+        type prefix. Future-proofs against new ship-item categories."""
+        tag = gen_module._component_name_tag
+        desc = "Item Type: Unrecognised Widget\\nSize: 2\\nGrade: A\\n"
+        assert tag(desc) == "[S2-A]"
+
+    def test_tagger_fallback_rejects_size_only(self, gen_module):
+        """A description with ONLY Size: (no Grade, no recognised Item
+        Type) returns None — bare [Sx] is too weak to be informative and
+        would leak onto consumables / ammo containers that happen to have
+        a Size: line. The bar is: at least one of {known item type, grade}
+        must accompany the size."""
+        tag = gen_module._component_name_tag
+        assert tag("Size: 0") is None
+        assert tag("Item Type: Random Thing\\nSize: 0\\n") is None
+
+    def test_tagger_no_size_returns_none(self, gen_module):
+        """No Size: anywhere → no tag. FPS gear, pistols, helmets fall
+        through here unchanged."""
+        tag = gen_module._component_name_tag
+        assert tag("A heavy-duty mining pickaxe with no component header.") is None
+        assert tag("Manufacturer: Klaus & Werner\\nItem Type: Pistol\\n") is None
+
     def test_strip_cig_size_prefix_helper(self, gen_module):
         """The strip helper removes ``S0 `` / ``S00 `` / ``S1 ``… prefixes
         but leaves names that start with ``S`` + letters (Sasquatch, etc.)."""

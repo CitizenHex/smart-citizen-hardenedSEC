@@ -171,9 +171,16 @@ def write_ini(path: Path, entries: dict[str, str]) -> None:
 #     tagger-classified items, instead of carrying a second size
 #     convention CIG embedded in the loc-name attribute. v5 pickles
 #     hold the un-stripped names, so reusing them would defeat the strip.
+#   scitem_lookups v4 / blueprint_pools v7 (1.4.0) — _component_name_tag
+#     gained a fallback path that tags items lacking the full
+#     Size:/Grade:/Class: trio, using Item Type: as a Class: substitute
+#     and emitting partial shapes like [MIN-S0-B] (Helix) or [MIN-S0]
+#     (Arbor MHV). Both lookups stored values produced by the strict-only
+#     tagger and would silently keep mining heads / lasers untagged on
+#     cache hit, so both invalidate together.
 _LOOKUP_VERSIONS: dict[str, str] = {
-    "blueprint_pools": "v6",
-    "scitem_lookups": "v3",
+    "blueprint_pools": "v7",
+    "scitem_lookups": "v4",
 }
 
 
@@ -405,26 +412,86 @@ _CLASS_ABBREV = {
     "Stealth":     "STH",
 }
 
+# Item Type → abbreviation, used as a Class: fallback when the description
+# omits the Class: line. CIG authors ship components with the full
+# Size:/Grade:/Class: trio but leaner items (mining heads, handheld mining
+# lasers) get only Size: + optional Grade: + an Item Type: line. Using
+# Item Type for the abbreviation keeps those entries from falling through
+# bare when they appear in blueprint lists alongside fully-classified items.
+# Keep this list narrow — only add entries we've actually seen leak through.
+_ITEM_TYPE_ABBREV = {
+    "Mining Laser": "MIN",
+}
+
 
 def _component_name_tag(desc_value: str, root: ET.Element | None = None) -> str | None:
-    """Extract [CLASS-S{size}-{grade}] tag from a component description string.
+    """Build a bracket annotation tag from a component-style description.
 
-    Parses the structured header lines (Size: N, Grade: X, Class: Y) that appear
-    at the top of ship component descriptions in the base localization.
+    Two paths, both producing the same ``[…]`` shape:
 
-    Returns:
-        Tag string like "[MIL-S1-A]" or None if parsing fails.
+      Strict — Size: N + Grade: A-D + Class: <recognised> → "[CLASS-Sx-grade]"
+        e.g. "Size: 1\\nGrade: A\\nClass: Military"  →  "[MIL-S1-A]"
+        Ship components (shield, cooler, powerplant, qdrive, radar) all
+        author this trio. Preserved from the original implementation.
+
+      Fallback — Size: present + at least one of {recognised Item Type,
+      Grade A-D}. Class: is optional and the size may be written either as
+      bare "N" or as the mining-style "SN" (S0, S00). Output shape:
+        [TYPE-Sx-grade]  (e.g. "[MIN-S0-B]" — Helix, Hofstede)
+        [TYPE-Sx]        (e.g. "[MIN-S0]"   — Arbor MHV with no Grade)
+        [Sx-grade]       (Grade present but Item Type not in the abbreviation map)
+
+    Requiring at least one of {type_abbrev, grade_m} on the fallback path
+    keeps a bare ``[Sx]`` from leaking onto anything that happens to have
+    a Size: line (consumables, ammo containers, etc.) — the tag has to
+    convey something beyond the size that's usually implied by the
+    entity's own name anyway.
+
+    Returns ``None`` when Size: itself is missing OR when the fallback's
+    minimum-information bar isn't met. Those items pass through bare.
     """
     import re
-    size_m = re.search(r"Size:\s*(\d+)", desc_value)
+    # Optional leading 'S' on the size value covers mining heads (Size: S0,
+    # Size: S00) without breaking the bare-digit form ship components use
+    # (Size: 0, Size: 1). The capture is the digits only; "S0" → "0",
+    # "S00" → "00", "2" → "2", so the tag normalises to f"S{captured}".
+    size_m = re.search(r"Size:\s*S?(\d+)", desc_value)
+    if not size_m:
+        return None
+    size = size_m.group(1)
+
     grade_m = re.search(r"Grade:\s*([A-D])", desc_value)
     class_m = re.search(r"Class:\s*(\w+)", desc_value)
-    if not (size_m and grade_m and class_m):
+
+    # Strict path: preserve the original "[CLASS-Sx-grade]" output exactly
+    # when the full trio is present and the class is one of the five
+    # recognised ship-component classifications. Anything that doesn't
+    # qualify drops through to the fallback.
+    if grade_m and class_m:
+        class_abbrev = _CLASS_ABBREV.get(class_m.group(1))
+        if class_abbrev:
+            return f"[{class_abbrev}-S{size}-{grade_m.group(1)}]"
+
+    # Fallback path: classify by Item Type when Class: is missing or
+    # unrecognised. The character class excludes backslash so the capture
+    # stops at CIG's literal "\n" line separator (two characters in the
+    # parsed loc-value, not a real newline); the alternation covers both
+    # the literal and the real-newline form for robustness.
+    type_abbrev = None
+    type_m = re.search(r"Item Type:\s*([^\\\n]+?)\s*(?:\\n|\n|$)", desc_value)
+    if type_m:
+        type_abbrev = _ITEM_TYPE_ABBREV.get(type_m.group(1).strip())
+
+    if not (type_abbrev or grade_m):
         return None
-    abbrev = _CLASS_ABBREV.get(class_m.group(1))
-    if not abbrev:
-        return None
-    return f"[{abbrev}-S{size_m.group(1)}-{grade_m.group(1)}]"
+
+    parts = []
+    if type_abbrev:
+        parts.append(type_abbrev)
+    parts.append(f"S{size}")
+    if grade_m:
+        parts.append(grade_m.group(1))
+    return f"[{'-'.join(parts)}]"
 
 
 # CIG's internal trackingSignalType values → in-game community shorthand.
