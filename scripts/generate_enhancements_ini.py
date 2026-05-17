@@ -3662,7 +3662,14 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
                         bp_body_parts.append(
                             f"<EM4>[{label}]</EM4>\\n" + "\\n".join(f"- {name}" for name in fp)
                         )
-                sections.append("<EM3>POTENTIAL BLUEPRINTS</EM3>\\n" + "\\n".join(bp_body_parts))
+                # Join regional sub-sections with a blank line between them
+                # (two `\n` literals = one empty line in CIG's renderer) so
+                # the eye can tell adjacent [Pyro RegionA] / [Pyro RegionB]
+                # / … blocks apart instead of running them together as one
+                # wall of bullets. Single-pool missions only ever produce
+                # one body part, so the extra newline is a no-op there.
+                bp_body_separator = "\\n\\n" if len(bp_body_parts) > 1 else "\\n"
+                sections.append("<EM3>POTENTIAL BLUEPRINTS</EM3>\\n" + bp_body_separator.join(bp_body_parts))
 
             if title_key in mission_items:
                 item_list = "\\n".join(f"- {name}" for name in mission_items[title_key])
