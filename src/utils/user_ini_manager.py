@@ -1,13 +1,52 @@
 """User INI persistence and import utilities."""
 import logging
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from src.models.string_model import StringEntry
 from src.parser.ini_parser import parse_ini_file
 from src.utils.perf import timed
 
 logger = logging.getLogger(__name__)
+
+
+def reset_user_ini(user_ini_path: Path, backup: bool = True) -> Optional[Path]:
+    """Remove ``user.ini`` for the active channel, optionally renaming it to a
+    timestamped backup first.
+
+    Used by the "Reset user.ini" tools-tab button. Returns the backup path
+    when ``backup=True`` and a rename happened, otherwise ``None``.
+
+    If the file doesn't exist, returns ``None`` — caller should treat that
+    as a no-op (e.g. surface "already at stock values").
+
+    Backup naming: ``user.ini.bak-YYYYMMDD-HHMMSS`` next to the original. If
+    the timestamped target somehow already exists (double-click producing
+    two resets inside one second), a numeric suffix ``-2`` / ``-3`` / … is
+    appended until a free name is found, so the second click can never
+    silently destroy the first backup.
+    """
+    if not user_ini_path.exists():
+        return None
+
+    if not backup:
+        user_ini_path.unlink()
+        logger.info(f"Deleted user.ini (no backup) at {user_ini_path}")
+        return None
+
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    candidate = user_ini_path.with_name(f"{user_ini_path.name}.bak-{timestamp}")
+    suffix = 2
+    while candidate.exists():
+        candidate = user_ini_path.with_name(
+            f"{user_ini_path.name}.bak-{timestamp}-{suffix}"
+        )
+        suffix += 1
+
+    user_ini_path.rename(candidate)
+    logger.info(f"Reset user.ini: {user_ini_path} → backup {candidate}")
+    return candidate
 
 
 def should_autosave_user_ini(entries: List[StringEntry], user_ini_path: Path) -> bool:

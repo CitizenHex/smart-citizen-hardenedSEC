@@ -22,6 +22,10 @@ class ConfigTab(QWidget):
     merge_requested = pyqtSignal()
     p4k_extract_requested = pyqtSignal()
     import_ini_requested = pyqtSignal()
+    # Emitted when the user clicks the "Reset user.ini" Tools button.
+    # MainWindow runs the confirmation dialog and the actual file work so
+    # this tab stays decoupled from filesystem state + reload orchestration.
+    reset_user_ini_requested = pyqtSignal()
     # Emitted after the user picks a new channel in the combo AND the choice
     # has already been persisted via AppSettings.set_active_channel(). Main
     # window listens and triggers a reload against the new channel's data.
@@ -234,6 +238,15 @@ class ConfigTab(QWidget):
         import_btn.setMaximumWidth(150)
         import_btn.clicked.connect(self.import_ini_requested.emit)
         button_layout.addWidget(import_btn)
+
+        reset_user_ini_btn = QPushButton("Reset user.ini...")
+        reset_user_ini_btn.setMaximumWidth(150)
+        reset_user_ini_btn.setToolTip(
+            "Delete every custom string override for the active channel. "
+            "A timestamped backup is saved next to the original so you can restore it."
+        )
+        reset_user_ini_btn.clicked.connect(self.reset_user_ini_requested.emit)
+        button_layout.addWidget(reset_user_ini_btn)
 
         preview_btn = QPushButton("Preview Apply")
         preview_btn.setMaximumWidth(150)
