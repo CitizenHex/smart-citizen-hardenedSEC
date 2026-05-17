@@ -1218,6 +1218,200 @@ def enhancements_quantum_drive(root: ET.Element) -> str:
     return "\\n".join(lines)
 
 
+def enhancements_mining_laser(root: ET.Element) -> str:
+    """Extract stats for ship-mounted mining laser entities.
+
+    Covers Arbor, Lancet, Helix, Hofstede, Klein, Impact (under
+    ``ships/weapons/mining_laser_*.xml``). CIG's stock descriptions
+    already author the headline numbers (Mining Laser Power, Optimal /
+    Maximum Range, Module Slots, Resistance / Instability modifiers),
+    so this function focuses on stats that DON'T appear in the
+    description today: component HP, damage resistances, fire-beam
+    energy draw + heat + wear, distortion threshold, and the per-mode
+    damage-per-second values from the fire actions.
+
+    The mining-laser modifier block (``SEntityComponentMiningLaserParams``)
+    holds the laserInstability / chargeWindow / resistance / filter
+    modifier values. Those duplicate what CIG already prints, but the
+    user-confirmed convention for this gear category is "append always
+    — CIG sometimes forgets to update the description after a balance
+    pass", so they're emitted here too.
+
+    Mining lasers that reference a globalParams record by UUID for
+    their BASE values (mining-laser power range, optimal range, etc.)
+    don't have those base values resolved here in v1 — local extraction
+    only. That's a v2 enhancement; for now CIG's description is the
+    source of truth for the base values and this function adds the
+    overlay-style stats the user can't see elsewhere.
+    """
+    lines: list[str] = []
+
+    # Per-fire-action damage-per-second + beam ranges + energy draw + heat.
+    # Mining lasers have two fire actions in their <fireActions> wrapper:
+    # the fracture beam (mining damage type) and the extraction beam.
+    # Each carries its own DamageEnergy, full/zero range, and energy curve.
+    fire_actions = root.findall(".//fireActions/SWeaponActionFireBeamParams")
+    if not fire_actions:
+        fire_actions = root.findall(".//SWeaponActionFireBeamParams")
+    for idx, fa in enumerate(fire_actions, 1):
+        # Mode label from mannequinTag (laser/tractor) → human label.
+        mannequin = fa.find("mannequinTag")
+        mtag = mannequin.get("tag") if mannequin is not None else ""
+        mode = {"laser": "Fracture", "tractor": "Extraction"}.get(mtag, f"Beam {idx}")
+
+        dps_el = fa.find("damagePerSecond/DamageInfo")
+        dps = dps_el.get("DamageEnergy") if dps_el is not None else None
+        full_r = fa.get("fullDamageRange")
+        zero_r = fa.get("zeroDamageRange")
+        e_min  = fa.get("minEnergyDraw")
+        e_max  = fa.get("maxEnergyDraw")
+        heat_s = fa.get("heatPerSecond")
+        wear_s = fa.get("wearPerSecond")
+
+        # Only emit a line if at least one numeric is non-zero; templates
+        # ship with zeroed defaults that aren't worth showing.
+        nonzero = any(
+            v not in (None, "", "0", "0.0") for v in (dps, full_r, zero_r, e_min, e_max, heat_s, wear_s)
+        )
+        if not nonzero:
+            continue
+        parts: list[str] = []
+        if dps not in (None, "0", "0.0"):
+            parts.append(f"DPS: {_fmt(dps)}")
+        if full_r not in (None, "0", "0.0") or zero_r not in (None, "0", "0.0"):
+            parts.append(f"Range: {_fmt(full_r, 'm')}→{_fmt(zero_r, 'm')}")
+        if e_max not in (None, "0", "0.0"):
+            if e_min and e_min != e_max and e_min not in ("0", "0.0"):
+                parts.append(f"Energy: {_fmt(e_min)}–{_fmt(e_max)} PU/s")
+            else:
+                parts.append(f"Energy: {_fmt(e_max)} PU/s")
+        if heat_s not in (None, "0", "0.0"):
+            parts.append(f"Heat: {_fmt(heat_s)}/s")
+        if wear_s not in (None, "0", "0.0"):
+            parts.append(f"Wear: {wear_s}/s")
+        if parts:
+            lines.append(f"<EM4>{mode}:</EM4>  " + "  |  ".join(parts))
+
+    # Mining-laser modifier overlay. CIG's description has these but the
+    # user wants them re-emitted from XML so balance updates surface even
+    # when the description text rots.
+    mlp = _find(root, "SEntityComponentMiningLaserParams")
+    if mlp is not None:
+        modifiers = mlp.find("miningLaserModifiers")
+        if modifiers is not None:
+            mod_parts: list[str] = []
+            for child_tag, label in (
+                ("laserInstability",                "Instability"),
+                ("optimalChargeWindowSizeModifier","Optimal Charge Window"),
+                ("resistanceModifier",             "Resistance"),
+            ):
+                fm = modifiers.find(f"{child_tag}/FloatModifierMultiplicative")
+                if fm is not None:
+                    val = fm.get("value")
+                    if val and val not in ("0", "0.0"):
+                        sign = "+" if float(val) > 0 else ""
+                        mod_parts.append(f"{label}: {sign}{val}%")
+            filter_fm = mlp.find("filterParams/filterModifier/FloatModifierMultiplicative")
+            if filter_fm is not None:
+                fval = filter_fm.get("value")
+                if fval and fval not in ("0", "0.0"):
+                    sign = "+" if float(fval) > 0 else ""
+                    mod_parts.append(f"Inert Filter: {sign}{fval}%")
+            if mod_parts:
+                lines.append("<EM4>Modifiers:</EM4>  " + "  |  ".join(mod_parts))
+
+    # Structural stats — component HP + distortion + ship-component-style
+    # signatures if they happen to be present on a ship-mountable laser.
+    comp_hp = _attr(root, "SHealthComponentParams", "Health")
+    if comp_hp is not None:
+        lines.append(f"<EM4>Component HP:</EM4> {_fmt(comp_hp)}")
+    distort = _attr(root, "SDistortionParams", "Maximum")
+    if distort is not None and distort not in ("0", "0.0"):
+        lines.append(f"<EM4>Max Distortion:</EM4> {_fmt(distort)}")
+    em_sig = _attr(root, "EMSignature", "nominalSignature")
+    ir_sig = _attr(root, "IRSignature", "nominalSignature")
+    if em_sig is not None or ir_sig is not None:
+        sig_parts: list[str] = []
+        if em_sig is not None and em_sig not in ("0", "0.0"):
+            sig_parts.append(f"EM: {_fmt(em_sig)}")
+        if ir_sig is not None and ir_sig not in ("0", "0.0"):
+            sig_parts.append(f"IR: {_fmt(ir_sig)}")
+        if sig_parts:
+            lines.append("<EM4>Signatures:</EM4>  " + "  |  ".join(sig_parts))
+
+    return "\\n".join(lines) if lines else ""
+
+
+def enhancements_salvage_tool(root: ET.Element) -> str:
+    """Extract stats for handheld salvage tools.
+
+    Covers the Renovar XTR (``weapons/fps_weapons/grin_salvage_repair_01.xml``)
+    and the multitool's salvage_repair mode
+    (``weapons/fps_weapons/grin_multitool_01_default_salvage_repair.xml``).
+    Both expose a pair of ``SWeaponActionFireSalvageRepairParams`` —
+    one for Repair mode, one for Salvage mode — each carrying its own
+    repair-rate / efficiency / ramp-up curve. Renders both modes side
+    by side so a player can compare a single tool's two halves without
+    leaving the description.
+
+    Skipped: ship-mounted salvage equipment under ``ships/salvagemunching``
+    is currently placeholder XMLs with ``Name="@LOC_PLACEHOLDER"`` — no
+    real stats to extract until CIG fleshes those records out.
+    """
+    lines: list[str] = []
+
+    fire_actions = root.findall(".//SWeaponActionFireSalvageRepairParams")
+    for fa in fire_actions:
+        # Mode is encoded on the element itself via the `salvageRepairMode`
+        # attribute ("Repair" / "Salvage"). Use it as the EM4-tagged header.
+        mode = fa.get("salvageRepairMode") or fa.get("name") or "Mode"
+        eff      = fa.get("materialEfficiency")
+        hp_rate  = fa.get("maxHealthRepairRate")
+        dmg_rate = fa.get("maxDamageMapRepairRate")
+        h2a      = fa.get("healthToAmmoRatio")
+        ramp_up  = fa.get("rampUpTime")
+        ramp_dn  = fa.get("rampDownTime")
+        e_min    = fa.get("minEnergyDraw")
+        e_max    = fa.get("maxEnergyDraw")
+        heat_s   = fa.get("heatPerSecond")
+        wear_s   = fa.get("wearPerSecond")
+
+        parts: list[str] = []
+        if hp_rate not in (None, "0", "0.0"):
+            parts.append(f"HP Rate: {_fmt(hp_rate)}/s")
+        if dmg_rate not in (None, "0", "0.0"):
+            parts.append(f"Damage-Map Rate: {_fmt(dmg_rate)}/s")
+        if eff not in (None, "1", "1.0"):
+            # 1.0 is the default no-op — only emit when CIG actually tunes
+            # below unity (Renovar Salvage mode runs at 0.7 efficiency).
+            parts.append(f"Material Efficiency: {_fmt(eff, '', 2)}")
+        if h2a not in (None, "0", "0.0"):
+            parts.append(f"HP/Ammo: {_fmt(h2a, '', 2)}")
+        if ramp_up not in (None, "0", "0.0") or ramp_dn not in (None, "0", "0.0"):
+            parts.append(f"Ramp: {_fmt(ramp_up, 's', 1)}↑ {_fmt(ramp_dn, 's', 1)}↓")
+        if e_max not in (None, "0", "0.0"):
+            if e_min and e_min != e_max and e_min not in ("0", "0.0"):
+                parts.append(f"Energy: {_fmt(e_min)}–{_fmt(e_max)} PU/s")
+            else:
+                parts.append(f"Energy: {_fmt(e_max)} PU/s")
+        if heat_s not in (None, "0", "0.0"):
+            parts.append(f"Heat: {_fmt(heat_s)}/s")
+        if wear_s not in (None, "0", "0.0"):
+            parts.append(f"Wear: {wear_s}/s")
+        if parts:
+            lines.append(f"<EM4>{mode}:</EM4>  " + "  |  ".join(parts))
+
+    # Structural stats (durability / wear) — same pattern as mining lasers.
+    comp_hp = _attr(root, "SHealthComponentParams", "Health")
+    if comp_hp is not None and comp_hp not in ("0", "0.0"):
+        lines.append(f"<EM4>Component HP:</EM4> {_fmt(comp_hp)}")
+    wear_max = _attr(root, "SWearAccumulatorParams", "MaxLifetimeHours")
+    if wear_max is not None and wear_max not in ("0", "0.0"):
+        lines.append(f"<EM4>Max Lifetime:</EM4> {_fmt(wear_max, 'h', 1)}")
+
+    return "\\n".join(lines) if lines else ""
+
+
 def _extract_mission_xp(root: ET.Element, reputation_lookup: dict[str, int] | None = None) -> int:
     """Extract mission success XP from primary reputation scope only.
 
@@ -3242,6 +3436,37 @@ def _run_gen_missiles(ctx: dict) -> dict[str, str]:
     return out
 
 
+def _ship_weapon_dispatch(root: ET.Element, vehicle_ammo: dict, loc: dict) -> str:
+    """Polymorphic dispatch for entities in ``ships/weapons/``.
+
+    The directory mixes combat weapons (cannons, repeaters, scatterguns)
+    with non-combat ship-mounted gear (mining lasers — and likely
+    tractor / salvage beams in the future). Pick the right extractor
+    based on a marker element present only on the specialised entity:
+
+      - SEntityComponentMiningLaserParams → mining laser → enhancements_mining_laser
+      - everything else                  → enhancements_weapon (combat)
+
+    Keeps the single-pass scan_entity_dir wiring intact while letting
+    each entity class get the stats most relevant to it.
+    """
+    if _find(root, "SEntityComponentMiningLaserParams") is not None:
+        return enhancements_mining_laser(root)
+    return enhancements_weapon(root, vehicle_ammo, loc)
+
+
+def _fps_weapon_dispatch(root: ET.Element, fps_ammo: dict, loc: dict, mag_lookup: dict) -> str:
+    """Polymorphic dispatch for entities in ``weapons/fps_weapons/``.
+
+    Same shape as ``_ship_weapon_dispatch``: handheld salvage tools
+    (Renovar XTR + multitool salvage mode) need a different extractor
+    than combat FPS weapons, but they live in the same directory.
+    """
+    if _find(root, "SWeaponActionFireSalvageRepairParams") is not None:
+        return enhancements_salvage_tool(root)
+    return enhancements_weapon(root, fps_ammo, loc, mag_lookup)
+
+
 def _run_gen_ship_weapons(ctx: dict) -> dict[str, str]:
     loc            = ctx["loc"]
     ships_scitem   = ctx["ships_scitem"]
@@ -3253,7 +3478,7 @@ def _run_gen_ship_weapons(ctx: dict) -> dict[str, str]:
     if weapons_dir.exists():
         out = scan_entity_dir(
             weapons_dir,
-            lambda root: enhancements_weapon(root, vehicle_ammo, loc),
+            lambda root: _ship_weapon_dispatch(root, vehicle_ammo, loc),
             loc=loc,
             xml_path_index=xml_path_index, records_dir=records,
         )
@@ -3272,7 +3497,7 @@ def _run_gen_fps_weapons(ctx: dict) -> dict[str, str]:
     if fps_dir.exists():
         out = scan_entity_dir(
             fps_dir,
-            lambda root: enhancements_weapon(root, fps_ammo, loc, mag_lookup),
+            lambda root: _fps_weapon_dispatch(root, fps_ammo, loc, mag_lookup),
             loc=loc,
             xml_path_index=xml_path_index, records_dir=records,
         )
