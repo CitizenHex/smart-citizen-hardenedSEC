@@ -1843,6 +1843,7 @@ class MainWindow(QMainWindow):
         input_row.addWidget(line_edit)
 
         browse_btn = QPushButton("Browse...")
+        browse_btn.setToolTip("Pick a local .ini file to import.")
         def browse():
             path, _ = QFileDialog.getOpenFileName(
                 dialog, "Select INI File", "", "INI Files (*.ini);;All Files (*)")
@@ -2931,7 +2932,9 @@ class MainWindow(QMainWindow):
         button_row = QHBoxLayout()
         generate_btn = QPushButton("Generate")
         generate_btn.setDefault(True)
+        generate_btn.setToolTip("Run the DataForge extraction + enhancements pipeline now. Takes a few minutes the first time.")
         skip_btn = QPushButton("Skip")
+        skip_btn.setToolTip("Continue without generating enhancements. You can run it later from the Enhancements tab.")
 
         generate_btn.clicked.connect(dialog.accept)
         skip_btn.clicked.connect(dialog.reject)

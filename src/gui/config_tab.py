@@ -114,6 +114,7 @@ class ConfigTab(QWidget):
 
         game_browse_btn = QPushButton("Browse...")
         game_browse_btn.setMaximumWidth(100)
+        game_browse_btn.setToolTip("Pick the Star Citizen install root in a folder browser.")
         game_browse_btn.clicked.connect(self._browse_game_path)
         game_input_layout.addWidget(game_browse_btn)
         game_layout.addLayout(game_input_layout)
@@ -173,6 +174,7 @@ class ConfigTab(QWidget):
 
         data_browse_btn = QPushButton("Browse...")
         data_browse_btn.setMaximumWidth(100)
+        data_browse_btn.setToolTip("Pick the Smart Citizen data folder in a folder browser.")
         data_browse_btn.clicked.connect(self._browse_data_dir)
         data_input_layout.addWidget(data_browse_btn)
 
@@ -211,6 +213,11 @@ class ConfigTab(QWidget):
 
         self._extract_btn = QPushButton("Extract from Data.p4k")
         self._extract_btn.setMaximumWidth(180)
+        self._extract_btn.setToolTip(
+            "Unpack stock localization (base.ini) plus the DataForge entity XMLs "
+            "from your installed Data.p4k. Run after every Star Citizen patch — "
+            "the strings reload into the table automatically when extraction finishes."
+        )
         self._extract_btn.clicked.connect(self.p4k_extract_requested.emit)
         p4k_status_row.addWidget(self._extract_btn)
 
@@ -236,6 +243,11 @@ class ConfigTab(QWidget):
 
         import_btn = QPushButton("Import INI...")
         import_btn.setMaximumWidth(150)
+        import_btn.setToolTip(
+            "Fold an external .ini into your overrides. A conflict-resolution "
+            "dialog lets you decide per key: keep current, use imported, append, "
+            "prepend, or provide a custom value."
+        )
         import_btn.clicked.connect(self.import_ini_requested.emit)
         button_layout.addWidget(import_btn)
 
@@ -250,6 +262,12 @@ class ConfigTab(QWidget):
 
         preview_btn = QPushButton("Preview Apply")
         preview_btn.setMaximumWidth(150)
+        preview_btn.setToolTip(
+            "Dry-run summary of what Apply to Game would write — per-source key "
+            "counts (with Enhancements broken down by category) and a "
+            "Modified / Enhanced / Unmodified / New status tally. Nothing is "
+            "written to the game until you click Apply to Game."
+        )
         preview_btn.clicked.connect(self.preview_merge)
         button_layout.addWidget(preview_btn)
 
