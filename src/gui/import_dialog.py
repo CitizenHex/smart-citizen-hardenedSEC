@@ -59,10 +59,12 @@ class ImportConflictDialog(QDialog):
         # Bulk action buttons
         button_row = QHBoxLayout()
         keep_all_btn = QPushButton("Keep All Current")
+        keep_all_btn.setToolTip("Resolve every conflict by keeping your existing value and discarding the imported one.")
         keep_all_btn.clicked.connect(self._keep_all)
         button_row.addWidget(keep_all_btn)
 
         import_all_btn = QPushButton("Import All")
+        import_all_btn.setToolTip("Resolve every conflict by accepting the imported value and overwriting your existing one.")
         import_all_btn.clicked.connect(self._import_all)
         button_row.addWidget(import_all_btn)
 
