@@ -46,7 +46,7 @@
     {
       "id": "enhancements",
       "title": "7. Enhancements",
-      "description": "Optional but recommended: the Enhancements tab toggles stat overlays for ships, components, weapons, and mission blueprints and rewards. Generate Enhancements runs the pipeline that produces those overlays from your extracted data.",
+      "description": "Optional but recommended: the Enhancements tab toggles stat overlays for ships, components, weapons, and mission blueprints and rewards. Use the Tag Builder to customize the bracketed prefix tags on component / missile / ship-weapon names. Generate Enhancements runs the pipeline that produces those overlays from your extracted data.",
       "preferred_side": "above"
     },
     {

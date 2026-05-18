@@ -56,7 +56,9 @@ _SPOTLIGHT_CORNER = 6              # rounded-rect radius for the spotlight cut-o
 _SPOTLIGHT_BORDER_PX = 3
 _SPOTLIGHT_BORDER_COLOR = QColor("#00d4ff")
 _CALLOUT_MARGIN = 16               # px gap between spotlight and callout
-_CALLOUT_MAX_WIDTH = 380
+_CALLOUT_WIDTH = 460               # fixed width — gives word-wrapped descriptions enough room
+_CALLOUT_H_MARGINS = 14            # must match v.setContentsMargins(left/right) below
+_CALLOUT_BORDER_PX = 2             # must match border width in the styleSheet below
 _WINDOW_EDGE_MARGIN = 16           # keep callout at least this far from the window edge
 
 
@@ -105,10 +107,13 @@ class CoachMarkOverlay(QWidget):
             }
             """
         )
-        frame.setMaximumWidth(_CALLOUT_MAX_WIDTH)
+        # Fixed width (not max) so word-wrapped QLabels have a known wrap point
+        # — otherwise their heightForWidth isn't consulted and the frame can
+        # adjustSize to a height that fits only the first line of text.
+        frame.setFixedWidth(_CALLOUT_WIDTH)
 
         v = QVBoxLayout(frame)
-        v.setContentsMargins(14, 12, 14, 12)
+        v.setContentsMargins(_CALLOUT_H_MARGINS, 12, _CALLOUT_H_MARGINS, 12)
         v.setSpacing(8)
 
         self._title_label = QLabel(frame)
@@ -184,7 +189,17 @@ class CoachMarkOverlay(QWidget):
         self._back_btn.setEnabled(has_back)
         self._next_btn.setText("Finish" if is_last else "Next")
 
-        # Callout sizes itself to content, then we place it.
+        # Force wrapped labels to honor heightForWidth at the callout's fixed
+        # width — without this, adjustSize() on the frame can return a height
+        # that only fits the first line of a multi-line description.
+        content_w = _CALLOUT_WIDTH - 2 * (_CALLOUT_H_MARGINS + _CALLOUT_BORDER_PX)
+        for lbl in (self._title_label, self._desc_label):
+            lbl.setFixedWidth(content_w)
+            # Reset the prior step's min height before recomputing so a long
+            # step doesn't lock the callout's height for subsequent shorter ones.
+            lbl.setMinimumHeight(0)
+            lbl.setMinimumHeight(lbl.heightForWidth(content_w))
+        self._callout.layout().activate()
         self._callout.adjustSize()
         self._position_callout(step.preferred_side)
 
