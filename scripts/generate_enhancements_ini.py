@@ -208,9 +208,19 @@ def write_ini(path: Path, entries: dict[str, str]) -> None:
 #     Rank 2–3, Rank 4) from the pool filename and emit them in the
 #     POTENTIAL BLUEPRINTS sub-section headers. v7 pickles unpack as
 #     a bare dict and crash the new 2-tuple consumer, so bump invalidates.
+#   scitem_lookups v5 / blueprint_pools v9 (1.4.0) — ``build_scitem_lookups``
+#     now honours the user's components ``TagConfig`` when rendering the
+#     ``[CLASS-Sx-grade]`` entries that get baked onto mission POTENTIAL
+#     BLUEPRINTS names. Pre-fix the tag was always rendered with the
+#     DEFAULTS, so a user who set the Tag Builder to "Long (Military)" /
+#     enclosing "Round" / etc. saw their components pipeline emit the new
+#     style but mission descriptions still emitted ``[MIL-S3-B]``. The
+#     cache key now folds in a hash of the components config (via
+#     _cached_lookup's extra_key); both caches invalidate when the user
+#     edits their config so the next run rebuilds with the new style.
 _LOOKUP_VERSIONS: dict[str, str] = {
-    "blueprint_pools": "v8",
-    "scitem_lookups": "v4",
+    "blueprint_pools": "v9",
+    "scitem_lookups": "v5",
 }
 
 
@@ -233,18 +243,23 @@ def _dataforge_cache_key(forge_dir: Path) -> str:
     return "unknown"
 
 
-def _cached_lookup(forge_dir: Path, name: str, builder):
+def _cached_lookup(forge_dir: Path, name: str, builder, extra_key: str = ""):
     """Memoize *builder*'s output to cache/dataforge/.lookups/{name}.pkl.
 
-    Cache key is ``{builder_version}:{dataforge_fingerprint}``. Either side
-    changing invalidates the cache: re-extracting Data.p4k changes the
-    fingerprint; updating the builder's collection logic bumps the version
-    in _LOOKUP_VERSIONS. Pickle errors silently fall back to rebuilding.
+    Cache key is ``{builder_version}:{dataforge_fingerprint}[:extra_key]``.
+    Any of the three changing invalidates the cache: re-extracting Data.p4k
+    changes the fingerprint; updating the builder's collection logic bumps
+    the version in _LOOKUP_VERSIONS; passing a different *extra_key* (used
+    by scitem_lookups + blueprint_pools to fold in the user's components
+    Tag Builder config so a config change rebuilds the baked-in tags)
+    bumps the third segment. Pickle errors silently fall back to rebuilding.
     """
     cache_dir = forge_dir / ".lookups"
     cache_file = cache_dir / f"{name}.pkl"
     builder_version = _LOOKUP_VERSIONS.get(name, "v1")
     key = f"{builder_version}:{_dataforge_cache_key(forge_dir)}"
+    if extra_key:
+        key = f"{key}:{extra_key}"
 
     if cache_file.exists():
         try:
@@ -645,7 +660,12 @@ def _ship_weapon_name_tag_factory(ammo_lookup: dict, config: "TagConfig | None" 
                         damage_label, damage_label
                     )
 
-        if not size and not damage_label:
+        # Require a resolvable damage label. Items in ships/weapons/ that
+        # lack a damage breakdown — EMP devices, tractor / towing beams,
+        # mining lasers (which have their own enhancements_mining_laser
+        # pipeline) — would otherwise emit a size-only tag like ``[S1]``
+        # that's meaningless next to the entity's own name. Skip those.
+        if not damage_label:
             return None
         out = render_tag(cfg, {"damage": damage_label, "size": size or ""})
         return out or None
@@ -3458,6 +3478,7 @@ def build_scitem_lookups(
     loc: dict[str, str] | None = None,
     xml_path_index: dict | None = None,
     records_dir: Path | None = None,
+    tag_config: "TagConfig | None" = None,
 ) -> tuple[dict[str, tuple[str, str]], dict[str, str], dict[str, str], dict[str, str]]:
     """Single-pass scan of scitem XMLs that produces four lookups:
 
@@ -3555,7 +3576,7 @@ def build_scitem_lookups(
         if ref and desc_loc_key:
             desc_value = loc.get(desc_loc_key, "")
             if desc_value:
-                tag = _component_name_tag(desc_value, root)
+                tag = _component_name_tag(desc_value, root, config=tag_config)
                 if tag:
                     entity_name_tags[ref] = tag
 
@@ -3976,6 +3997,10 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             entity_names_by_filename=entity_names_by_filename,
             entity_name_tags=entity_name_tags,
         ),
+        # blueprint pool names bake in the components tag — fold the
+        # components config key in so a user edit invalidates this cache
+        # alongside scitem_lookups (the source of entity_name_tags).
+        extra_key=ctx.get("_components_cfg_key", ""),
     )
 
     contractgen_dir = records / "contracts" / "contractgenerator"
@@ -3985,6 +4010,36 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         pool_names=pool_names,
     )
     logger.info(f"Processed {len(contractgen_missions)} contract generator mission variants")
+
+    # Materialise the pu_missions file list early so the title-augment loop
+    # can demote [BP] → [BP?] for titles whose pu_missions side spawns
+    # descs the contractgenerator never sees (and therefore can't award
+    # blueprints for — issue #31 Covalex repro: every contractgen variant
+    # of `Covalex_HaulCargo_SingleToMulti_title` carries BP, but the same
+    # title is referenced by 6 pu_missions XMLs whose desc tokens never
+    # appear in any contractgen file, so those spawn paths run without BP).
+    # The same file list is reused by the existing XP back-fill pass below.
+    _pu_files: list[Path] = (
+        _index_rglob(xml_path_index, pu_missions_dir, records)
+        if xml_path_index is not None and pu_missions_dir.exists()
+        else (list(pu_missions_dir.rglob("*.xml")) if pu_missions_dir.exists() else [])
+    )
+    pu_title_to_descs: dict[str, set[str]] = {}
+    if pu_missions_dir.exists():
+        for xml_file in _pu_files:
+            try:
+                root = ET.parse(xml_file).getroot()
+                title_attr = root.get("title", "")
+                desc_attr  = root.get("description", "")
+                if not title_attr.startswith("@") or not desc_attr.startswith("@"):
+                    continue
+                if _is_sentinel_loc_ref(title_attr) or _is_sentinel_loc_ref(desc_attr):
+                    continue
+                title_key = title_attr.lstrip("@")
+                desc_key  = desc_attr.lstrip("@")
+                pu_title_to_descs.setdefault(title_key, set()).add(desc_key)
+            except (ET.ParseError, Exception):
+                continue
 
     mission_titles_augmented = 0
     for title_key, variants in contractgen_missions.items():
@@ -4187,13 +4242,39 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
                     f"already written by a prior title_key (likely a game-side data bug)"
                 )
 
+    # Orphan pu-only desc cleanup. CIG runs two parallel mission-generation
+    # wrappers on the same title: modern ``CareerContract`` blocks (which
+    # carry ``BlueprintRewards`` and feed ``mission_blueprints``) and older
+    # ``ContractLegacy`` blocks (which point at pu_missions XMLs via
+    # ``missionBrokerEntry`` and award no BP — every one of the 419
+    # ContractLegacy entries in the dataset lacks the BlueprintRewards
+    # element). When a single title has both, the pu_missions scan at the
+    # top of this function emits a bare-MISSION-DETAILS desc for every
+    # ContractLegacy-fronted pu_missions XML — including descs that the
+    # contractgen loop never touches. Result: title carries [BP] (true for
+    # all CC variants) but several of its descs show no POTENTIAL
+    # BLUEPRINTS section, which reads to the user as a regression. Drop
+    # those orphan descs entirely so the title's [BP] claim only attaches
+    # to bodies that actually back it up. pu_only_descs for titles WITHOUT
+    # BP are left alone — their desc body matching the title's silent
+    # (no-BP) header is internally consistent.
+    orphans_dropped = 0
+    for _title_key, _variants in contractgen_missions.items():
+        if _title_key not in mission_blueprints:
+            continue
+        _cg_descs = {v[3] for v in _variants if v[3]}
+        for _orphan in pu_title_to_descs.get(_title_key, set()) - _cg_descs:
+            if out.pop(_orphan, None) is not None:
+                orphans_dropped += 1
+    if orphans_dropped:
+        logger.info(
+            f"Dropped {orphans_dropped} pu-only orphan desc entries "
+            "from BP-tagged titles (ContractLegacy spawn paths that don't award BP)"
+        )
+
     # Second pu_missions pass: XP for titles contractgen couldn't cover.
-    # Materialise the file list once so the third diagnostic pass can reuse it.
-    _pu_files: list[Path] = (
-        _index_rglob(xml_path_index, pu_missions_dir, records)
-        if xml_path_index is not None and pu_missions_dir.exists()
-        else (list(pu_missions_dir.rglob("*.xml")) if pu_missions_dir.exists() else [])
-    )
+    # _pu_files is already materialised above (alongside pu_title_to_descs);
+    # the third diagnostic pass below also reuses it.
     pu_title_xps: dict[str, list[int]] = {}
     if pu_missions_dir.exists():
         for xml_file in _pu_files:
@@ -4401,13 +4482,24 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
     armor_lookup: dict = {}
     reputation_lookup: dict[str, int] = {}
 
+    # Components Tag Builder config — drives the [CLASS-Sx-grade] tags that
+    # get baked into both scitem_lookups (entity_name_tags) and the pickle
+    # of blueprint_pools (POTENTIAL BLUEPRINTS list entries). Folding the
+    # JSON form into both caches' extra_key invalidates them on user edit
+    # so mission descriptions don't keep emitting the old style after a
+    # config change. JSON is sort_keys=True so the string is stable.
+    _components_cfg = (tag_configs or {}).get("components") or DEFAULT_TAG_CONFIGS.get("components")
+    _components_cfg_key = _components_cfg.to_json() if _components_cfg else ""
+
     def _build_scitem_pair():
         return _cached_lookup(
             forge_dir, "scitem_lookups",
             lambda: build_scitem_lookups(
                 records / "entities" / "scitem", loc,
                 xml_path_index=xml_path_index, records_dir=records,
+                tag_config=_components_cfg,
             ),
+            extra_key=_components_cfg_key,
         )
 
     def _build_reputation():
@@ -4503,6 +4595,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         "reputation_lookup": reputation_lookup,
         "xml_path_index":    xml_path_index,
         "tag_configs":       tag_configs or {},
+        "_components_cfg_key": _components_cfg_key,
     }
 
     gen_jobs: dict[str, Callable] = {}

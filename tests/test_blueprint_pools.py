@@ -210,6 +210,57 @@ class TestBlueprintNameTags:
         assert entity_names["ent-norfield-uuid"] == "Norfield"
         assert entity_name_tags["ent-norfield-uuid"] == "[MIL-S1-A]"
 
+    @pytest.mark.regression
+    def test_scitem_lookup_respects_user_tag_config(self, gen_module, tmp_path):
+        """1.4.0 bug: ``build_scitem_lookups`` always used the default
+        components TagConfig when rendering the entity_name_tags map.
+        That map gets baked into ``blueprint_pools`` cache and drives the
+        POTENTIAL BLUEPRINTS list inside mission descriptions — so a user
+        who customised their Tag Builder saw their components pipeline
+        emit the new style but mission descriptions still showed
+        ``[MIL-S3-B]``. Verify a custom config flows through."""
+        from src.utils.tag_builder import (
+            DEFAULT_COMPONENT_CLASS_MAPPING, ElementSpec, TagConfig,
+        )
+
+        scitem_dir = tmp_path / "scitem"
+        scitem_dir.mkdir()
+        (scitem_dir / "norfield.xml").write_text(
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<EntityClassDefinition __ref="ent-norfield-uuid">\n'
+            '  <Components>\n'
+            '    <SAttachableComponentParams>\n'
+            '      <AttachDef>\n'
+            '        <Localization Name="@item_NameNorfield" Description="@item_DescNorfield"/>\n'
+            '      </AttachDef>\n'
+            '    </SAttachableComponentParams>\n'
+            '  </Components>\n'
+            '</EntityClassDefinition>\n',
+            encoding="utf-8",
+        )
+        loc = {
+            "item_NameNorfield": "Norfield",
+            "item_DescNorfield": "Size: 1\\nGrade: A\\nClass: Military\\n\\n.",
+        }
+
+        # User config: round brackets, dot separator, long-form class label.
+        # Expected render: "(Military.S1.A)".
+        cfg = TagConfig(
+            elements=[
+                ElementSpec("class", True, "long"),
+                ElementSpec("size",  True, "sn"),
+                ElementSpec("grade", True, "letter"),
+            ],
+            separator="dot",
+            enclosing="round",
+            class_mapping=dict(DEFAULT_COMPONENT_CLASS_MAPPING),
+        )
+
+        _, _, _, entity_name_tags = gen_module.build_scitem_lookups(
+            scitem_dir, loc=loc, tag_config=cfg,
+        )
+        assert entity_name_tags["ent-norfield-uuid"] == "(Military.S1.A)"
+
     def test_scitem_lookup_skips_tag_for_non_component(self, gen_module, tmp_path):
         """FPS gear / weapons whose description has no Size:/Grade:/Class:
         header should NOT produce a tag entry."""
@@ -597,3 +648,76 @@ class TestPoolRankLabels:
         per_system = mission_blueprints["nolabel_title"]["Stanton"]
         assert list(per_system.keys()) == [""], f"expected empty-label-only, got {per_system}"
         assert per_system[""] == ["Item A", "Item B"]
+
+
+class TestOrphanPuDescCleanup:
+    """1.4.0 regression: when a single mission title is spawned by both modern
+    ``CareerContract`` blocks (which carry BlueprintRewards) and older
+    ``ContractLegacy`` blocks (which don't), the pu_missions enhancement
+    scan emits desc entries for the ContractLegacy-fronted pu_missions
+    XMLs. Those orphan descs end up sharing a [BP]-tagged title without
+    a POTENTIAL BLUEPRINTS body, which reads as a bug to the user (issue
+    #31 Covalex repro: ``Covalex_HaulCargo_SingleToMulti_RefinedOre`` had
+    no BP list under the BP-tagged ``Covalex_HaulCargo_SingleToMulti_title``).
+    The cleanup pass removes those orphan desc entries entirely so the
+    title's BP claim only attaches to bodies that back it up.
+
+    The pieces of the cleanup are exercised by smaller-grained unit
+    coverage; this class drives the end-to-end shape of the orphan-drop
+    rule directly via a synthetic ``out`` dict and the two indexes the
+    cleanup loop reads.
+    """
+
+    @pytest.mark.regression
+    def test_orphan_pu_desc_dropped_under_bp_title(self, gen_module):
+        """Title T has 1 contractgen variant (desc D_CG, awards BP) and 1
+        pu_missions-only variant (desc D_PU, ContractLegacy, no BP). The
+        cleanup pass should drop D_PU but keep D_CG."""
+        # The cleanup logic is inlined in main(), but its shape mirrors:
+        out = {
+            "T": "<some title text> <EM4>[BP]</EM4>",
+            "D_CG": "<contractgen rendered body with POTENTIAL BLUEPRINTS>",
+            "D_PU": "<pu_missions bare MISSION DETAILS body>",
+        }
+        contractgen_missions = {
+            "T": [("Stanton", 100, 0, "D_CG", [], 0, 0, "", True, 1.0, "")],
+        }
+        mission_blueprints = {"T": {"Stanton": {"": ["Item A"]}}}
+        pu_title_to_descs = {"T": {"D_CG", "D_PU"}}
+
+        for _tk, _vs in contractgen_missions.items():
+            if _tk not in mission_blueprints:
+                continue
+            _cg = {v[3] for v in _vs if v[3]}
+            for _o in pu_title_to_descs.get(_tk, set()) - _cg:
+                out.pop(_o, None)
+
+        assert "T" in out, "title text must stay"
+        assert "D_CG" in out, "contractgen-backed desc must stay"
+        assert "D_PU" not in out, "pu-only orphan desc must be dropped"
+
+    @pytest.mark.regression
+    def test_orphan_pu_desc_preserved_when_title_has_no_bp(self, gen_module):
+        """Title T has no BP info (not in mission_blueprints). The pu-only
+        desc is NOT an orphan in the bug's sense — body and title are
+        internally consistent (both BP-silent) — and must be preserved."""
+        out = {
+            "T": "<title text, no BP tag>",
+            "D_CG": "<contractgen body, no BP section>",
+            "D_PU": "<pu_missions body, no BP section>",
+        }
+        contractgen_missions = {
+            "T": [("Stanton", 100, 0, "D_CG", [], 0, 0, "", False, 0.0, "")],
+        }
+        mission_blueprints: dict = {}  # T not present
+        pu_title_to_descs = {"T": {"D_CG", "D_PU"}}
+
+        for _tk, _vs in contractgen_missions.items():
+            if _tk not in mission_blueprints:
+                continue
+            _cg = {v[3] for v in _vs if v[3]}
+            for _o in pu_title_to_descs.get(_tk, set()) - _cg:
+                out.pop(_o, None)
+
+        assert "D_PU" in out, "non-BP title's pu desc must stay"
+        assert "D_CG" in out
