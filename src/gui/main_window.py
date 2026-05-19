@@ -377,6 +377,7 @@ class MainWindow(QMainWindow):
         self.config_tab.merge_requested.connect(self.perform_merge_and_reload)
         self.config_tab.p4k_extract_requested.connect(self._run_p4k_extraction)
         self.config_tab.import_ini_requested.connect(self._handle_import_ini)
+        self.config_tab.reset_user_ini_requested.connect(self._handle_reset_user_ini)
         self.config_tab.channel_changed.connect(self._on_channel_changed)
         self.config_tab.check_updates_requested.connect(self._on_check_updates_clicked)
         self.config_tab.data_dir_changed.connect(self._on_data_dir_changed)
@@ -1601,6 +1602,101 @@ class MainWindow(QMainWindow):
             self._render_help_html()
         self._apply_editor_dock_canvas_tint()
 
+    def _handle_reset_user_ini(self):
+        """Confirm + delete the active channel's user.ini, preserving a backup.
+
+        Flow:
+          1. Resolve the channel-scoped user.ini path. If absent, surface
+             "nothing to reset" and return.
+          2. Show a destructive-action confirmation dialog (default = No)
+             listing the path, file size, and what the backup will be named.
+          3. Rename user.ini → user.ini.bak-YYYYMMDD-HHMMSS via
+             user_ini_manager.reset_user_ini. On OSError (locked file,
+             permissions), surface the error and bail without changing
+             in-memory state.
+          4. Clear ``custom_value`` on every in-memory entry so the
+             close-time autosave guard doesn't see them as modifications
+             and re-write the file we just removed. The async reload that
+             follows replaces self.entries wholesale, but the window
+             between delete and reload completion is a real one where
+             closeEvent could fire and undo the reset.
+          5. Kick off a full FileLoaderWorker reload via
+             _show_loading_progress so the table reflects stock values
+             with the user-override layer gone.
+        """
+        from src.utils.user_ini_manager import reset_user_ini
+
+        user_ini_path = AppSettings.get_user_ini_path()
+        channel = AppSettings.get_active_channel()
+
+        if not user_ini_path.exists():
+            QMessageBox.information(
+                self,
+                "Nothing to Reset",
+                f"There is no user.ini for the {channel} channel — already at "
+                f"stock values.\n\nPath checked:\n{user_ini_path}",
+            )
+            return
+
+        try:
+            size_kb = user_ini_path.stat().st_size / 1024
+            size_str = f"{size_kb:.1f} KB"
+        except OSError:
+            size_str = "unknown size"
+
+        reply = QMessageBox.warning(
+            self,
+            "Reset user.ini?",
+            f"This will remove every custom string override for the "
+            f"{channel} channel.\n\n"
+            f"File: {user_ini_path}\n"
+            f"Size: {size_str}\n\n"
+            f"A timestamped backup will be saved next to the original "
+            f"(user.ini.bak-YYYYMMDD-HHMMSS) so you can restore by renaming it "
+            f"back to user.ini.\n\n"
+            f"This does NOT touch the game's global.ini — to revert what "
+            f"the game sees in-game, run Apply to Game after the reset, or "
+            f"use Restore Backup.\n\n"
+            f"Proceed?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            backup_path = reset_user_ini(user_ini_path, backup=True)
+        except OSError as e:
+            logger.exception(f"Failed to reset user.ini at {user_ini_path}")
+            QMessageBox.critical(
+                self,
+                "Reset Failed",
+                f"Could not reset user.ini:\n\n{e}\n\n"
+                f"The file is still in place. Close any other application that "
+                f"might have it open (text editor, sync client) and try again.",
+            )
+            return
+
+        # In-memory wipe before the async reload — see step 4 docstring.
+        for entry in self.entries:
+            if entry.custom_value:
+                entry.custom_value = ""
+
+        self._show_loading_progress(
+            f"Reloading {channel} after user.ini reset..."
+        )
+
+        backup_note = f"\n\nBackup saved to:\n{backup_path}" if backup_path else ""
+        self.statusBar().showMessage(
+            f"user.ini reset for {channel} (backup created)", 5000
+        )
+        QMessageBox.information(
+            self,
+            "user.ini Reset",
+            f"All custom overrides for the {channel} channel have been "
+            f"cleared.{backup_note}",
+        )
+
     def _handle_import_ini(self):
         """Handle Import INI button: get source, validate, resolve conflicts, merge."""
         from PyQt6.QtWidgets import (
@@ -1747,6 +1843,7 @@ class MainWindow(QMainWindow):
         input_row.addWidget(line_edit)
 
         browse_btn = QPushButton("Browse...")
+        browse_btn.setToolTip("Pick a local .ini file to import.")
         def browse():
             path, _ = QFileDialog.getOpenFileName(
                 dialog, "Select INI File", "", "INI Files (*.ini);;All Files (*)")
@@ -2162,6 +2259,7 @@ class MainWindow(QMainWindow):
             "welcome":      {"target": lambda: None,                                            "pre_action": None},
             "extract":      {"target": lambda: self.config_tab._extract_btn,                    "pre_action": _switch_to(config_tab)},
             "edit":         {"target": lambda: self.table,                                      "pre_action": _switch_to(strings_tab)},
+            "filter_row":   {"target": lambda: self.filter_header,                               "pre_action": _switch_to(strings_tab)},
             "editor":       {"target": lambda: self.editor_btn,                                  "pre_action": _switch_to(strings_tab)},
             "preview":      {"target": lambda: self.preview_pane,                               "pre_action": _switch_to(strings_tab)},
             "apply":        {"target": lambda: self.apply_btn,                                  "pre_action": None},
@@ -2834,7 +2932,9 @@ class MainWindow(QMainWindow):
         button_row = QHBoxLayout()
         generate_btn = QPushButton("Generate")
         generate_btn.setDefault(True)
+        generate_btn.setToolTip("Run the DataForge extraction + enhancements pipeline now. Takes a few minutes the first time.")
         skip_btn = QPushButton("Skip")
+        skip_btn.setToolTip("Continue without generating enhancements. You can run it later from the Enhancements tab.")
 
         generate_btn.clicked.connect(dialog.accept)
         skip_btn.clicked.connect(dialog.reject)
@@ -2986,7 +3086,14 @@ class MainWindow(QMainWindow):
         if categories is None:
             categories = AppSettings.get_enabled_enhancement_categories()
 
-        self._enhancements_worker = EnhancementsGeneratorWorker(categories=categories)
+        # Tag-builder config (issue #31): read once here on the main thread
+        # and hand the worker a plain dict, so the generator's worker
+        # thread/subprocess never touches a live QSettings handle.
+        tag_configs = AppSettings.get_all_tag_configs()
+
+        self._enhancements_worker = EnhancementsGeneratorWorker(
+            categories=categories, tag_configs=tag_configs
+        )
         self.enhancements_tab.set_operation_running("Generating enhancements…")
         self.statusBar().showMessage("Generating enhancements in background…")
 

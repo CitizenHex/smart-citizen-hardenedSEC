@@ -106,11 +106,13 @@ class LogTab(QWidget):
 
         clear_btn = QPushButton("Clear")
         clear_btn.setMaximumWidth(70)
+        clear_btn.setToolTip("Clear the on-screen log buffer. The session log file on disk is unaffected.")
         clear_btn.clicked.connect(self._clear)
         toolbar.addWidget(clear_btn)
 
         export_btn = QPushButton("Export to file…")
         export_btn.setMaximumWidth(130)
+        export_btn.setToolTip("Save the current log buffer to a .log file — useful when filing a bug report.")
         export_btn.clicked.connect(self._export)
         toolbar.addWidget(export_btn)
 

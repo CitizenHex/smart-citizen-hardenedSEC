@@ -30,6 +30,30 @@ from lxml import etree as ET
 
 logger = logging.getLogger(__name__)
 
+# Tag-builder is in src.utils, which may not be on sys.path when this script
+# runs as a standalone CLI from the scripts/ directory. Add the project root
+# and fall through to the (now-only) defaults if the import still fails —
+# keeps CLI use unchanged and the generator self-contained.
+try:
+    if str(PROJECT_ROOT) not in sys.path:  # type: ignore[name-defined]  # PROJECT_ROOT defined below
+        pass
+except NameError:
+    pass
+try:
+    _gen_root = Path(__file__).parent.parent
+    if str(_gen_root) not in sys.path:
+        sys.path.insert(0, str(_gen_root))
+    from src.utils.tag_builder import (
+        DAMAGE_LABEL_TO_MAPPING_KEY, DEFAULT_COMPONENT_CLASS_MAPPING,
+        DEFAULT_TAG_CONFIGS, TagConfig, render_tag,
+    )
+except ImportError:  # pragma: no cover — only triggers if src/ is removed
+    DAMAGE_LABEL_TO_MAPPING_KEY = {}  # type: ignore[assignment]
+    DEFAULT_COMPONENT_CLASS_MAPPING = {}  # type: ignore[assignment]
+    DEFAULT_TAG_CONFIGS = {}  # type: ignore[assignment]
+    TagConfig = None  # type: ignore[assignment]
+    render_tag = None  # type: ignore[assignment]
+
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -155,9 +179,48 @@ def write_ini(path: Path, entries: dict[str, str]) -> None:
 #     entity_names_by_filename) to feed the v4 blueprint_pools
 #     filename-stem fallback. v1 pickles will fail to unpack into
 #     the new 3-tuple, so we MUST invalidate them.
+#   scitem_lookups v3 (1.4.0) — added a fourth tuple slot
+#     (entity_name_tags: ref → "[CLASS-Sx-grade]") so blueprint pool
+#     items get the same annotation components do in their stock title.
+#     v2 pickles unpack as 3-tuples and would crash on the new 4-tuple
+#     consumer, so bump invalidates them.
+#   blueprint_pools v5 (1.4.0) — pool item names now carry the inline
+#     [CLASS-Sx-grade] tag when the underlying entity is a tagged
+#     component (shield/cooler/powerplant/qdrive/radar). Old v4 pickles
+#     stored the un-annotated strings, so reusing them would silently
+#     undo the new annotation on cache hit.
+#   blueprint_pools v6 (1.4.0) — strip the leading CIG-baked size prefix
+#     (``S0 ``, ``S00 ``, ``S1 ``…) from blueprint-list display names
+#     so mining-head entries like "S0 Helix" render as "Helix" alongside
+#     tagger-classified items, instead of carrying a second size
+#     convention CIG embedded in the loc-name attribute. v5 pickles
+#     hold the un-stripped names, so reusing them would defeat the strip.
+#   scitem_lookups v4 / blueprint_pools v7 (1.4.0) — _component_name_tag
+#     gained a fallback path that tags items lacking the full
+#     Size:/Grade:/Class: trio, using Item Type: as a Class: substitute
+#     and emitting partial shapes like [MIN-S0-B] (Helix) or [MIN-S0]
+#     (Arbor MHV). Both lookups stored values produced by the strict-only
+#     tagger and would silently keep mining heads / lasers untagged on
+#     cache hit, so both invalidate together.
+#   blueprint_pools v8 (1.4.0) — return tuple shape changed from
+#     ``dict[uuid, items]`` to ``(dict[uuid, items], dict[uuid, name])``
+#     so downstream rendering can derive rank-tier labels (Rank 0–1,
+#     Rank 2–3, Rank 4) from the pool filename and emit them in the
+#     POTENTIAL BLUEPRINTS sub-section headers. v7 pickles unpack as
+#     a bare dict and crash the new 2-tuple consumer, so bump invalidates.
+#   scitem_lookups v5 / blueprint_pools v9 (1.4.0) — ``build_scitem_lookups``
+#     now honours the user's components ``TagConfig`` when rendering the
+#     ``[CLASS-Sx-grade]`` entries that get baked onto mission POTENTIAL
+#     BLUEPRINTS names. Pre-fix the tag was always rendered with the
+#     DEFAULTS, so a user who set the Tag Builder to "Long (Military)" /
+#     enclosing "Round" / etc. saw their components pipeline emit the new
+#     style but mission descriptions still emitted ``[MIL-S3-B]``. The
+#     cache key now folds in a hash of the components config (via
+#     _cached_lookup's extra_key); both caches invalidate when the user
+#     edits their config so the next run rebuilds with the new style.
 _LOOKUP_VERSIONS: dict[str, str] = {
-    "blueprint_pools": "v4",
-    "scitem_lookups": "v2",
+    "blueprint_pools": "v9",
+    "scitem_lookups": "v5",
 }
 
 
@@ -180,18 +243,23 @@ def _dataforge_cache_key(forge_dir: Path) -> str:
     return "unknown"
 
 
-def _cached_lookup(forge_dir: Path, name: str, builder):
+def _cached_lookup(forge_dir: Path, name: str, builder, extra_key: str = ""):
     """Memoize *builder*'s output to cache/dataforge/.lookups/{name}.pkl.
 
-    Cache key is ``{builder_version}:{dataforge_fingerprint}``. Either side
-    changing invalidates the cache: re-extracting Data.p4k changes the
-    fingerprint; updating the builder's collection logic bumps the version
-    in _LOOKUP_VERSIONS. Pickle errors silently fall back to rebuilding.
+    Cache key is ``{builder_version}:{dataforge_fingerprint}[:extra_key]``.
+    Any of the three changing invalidates the cache: re-extracting Data.p4k
+    changes the fingerprint; updating the builder's collection logic bumps
+    the version in _LOOKUP_VERSIONS; passing a different *extra_key* (used
+    by scitem_lookups + blueprint_pools to fold in the user's components
+    Tag Builder config so a config change rebuilds the baked-in tags)
+    bumps the third segment. Pickle errors silently fall back to rebuilding.
     """
     cache_dir = forge_dir / ".lookups"
     cache_file = cache_dir / f"{name}.pkl"
     builder_version = _LOOKUP_VERSIONS.get(name, "v1")
     key = f"{builder_version}:{_dataforge_cache_key(forge_dir)}"
+    if extra_key:
+        key = f"{key}:{extra_key}"
 
     if cache_file.exists():
         try:
@@ -380,83 +448,229 @@ def _loc_name_key(root: ET.Element) -> str | None:
     return None
 
 
-# Classification abbreviations for component name tags
-_CLASS_ABBREV = {
-    "Competition": "CMP",
-    "Military":    "MIL",
-    "Civilian":    "CIV",
-    "Industrial":  "IND",
-    "Stealth":     "STH",
+# ── Tag emitters ─────────────────────────────────────────────────────────────
+# Each emitter pulls structured data off the description text and/or XML and
+# hands it to render_tag(). Format strings, ordering, separators, and the
+# class/ordinance/damage label mapping all come from the TagConfig passed
+# in — the function only knows how to extract the *values*, not how to lay
+# them out. Default behavior (when no config is passed) matches the
+# pre-refactor hardcoded output byte-for-byte; locked by
+# tests/test_tag_builder.py::TestDefaultBackwardsCompat.
+
+# CIG's internal trackingSignalType values → mapping-key form used by the
+# missile TagConfig.class_mapping dict.
+_MISSILE_TRACKING_RAW = ("CrossSection", "Electromagnetic", "Infrared")
+
+# Item Type → abbreviation, used as a Class: fallback when the description
+# omits the Class: line. CIG authors ship components with the full
+# Size:/Grade:/Class: trio but leaner items (mining heads, handheld mining
+# lasers) get only Size: + optional Grade: + an Item Type: line. Using
+# Item Type for the abbreviation keeps those entries from falling through
+# bare when they appear in blueprint lists alongside fully-classified items.
+# Keep this list narrow — only add entries we've actually seen leak through.
+_ITEM_TYPE_ABBREV = {
+    "Mining Laser": "MIN",
 }
 
 
-def _component_name_tag(desc_value: str, root: ET.Element | None = None) -> str | None:
-    """Extract [CLASS-S{size}-{grade}] tag from a component description string.
+def _component_name_tag(desc_value: str, root: ET.Element | None = None,
+                        config: "TagConfig | None" = None) -> str | None:
+    """Build a bracket annotation tag from a component-style description.
 
-    Parses the structured header lines (Size: N, Grade: X, Class: Y) that appear
-    at the top of ship component descriptions in the base localization.
+    Two paths, both producing the same ``[…]`` shape:
 
-    Returns:
-        Tag string like "[MIL-S1-A]" or None if parsing fails.
+      Strict — Size: N + Grade: A-D + Class: <recognised> → e.g. "[MIL-S1-A]"
+        Ship components (shield, cooler, powerplant, qdrive, radar) all
+        author this trio. Routed through ``render_tag`` so the user's
+        component TagConfig (mapping / separator / enclosing / element
+        ordering) is honoured. A defensive non-render_tag path preserves
+        the legacy ``[CLASS-Sx-grade]`` output bit-for-bit when
+        ``tag_builder`` isn't importable.
+
+      Fallback — Size: present + at least one of {recognised Item Type,
+      Grade A-D}. Class: is optional and the size may be written either
+      as bare "N" or as the mining-style "SN" (S0, S00). Output shape:
+        [TYPE-Sx-grade]  (e.g. "[MIN-S0-B]" — Helix, Hofstede)
+        [TYPE-Sx]        (e.g. "[MIN-S0]"   — Arbor MHV with no Grade)
+        [Sx-grade]       (Grade present but Item Type not in the abbreviation map)
+      The fallback path skips ``render_tag`` — these items aren't the
+      user-customisable ship-component case Tag Builder targets, and the
+      partial output shapes don't align with the element-ordered render
+      pipeline.
+
+    Requiring at least one of {type_abbrev, grade_m} on the fallback path
+    keeps a bare ``[Sx]`` from leaking onto anything that happens to have
+    a Size: line (consumables, ammo containers, etc.) — the tag has to
+    convey something beyond the size that's usually implied by the
+    entity's own name anyway.
+
+    Returns ``None`` when Size: itself is missing OR when the fallback's
+    minimum-information bar isn't met. Those items pass through bare.
     """
-    import re
-    size_m = re.search(r"Size:\s*(\d+)", desc_value)
+    # Optional leading 'S' on the size value covers mining heads (Size: S0,
+    # Size: S00) without breaking the bare-digit form ship components use
+    # (Size: 0, Size: 1). The capture is the digits only; "S0" → "0",
+    # "S00" → "00", "2" → "2", so the tag normalises to f"S{captured}".
+    size_m = re.search(r"Size:\s*S?(\d+)", desc_value)
+    if not size_m:
+        return None
+    size = size_m.group(1)
+
     grade_m = re.search(r"Grade:\s*([A-D])", desc_value)
     class_m = re.search(r"Class:\s*(\w+)", desc_value)
-    if not (size_m and grade_m and class_m):
+
+    # Strict path: full ship-component trio with a recognised class →
+    # render via the Tag Builder pipeline so user customisation applies.
+    if grade_m and class_m and class_m.group(1) in DEFAULT_COMPONENT_CLASS_MAPPING:
+        cfg = config or DEFAULT_TAG_CONFIGS.get("components")
+        if cfg is not None and render_tag is not None:
+            out = render_tag(cfg, {
+                "class": class_m.group(1),
+                "size":  size,
+                "grade": grade_m.group(1),
+            })
+            if out:
+                return out
+        # Defensive fallback when tag_builder isn't importable (e.g. tests
+        # in environments without src/ on the path). Preserves the legacy
+        # hardcoded output shape.
+        abbrev_tuple = DEFAULT_COMPONENT_CLASS_MAPPING.get(class_m.group(1))
+        if abbrev_tuple:
+            return f"[{abbrev_tuple[1]}-S{size}-{grade_m.group(1)}]"
+
+    # Fallback path: classify by Item Type when Class: is missing or
+    # unrecognised. The character class excludes backslash so the capture
+    # stops at CIG's literal "\n" line separator (two characters in the
+    # parsed loc-value, not a real newline); the alternation covers both
+    # the literal and the real-newline form for robustness.
+    type_abbrev = None
+    type_m = re.search(r"Item Type:\s*([^\\\n]+?)\s*(?:\\n|\n|$)", desc_value)
+    if type_m:
+        type_abbrev = _ITEM_TYPE_ABBREV.get(type_m.group(1).strip())
+
+    if not (type_abbrev or grade_m):
         return None
-    abbrev = _CLASS_ABBREV.get(class_m.group(1))
-    if not abbrev:
-        return None
-    return f"[{abbrev}-S{size_m.group(1)}-{grade_m.group(1)}]"
+
+    parts: list[str] = []
+    if type_abbrev:
+        parts.append(type_abbrev)
+    parts.append(f"S{size}")
+    if grade_m:
+        parts.append(grade_m.group(1))
+    return f"[{'-'.join(parts)}]"
 
 
-# CIG's internal trackingSignalType values → in-game community shorthand.
-_MISSILE_TRACKING_ABBREV = {
-    "CrossSection":   "CS",
-    "Electromagnetic": "EM",
-    "Infrared":       "IR",
-}
+def _missile_name_tag(desc_value: str, root: ET.Element | None = None,
+                      config: "TagConfig | None" = None) -> str | None:
+    """Render the missile/torpedo/bomb tag.
 
-
-def _missile_name_tag(desc_value: str, root: ET.Element | None = None) -> str | None:
-    """Extract [S{size}-{seeker}] tag for guided missiles (e.g. [S1-CS]).
-
-    Prefers the XML's ``trackingSignalType`` attribute (on ``<targetingParams>``)
-    over the loc-text "Tracking Signal: …" line so we stay correct even if a
-    description is edited or translated. Bombs (no guidance) fall through to a
-    plain [S{size}] tag.
+    Prefers the XML's ``trackingSignalType`` attribute (on
+    ``<targetingParams>``) over the loc-text "Tracking Signal: …" line so we
+    stay correct even if a description is edited or translated. Bombs (no
+    guidance) yield an empty ordinance value — render_tag's empty-drop then
+    falls through to the size element alone (e.g. ``[S2]``).
     """
-    import re
     size_m = re.search(r"Size:\s*(\d+)", desc_value)
     if not size_m:
         return None
     size = size_m.group(1)
 
-    seeker_abbrev = None
+    seeker_raw = None
     if root is not None:
         for el in root.iter():
             if el.tag.endswith("targetingParams") or el.tag.endswith("TargetingParams"):
                 raw = el.get("trackingSignalType")
-                if raw and raw in _MISSILE_TRACKING_ABBREV:
-                    seeker_abbrev = _MISSILE_TRACKING_ABBREV[raw]
+                if raw in _MISSILE_TRACKING_RAW:
+                    seeker_raw = raw
                     break
-    if seeker_abbrev is None:
+    if seeker_raw is None:
         m = re.search(r"Tracking Signal:\s*([A-Za-z ]+?)(?:\\n|\n|$)", desc_value)
         if m:
             normalized = m.group(1).replace(" ", "")
-            for raw, abbrev in _MISSILE_TRACKING_ABBREV.items():
+            for raw in _MISSILE_TRACKING_RAW:
                 if normalized.lower() == raw.lower():
-                    seeker_abbrev = abbrev
+                    seeker_raw = raw
                     break
 
-    # Guided missiles get just the seeker abbreviation ([CS]/[EM]/[IR]) so
-    # the tag stays compact in-game — the size is already encoded in the
-    # missile's display name. Bombs (no seeker) keep [S{size}] since that's
-    # the only differentiator they have.
-    if seeker_abbrev:
-        return f"[{seeker_abbrev}]"
-    return f"[S{size}]"
+    cfg = config or DEFAULT_TAG_CONFIGS.get("missiles")
+    if cfg is None or render_tag is None:
+        return None
+    # Feed raw values; render_tag's empty-value drop handles both branches.
+    # Guided missiles (seeker_raw set) keep size enabled by default →
+    # [IRS2]; bombs (seeker_raw "") collapse ordinance → [S2]. The new
+    # [IRS2] default is a deliberate change from the pre-refactor [IR]
+    # output — issue thread feedback asked for size to be visible on
+    # guided missiles ("might have multiple IR missiles and have to wait
+    # for the name to scroll to identify what size it is"). Users who
+    # prefer the old behavior can disable Size in the Tag Builder UI.
+    out = render_tag(cfg, {"ordinance": seeker_raw or "", "size": size})
+    return out or None
+
+
+def _ship_weapon_name_tag_factory(ammo_lookup: dict, config: "TagConfig | None" = None):
+    """Build a closure-tagger for ship weapons.
+
+    Needs the ammo_lookup to resolve the dominant damage type, so it can't
+    use the bare ``(desc, root)`` shape the other taggers use. Returns a
+    function with the standard ``(desc_value, root)`` signature for
+    ``scan_entity_dir``.
+    """
+    cfg = config or DEFAULT_TAG_CONFIGS.get("ship_weapons")
+
+    def _tag(desc_value: str, root: ET.Element | None = None) -> str | None:
+        if cfg is None or render_tag is None or root is None:
+            return None
+
+        # Size: prefer the entity class name attribute on root (matches
+        # how _extract_item_size works elsewhere in this script). Fall
+        # back to a Size: N line in the description.
+        size = None
+        name_attr = root.get("Name") or root.get("name") or ""
+        m = re.search(r"_S0*(\d+)_", name_attr)
+        if m:
+            size = str(int(m.group(1)))
+        if not size:
+            ds = re.search(r"Size:\s*(\d+)", desc_value)
+            if ds:
+                size = ds.group(1)
+
+        # Damage type: largest non-zero damage entry in the ammo record.
+        # ammo_lookup is keyed by ammoParamsRecord GUID; SAmmoContainer-
+        # ComponentParams on the weapon root holds the GUID.
+        damage_label = ""
+        try:
+            ammo_container = root.find(".//SAmmoContainerComponentParams")
+        except Exception:
+            ammo_container = None
+        ammo_id = ammo_container.get("ammoParamsRecord") if ammo_container is not None else None
+        if ammo_id and ammo_id != "00000000-0000-0000-0000-000000000000":
+            ammo_root = ammo_lookup.get(ammo_id)
+            if ammo_root is not None:
+                try:
+                    total, breakdown = _ammo_damage_breakdown(ammo_root)
+                except Exception:
+                    breakdown = {}
+                if breakdown:
+                    damage_label = max(breakdown.items(), key=lambda kv: kv[1])[0]
+                    # Translate the generator's compact label ("Phys",
+                    # "Distort", "Bio") into the full English mapping key
+                    # ("Physical", "Distortion", "Biochemical") that the
+                    # Tag Builder's mapping editor exposes to users.
+                    damage_label = DAMAGE_LABEL_TO_MAPPING_KEY.get(
+                        damage_label, damage_label
+                    )
+
+        # Require a resolvable damage label. Items in ships/weapons/ that
+        # lack a damage breakdown — EMP devices, tractor / towing beams,
+        # mining lasers (which have their own enhancements_mining_laser
+        # pipeline) — would otherwise emit a size-only tag like ``[S1]``
+        # that's meaningless next to the entity's own name. Skip those.
+        if not damage_label:
+            return None
+        out = render_tag(cfg, {"damage": damage_label, "size": size or ""})
+        return out or None
+
+    return _tag
 
 
 def _mission_loc_key(root: ET.Element) -> str | None:
@@ -1218,6 +1432,200 @@ def enhancements_quantum_drive(root: ET.Element) -> str:
     return "\\n".join(lines)
 
 
+def enhancements_mining_laser(root: ET.Element) -> str:
+    """Extract stats for ship-mounted mining laser entities.
+
+    Covers Arbor, Lancet, Helix, Hofstede, Klein, Impact (under
+    ``ships/weapons/mining_laser_*.xml``). CIG's stock descriptions
+    already author the headline numbers (Mining Laser Power, Optimal /
+    Maximum Range, Module Slots, Resistance / Instability modifiers),
+    so this function focuses on stats that DON'T appear in the
+    description today: component HP, damage resistances, fire-beam
+    energy draw + heat + wear, distortion threshold, and the per-mode
+    damage-per-second values from the fire actions.
+
+    The mining-laser modifier block (``SEntityComponentMiningLaserParams``)
+    holds the laserInstability / chargeWindow / resistance / filter
+    modifier values. Those duplicate what CIG already prints, but the
+    user-confirmed convention for this gear category is "append always
+    — CIG sometimes forgets to update the description after a balance
+    pass", so they're emitted here too.
+
+    Mining lasers that reference a globalParams record by UUID for
+    their BASE values (mining-laser power range, optimal range, etc.)
+    don't have those base values resolved here in v1 — local extraction
+    only. That's a v2 enhancement; for now CIG's description is the
+    source of truth for the base values and this function adds the
+    overlay-style stats the user can't see elsewhere.
+    """
+    lines: list[str] = []
+
+    # Per-fire-action damage-per-second + beam ranges + energy draw + heat.
+    # Mining lasers have two fire actions in their <fireActions> wrapper:
+    # the fracture beam (mining damage type) and the extraction beam.
+    # Each carries its own DamageEnergy, full/zero range, and energy curve.
+    fire_actions = root.findall(".//fireActions/SWeaponActionFireBeamParams")
+    if not fire_actions:
+        fire_actions = root.findall(".//SWeaponActionFireBeamParams")
+    for idx, fa in enumerate(fire_actions, 1):
+        # Mode label from mannequinTag (laser/tractor) → human label.
+        mannequin = fa.find("mannequinTag")
+        mtag = mannequin.get("tag") if mannequin is not None else ""
+        mode = {"laser": "Fracture", "tractor": "Extraction"}.get(mtag, f"Beam {idx}")
+
+        dps_el = fa.find("damagePerSecond/DamageInfo")
+        dps = dps_el.get("DamageEnergy") if dps_el is not None else None
+        full_r = fa.get("fullDamageRange")
+        zero_r = fa.get("zeroDamageRange")
+        e_min  = fa.get("minEnergyDraw")
+        e_max  = fa.get("maxEnergyDraw")
+        heat_s = fa.get("heatPerSecond")
+        wear_s = fa.get("wearPerSecond")
+
+        # Only emit a line if at least one numeric is non-zero; templates
+        # ship with zeroed defaults that aren't worth showing.
+        nonzero = any(
+            v not in (None, "", "0", "0.0") for v in (dps, full_r, zero_r, e_min, e_max, heat_s, wear_s)
+        )
+        if not nonzero:
+            continue
+        parts: list[str] = []
+        if dps not in (None, "0", "0.0"):
+            parts.append(f"DPS: {_fmt(dps)}")
+        if full_r not in (None, "0", "0.0") or zero_r not in (None, "0", "0.0"):
+            parts.append(f"Range: {_fmt(full_r, 'm')}→{_fmt(zero_r, 'm')}")
+        if e_max not in (None, "0", "0.0"):
+            if e_min and e_min != e_max and e_min not in ("0", "0.0"):
+                parts.append(f"Energy: {_fmt(e_min)}–{_fmt(e_max)} PU/s")
+            else:
+                parts.append(f"Energy: {_fmt(e_max)} PU/s")
+        if heat_s not in (None, "0", "0.0"):
+            parts.append(f"Heat: {_fmt(heat_s)}/s")
+        if wear_s not in (None, "0", "0.0"):
+            parts.append(f"Wear: {wear_s}/s")
+        if parts:
+            lines.append(f"<EM4>{mode}:</EM4>  " + "  |  ".join(parts))
+
+    # Mining-laser modifier overlay. CIG's description has these but the
+    # user wants them re-emitted from XML so balance updates surface even
+    # when the description text rots.
+    mlp = _find(root, "SEntityComponentMiningLaserParams")
+    if mlp is not None:
+        modifiers = mlp.find("miningLaserModifiers")
+        if modifiers is not None:
+            mod_parts: list[str] = []
+            for child_tag, label in (
+                ("laserInstability",                "Instability"),
+                ("optimalChargeWindowSizeModifier","Optimal Charge Window"),
+                ("resistanceModifier",             "Resistance"),
+            ):
+                fm = modifiers.find(f"{child_tag}/FloatModifierMultiplicative")
+                if fm is not None:
+                    val = fm.get("value")
+                    if val and val not in ("0", "0.0"):
+                        sign = "+" if float(val) > 0 else ""
+                        mod_parts.append(f"{label}: {sign}{val}%")
+            filter_fm = mlp.find("filterParams/filterModifier/FloatModifierMultiplicative")
+            if filter_fm is not None:
+                fval = filter_fm.get("value")
+                if fval and fval not in ("0", "0.0"):
+                    sign = "+" if float(fval) > 0 else ""
+                    mod_parts.append(f"Inert Filter: {sign}{fval}%")
+            if mod_parts:
+                lines.append("<EM4>Modifiers:</EM4>  " + "  |  ".join(mod_parts))
+
+    # Structural stats — component HP + distortion + ship-component-style
+    # signatures if they happen to be present on a ship-mountable laser.
+    comp_hp = _attr(root, "SHealthComponentParams", "Health")
+    if comp_hp is not None:
+        lines.append(f"<EM4>Component HP:</EM4> {_fmt(comp_hp)}")
+    distort = _attr(root, "SDistortionParams", "Maximum")
+    if distort is not None and distort not in ("0", "0.0"):
+        lines.append(f"<EM4>Max Distortion:</EM4> {_fmt(distort)}")
+    em_sig = _attr(root, "EMSignature", "nominalSignature")
+    ir_sig = _attr(root, "IRSignature", "nominalSignature")
+    if em_sig is not None or ir_sig is not None:
+        sig_parts: list[str] = []
+        if em_sig is not None and em_sig not in ("0", "0.0"):
+            sig_parts.append(f"EM: {_fmt(em_sig)}")
+        if ir_sig is not None and ir_sig not in ("0", "0.0"):
+            sig_parts.append(f"IR: {_fmt(ir_sig)}")
+        if sig_parts:
+            lines.append("<EM4>Signatures:</EM4>  " + "  |  ".join(sig_parts))
+
+    return "\\n".join(lines) if lines else ""
+
+
+def enhancements_salvage_tool(root: ET.Element) -> str:
+    """Extract stats for handheld salvage tools.
+
+    Covers the Renovar XTR (``weapons/fps_weapons/grin_salvage_repair_01.xml``)
+    and the multitool's salvage_repair mode
+    (``weapons/fps_weapons/grin_multitool_01_default_salvage_repair.xml``).
+    Both expose a pair of ``SWeaponActionFireSalvageRepairParams`` —
+    one for Repair mode, one for Salvage mode — each carrying its own
+    repair-rate / efficiency / ramp-up curve. Renders both modes side
+    by side so a player can compare a single tool's two halves without
+    leaving the description.
+
+    Skipped: ship-mounted salvage equipment under ``ships/salvagemunching``
+    is currently placeholder XMLs with ``Name="@LOC_PLACEHOLDER"`` — no
+    real stats to extract until CIG fleshes those records out.
+    """
+    lines: list[str] = []
+
+    fire_actions = root.findall(".//SWeaponActionFireSalvageRepairParams")
+    for fa in fire_actions:
+        # Mode is encoded on the element itself via the `salvageRepairMode`
+        # attribute ("Repair" / "Salvage"). Use it as the EM4-tagged header.
+        mode = fa.get("salvageRepairMode") or fa.get("name") or "Mode"
+        eff      = fa.get("materialEfficiency")
+        hp_rate  = fa.get("maxHealthRepairRate")
+        dmg_rate = fa.get("maxDamageMapRepairRate")
+        h2a      = fa.get("healthToAmmoRatio")
+        ramp_up  = fa.get("rampUpTime")
+        ramp_dn  = fa.get("rampDownTime")
+        e_min    = fa.get("minEnergyDraw")
+        e_max    = fa.get("maxEnergyDraw")
+        heat_s   = fa.get("heatPerSecond")
+        wear_s   = fa.get("wearPerSecond")
+
+        parts: list[str] = []
+        if hp_rate not in (None, "0", "0.0"):
+            parts.append(f"HP Rate: {_fmt(hp_rate)}/s")
+        if dmg_rate not in (None, "0", "0.0"):
+            parts.append(f"Damage-Map Rate: {_fmt(dmg_rate)}/s")
+        if eff not in (None, "1", "1.0"):
+            # 1.0 is the default no-op — only emit when CIG actually tunes
+            # below unity (Renovar Salvage mode runs at 0.7 efficiency).
+            parts.append(f"Material Efficiency: {_fmt(eff, '', 2)}")
+        if h2a not in (None, "0", "0.0"):
+            parts.append(f"HP/Ammo: {_fmt(h2a, '', 2)}")
+        if ramp_up not in (None, "0", "0.0") or ramp_dn not in (None, "0", "0.0"):
+            parts.append(f"Ramp: {_fmt(ramp_up, 's', 1)}↑ {_fmt(ramp_dn, 's', 1)}↓")
+        if e_max not in (None, "0", "0.0"):
+            if e_min and e_min != e_max and e_min not in ("0", "0.0"):
+                parts.append(f"Energy: {_fmt(e_min)}–{_fmt(e_max)} PU/s")
+            else:
+                parts.append(f"Energy: {_fmt(e_max)} PU/s")
+        if heat_s not in (None, "0", "0.0"):
+            parts.append(f"Heat: {_fmt(heat_s)}/s")
+        if wear_s not in (None, "0", "0.0"):
+            parts.append(f"Wear: {wear_s}/s")
+        if parts:
+            lines.append(f"<EM4>{mode}:</EM4>  " + "  |  ".join(parts))
+
+    # Structural stats (durability / wear) — same pattern as mining lasers.
+    comp_hp = _attr(root, "SHealthComponentParams", "Health")
+    if comp_hp is not None and comp_hp not in ("0", "0.0"):
+        lines.append(f"<EM4>Component HP:</EM4> {_fmt(comp_hp)}")
+    wear_max = _attr(root, "SWearAccumulatorParams", "MaxLifetimeHours")
+    if wear_max is not None and wear_max not in ("0", "0.0"):
+        lines.append(f"<EM4>Max Lifetime:</EM4> {_fmt(wear_max, 'h', 1)}")
+
+    return "\\n".join(lines) if lines else ""
+
+
 def _extract_mission_xp(root: ET.Element, reputation_lookup: dict[str, int] | None = None) -> int:
     """Extract mission success XP from primary reputation scope only.
 
@@ -1501,6 +1909,69 @@ def enhancements_mission(root: ET.Element, reputation_lookup: dict[str, int] | N
     return "\\n".join(lines) if lines else ""
 
 
+# Matches a leading CIG-baked size designator in an entity display name —
+# "S0 Helix", "S00 Hofstede", "S1 …" etc. Mining heads and a handful of
+# other entity classes carry the size as a prefix on the loc-name attribute
+# itself (rather than in the description's Size: header field that
+# `_component_name_tag` reads). When such a name appears in a blueprint
+# reward list, the result sits next to entries the tagger DID classify
+# (e.g. "Surveyor-Go [IND-S0-C]"), producing two different size-indicator
+# conventions stacked together. Strip the prefix in blueprint-list output
+# so the rendered list reads with one convention: bare name for items the
+# tagger couldn't classify, "name [CLASS-Sx-grade]" for items it could.
+# Anchor on word boundary so legitimate names starting with "S" + letters
+# (Sasquatch, Slicer) aren't touched — the regex requires digits after S.
+_CIG_SIZE_PREFIX_RE = re.compile(r"^S\d+\s+")
+
+
+def _strip_cig_size_prefix(name: str) -> str:
+    """Remove a leading 'S0 ' / 'S00 ' / 'S1 ' size prefix from a display name."""
+    return _CIG_SIZE_PREFIX_RE.sub("", name, count=1)
+
+
+# Rank-tier markers in blueprint pool filenames. CIG names progression-
+# gated pools with a `RankN` or `RankNtoM` suffix (e.g. bp_rewards_shubinrank0to1
+# / shubinrank2to3 / shubinrank4). Surfacing those as a sub-section label
+# in POTENTIAL BLUEPRINTS lets a player tell at a glance which rewards
+# correspond to which reputation tier — without the label, three tiers
+# get merged into one wall of items and it's ambiguous which actually
+# rolls for the player's current rank.
+#
+# Two patterns to recognise:
+#   `RankNtoM` → "Rank N–M"   (e.g. Rank0to1 → "Rank 0–1")
+#   `RankN`    → "Rank N"     (e.g. Rank4    → "Rank 4")
+# Case-insensitive because filenames are lowercased; `(?i)` covers both
+# "rank0to1" (raw filename) and "Rank0to1" (if anyone passes a __ref-cased
+# name). Non-matching pool names return empty string and the sub-section
+# falls back to the system-only header it had before this feature.
+_POOL_RANK_RANGE_RE  = re.compile(r"(?i)rank(\d+)to(\d+)")
+_POOL_RANK_SINGLE_RE = re.compile(r"(?i)rank(\d+)(?!\d|to)")
+
+
+def _pool_rank_label(pool_name: str) -> str:
+    """Derive a human-readable rank-tier label from a blueprint pool's filename.
+
+    Examples:
+      "bp_rewards_shubinrank0to1"  → "Rank 0–1"
+      "bp_rewards_shubinrank4"     → "Rank 4"
+      "bp_rewards_shubinrank2to3"  → "Rank 2–3"
+      "bp_rewards_headhuntersmercenaryshipregionc" → ""  (region, not rank)
+
+    Returns empty string when no rank token matches — callers should
+    treat that as "no label" and render the sub-section header without
+    a rank suffix.
+    """
+    if not pool_name:
+        return ""
+    m = _POOL_RANK_RANGE_RE.search(pool_name)
+    if m:
+        return f"Rank {m.group(1)}–{m.group(2)}"  # en-dash
+    m = _POOL_RANK_SINGLE_RE.search(pool_name)
+    if m:
+        return f"Rank {m.group(1)}"
+    return ""
+
+
 def _name_from_blueprint_filename(bp_xml: Path) -> str:
     """Best-effort fallback display name from a blueprint XML's filename.
 
@@ -1534,7 +2005,8 @@ def build_blueprint_pool_lookup(
     bp_dir: Path,
     entity_names: dict[str, str],
     entity_names_by_filename: dict[str, str] | None = None,
-) -> dict[str, list[str]]:
+    entity_name_tags: dict[str, str] | None = None,
+) -> tuple[dict[str, list[str]], dict[str, str]]:
     """Build mapping of blueprint pool UUID → list of craftable item display names.
 
     Resolution chain for each blueprint:
@@ -1553,19 +2025,39 @@ def build_blueprint_pool_lookup(
          (`Nozzle Fuelgiver Grin Nozzlefast`-style — recognisable but
          not pretty). Set as a backstop so the BP tag still fires.
 
+    When ``entity_name_tags`` is supplied AND the tier-1 (UUID) match
+    hits, the matching ``[CLASS-Sx-grade]`` tag is appended to the
+    display name — mirroring the tag the components pipeline writes
+    onto stock component titles. Tier-2 / tier-3 fallbacks intentionally
+    skip the tag: the tag dict is keyed by entityClass UUID, which
+    is exactly the linkage that's missing in those code paths, so
+    there's nothing to look up. FPS gear / weapons / ships never get
+    a tag entry, so they pass through bare even on a UUID hit.
+
     Args:
         pool_dir: Directory containing BlueprintPoolRecord XMLs.
         bp_dir: Directory containing CraftingBlueprintRecord XMLs.
         entity_names: UUID → display name (built from entities/scitem/).
         entity_names_by_filename: filename-stem → display name (same
             source). Optional — without it the resolver skips path 2.
+        entity_name_tags: UUID → ``[CLASS-Sx-grade]`` tag. Optional —
+            without it items render without the inline component tag.
 
     Returns:
-        Dict mapping pool __ref UUID → sorted list of item display names
+        Tuple of:
+          - pool_items: ``{pool __ref UUID: sorted list of item display names}``
+          - pool_names: ``{pool __ref UUID: filename stem}``. The stem is the
+            CIG-authored filename minus the ``bp_rewards_`` / ``bp_`` prefix
+            (e.g. ``shubinrank0to1``). Downstream uses this to derive
+            sub-section labels via ``_pool_rank_label`` so the rendered
+            POTENTIAL BLUEPRINTS block can show ``[Stanton, Rank 0–1]``
+            headers without re-reading the pool XMLs. Empty for any pool
+            that didn't produce items (kept in lockstep with ``pool_items``).
     """
     entity_names_by_filename = entity_names_by_filename or {}
+    entity_name_tags = entity_name_tags or {}
     if not pool_dir.exists() or not bp_dir.exists():
-        return {}
+        return {}, {}
 
     # Index all blueprint files by __ref UUID → (entityClass UUID,
     # entity-stem-for-filename-lookup, filename-derived backstop name).
@@ -1598,8 +2090,13 @@ def build_blueprint_pool_lookup(
         except ET.ParseError:
             continue
 
-    # Build pool UUID → item names
+    # Build pool UUID → item names AND pool UUID → filename stem.
+    # The stem is stored in lowercase since downstream rank-label parsing
+    # is case-insensitive and the filename casing is already lowercased
+    # by CIG. Stripping the bp_rewards_ / bp_ prefix keeps the stem
+    # focused on the meaningful part of the name.
     pool_items: dict[str, list[str]] = {}
+    pool_names: dict[str, str] = {}
     for xml_file in pool_dir.rglob("*.xml"):
         try:
             root = ET.parse(xml_file).getroot()
@@ -1615,12 +2112,20 @@ def build_blueprint_pool_lookup(
                     # display name from the entity's Localization Name
                     # attribute, e.g. "Norfield" / "Harkin" / "RN-7s").
                     if entity_ref in entity_names:
-                        name = entity_names[entity_ref]
+                        name = _strip_cig_size_prefix(entity_names[entity_ref])
+                        # Mirror the components-pipeline annotation:
+                        # ship components get an inline [CLASS-Sx-grade]
+                        # tag (e.g. "Norfield [MIL-S1-A]"). FPS gear and
+                        # other non-component blueprints have no tag
+                        # entry and pass through bare.
+                        tag = entity_name_tags.get(entity_ref)
+                        if tag:
+                            name = f"{name} {tag}"
                     # Tier 2: filename-stem match. Recovers real product
                     # names when CIG ships the blueprint ahead of the
                     # entity-UUID linkage (PTU 4.8 fuel-nozzle pattern).
                     elif entity_stem in entity_names_by_filename:
-                        name = entity_names_by_filename[entity_stem]
+                        name = _strip_cig_size_prefix(entity_names_by_filename[entity_stem])
                     # Tier 3: filename-derived placeholder. Ugly but
                     # ensures the BP tag still surfaces.
                     else:
@@ -1629,11 +2134,17 @@ def build_blueprint_pool_lookup(
                         names.append(name)
             if names:
                 pool_items[pool_uuid] = sorted(names)
+                stem = xml_file.stem.lower()
+                for prefix in ("bp_rewards_", "bp_"):
+                    if stem.startswith(prefix):
+                        stem = stem[len(prefix):]
+                        break
+                pool_names[pool_uuid] = stem
         except ET.ParseError:
             continue
 
     logger.info(f"Blueprint pool lookup: {len(pool_items)} pools with items")
-    return pool_items
+    return pool_items, pool_names
 
 
 def _build_template_lookup(
@@ -1713,27 +2224,39 @@ def scan_contract_generators(
     entity_names: dict[str, str] | None = None,
     xml_path_index: dict | None = None,
     records_dir: Path | None = None,
+    pool_names: dict[str, str] | None = None,
 ):
     """Scan contract generator XMLs for mission variants with different systems.
 
     Returns tuple of:
         - missions: dict mapping title_key → [(system_name, success_xp, failure_xp, desc_key, flags, num_enemies, num_not_enemies), ...]
-        - mission_blueprints: dict title_key → dict system_name → list of craftable item display names.
-          Multiple entries indicate per-region pools (e.g. Stanton vs Pyro Shubin HandMining). A single entry is rendered flat.
+        - mission_blueprints: dict title_key → dict system_name → dict pool_label → list of craftable item display names.
+          The pool_label dimension preserves rank-tier sub-grouping derived from the
+          pool filename (e.g. ``Rank 0–1`` / ``Rank 2–3`` / ``Rank 4`` from Shubin
+          progression pools). Empty string label is used for pools whose names don't
+          encode a rank — those render with the original system-only header.
+          Multiple system entries indicate per-region pools (e.g. Stanton vs Pyro
+          Shubin HandMining); multiple label entries within a system indicate
+          rank-tiered pools the same contract pulls from at different ranks.
         - mission_items: dict mapping title_key → list of reward item display names
     Sorted by system name for consistent output.
     """
     if not contractgen_dir.exists():
-        return {}, {}, {}
+        return {}, {}, {}, {}
 
     reputation_lookup = reputation_lookup or {}
     blueprint_pools = blueprint_pools or {}
     entity_names = entity_names or {}
+    pool_names = pool_names or {}
     # Variant tuple: (system_name, success_xp, failure_xp, desc_key, flags, num_enemies, num_not_enemies)
     missions: dict[str, list[tuple[str, int, int, str, list[str], int, int]]] = {}
-    # Per-system pool items, so desc output can render regional sub-sections
-    # when a title_key has distinct pools for different systems.
-    mission_blueprints: dict[str, dict[str, list[str]]] = {}
+    # Per-system, per-pool-label item lists. The extra label dimension keeps
+    # items from different rank-tier pools separate inside one system so the
+    # renderer can show ``[Stanton, Rank 0–1]`` / ``[Stanton, Rank 2–3]`` /
+    # ``[Stanton, Rank 4]`` instead of one merged blob. Pools whose names
+    # don't carry a rank token use an empty-string label and render with
+    # the original system-only header.
+    mission_blueprints: dict[str, dict[str, dict[str, list[str]]]] = {}
     mission_bp_chance: dict[str, float] = {}
     mission_items: dict[str, list[str]] = {}
 
@@ -1885,6 +2408,20 @@ def scan_contract_generators(
                             # Pyro Intro both use
                             # Shubin_Industrial_HandMining_Intro_Local_Desc_001
                             # but award different pools).
+                            #
+                            # A single contract can carry MULTIPLE
+                            # ``BlueprintRewards`` elements pointing at
+                            # distinct pools — e.g. the 4.8-era Adagio
+                            # mining missions reward FPS gear via one pool
+                            # AND ship components via another in the same
+                            # contract. Earlier code used ``if system_name
+                            # not in per_system: per_system[...] = pool_items``,
+                            # which kept only the first pool and silently
+                            # dropped the rest. Merge with order-preserving
+                            # de-dup so every pool's items surface, while
+                            # still suppressing duplicates when the same
+                            # title_key is hit again later in the loop with
+                            # the identical pool set.
                             contract_has_bp = False
                             contract_bp_chance = 0.0
                             contract_bp_variant = contract.get("debugName", "")
@@ -1894,9 +2431,20 @@ def scan_contract_generators(
                                 if pool_uuid and pool_uuid != null_uuid and pool_uuid in blueprint_pools:
                                     contract_has_bp = True
                                     pool_items = blueprint_pools[pool_uuid]
+                                    # Derive the rank-tier label from the pool's
+                                    # filename. Pools without a rank token (most
+                                    # one-off pools, plus region-based pools whose
+                                    # geographic label is already covered by the
+                                    # system_name dimension) produce empty string,
+                                    # which keeps their sub-section header at the
+                                    # bare ``[system_name]`` shape.
+                                    pool_label = _pool_rank_label(pool_names.get(pool_uuid, ""))
                                     per_system = mission_blueprints.setdefault(title_key, {})
-                                    if system_name not in per_system:
-                                        per_system[system_name] = pool_items
+                                    per_label = per_system.setdefault(system_name, {})
+                                    existing_items = per_label.setdefault(pool_label, [])
+                                    for item in pool_items:
+                                        if item not in existing_items:
+                                            existing_items.append(item)
                                     try:
                                         contract_bp_chance = float(bp_elem.get("chance", "1"))
                                     except (ValueError, TypeError):
@@ -2930,8 +3478,9 @@ def build_scitem_lookups(
     loc: dict[str, str] | None = None,
     xml_path_index: dict | None = None,
     records_dir: Path | None = None,
-) -> tuple[dict[str, tuple[str, str]], dict[str, str], dict[str, str]]:
-    """Single-pass scan of scitem XMLs that produces three lookups:
+    tag_config: "TagConfig | None" = None,
+) -> tuple[dict[str, tuple[str, str]], dict[str, str], dict[str, str], dict[str, str]]:
+    """Single-pass scan of scitem XMLs that produces four lookups:
 
     * mag_lookup: magazine entity class name → (ammoParamsRecord, maxAmmoCount)
       — derived from SAmmoContainerComponentParams elements.
@@ -2946,6 +3495,16 @@ def build_scitem_lookups(
       assignments are finalised). The blueprint's own filename minus
       its `bp_craft_` / `bp_rewards_` prefix matches the entity XML's
       filename in CIG's authored layout.
+    * entity_name_tags: __ref UUID → ``[CLASS-Sx-grade]`` tag (e.g.
+      ``[MIL-S1-A]``) when the entity is a ship component whose
+      description carries the Size:/Grade:/Class: header trio.
+      Only populated for components that ``_component_name_tag``
+      can classify — FPS gear, weapons, ships, missiles, ammo, etc.
+      get no entry. Used by blueprint pool resolution to apply the
+      same annotation to blueprint reward names that the components
+      pipeline applies to stock component titles, so a mission's
+      "POTENTIAL BLUEPRINTS" list reads e.g. "Norfield [MIL-S1-A]"
+      instead of bare "Norfield".
 
     Walking the scitem tree once instead of twice (magazines + entity names
     used to iterate independently) cuts ~30s off the run since there are
@@ -2954,9 +3513,10 @@ def build_scitem_lookups(
     mag_lookup: dict[str, tuple[str, str]] = {}
     entity_names: dict[str, str] = {}
     entity_names_by_filename: dict[str, str] = {}
+    entity_name_tags: dict[str, str] = {}
     loc = loc or {}
     if not scitem_dir.exists():
-        return mag_lookup, entity_names, entity_names_by_filename
+        return mag_lookup, entity_names, entity_names_by_filename, entity_name_tags
 
     null_uuid = "00000000-0000-0000-0000-000000000000"
     xml_files = (
@@ -2974,7 +3534,9 @@ def build_scitem_lookups(
         entity_name = root.tag.split(".")[-1] if "." in root.tag else xml_file.stem
         found_mag = False
         found_name = False
+        found_desc = False
         resolved_display_name: str | None = None
+        desc_loc_key: str | None = None
 
         for elem in root.iter():
             if not found_mag and _poly_type(elem) == "SAmmoContainerComponentParams":
@@ -2991,7 +3553,12 @@ def build_scitem_lookups(
                     if ref:
                         entity_names[ref] = resolved_display_name
                     found_name = True
-            if found_mag and found_name:
+            if not found_desc:
+                desc_attr = elem.get("Description", "")
+                if desc_attr and desc_attr.startswith("@") and not _is_sentinel_loc_ref(desc_attr):
+                    desc_loc_key = desc_attr.lstrip("@")
+                    found_desc = True
+            if found_mag and found_name and found_desc:
                 break
 
         # Index by filename stem regardless of whether the entity has a
@@ -3000,12 +3567,25 @@ def build_scitem_lookups(
         if resolved_display_name:
             entity_names_by_filename[xml_file.stem.lower()] = resolved_display_name
 
-    return mag_lookup, entity_names, entity_names_by_filename
+        # Component name-tag derivation. ``_component_name_tag`` returns
+        # None for anything other than a ship component with the Size:/
+        # Grade:/Class: header trio, so non-component entities (FPS gear,
+        # weapons, ships, ammo …) silently fall out here without polluting
+        # the dict. Requires both a __ref to key on and a resolvable
+        # description loc-key — the rendering side looks up by ref.
+        if ref and desc_loc_key:
+            desc_value = loc.get(desc_loc_key, "")
+            if desc_value:
+                tag = _component_name_tag(desc_value, root, config=tag_config)
+                if tag:
+                    entity_name_tags[ref] = tag
+
+    return mag_lookup, entity_names, entity_names_by_filename, entity_name_tags
 
 
 def build_magazine_lookup(scitem_dir: Path) -> dict[str, tuple[str, str]]:
     """Back-compat wrapper around build_scitem_lookups — returns magazines only."""
-    mag_lookup, _, _ = build_scitem_lookups(scitem_dir)
+    mag_lookup, _, _, _ = build_scitem_lookups(scitem_dir)
     return mag_lookup
 
 
@@ -3019,6 +3599,7 @@ def scan_entity_dir(
     loc_key_fn = None,
     generate_name_tags: bool = False,
     name_tag_fn = None,
+    name_tag_placement: str = "prepend",
     separator: str = ENHANCEMENT_SEPARATOR,
     capture_all: bool = False,
     xml_path_index: dict | None = None,
@@ -3096,11 +3677,21 @@ def scan_entity_dir(
                     tagger = name_tag_fn or _component_name_tag
                     tag = tagger(base_value, root)
                     if tag:
-                        out[name_key] = f"{name_value} {tag}"
+                        # `placement` is the user-configurable choice on the
+                        # Tag Builder; default "prepend" puts the tag in
+                        # front of the name so it sorts/scans naturally
+                        # next to its neighbors.
+                        if name_tag_placement == "append":
+                            out[name_key] = f"{name_value} {tag}"
+                        else:
+                            out[name_key] = f"{tag} {name_value}"
                         short_key = f"{name_key}_short"
                         short_value = loc.get(short_key)
                         if short_value:
-                            out[short_key] = f"{short_value} {tag}"
+                            if name_tag_placement == "append":
+                                out[short_key] = f"{short_value} {tag}"
+                            else:
+                                out[short_key] = f"{tag} {short_value}"
 
     logger.info(f"{entity_dir.name}: {matched} matched, {missed} no enhancements, {skipped} no loc key")
     return out
@@ -3118,6 +3709,15 @@ def _run_gen_components(ctx: dict) -> dict[str, str]:
     ships_scitem    = ctx["ships_scitem"]
     xml_path_index  = ctx.get("xml_path_index")
     records         = ctx["records"]
+    tag_configs     = ctx.get("tag_configs") or {}
+    comp_cfg        = tag_configs.get("components") or DEFAULT_TAG_CONFIGS.get("components")
+    comp_placement  = getattr(comp_cfg, "placement", "prepend") if comp_cfg else "prepend"
+    # Closure tagger so the (desc, root) call shape in scan_entity_dir
+    # stays uniform across categories — render_tag's user config is
+    # captured here instead of threaded through scan_entity_dir.
+    def _comp_tagger(desc_value: str, root: ET.Element | None = None) -> str | None:
+        return _component_name_tag(desc_value, root, config=comp_cfg)
+
     out: dict[str, str] = {}
     for subdir, fn in [
         ("shieldgenerator", enhancements_shield),
@@ -3126,10 +3726,14 @@ def _run_gen_components(ctx: dict) -> dict[str, str]:
         ("quantumdrive",    enhancements_quantum_drive),
     ]:
         out.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc, generate_name_tags=True,
+                                   name_tag_fn=_comp_tagger,
+                                   name_tag_placement=comp_placement,
                                    xml_path_index=xml_path_index, records_dir=records))
     radar_dir = ships_scitem / "radar"
     if radar_dir.exists():
         out.update(scan_entity_dir(radar_dir, enhancements_radar, loc=loc, generate_name_tags=True,
+                                   name_tag_fn=_comp_tagger,
+                                   name_tag_placement=comp_placement,
                                    xml_path_index=xml_path_index, records_dir=records))
 
     comp_types = ("COOL", "SHLD", "POWR", "QDRV", "RADR")
@@ -3230,16 +3834,54 @@ def _run_gen_missiles(ctx: dict) -> dict[str, str]:
     ships_scitem   = ctx["ships_scitem"]
     xml_path_index = ctx.get("xml_path_index")
     records        = ctx["records"]
+    tag_configs    = ctx.get("tag_configs") or {}
+    missile_cfg    = tag_configs.get("missiles") or DEFAULT_TAG_CONFIGS.get("missiles")
+    missile_placement = getattr(missile_cfg, "placement", "prepend") if missile_cfg else "prepend"
+    def _missile_tagger(desc_value: str, root: ET.Element | None = None) -> str | None:
+        return _missile_name_tag(desc_value, root, config=missile_cfg)
+
     out: dict[str, str] = {}
     weapons_dir = ships_scitem / "weapons"
     for missile_dir in [weapons_dir / "missiles", weapons_dir / "rocket_pods"]:
         if missile_dir.exists():
             out.update(scan_entity_dir(
                 missile_dir, enhancements_missile,
-                loc=loc, generate_name_tags=True, name_tag_fn=_missile_name_tag,
+                loc=loc, generate_name_tags=True, name_tag_fn=_missile_tagger,
+                name_tag_placement=missile_placement,
                 xml_path_index=xml_path_index, records_dir=records,
             ))
     return out
+
+
+def _ship_weapon_dispatch(root: ET.Element, vehicle_ammo: dict, loc: dict) -> str:
+    """Polymorphic dispatch for entities in ``ships/weapons/``.
+
+    The directory mixes combat weapons (cannons, repeaters, scatterguns)
+    with non-combat ship-mounted gear (mining lasers — and likely
+    tractor / salvage beams in the future). Pick the right extractor
+    based on a marker element present only on the specialised entity:
+
+      - SEntityComponentMiningLaserParams → mining laser → enhancements_mining_laser
+      - everything else                  → enhancements_weapon (combat)
+
+    Keeps the single-pass scan_entity_dir wiring intact while letting
+    each entity class get the stats most relevant to it.
+    """
+    if _find(root, "SEntityComponentMiningLaserParams") is not None:
+        return enhancements_mining_laser(root)
+    return enhancements_weapon(root, vehicle_ammo, loc)
+
+
+def _fps_weapon_dispatch(root: ET.Element, fps_ammo: dict, loc: dict, mag_lookup: dict) -> str:
+    """Polymorphic dispatch for entities in ``weapons/fps_weapons/``.
+
+    Same shape as ``_ship_weapon_dispatch``: handheld salvage tools
+    (Renovar XTR + multitool salvage mode) need a different extractor
+    than combat FPS weapons, but they live in the same directory.
+    """
+    if _find(root, "SWeaponActionFireSalvageRepairParams") is not None:
+        return enhancements_salvage_tool(root)
+    return enhancements_weapon(root, fps_ammo, loc, mag_lookup)
 
 
 def _run_gen_ship_weapons(ctx: dict) -> dict[str, str]:
@@ -3248,13 +3890,24 @@ def _run_gen_ship_weapons(ctx: dict) -> dict[str, str]:
     vehicle_ammo   = ctx["vehicle_ammo"]
     xml_path_index = ctx.get("xml_path_index")
     records        = ctx["records"]
+    tag_configs    = ctx.get("tag_configs") or {}
+    ship_weapon_cfg = tag_configs.get("ship_weapons") or DEFAULT_TAG_CONFIGS.get("ship_weapons")
+    ship_weapon_placement = (
+        getattr(ship_weapon_cfg, "placement", "prepend") if ship_weapon_cfg else "prepend"
+    )
+    # Ship weapons gain name tags in 1.3.x (issue #31). The factory captures
+    # ammo_lookup so the tagger can resolve the dominant damage type.
+    ship_weapon_tagger = _ship_weapon_name_tag_factory(vehicle_ammo, config=ship_weapon_cfg)
+
     out: dict[str, str] = {}
     weapons_dir = ships_scitem / "weapons"
     if weapons_dir.exists():
         out = scan_entity_dir(
             weapons_dir,
-            lambda root: enhancements_weapon(root, vehicle_ammo, loc),
+            lambda root: _ship_weapon_dispatch(root, vehicle_ammo, loc),
             loc=loc,
+            generate_name_tags=True, name_tag_fn=ship_weapon_tagger,
+            name_tag_placement=ship_weapon_placement,
             xml_path_index=xml_path_index, records_dir=records,
         )
     logger.info(f"Finished ship weapons ({len(out)} entries)")
@@ -3272,7 +3925,7 @@ def _run_gen_fps_weapons(ctx: dict) -> dict[str, str]:
     if fps_dir.exists():
         out = scan_entity_dir(
             fps_dir,
-            lambda root: enhancements_weapon(root, fps_ammo, loc, mag_lookup),
+            lambda root: _fps_weapon_dispatch(root, fps_ammo, loc, mag_lookup),
             loc=loc,
             xml_path_index=xml_path_index, records_dir=records,
         )
@@ -3299,6 +3952,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     loc               = ctx["loc"]
     entity_names      = ctx["entity_names"]
     entity_names_by_filename = ctx.get("entity_names_by_filename", {})
+    entity_name_tags  = ctx.get("entity_name_tags", {})
     reputation_lookup = ctx["reputation_lookup"]
     xml_path_index    = ctx.get("xml_path_index")
 
@@ -3336,20 +3990,56 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     # BlueprintRewards references silently failed UUID resolution.
     pool_dir = records / "crafting" / "blueprintrewards"
     bp_dir   = records / "crafting" / "blueprints" / "crafting"
-    blueprint_pools = _cached_lookup(
+    blueprint_pools, pool_names = _cached_lookup(
         forge_dir, "blueprint_pools",
         lambda: build_blueprint_pool_lookup(
             pool_dir, bp_dir, entity_names,
             entity_names_by_filename=entity_names_by_filename,
+            entity_name_tags=entity_name_tags,
         ),
+        # blueprint pool names bake in the components tag — fold the
+        # components config key in so a user edit invalidates this cache
+        # alongside scitem_lookups (the source of entity_name_tags).
+        extra_key=ctx.get("_components_cfg_key", ""),
     )
 
     contractgen_dir = records / "contracts" / "contractgenerator"
     contractgen_missions, mission_blueprints, mission_bp_chance, mission_items = scan_contract_generators(
         contractgen_dir, reputation_lookup, blueprint_pools, entity_names,
         xml_path_index=xml_path_index, records_dir=records,
+        pool_names=pool_names,
     )
     logger.info(f"Processed {len(contractgen_missions)} contract generator mission variants")
+
+    # Materialise the pu_missions file list early so the title-augment loop
+    # can demote [BP] → [BP?] for titles whose pu_missions side spawns
+    # descs the contractgenerator never sees (and therefore can't award
+    # blueprints for — issue #31 Covalex repro: every contractgen variant
+    # of `Covalex_HaulCargo_SingleToMulti_title` carries BP, but the same
+    # title is referenced by 6 pu_missions XMLs whose desc tokens never
+    # appear in any contractgen file, so those spawn paths run without BP).
+    # The same file list is reused by the existing XP back-fill pass below.
+    _pu_files: list[Path] = (
+        _index_rglob(xml_path_index, pu_missions_dir, records)
+        if xml_path_index is not None and pu_missions_dir.exists()
+        else (list(pu_missions_dir.rglob("*.xml")) if pu_missions_dir.exists() else [])
+    )
+    pu_title_to_descs: dict[str, set[str]] = {}
+    if pu_missions_dir.exists():
+        for xml_file in _pu_files:
+            try:
+                root = ET.parse(xml_file).getroot()
+                title_attr = root.get("title", "")
+                desc_attr  = root.get("description", "")
+                if not title_attr.startswith("@") or not desc_attr.startswith("@"):
+                    continue
+                if _is_sentinel_loc_ref(title_attr) or _is_sentinel_loc_ref(desc_attr):
+                    continue
+                title_key = title_attr.lstrip("@")
+                desc_key  = desc_attr.lstrip("@")
+                pu_title_to_descs.setdefault(title_key, set()).add(desc_key)
+            except (ET.ParseError, Exception):
+                continue
 
     mission_titles_augmented = 0
     for title_key, variants in contractgen_missions.items():
@@ -3472,24 +4162,50 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
 
                 pools_by_system = mission_blueprints.get(title_key, {})
                 desc_systems = {v[0] for v in desc_variants if v[8]}
-                desc_pools = {s: items for s, items in pools_by_system.items() if s in desc_systems}
+                desc_pools = {s: by_label for s, by_label in pools_by_system.items() if s in desc_systems}
                 if not desc_pools:
                     desc_pools = pools_by_system
+                # Flatten the per-system, per-rank-label structure into one
+                # row per (system, label) pair so equal-item-list pairs can
+                # dedupe under one header (e.g. Stanton + Pyro both award the
+                # same Rank0to1 pool → one "[Stanton, Pyro, Rank 0–1]" header
+                # instead of two). The de-dup key is the item-list tuple as
+                # before; only the header construction grows a label axis.
                 unique_fps: dict = {}
-                for sys_name, items in desc_pools.items():
-                    fp = tuple(items)
-                    unique_fps.setdefault(fp, []).append(sys_name)
+                for sys_name, by_label in desc_pools.items():
+                    for pool_label, items in by_label.items():
+                        fp = tuple(items)
+                        unique_fps.setdefault(fp, []).append((sys_name, pool_label))
                 bp_body_parts: list[str] = []
                 if len(unique_fps) == 1:
                     items = list(next(iter(unique_fps)))
-                    bp_body_parts.append("\\n".join(f"- {name}" for name in items))
-                else:
-                    for fp, systems in sorted(unique_fps.items(), key=lambda kv: sorted(kv[1])):
-                        label = ", ".join(sorted(systems))
+                    only_keys = next(iter(unique_fps.values()))
+                    only_labels = sorted({l for _, l in only_keys if l})
+                    if only_labels:
+                        only_systems = sorted({s for s, _ in only_keys})
+                        header = f"{', '.join(only_systems)}, {', '.join(only_labels)}"
                         bp_body_parts.append(
-                            f"<EM4>[{label}]</EM4>\\n" + "\\n".join(f"- {name}" for name in fp)
+                            f"<EM4>[{header}]</EM4>\\n" + "\\n".join(f"- {name}" for name in items)
                         )
-                sections.append("<EM3>POTENTIAL BLUEPRINTS</EM3>\\n" + "\\n".join(bp_body_parts))
+                    else:
+                        bp_body_parts.append("\\n".join(f"- {name}" for name in items))
+                else:
+                    for fp, keys in sorted(unique_fps.items(), key=lambda kv: sorted(kv[1])):
+                        systems = sorted({s for s, _ in keys})
+                        labels = sorted({l for _, l in keys if l})
+                        sys_str = ", ".join(systems)
+                        header = f"{sys_str}, {', '.join(labels)}" if labels else sys_str
+                        bp_body_parts.append(
+                            f"<EM4>[{header}]</EM4>\\n" + "\\n".join(f"- {name}" for name in fp)
+                        )
+                # Join regional sub-sections with a blank line between them
+                # (two `\n` literals = one empty line in CIG's renderer) so
+                # the eye can tell adjacent [Pyro RegionA] / [Pyro RegionB]
+                # / … blocks apart instead of running them together as one
+                # wall of bullets. Single-pool missions only ever produce
+                # one body part, so the extra newline is a no-op there.
+                bp_body_separator = "\\n\\n" if len(bp_body_parts) > 1 else "\\n"
+                sections.append("<EM3>POTENTIAL BLUEPRINTS</EM3>\\n" + bp_body_separator.join(bp_body_parts))
 
             if title_key in mission_items:
                 item_list = "\\n".join(f"- {name}" for name in mission_items[title_key])
@@ -3526,13 +4242,39 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
                     f"already written by a prior title_key (likely a game-side data bug)"
                 )
 
+    # Orphan pu-only desc cleanup. CIG runs two parallel mission-generation
+    # wrappers on the same title: modern ``CareerContract`` blocks (which
+    # carry ``BlueprintRewards`` and feed ``mission_blueprints``) and older
+    # ``ContractLegacy`` blocks (which point at pu_missions XMLs via
+    # ``missionBrokerEntry`` and award no BP — every one of the 419
+    # ContractLegacy entries in the dataset lacks the BlueprintRewards
+    # element). When a single title has both, the pu_missions scan at the
+    # top of this function emits a bare-MISSION-DETAILS desc for every
+    # ContractLegacy-fronted pu_missions XML — including descs that the
+    # contractgen loop never touches. Result: title carries [BP] (true for
+    # all CC variants) but several of its descs show no POTENTIAL
+    # BLUEPRINTS section, which reads to the user as a regression. Drop
+    # those orphan descs entirely so the title's [BP] claim only attaches
+    # to bodies that actually back it up. pu_only_descs for titles WITHOUT
+    # BP are left alone — their desc body matching the title's silent
+    # (no-BP) header is internally consistent.
+    orphans_dropped = 0
+    for _title_key, _variants in contractgen_missions.items():
+        if _title_key not in mission_blueprints:
+            continue
+        _cg_descs = {v[3] for v in _variants if v[3]}
+        for _orphan in pu_title_to_descs.get(_title_key, set()) - _cg_descs:
+            if out.pop(_orphan, None) is not None:
+                orphans_dropped += 1
+    if orphans_dropped:
+        logger.info(
+            f"Dropped {orphans_dropped} pu-only orphan desc entries "
+            "from BP-tagged titles (ContractLegacy spawn paths that don't award BP)"
+        )
+
     # Second pu_missions pass: XP for titles contractgen couldn't cover.
-    # Materialise the file list once so the third diagnostic pass can reuse it.
-    _pu_files: list[Path] = (
-        _index_rglob(xml_path_index, pu_missions_dir, records)
-        if xml_path_index is not None and pu_missions_dir.exists()
-        else (list(pu_missions_dir.rglob("*.xml")) if pu_missions_dir.exists() else [])
-    )
+    # _pu_files is already materialised above (alongside pu_title_to_descs);
+    # the third diagnostic pass below also reuses it.
     pu_title_xps: dict[str, list[int]] = {}
     if pu_missions_dir.exists():
         for xml_file in _pu_files:
@@ -3629,7 +4371,8 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
          categories: set[str] | None = None,
          progress_callback: Optional[Callable[[int, int, str], None]] = None,
          max_workers: int = 6,
-         patches_dir: Path | None = None) -> None:
+         patches_dir: Path | None = None,
+         tag_configs: "dict | None" = None) -> None:
     import sys as sys_mod
     # Deferred import — the script is loaded by both the app worker (where
     # src.utils is on the path) and as a standalone CLI, so we swallow an
@@ -3733,9 +4476,20 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
     fps_ammo: dict = {}
     mag_lookup: dict = {}
     entity_names: dict[str, str] = {}
+    entity_names_by_filename: dict[str, str] = {}
+    entity_name_tags: dict[str, str] = {}
     controller_lookup: dict = {}
     armor_lookup: dict = {}
     reputation_lookup: dict[str, int] = {}
+
+    # Components Tag Builder config — drives the [CLASS-Sx-grade] tags that
+    # get baked into both scitem_lookups (entity_name_tags) and the pickle
+    # of blueprint_pools (POTENTIAL BLUEPRINTS list entries). Folding the
+    # JSON form into both caches' extra_key invalidates them on user edit
+    # so mission descriptions don't keep emitting the old style after a
+    # config change. JSON is sort_keys=True so the string is stable.
+    _components_cfg = (tag_configs or {}).get("components") or DEFAULT_TAG_CONFIGS.get("components")
+    _components_cfg_key = _components_cfg.to_json() if _components_cfg else ""
 
     def _build_scitem_pair():
         return _cached_lookup(
@@ -3743,7 +4497,9 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             lambda: build_scitem_lookups(
                 records / "entities" / "scitem", loc,
                 xml_path_index=xml_path_index, records_dir=records,
+                tag_config=_components_cfg,
             ),
+            extra_key=_components_cfg_key,
         )
 
     def _build_reputation():
@@ -3795,11 +4551,12 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             logger.info(f"Vehicle ammo: {len(vehicle_ammo)} records, FPS ammo: {len(fps_ammo)} records")
             _tick("Built ammo lookups")
         if "scitem" in results:
-            mag_lookup, entity_names, entity_names_by_filename = results["scitem"]
+            mag_lookup, entity_names, entity_names_by_filename, entity_name_tags = results["scitem"]
             logger.info(
                 f"Magazine lookup: {len(mag_lookup)} entries, "
                 f"Entity names: {len(entity_names)} entries, "
-                f"Entity-name-by-filename fallback: {len(entity_names_by_filename)} entries"
+                f"Entity-name-by-filename fallback: {len(entity_names_by_filename)} entries, "
+                f"Entity name-tags: {len(entity_name_tags)} entries"
             )
             _tick("Built scitem lookups")
         if "controller" in results:
@@ -3829,6 +4586,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         "loc":               loc,
         "entity_names":      entity_names,
         "entity_names_by_filename": entity_names_by_filename,
+        "entity_name_tags":  entity_name_tags,
         "mag_lookup":        mag_lookup,
         "vehicle_ammo":      vehicle_ammo,
         "fps_ammo":          fps_ammo,
@@ -3836,6 +4594,8 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         "armor_lookup":      armor_lookup,
         "reputation_lookup": reputation_lookup,
         "xml_path_index":    xml_path_index,
+        "tag_configs":       tag_configs or {},
+        "_components_cfg_key": _components_cfg_key,
     }
 
     gen_jobs: dict[str, Callable] = {}
