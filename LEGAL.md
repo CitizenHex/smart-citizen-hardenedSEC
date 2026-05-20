@@ -2,8 +2,6 @@
 
 This page collects every legal, licensing, and data-handling disclosure for Smart Citizen in one place. If something here conflicts with the `LICENSE` or `NOTICE` files shipped next to the executable, those files are authoritative.
 
----
-
 ## Star Citizen / Cloud Imperium Acknowledgement
 
 Smart Citizen is an **unofficial community tool** for Star Citizen. It is not developed, endorsed, sponsored, or affiliated with Cloud Imperium Games (CIG) or Roberts Space Industries (RSI) in any way. Smart Citizen falls under CIG's "Made by the Community" guidelines for fan-made content and tools.
@@ -12,15 +10,11 @@ Smart Citizen is an **unofficial community tool** for Star Citizen. It is not de
 
 Smart Citizen does not redistribute any CIG or RSI content. The app reads files from **your own licensed Star Citizen installation** on your local machine and writes user-customized strings back to that same installation. No CIG-owned content leaves your computer through Smart Citizen.
 
----
-
 ## Smart Citizen License
 
 Smart Citizen is open-source software licensed under the **Apache License, Version 2.0**. You may obtain a copy of the License at [apache.org/licenses/LICENSE-2.0](https://www.apache.org/licenses/LICENSE-2.0). The full license text ships in the `LICENSE` file next to the executable, and the source code is available at the [GitHub repository](https://github.com/Osiris-DevWorks/smart-citizen).
 
 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an **"AS IS" basis, without warranties or conditions of any kind**, either express or implied. See the License for the specific language governing permissions and limitations.
-
----
 
 ## Bundled Third-Party Software
 
@@ -31,8 +25,6 @@ Smart Citizen ships the following third-party software inside its installer. The
 - **lxml** — XML parsing library, by lxml.de. Used under the **BSD-3-Clause License**.
 
 The Python standard library and other runtime dependencies bundled by PyInstaller carry their own licenses; see the Python Software Foundation License at [docs.python.org/3/license.html](https://docs.python.org/3/license.html).
-
----
 
 ## Privacy & Data Handling
 
@@ -64,8 +56,6 @@ Smart Citizen makes outbound network requests in only two circumstances:
 
 If you discover behavior that conflicts with the above, please file a bug report at [github.com/Osiris-DevWorks/smart-citizen/issues](https://github.com/Osiris-DevWorks/smart-citizen/issues).
 
----
-
 ## AI Use Statement
 
 Portions of Smart Citizen's source code were written with assistance from **Claude**, Anthropic's AI coding assistant. Generated code is **reviewed and approved by a human maintainer before merging** — the AI does not commit directly and is treated the same as any other code contribution: read, tested, and accepted only on its merits.
@@ -75,8 +65,6 @@ Specifically:
 - AI assistance accelerates development of generators, classifiers, refactors, and tests; commits authored with AI help carry a `Co-Authored-By: Claude` trailer in their commit message so the history is auditable.
 - All Star Citizen game-data parsing logic, mission classification, and string-handling rules are designed by the human maintainers and validated against real DataForge cache samples.
 - **The application itself contains no AI or machine-learning features.** Smart Citizen does not bundle any model, does not call any AI service at runtime, and does not transmit your edits or Star Citizen game data to an AI provider.
-
----
 
 ## Reporting Legal Concerns
 
