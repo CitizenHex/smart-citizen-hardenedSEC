@@ -463,13 +463,60 @@ _MISSILE_TRACKING_RAW = ("CrossSection", "Electromagnetic", "Infrared")
 
 # Item Type → abbreviation, used as a Class: fallback when the description
 # omits the Class: line. CIG authors ship components with the full
-# Size:/Grade:/Class: trio but leaner items (mining heads, handheld mining
-# lasers) get only Size: + optional Grade: + an Item Type: line. Using
-# Item Type for the abbreviation keeps those entries from falling through
-# bare when they appear in blueprint lists alongside fully-classified items.
-# Keep this list narrow — only add entries we've actually seen leak through.
+# Size:/Grade:/Class: trio but leaner items (mining heads, ship weapons,
+# salvage heads) get only Size: + optional Grade: + an Item Type: line.
+# Using Item Type for the abbreviation keeps those entries from falling
+# through bare when they appear in blueprint lists.
+#
+# Ship-weapon Item Types are mapped to the same single-letter damage codes
+# the strings-tab tagger (_ship_weapon_name_tag_factory) emits — "E" for
+# energy (laser / plasma / neutron / tachyon), "B" for ballistic + railgun,
+# "D" for distortion, "EMP" for EMP generators. That keeps the BP-list
+# annotation visually consistent with the strings tab: a Tarantula GT-870
+# shows as ``[B-S2] Tarantula …`` in both places. (Lookup is by ``Item
+# Type:`` string after ``.strip()``, so trailing-space CIG variants like
+# "Laser Cannon " match without needing duplicate keys.)
 _ITEM_TYPE_ABBREV = {
-    "Mining Laser": "MIN",
+    # Mining (already shipping pre-1.4.1)
+    "Mining Laser":             "MIN",
+
+    # Salvage / repair
+    "Salvage Head":             "SAL",
+
+    # Ship weapons — energy damage
+    "Laser Beam":               "E",
+    "Laser Cannon":             "E",
+    "Laser Gatling":            "E",
+    "Laser Mine":               "E",
+    "Laser Repeater":           "E",
+    "Laser Scattergun":         "E",
+    "Laser Turret":             "E",
+    "Neutron Cannon":           "E",
+    "Neutron Repeater":         "E",
+    "Plasma Cannon":            "E",
+    "Plasma Canon":             "E",  # CIG typo
+    "Plasma Scattergun":        "E",
+    "Tachyon Cannon":           "E",
+
+    # Ship weapons — ballistic damage
+    "Ballistic Cannon":         "B",
+    "Ballistic Cannon Turret":  "B",
+    "Ballistic Gatling":        "B",
+    "Ballistic Gatling (x2)":   "B",
+    "Ballistic Gatling Gun":    "B",
+    "Ballistic Gatling Turret": "B",
+    "Ballistic Repeater":       "B",
+    "Ballistic Scattergun":     "B",
+    "Mass Driver Cannon":       "B",
+    "Railgun":                  "B",
+
+    # Ship weapons — distortion damage
+    "Distortion Cannon":        "D",
+    "Distortion Repeater":      "D",
+    "Distortion Scattergun":    "D",
+
+    # Ship weapons — EMP / utility
+    "EMP Generator":            "EMP",
 }
 
 
