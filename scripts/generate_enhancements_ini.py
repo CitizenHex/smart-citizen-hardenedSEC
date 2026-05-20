@@ -4402,7 +4402,14 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             continue
 
         seen_tiers: list[tuple[int, int]] = []
-        for _, sxp, fxp, _, _, _, _, _, _, _, _ in variants:
+        # 10-tuple destructure: (system_name, success_xp, failure_xp, desc_key,
+        # contract_flags, spawns, contract_difficulty, contract_has_bp,
+        # contract_bp_chance, contract_bp_variant). The 1.4.1 spawn-classifier
+        # refactor collapsed the prior (enemies, not_enemies) pair into a
+        # single ``spawns`` breakdown dict — this destructure was missed in
+        # the original sweep, surfacing as a 11-vs-10 unpack ValueError in
+        # the field on missions with contract variants.
+        for _, sxp, fxp, _, _, _, _, _, _, _ in variants:
             tier = (sxp, fxp)
             if tier not in seen_tiers:
                 seen_tiers.append(tier)
