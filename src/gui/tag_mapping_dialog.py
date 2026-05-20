@@ -12,6 +12,8 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from src.utils.i18n import tr
+
 
 class TagMappingDialog(QDialog):
     """Edit the variant mapping for one element kind.
@@ -37,18 +39,19 @@ class TagMappingDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        hint = QLabel(
-            "Edit how each raw value renders at Short / Medium / Long "
-            "lengths. The element's style dropdown in the Tag Builder "
-            "picks which length is used."
-        )
+        hint = QLabel(tr("tag_mapping_dialog.hint"))
         hint.setWordWrap(True)
         hint.setProperty("role", "secondary")
         hint.setStyleSheet("font-size: 11px;")
         layout.addWidget(hint)
 
         self._table = QTableWidget(len(mapping), 4, self)
-        self._table.setHorizontalHeaderLabels(["Value", "Short", "Medium", "Long"])
+        self._table.setHorizontalHeaderLabels([
+            tr("tag_mapping_dialog.col_value"),
+            tr("tag_mapping_dialog.col_short"),
+            tr("tag_mapping_dialog.col_medium"),
+            tr("tag_mapping_dialog.col_long"),
+        ])
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(
             QTableWidget.EditTrigger.DoubleClicked
@@ -70,7 +73,7 @@ class TagMappingDialog(QDialog):
         layout.addWidget(self._table)
 
         button_row = QHBoxLayout()
-        reset_btn = QPushButton("Reset to defaults")
+        reset_btn = QPushButton(tr("tag_mapping_dialog.reset_btn"))
         reset_btn.setToolTip("Restore every cell in this mapping table to the built-in Smart Citizen defaults.")
         reset_btn.clicked.connect(self._reset_to_defaults)
         button_row.addWidget(reset_btn)

@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal, QTimer
 
 from src.gui.theme import AVAILABLE_THEMES, THEME_LIGHT, THEME_DARK, THEME_SCLE, THEME_ODW
+from src.utils.i18n import tr
 from src.utils.settings import AppSettings
 
 logger = logging.getLogger(__name__)
@@ -57,27 +58,21 @@ class ConfigTab(QWidget):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        title = QLabel("Configuration")
+        title = QLabel(tr("config.title"))
         title.setStyleSheet("font-weight: bold; font-size: 14px;")
         layout.addWidget(title)
 
-        instructions = QLabel(
-            "Configure your Star Citizen installation path, extract base localization "
-            "from Data.p4k, and import external INI files to customize your strings."
-        )
+        instructions = QLabel(tr("config.instructions"))
         instructions.setProperty("role", "secondary")
         instructions.setStyleSheet("font-size: 11px;")
         instructions.setWordWrap(True)
         layout.addWidget(instructions)
 
         # ── Tools ────────────────────────────────────────────────────────────
-        tools_group = QGroupBox("Tools")
+        tools_group = QGroupBox(tr("config.tools_group"))
         tools_layout = QVBoxLayout(tools_group)
 
-        tools_desc = QLabel(
-            "Import an external INI file to merge custom strings into your user.ini. "
-            "Keys are validated against base.ini, and conflicts are resolved interactively."
-        )
+        tools_desc = QLabel(tr("config.tools_desc"))
         tools_desc.setProperty("role", "secondary")
         tools_desc.setStyleSheet("font-size: 11px;")
         tools_desc.setWordWrap(True)
@@ -85,7 +80,7 @@ class ConfigTab(QWidget):
 
         button_layout = QHBoxLayout()
 
-        import_btn = QPushButton("Import INI...")
+        import_btn = QPushButton(tr("config.import_ini_btn"))
         import_btn.setMaximumWidth(150)
         import_btn.setToolTip(
             "Fold an external .ini into your overrides. A conflict-resolution "
@@ -95,7 +90,7 @@ class ConfigTab(QWidget):
         import_btn.clicked.connect(self.import_ini_requested.emit)
         button_layout.addWidget(import_btn)
 
-        reset_user_ini_btn = QPushButton("Reset user.ini...")
+        reset_user_ini_btn = QPushButton(tr("config.reset_user_ini_btn"))
         reset_user_ini_btn.setMaximumWidth(150)
         reset_user_ini_btn.setToolTip(
             "Delete every custom string override for the active channel. "
@@ -104,7 +99,7 @@ class ConfigTab(QWidget):
         reset_user_ini_btn.clicked.connect(self.reset_user_ini_requested.emit)
         button_layout.addWidget(reset_user_ini_btn)
 
-        preview_btn = QPushButton("Preview Apply")
+        preview_btn = QPushButton(tr("config.preview_apply_btn"))
         preview_btn.setMaximumWidth(150)
         preview_btn.setToolTip(
             "Dry-run summary of what Apply to Game would write — per-source key "
@@ -115,7 +110,7 @@ class ConfigTab(QWidget):
         preview_btn.clicked.connect(self.preview_merge)
         button_layout.addWidget(preview_btn)
 
-        self._check_updates_btn = QPushButton("Check for Updates")
+        self._check_updates_btn = QPushButton(tr("config.check_updates_btn"))
         self._check_updates_btn.setMaximumWidth(170)
         self._check_updates_btn.setToolTip(
             "Check GitHub for a newer Smart Citizen release."
@@ -133,18 +128,18 @@ class ConfigTab(QWidget):
         layout.addWidget(tools_group)
 
         # ── Appearance ───────────────────────────────────────────────────────
-        appearance_group = QGroupBox("Appearance")
+        appearance_group = QGroupBox(tr("config.appearance_group"))
         appearance_layout = QHBoxLayout(appearance_group)
 
-        theme_label = QLabel("Theme:")
+        theme_label = QLabel(tr("config.theme_label"))
         appearance_layout.addWidget(theme_label)
 
         self.theme_combo = QComboBox()
         self.theme_combo.setToolTip("Switch the app theme. Takes effect immediately across the main window, toolbar, tabs, and Help panel.")
-        self.theme_combo.addItem("Default", THEME_SCLE)
-        self.theme_combo.addItem("Light", THEME_LIGHT)
-        self.theme_combo.addItem("Dark", THEME_DARK)
-        self.theme_combo.addItem("ODW", THEME_ODW)
+        self.theme_combo.addItem(tr("config.theme_default"), THEME_SCLE)
+        self.theme_combo.addItem(tr("config.theme_light"), THEME_LIGHT)
+        self.theme_combo.addItem(tr("config.theme_dark"), THEME_DARK)
+        self.theme_combo.addItem(tr("config.theme_odw"), THEME_ODW)
         current = AppSettings.get_theme()
         idx = self.theme_combo.findData(current)
         if idx >= 0:
@@ -156,20 +151,17 @@ class ConfigTab(QWidget):
         layout.addWidget(appearance_group)
 
         # ── Star Citizen Installation + Base Localization (side by side) ────
-        loc_group = QGroupBox("Star Citizen")
+        loc_group = QGroupBox(tr("config.star_citizen_group"))
         loc_outer = QHBoxLayout(loc_group)
 
         # Left pane — game install path, channel, language
         game_layout = QVBoxLayout()
 
-        install_label = QLabel("Installation")
+        install_label = QLabel(tr("config.installation_label"))
         install_label.setStyleSheet("font-weight: bold; font-size: 11px;")
         game_layout.addWidget(install_label)
 
-        game_desc = QLabel(
-            "Path to your Star Citizen install root (the directory containing "
-            "LIVE, PTU, EPTU, HOTFIX, TECH-PREVIEW)."
-        )
+        game_desc = QLabel(tr("config.installation_desc"))
         game_desc.setProperty("role", "secondary")
         game_desc.setStyleSheet("font-size: 11px; margin-bottom: 5px;")
         game_desc.setWordWrap(True)
@@ -191,7 +183,7 @@ class ConfigTab(QWidget):
         self.game_path_input.editingFinished.connect(self._save_game_path)
         game_input_layout.addWidget(self.game_path_input)
 
-        game_browse_btn = QPushButton("Browse...")
+        game_browse_btn = QPushButton(tr("config.browse_btn"))
         game_browse_btn.setMaximumWidth(100)
         game_browse_btn.setToolTip("Pick the Star Citizen install root in a folder browser.")
         game_browse_btn.clicked.connect(self._browse_game_path)
@@ -200,7 +192,7 @@ class ConfigTab(QWidget):
 
         # ── Channel selector (LIVE / PTU / EPTU / HOTFIX / TECH-PREVIEW) ───
         channel_row = QHBoxLayout()
-        channel_label = QLabel("Channel:")
+        channel_label = QLabel(tr("config.channel_label"))
         channel_label.setStyleSheet("font-size: 11px;")
         channel_row.addWidget(channel_label)
 
@@ -227,7 +219,7 @@ class ConfigTab(QWidget):
 
         # ── Language selector ────────────────────────────────────────────────
         language_row = QHBoxLayout()
-        language_label = QLabel("Language:")
+        language_label = QLabel(tr("config.language_label"))
         language_label.setStyleSheet("font-size: 11px;")
         language_row.addWidget(language_label)
 
@@ -256,14 +248,11 @@ class ConfigTab(QWidget):
         # Right pane — base localization / P4K extraction
         p4k_layout = QVBoxLayout()
 
-        p4k_label = QLabel("Base Localization")
+        p4k_label = QLabel(tr("config.base_localization_label"))
         p4k_label.setStyleSheet("font-weight: bold; font-size: 11px;")
         p4k_layout.addWidget(p4k_label)
 
-        p4k_desc = QLabel(
-            "Extract global.ini from your installed Data.p4k to get stock game strings "
-            "that always match your installed version."
-        )
+        p4k_desc = QLabel(tr("config.base_localization_desc"))
         p4k_desc.setProperty("role", "secondary")
         p4k_desc.setStyleSheet("font-size: 11px;")
         p4k_desc.setWordWrap(True)
@@ -281,7 +270,7 @@ class ConfigTab(QWidget):
         p4k_status_row.addStretch()
         p4k_layout.addLayout(p4k_status_row)
 
-        self._extract_btn = QPushButton("Extract from Data.p4k")
+        self._extract_btn = QPushButton(tr("config.extract_btn"))
         self._extract_btn.setMaximumWidth(180)
         self._extract_btn.clicked.connect(self.p4k_extract_requested.emit)
         p4k_layout.addWidget(self._extract_btn)
@@ -294,22 +283,17 @@ class ConfigTab(QWidget):
         self._refresh_p4k_status()
 
         # ── Smart Citizen Data ───────────────────────────────────────────────
-        data_group = QGroupBox("Smart Citizen Data")
+        data_group = QGroupBox(tr("config.data_group"))
         data_layout = QVBoxLayout(data_group)
 
-        data_desc = QLabel(
-            "Folder for user.ini, source cache, enhancement INIs, and backups. "
-            "Move this off OneDrive-synced Documents if cache cleanup fails. "
-            "The DataForge XML cache has its own path below — it's ~1.4 GB so "
-            "the default keeps it out of OneDrive automatically."
-        )
+        data_desc = QLabel(tr("config.data_desc"))
         data_desc.setProperty("role", "secondary")
         data_desc.setStyleSheet("font-size: 11px; margin-bottom: 5px;")
         data_desc.setWordWrap(True)
         data_layout.addWidget(data_desc)
 
         # Sub-label for the user-data row.
-        data_label = QLabel("App data folder:")
+        data_label = QLabel(tr("config.app_data_label"))
         data_label.setStyleSheet("font-size: 11px;")
         data_layout.addWidget(data_label)
 
@@ -329,7 +313,7 @@ class ConfigTab(QWidget):
         data_browse_btn.clicked.connect(self._browse_data_dir)
         data_input_layout.addWidget(data_browse_btn)
 
-        data_reset_btn = QPushButton("Reset")
+        data_reset_btn = QPushButton(tr("config.reset_btn"))
         data_reset_btn.setMaximumWidth(80)
         data_reset_btn.setToolTip("Clear the custom data folder and use Documents\\Smart Citizen.")
         data_reset_btn.clicked.connect(self._reset_data_dir)
@@ -343,7 +327,7 @@ class ConfigTab(QWidget):
         # keeping their tiny user.ini / sources where they like. Default
         # base is %LOCALAPPDATA% (registry) or <exe-dir>/data/cache/
         # (portable) — both never OneDrive-synced.
-        cache_label = QLabel("DataForge cache folder:")
+        cache_label = QLabel(tr("config.dataforge_cache_label"))
         cache_label.setStyleSheet("font-size: 11px; margin-top: 8px;")
         data_layout.addWidget(cache_label)
 
@@ -377,13 +361,10 @@ class ConfigTab(QWidget):
         layout.addWidget(data_group)
 
         # ── P4K Extraction ───────────────────────────────────────────────────
-        p4k_group = QGroupBox("Base Localization (P4K Extraction)")
+        p4k_group = QGroupBox(tr("config.p4k_group"))
         p4k_layout = QVBoxLayout(p4k_group)
 
-        p4k_desc = QLabel(
-            "Extract global.ini from your installed Data.p4k to get stock game strings "
-            "that always match your installed version."
-        )
+        p4k_desc = QLabel(tr("config.p4k_desc"))
         p4k_desc.setProperty("role", "secondary")
         p4k_desc.setStyleSheet("font-size: 11px;")
         p4k_desc.setWordWrap(True)
@@ -400,7 +381,7 @@ class ConfigTab(QWidget):
         p4k_status_row.addWidget(self._p4k_status_label)
         p4k_status_row.addStretch()
 
-        self._extract_btn = QPushButton("Extract from Data.p4k")
+        self._extract_btn = QPushButton(tr("config.extract_btn"))
         self._extract_btn.setMaximumWidth(180)
         self._extract_btn.setToolTip(
             "Unpack stock localization (base.ini) plus the DataForge entity XMLs "
@@ -469,7 +450,7 @@ class ConfigTab(QWidget):
 
     def _browse_game_path(self):
         path = QFileDialog.getExistingDirectory(
-            self, "Select Star Citizen Installation Root"
+            self, tr("config.select_sc_root")
         )
         if path:
             self.game_path_input.setText(path)
@@ -490,7 +471,7 @@ class ConfigTab(QWidget):
                 if target.exists() and not target.is_dir():
                     QMessageBox.warning(
                         self,
-                        "Invalid Data Folder",
+                        tr("config.invalid_data_folder_title"),
                         f"The selected data folder is a file, not a directory:\n{target}",
                     )
                     self.data_dir_input.setText(str(current_dir))
@@ -505,7 +486,7 @@ class ConfigTab(QWidget):
             logger.warning(f"Could not use Smart Citizen data folder {raw_path!r}: {e}")
             QMessageBox.warning(
                 self,
-                "Invalid Data Folder",
+                tr("config.invalid_data_folder_title"),
                 f"Smart Citizen could not use that data folder:\n{e}",
             )
             self.data_dir_input.setText(str(current_dir))
@@ -520,7 +501,7 @@ class ConfigTab(QWidget):
     def _browse_data_dir(self):
         start_dir = self.data_dir_input.text().strip() or str(AppSettings.get_user_data_dir())
         path = QFileDialog.getExistingDirectory(
-            self, "Select Smart Citizen Data Folder", start_dir
+            self, tr("config.select_data_folder"), start_dir
         )
         if path:
             self.data_dir_input.setText(path)
@@ -586,16 +567,12 @@ class ConfigTab(QWidget):
         # re-extraction itself is triggered immediately via the signal so
         # the user can fire it off and walk away.
         prompt = QMessageBox(self)
-        prompt.setWindowTitle("DataForge Cache Path Changed")
+        prompt.setWindowTitle(tr("config.dataforge_cache_changed_title"))
         prompt.setIcon(QMessageBox.Icon.Question)
-        prompt.setText(
-            "Changing the DataForge cache path requires re-extracting "
-            "from Data.p4k.\n\nWhat should happen to the previous cache "
-            "after re-extraction completes?"
-        )
+        prompt.setText(tr("config.dataforge_cache_changed_body"))
         prompt.setInformativeText(f"Old: {old_leaf}\nNew: {new_leaf}")
-        delete_btn = prompt.addButton("Re-extract && delete old", QMessageBox.ButtonRole.AcceptRole)
-        keep_btn = prompt.addButton("Re-extract && keep old", QMessageBox.ButtonRole.AcceptRole)
+        delete_btn = prompt.addButton(tr("config.re_extract_delete_old"), QMessageBox.ButtonRole.AcceptRole)
+        keep_btn = prompt.addButton(tr("config.re_extract_keep_old"), QMessageBox.ButtonRole.AcceptRole)
         cancel_btn = prompt.addButton(QMessageBox.StandardButton.Cancel)
         prompt.setDefaultButton(keep_btn)
         prompt.exec()
@@ -634,7 +611,7 @@ class ConfigTab(QWidget):
                 if target.exists() and not target.is_dir():
                     QMessageBox.warning(
                         self,
-                        "Invalid Cache Folder",
+                        tr("config.invalid_cache_folder_title"),
                         f"The selected cache folder is a file, not a directory:\n{target}",
                     )
                     self.cache_dir_input.setText(
@@ -649,7 +626,7 @@ class ConfigTab(QWidget):
             logger.warning(f"Could not use DataForge cache folder {raw_path!r}: {e}")
             QMessageBox.warning(
                 self,
-                "Invalid Cache Folder",
+                tr("config.invalid_cache_folder_title"),
                 f"Smart Citizen could not use that cache folder:\n{e}",
             )
             self.cache_dir_input.setText(
@@ -671,7 +648,7 @@ class ConfigTab(QWidget):
             or str(AppSettings.get_dataforge_cache_base())
         )
         path = QFileDialog.getExistingDirectory(
-            self, "Select DataForge Cache Folder", start_dir
+            self, tr("config.select_cache_folder"), start_dir
         )
         if path:
             self.cache_dir_input.setText(path)
@@ -749,9 +726,8 @@ class ConfigTab(QWidget):
             from PyQt6.QtCore import Qt
             if not (item.flags() & Qt.ItemFlag.ItemIsEnabled):
                 QMessageBox.warning(
-                    self, "Channel Not Installed",
-                    f"{channel} isn't installed under the current root. "
-                    "Install it via the RSI Launcher or pick a different channel."
+                    self, tr("config.channel_not_installed_title"),
+                    tr("config.channel_not_installed_body", channel=channel),
                 )
                 # Revert the combo to the active channel.
                 self._populate_channel_combo()
@@ -808,16 +784,16 @@ class ConfigTab(QWidget):
                 except Exception:
                     last_str = "unknown"
                 self._p4k_status_label.setText(
-                    f"Data.p4k found  |  base.ini last updated: {last_str}"
+                    tr("config.p4k_status_found_with_base", date=last_str)
                 )
             else:
-                self._p4k_status_label.setText("Data.p4k found  |  base.ini not yet extracted")
+                self._p4k_status_label.setText(tr("config.p4k_status_found_no_base"))
         else:
             self._p4k_status_dot.setStyleSheet("color: #f44336; font-size: 14px;")
             if AppSettings.get_game_install_path():
-                self._p4k_status_label.setText(f"Data.p4k not found at: {p4k_path}")
+                self._p4k_status_label.setText(tr("config.p4k_status_not_found", path=p4k_path))
             else:
-                self._p4k_status_label.setText("Game install path not configured")
+                self._p4k_status_label.setText(tr("config.p4k_status_no_path"))
 
     # ── Updates ──────────────────────────────────────────────────────────────
 
@@ -852,7 +828,7 @@ class ConfigTab(QWidget):
             sources_dict, hierarchy, _enhancements_cats = load_sources_from_settings()
 
             if not sources_dict:
-                QMessageBox.warning(self, "Warning", "No sources available to merge.")
+                QMessageBox.warning(self, tr("dialogs.warning_title"), tr("config.no_sources_warning"))
                 return
 
             entries = load_source_files(sources_dict, hierarchy)
@@ -887,7 +863,7 @@ class ConfigTab(QWidget):
             # enhancements pipeline, so showing them as "X (0 keys)"
             # is just visual noise. Renumber remaining entries so the
             # list reads 1, 2, 3, ... without gaps.
-            text = "Apply Preview\n\nMerge Order (top to bottom):\n"
+            text = tr("config.preview_header")
             visible_index = 0
             for name in hierarchy:
                 count = source_counts.get(name, 0)
@@ -902,7 +878,7 @@ class ConfigTab(QWidget):
                 else:
                     text += f"  {visible_index}. {name.capitalize()} ({count:,} keys)\n"
 
-            text += f"\nTotal Keys: {len(entries):,}\nStatus Breakdown:\n"
+            text += tr("config.preview_total", count=len(entries))
             status_counts: dict[str, int] = {}
             for entry in entries:
                 status_counts[entry.status] = status_counts.get(entry.status, 0) + 1
@@ -911,8 +887,8 @@ class ConfigTab(QWidget):
             for status, count in sorted(status_counts.items(), key=lambda kv: -kv[1]):
                 text += f"  {status}: {count:,}\n"
 
-            QMessageBox.information(self, "Apply Preview", text)
+            QMessageBox.information(self, tr("config.preview_title"), text)
 
         except Exception as e:
             logger.exception(f"Error previewing merge: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to preview merge: {e}")
+            QMessageBox.critical(self, tr("dialogs.error_title"), f"Failed to preview merge: {e}")

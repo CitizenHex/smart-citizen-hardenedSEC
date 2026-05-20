@@ -5,6 +5,8 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
                               QComboBox, QDialogButtonBox, QHeaderView, QInputDialog)
 from PyQt6.QtCore import Qt
 
+from src.utils.i18n import tr
+
 
 class ImportConflictDialog(QDialog):
     """Dialog for resolving conflicts when importing an INI file into user.ini."""
@@ -33,7 +35,7 @@ class ImportConflictDialog(QDialog):
         self.setup_ui()
 
     def setup_ui(self):
-        self.setWindowTitle("Import Conflicts")
+        self.setWindowTitle(tr("import_dialog.title"))
         self.setMinimumSize(900, 500)
 
         layout = QVBoxLayout(self)
@@ -41,11 +43,9 @@ class ImportConflictDialog(QDialog):
         # Summary label
         summary_parts = []
         if self._auto_add_count > 0:
-            summary_parts.append(
-                f"{self._auto_add_count} keys will be added automatically.")
+            summary_parts.append(tr("import_dialog.auto_add_summary", count=self._auto_add_count))
         if self._excluded_count > 0:
-            summary_parts.append(
-                f"{self._excluded_count} keys excluded (not in base.ini).")
+            summary_parts.append(tr("import_dialog.excluded_summary", count=self._excluded_count))
         if summary_parts:
             summary_label = QLabel("  ".join(summary_parts))
             summary_label.setWordWrap(True)
@@ -53,17 +53,17 @@ class ImportConflictDialog(QDialog):
 
         # Conflicts group box
         conflict_count = len(self._conflicts)
-        group = QGroupBox(f"Conflicts ({conflict_count} keys)")
+        group = QGroupBox(tr("import_dialog.conflicts_group", count=conflict_count))
         group_layout = QVBoxLayout(group)
 
         # Bulk action buttons
         button_row = QHBoxLayout()
-        keep_all_btn = QPushButton("Keep All Current")
+        keep_all_btn = QPushButton(tr("import_dialog.keep_all_btn"))
         keep_all_btn.setToolTip("Resolve every conflict by keeping your existing value and discarding the imported one.")
         keep_all_btn.clicked.connect(self._keep_all)
         button_row.addWidget(keep_all_btn)
 
-        import_all_btn = QPushButton("Import All")
+        import_all_btn = QPushButton(tr("import_dialog.import_all_btn"))
         import_all_btn.setToolTip("Resolve every conflict by accepting the imported value and overwriting your existing one.")
         import_all_btn.clicked.connect(self._import_all)
         button_row.addWidget(import_all_btn)
@@ -73,8 +73,12 @@ class ImportConflictDialog(QDialog):
 
         # Conflict table
         self._table = QTableWidget(conflict_count, 4)
-        self._table.setHorizontalHeaderLabels(
-            ["Key", "Current Value", "Imported Value", "Resolution"])
+        self._table.setHorizontalHeaderLabels([
+            tr("import_dialog.col_key"),
+            tr("import_dialog.col_current_value"),
+            tr("import_dialog.col_imported_value"),
+            tr("import_dialog.col_resolution"),
+        ])
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
 
@@ -116,7 +120,11 @@ class ImportConflictDialog(QDialog):
 
             # Resolution combo box
             combo = QComboBox()
-            combo.addItems(self.RESOLUTION_OPTIONS)
+            combo.addItem(tr("import_dialog.resolution_keep"))
+            combo.addItem(tr("import_dialog.resolution_use"))
+            combo.addItem(tr("import_dialog.resolution_append"))
+            combo.addItem(tr("import_dialog.resolution_prepend"))
+            combo.addItem(tr("import_dialog.resolution_custom"))
             self._combos[key] = combo
             self._previous_combo_index[key] = 0
             combo.currentIndexChanged.connect(
@@ -140,8 +148,8 @@ class ImportConflictDialog(QDialog):
             current_val, imported_val = self._conflicts[key]
             initial = self._custom_values.get(key, imported_val)
             text, ok = QInputDialog.getText(
-                self, "Custom Value",
-                f"Enter custom value for key:\n{key}",
+                self, tr("import_dialog.custom_value_title"),
+                tr("import_dialog.custom_value_prompt", key=key),
                 text=initial)
             if ok:
                 self._custom_values[key] = text

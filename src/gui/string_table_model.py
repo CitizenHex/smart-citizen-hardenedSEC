@@ -14,6 +14,7 @@ from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PyQt6.QtGui import QColor
 
 from src.models.string_model import StringEntry
+from src.utils.i18n import tr
 
 # ---------------------------------------------------------------------------
 # Column constants
@@ -27,7 +28,15 @@ COL_CUSTOM = 5
 COL_STATUS = 6
 NUM_COLUMNS = 7
 
-HEADER_LABELS = ["Category", "Key", "Default Value", "Current Value", "\u2605", "Custom Value", "Status"]
+_HEADER_KEYS = [
+    "strings_tab.col_category",
+    "strings_tab.col_key",
+    "strings_tab.col_default_value",
+    "strings_tab.col_current_value",
+    "strings_tab.col_star",
+    "strings_tab.col_custom_value",
+    "strings_tab.col_status",
+]
 
 # ---------------------------------------------------------------------------
 # Status colours
@@ -233,8 +242,13 @@ class StringTableModel(QAbstractTableModel):
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
         if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
-            return HEADER_LABELS[section]
+            if 0 <= section < len(_HEADER_KEYS):
+                return tr(_HEADER_KEYS[section])
         return None
+
+    def retranslate(self) -> None:
+        """Notify the view to re-query all horizontal header labels."""
+        self.headerDataChanged.emit(Qt.Orientation.Horizontal, 0, NUM_COLUMNS - 1)
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlag:
         base = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable

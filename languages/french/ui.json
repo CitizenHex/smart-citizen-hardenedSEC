@@ -1,0 +1,7 @@
+{
+    "branding": {
+    "title": "SMART ",
+    "tagline": "SMARTER S"
+  },
+  "_comment": "French UI translations. Only include keys that differ from English. Missing keys fall back to the English ui.json automatically."
+}

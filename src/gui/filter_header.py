@@ -103,6 +103,15 @@ class FilterHeaderView(QHeaderView):
         """Return lowered text for each column filter (empty string for skipped columns)."""
         return [f.text().lower() if f else "" for f in self._filters]
 
+    def update_column_names(self, names: list[str]) -> None:
+        """Refresh column names and editor placeholder texts after a language change."""
+        self._column_names = names
+        for i, editor in enumerate(self._filters):
+            if editor is None:
+                continue
+            name = names[i] if i < len(names) else ""
+            editor.setPlaceholderText(f"Filter {name.lower()}…")
+
     def clear_all(self):
         """Clear every filter input without triggering per-keystroke signals."""
         for f in self._filters:

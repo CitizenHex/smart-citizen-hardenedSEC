@@ -32,6 +32,7 @@ from src.gui.main_window import MainWindow
 from src.gui.theme import apply_theme, load_application_fonts
 from src.utils.version import get_version
 from src.utils.settings import AppSettings
+from src.utils import i18n
 
 # Setup logging — use --debug flag or LOG_LEVEL env var for perf timing output
 _log_level = logging.DEBUG if ('--debug' in sys.argv or os.environ.get('LOG_LEVEL', '').upper() == 'DEBUG') else logging.INFO
@@ -145,6 +146,10 @@ def main():
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
             'OsirisDevWorks.SmartCitizen'
         )
+
+    # Load UI strings for the selected language before any window is built.
+    # Widgets read tr() at construction time, so this must run before MainWindow().
+    i18n.set_language(AppSettings.get_selected_language())
 
     app = QApplication(sys.argv)
     load_application_fonts()
