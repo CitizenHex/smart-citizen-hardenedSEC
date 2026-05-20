@@ -25,78 +25,66 @@ from utils.pak_extractor import (
 )
 
 
+def _make_fresh_cache(cache_dir: Path, p4k_mtime: float) -> None:
+    """Populate a minimal fresh-cache layout: stamp file + one XML under raw/libs."""
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    (cache_dir / ".p4k_mtime").write_text(str(p4k_mtime), encoding="utf-8")
+    libs_dir = cache_dir / "raw" / "libs"
+    libs_dir.mkdir(parents=True)
+    (libs_dir / "sample.xml").write_text("<x/>", encoding="utf-8")
+
+
 class TestDataForgeCache:
     """Test DataForge cache freshness detection"""
 
     def test_cache_is_fresh_when_newer(self):
-        """Test that cache is fresh when it's newer than p4k"""
+        """Cache is fresh when stamp records a mtime >= p4k's current mtime."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Create dummy p4k with old mtime
-            p4k_path = os.path.join(tmpdir, 'Data.p4k')
-            with open(p4k_path, 'w') as f:
-                f.write('dummy')
-
-            # Set p4k mtime to old date
-            old_time = 1000000000  # Jan 2001
+            tmpdir = Path(tmpdir)
+            p4k_path = tmpdir / "Data.p4k"
+            p4k_path.write_text("dummy")
+            old_time = 1000000000.0
             os.utime(p4k_path, (old_time, old_time))
 
-            # Create cache dir with newer mtime
-            cache_dir = os.path.join(tmpdir, 'dataforge')
-            os.makedirs(cache_dir, exist_ok=True)
-            recent_time = 9999999999  # Far future
-            os.utime(cache_dir, (recent_time, recent_time))
+            cache_dir = tmpdir / "dataforge"
+            _make_fresh_cache(cache_dir, p4k_mtime=old_time)
 
-            # Cache should be fresh (newer than p4k)
-            is_fresh = dataforge_cache_is_fresh(cache_dir, p4k_path)
-            assert is_fresh is True
+            assert dataforge_cache_is_fresh(p4k_path, cache_dir) is True
 
     def test_cache_is_stale_when_older(self):
-        """Test that cache is stale when p4k is newer"""
+        """Cache is stale when stamp records a mtime < p4k's current mtime."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Create dummy p4k with new mtime
-            p4k_path = os.path.join(tmpdir, 'Data.p4k')
-            with open(p4k_path, 'w') as f:
-                f.write('dummy')
-
-            recent_time = 9999999999  # Far future
+            tmpdir = Path(tmpdir)
+            p4k_path = tmpdir / "Data.p4k"
+            p4k_path.write_text("dummy")
+            recent_time = 9999999999.0
             os.utime(p4k_path, (recent_time, recent_time))
 
-            # Create cache dir with old mtime
-            cache_dir = os.path.join(tmpdir, 'dataforge')
-            os.makedirs(cache_dir, exist_ok=True)
-            old_time = 1000000000  # Jan 2001
-            os.utime(cache_dir, (old_time, old_time))
+            cache_dir = tmpdir / "dataforge"
+            _make_fresh_cache(cache_dir, p4k_mtime=1000000000.0)
 
-            # Cache should be stale (older than p4k)
-            is_fresh = dataforge_cache_is_fresh(cache_dir, p4k_path)
-            assert is_fresh is False
+            assert dataforge_cache_is_fresh(p4k_path, cache_dir) is False
 
     def test_cache_is_fresh_when_cache_missing(self):
-        """Test that missing cache is treated as stale"""
+        """Missing cache directory returns False (stale)."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            p4k_path = os.path.join(tmpdir, 'Data.p4k')
-            with open(p4k_path, 'w') as f:
-                f.write('dummy')
+            tmpdir = Path(tmpdir)
+            p4k_path = tmpdir / "Data.p4k"
+            p4k_path.write_text("dummy")
+            cache_dir = tmpdir / "nonexistent"
 
-            # Cache directory doesn't exist
-            cache_dir = os.path.join(tmpdir, 'nonexistent')
-
-            # Cache should be stale (doesn't exist)
-            is_fresh = dataforge_cache_is_fresh(cache_dir, p4k_path)
-            assert is_fresh is False
+            assert dataforge_cache_is_fresh(p4k_path, cache_dir) is False
 
     def test_cache_is_fresh_when_p4k_missing(self):
-        """Test that missing p4k is handled"""
+        """Missing p4k is handled gracefully and returns a bool."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            p4k_path = os.path.join(tmpdir, 'nonexistent', 'Data.p4k')
+            tmpdir = Path(tmpdir)
+            p4k_path = tmpdir / "nonexistent" / "Data.p4k"
+            cache_dir = tmpdir / "dataforge"
+            cache_dir.mkdir()
 
-            cache_dir = os.path.join(tmpdir, 'dataforge')
-            os.makedirs(cache_dir, exist_ok=True)
-
-            # Should handle missing p4k gracefully
-            is_fresh = dataforge_cache_is_fresh(cache_dir, p4k_path)
-            # Missing p4k could mean cache is stale (can't verify freshness)
-            assert isinstance(is_fresh, bool)
+            result = dataforge_cache_is_fresh(p4k_path, cache_dir)
+            assert isinstance(result, bool)
 
 
 class TestDataForgeExtraction:

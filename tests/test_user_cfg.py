@@ -12,6 +12,7 @@ def channel_dir(tmp_path):
     with patch("src.utils.user_cfg.AppSettings") as mock_settings:
         mock_settings.get_game_install_path.return_value = str(tmp_path)
         mock_settings.get_active_channel.return_value = "LIVE"
+        mock_settings.get_selected_language.return_value = "english"
         yield tmp_path
 
 
@@ -66,7 +67,7 @@ class TestEnsureUserCfgLanguage:
         (channel_dir / "user.cfg").write_text(
             "g_language = french\n", encoding="utf-8"
         )
-        assert ensure_user_cfg_language() is True
+        assert ensure_user_cfg_language(language="french") is True
 
         content = _user_cfg(channel_dir)
         assert content.count("g_language") == 1
