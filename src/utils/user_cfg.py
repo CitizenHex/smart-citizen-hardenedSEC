@@ -3,7 +3,7 @@ import logging
 import re
 from pathlib import Path
 
-from src.utils.settings import AppSettings
+from src.utils.settings import AppSettings, SC_LANGUAGE_IDS
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,8 @@ def ensure_user_cfg_language(language: str | None = None) -> bool:
     """
     if language is None:
         language = AppSettings.get_selected_language()
+
+    language = SC_LANGUAGE_IDS.get(language, language)
 
     channel_path = AppSettings.get_game_install_path()
     if not channel_path:

@@ -8,6 +8,16 @@ import winreg
 
 logger = logging.getLogger(__name__)
 
+# Maps our internal language folder name → Star Citizen's language identifier
+# used in Localization directory paths and g_language in user.cfg.
+SC_LANGUAGE_IDS: dict[str, str] = {
+    "english":       "english",
+    "french":        "french_(france)",
+    "german":        "german_(germany)",
+    "spanish":       "spanish_(latin_america)",
+    "portuguese_br": "portuguese_(brazil)",
+}
+
 
 class AppSettings:
     """Wrapper around QSettings for application configuration."""
@@ -230,6 +240,19 @@ class AppSettings:
     def set_selected_language(language: str) -> None:
         """Persist the active language name."""
         AppSettings.settings().setValue(AppSettings.SELECTED_LANGUAGE, language)
+
+    @staticmethod
+    def get_sc_language_id(language: str | None = None) -> str:
+        """Map our internal language folder name to the SC language identifier.
+
+        Star Citizen uses identifiers like ``portuguese_(brazil)`` in both its
+        Localization directory paths and ``g_language`` in user.cfg.  Our folder
+        names (e.g. ``portuguese_br``) are shorter for filesystem convenience.
+        Falls back to the raw name if no mapping entry exists.
+        """
+        if language is None:
+            language = AppSettings.get_selected_language()
+        return SC_LANGUAGE_IDS.get(language, language)
 
     @staticmethod
     def get_languages_dir() -> "Path":
@@ -1694,17 +1717,17 @@ class AppSettings:
         scattered ``if name == "LIVE"`` branches that don't cover the new
         channels.
         """
-        language = AppSettings.get_selected_language()
+        sc_lang = AppSettings.get_sc_language_id()
         channel_path = AppSettings.get_channel_install_path()
         if channel_path:
-            return Path(channel_path) / "data" / "Localization" / language / "global.ini"
+            return Path(channel_path) / "data" / "Localization" / sc_lang / "global.ini"
 
         game_path = Path(AppSettings.get_game_install_path())
         if game_path.name.upper() in {c.upper() for c in AppSettings.AVAILABLE_CHANNELS}:
-            return game_path / "data" / "Localization" / language / "global.ini"
+            return game_path / "data" / "Localization" / sc_lang / "global.ini"
         return (
             game_path / AppSettings.get_active_channel()
-            / "data" / "Localization" / language / "global.ini"
+            / "data" / "Localization" / sc_lang / "global.ini"
         )
 
     @staticmethod

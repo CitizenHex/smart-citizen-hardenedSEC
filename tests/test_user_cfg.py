@@ -63,16 +63,16 @@ class TestEnsureUserCfgLanguage:
         # And we must not have mutated the user's preferred format.
         assert existing_line in content
 
-    def test_leaves_non_english_value_alone(self, channel_dir):
+    def test_writes_sc_language_id_for_non_english(self, channel_dir):
+        """Internal IDs (e.g. portuguese_br) map to SC language IDs in user.cfg."""
         (channel_dir / "user.cfg").write_text(
-            "g_language = french\n", encoding="utf-8"
+            "r_VSync = 1\n", encoding="utf-8"
         )
-        assert ensure_user_cfg_language(language="french") is True
+        assert ensure_user_cfg_language(language="portuguese_br") is True
 
         content = _user_cfg(channel_dir)
-        assert content.count("g_language") == 1
-        assert "g_language = french" in content
-        assert "english" not in content
+        assert "g_language = portuguese_(brazil)" in content
+        assert "portuguese_br" not in content
 
     def test_returns_false_when_install_path_unset(self, tmp_path):
         with patch("src.utils.user_cfg.AppSettings") as mock_settings:
