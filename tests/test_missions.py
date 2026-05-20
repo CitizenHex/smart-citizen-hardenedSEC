@@ -202,13 +202,17 @@ class TestMissionDescStructure:
                     stats_section = value[value.index(marker):]
                     break
             # At least one recognizable line: stats (Reputation XP, Tier XP),
-            # flags (Mission Type), or encounter data (Enemies, Non-hostiles)
+            # flags (Mission Type), or encounter data (Hostiles / Friendlies /
+            # Objectives / Unknown — the 1.4.1 four-bucket replacement for
+            # the pre-1.4.1 Enemies / Non-hostiles pair).
             has_content = (
                 "Reputation XP" in stats_section
                 or "Tier" in stats_section
                 or "Mission Type:" in stats_section
-                or "Enemies" in stats_section
-                or "Non-hostiles" in stats_section
+                or "Hostiles:" in stats_section
+                or "Friendlies:" in stats_section
+                or "Objectives:" in stats_section
+                or "Unknown:" in stats_section
             )
             assert has_content, (
                 f"Stats block in {key} has no recognizable content"

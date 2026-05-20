@@ -153,8 +153,15 @@ def test_turrets_excluded_from_enemy_count(gen_module):
         '</SpawnDescription_ShipGroup>'
         '</spawnDescriptions>'
     )
-    waves, enemies, non_hostiles = gen_module._extract_spawn_counts(root)
-    assert enemies == 4, "Turrets should not be counted as Enemies"
-    assert non_hostiles == 0
+    breakdown = gen_module._extract_spawn_counts(root)
+    # The non-turret hostile group contributes its 4 ships to Hostiles. The
+    # ``Hostiles`` group name routes to the "Hostiles" label via the generic
+    # hostile keyword.
+    assert breakdown[gen_module.SPAWN_HOSTILE] == {"Hostiles": 4}, (
+        "Turrets should not be counted as Hostiles"
+    )
+    assert breakdown[gen_module.SPAWN_FRIENDLY] == {}
+    assert breakdown[gen_module.SPAWN_OBJECTIVE] == {}
+    assert breakdown[gen_module.SPAWN_UNKNOWN] == {}
     # Turret count surfaces via the dedicated extractor instead.
     assert gen_module._extract_turret_info(root) == "3 (hostile)"
