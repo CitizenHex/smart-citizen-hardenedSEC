@@ -381,6 +381,7 @@ class MainWindow(QMainWindow):
         self.config_tab.channel_changed.connect(self._on_channel_changed)
         self.config_tab.check_updates_requested.connect(self._on_check_updates_clicked)
         self.config_tab.data_dir_changed.connect(self._on_data_dir_changed)
+        self.config_tab.cache_dir_changed.connect(self._on_cache_dir_changed)
         self._config_tab_index = self.tabs.addTab(self.config_tab, "Config")
 
         # Enhancements tab
@@ -2596,6 +2597,51 @@ class MainWindow(QMainWindow):
         )
         self.perform_merge_and_reload()
 
+    @pyqtSlot(str)
+    def _on_cache_dir_changed(self, new_cache_leaf: str) -> None:
+        """Kick off a DataForge re-extraction against the new cache location.
+
+        Config tab handles the user prompt + persists the override + queues
+        the old cache for cleanup (via ``PENDING_CACHE_CLEANUP``). Our job is
+        just to trigger the re-extract; ``_on_dataforge_extract_finished``
+        drains the cleanup queue on success.
+        """
+        logger.info(f"MainWindow reacting to cache folder change → {new_cache_leaf}")
+        self.statusBar().showMessage(
+            "DataForge cache folder changed — re-extracting from Data.p4k…"
+        )
+        self._run_dataforge_extraction()
+
+    def _cleanup_pending_old_cache(self) -> None:
+        """Remove the orphaned old cache directory queued by the Config tab.
+
+        Called from ``_on_dataforge_extract_finished`` after a successful
+        re-extract. No-op when nothing is queued. Failure to delete is
+        logged but doesn't surface as an error — the user can always remove
+        the orphan manually, and partial cleanup is preferable to blocking
+        the post-extract reload flow.
+        """
+        queued = AppSettings.get_pending_cache_cleanup()
+        if not queued:
+            return
+        old_path = Path(queued)
+        # Clear the setting first — even if rmtree fails partway, we don't
+        # want to retry it on every subsequent extraction and stomp on a
+        # half-deleted tree.
+        AppSettings.set_pending_cache_cleanup(None)
+        if not old_path.exists():
+            logger.info(f"Queued cache cleanup target already absent: {old_path}")
+            return
+        try:
+            import shutil
+            shutil.rmtree(old_path, ignore_errors=False)
+            logger.info(f"Removed old DataForge cache at {old_path}")
+        except Exception as e:
+            logger.warning(
+                f"Could not remove old DataForge cache at {old_path}: {e}. "
+                "Delete it manually if you want to reclaim the disk space."
+            )
+
     def _update_status_bar(self):
         """Compose sync status from all configured sources plus entry counts and game version.
 
@@ -3196,6 +3242,10 @@ class MainWindow(QMainWindow):
         self.enhancements_tab.refresh_forge_status()
 
         if success:
+            # Drain any cache-dir-change cleanup queued by the Config tab.
+            # The user picked "Re-extract and delete old" earlier; now that
+            # the new location has a populated cache, the orphan can go.
+            self._cleanup_pending_old_cache()
             # Hand the progress dialog off to the enhancements phase rather
             # than closing it here. Closing + re-opening leaves a visible
             # gap between the snapshot completing and the new dialog

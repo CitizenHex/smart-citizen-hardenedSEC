@@ -37,6 +37,13 @@ class ConfigTab(QWidget):
     # Emitted after the Smart Citizen data folder override has been saved.
     # MainWindow re-syncs source paths and reloads against the new location.
     data_dir_changed = pyqtSignal(str)
+    # Emitted after the DataForge cache folder override has been saved AND
+    # the user confirmed (in the re-extraction dialog) that the cache should
+    # be rebuilt against the new location. MainWindow listens and triggers
+    # P4K extraction. If the user picked "delete old cache after re-extract",
+    # the old path is also stashed in AppSettings.PENDING_CACHE_CLEANUP for
+    # the post-extract cleanup step.
+    cache_dir_changed = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -153,14 +160,20 @@ class ConfigTab(QWidget):
         data_layout = QVBoxLayout(data_group)
 
         data_desc = QLabel(
-            "Folder for user.ini, source cache, DataForge extraction, enhancement INIs, "
-            "and backups. Move this off OneDrive-synced Documents if extraction is slow "
-            "or cache cleanup fails."
+            "Folder for user.ini, source cache, enhancement INIs, and backups. "
+            "Move this off OneDrive-synced Documents if cache cleanup fails. "
+            "The DataForge XML cache has its own path below — it's ~1.4 GB so "
+            "the default keeps it out of OneDrive automatically."
         )
         data_desc.setProperty("role", "secondary")
         data_desc.setStyleSheet("font-size: 11px; margin-bottom: 5px;")
         data_desc.setWordWrap(True)
         data_layout.addWidget(data_desc)
+
+        # Sub-label for the user-data row.
+        data_label = QLabel("App data folder:")
+        data_label.setStyleSheet("font-size: 11px;")
+        data_layout.addWidget(data_label)
 
         data_input_layout = QHBoxLayout()
         self.data_dir_input = QLineEdit()
@@ -185,6 +198,44 @@ class ConfigTab(QWidget):
         data_input_layout.addWidget(data_reset_btn)
 
         data_layout.addLayout(data_input_layout)
+
+        # ── DataForge cache row ──────────────────────────────────────────
+        # Independent from the app-data folder above so users can route the
+        # ~1.4 GB / ~28k-file DataForge tree to a fast local SSD while
+        # keeping their tiny user.ini / sources where they like. Default
+        # base is %LOCALAPPDATA% (registry) or <exe-dir>/data/cache/
+        # (portable) — both never OneDrive-synced.
+        cache_label = QLabel("DataForge cache folder:")
+        cache_label.setStyleSheet("font-size: 11px; margin-top: 8px;")
+        data_layout.addWidget(cache_label)
+
+        cache_input_layout = QHBoxLayout()
+        self.cache_dir_input = QLineEdit()
+        self.cache_dir_input.setText(
+            os.path.normpath(str(AppSettings.get_dataforge_cache_base()))
+        )
+        self.cache_dir_input.setToolTip(
+            "Base folder for the extracted DataForge XML tree (~1.4 GB). Each "
+            "channel nests under this as {base}\\{channel}\\cache\\dataforge\\. "
+            "Defaults to %LOCALAPPDATA%\\Smart Citizen so it stays out of "
+            "OneDrive. Changing the path triggers a re-extraction."
+        )
+        self.cache_dir_input.editingFinished.connect(self._save_cache_dir)
+        cache_input_layout.addWidget(self.cache_dir_input)
+
+        cache_browse_btn = QPushButton("Browse...")
+        cache_browse_btn.setMaximumWidth(100)
+        cache_browse_btn.setToolTip("Pick the DataForge cache base folder in a folder browser.")
+        cache_browse_btn.clicked.connect(self._browse_cache_dir)
+        cache_input_layout.addWidget(cache_browse_btn)
+
+        cache_reset_btn = QPushButton("Reset")
+        cache_reset_btn.setMaximumWidth(80)
+        cache_reset_btn.setToolTip("Clear the custom cache folder and use the platform default.")
+        cache_reset_btn.clicked.connect(self._reset_cache_dir)
+        cache_input_layout.addWidget(cache_reset_btn)
+
+        data_layout.addLayout(cache_input_layout)
         layout.addWidget(data_group)
 
         # ── P4K Extraction ───────────────────────────────────────────────────
@@ -408,6 +459,155 @@ class ConfigTab(QWidget):
             logger.info(f"Smart Citizen data folder reset to default: {new_dir}")
             self._refresh_p4k_status()
             self.data_dir_changed.emit(str(new_dir))
+
+    # ── DataForge cache folder ───────────────────────────────────────────────
+    # The cache path is independent of the app-data path so users can target
+    # a fast local SSD for the 1.4 GB DataForge tree without disturbing their
+    # user.ini / sources. Changing the path requires a re-extraction (the
+    # old cache contents aren't migrated — moving 28k tiny files is slower
+    # than letting unforge rebuild from Data.p4k), so the user gets a
+    # 3-button prompt: Re-extract + delete old / Re-extract + keep old /
+    # Cancel. Cancel reverts the input to the previous value.
+
+    def _maybe_apply_cache_change(self, new_override: "str | None") -> bool:
+        """Common path for set/browse/reset.
+
+        Returns ``True`` when the new override was accepted (the caller
+        should refresh the input field) and ``False`` when the user
+        cancelled the migration dialog (caller should revert the input).
+        """
+        old_base = AppSettings.get_dataforge_cache_base()
+        old_leaf = AppSettings.get_dataforge_cache_dir()
+        # Stash + temporarily apply the prospective override so the resolved
+        # base picks up env-var expansion + resolve() in the same code path
+        # production uses. Revert if the user cancels.
+        prev_override = AppSettings.get_cache_dir_override()
+        AppSettings.set_cache_dir(new_override)
+        new_base = AppSettings.get_dataforge_cache_base()
+        new_leaf = AppSettings.get_dataforge_cache_dir()
+
+        if new_base == old_base:
+            # No-op change (e.g. user typed the same path they had). The
+            # mkdir inside get_dataforge_cache_dir is harmless.
+            return True
+
+        # Only prompt when the old cache actually has extracted content.
+        # The ``.p4k_mtime`` stamp is written by pak_extractor.py once an
+        # extraction succeeds, so its presence is the cheapest "is this a
+        # populated cache" probe (avoids walking 28k files).
+        old_has_content = (old_leaf / ".p4k_mtime").exists()
+        if not old_has_content:
+            logger.info(
+                f"DataForge cache base changed: {old_base} → {new_base} "
+                f"(old leaf empty; no migration prompt)"
+            )
+            self.cache_dir_changed.emit(str(new_leaf))
+            return True
+
+        # The shipped behavior is: never silently move ~1.4 GB. We ask the
+        # user up-front whether to also clean up the orphan, and only the
+        # cleanup is deferred (after re-extraction completes). The
+        # re-extraction itself is triggered immediately via the signal so
+        # the user can fire it off and walk away.
+        prompt = QMessageBox(self)
+        prompt.setWindowTitle("DataForge Cache Path Changed")
+        prompt.setIcon(QMessageBox.Icon.Question)
+        prompt.setText(
+            "Changing the DataForge cache path requires re-extracting "
+            "from Data.p4k.\n\nWhat should happen to the previous cache "
+            "after re-extraction completes?"
+        )
+        prompt.setInformativeText(f"Old: {old_leaf}\nNew: {new_leaf}")
+        delete_btn = prompt.addButton("Re-extract && delete old", QMessageBox.ButtonRole.AcceptRole)
+        keep_btn = prompt.addButton("Re-extract && keep old", QMessageBox.ButtonRole.AcceptRole)
+        cancel_btn = prompt.addButton(QMessageBox.StandardButton.Cancel)
+        prompt.setDefaultButton(keep_btn)
+        prompt.exec()
+        clicked = prompt.clickedButton()
+
+        if clicked is cancel_btn:
+            AppSettings.set_cache_dir(prev_override or None)
+            return False
+
+        if clicked is delete_btn:
+            # MainWindow drains this after the next successful re-extract.
+            AppSettings.set_pending_cache_cleanup(old_leaf)
+            logger.info(
+                f"DataForge cache path changed; queued old cache for cleanup "
+                f"after re-extraction: {old_leaf}"
+            )
+        else:
+            # Re-extract + keep old: don't queue cleanup. The orphan stays
+            # until the user removes it manually.
+            AppSettings.set_pending_cache_cleanup(None)
+            logger.info(
+                f"DataForge cache path changed; old cache retained at {old_leaf}"
+            )
+
+        self.cache_dir_changed.emit(str(new_leaf))
+        return True
+
+    def _save_cache_dir(self):
+        raw_path = self.cache_dir_input.text().strip()
+        if raw_path:
+            raw_path = os.path.normpath(raw_path)
+
+        try:
+            if raw_path:
+                target = Path(os.path.expandvars(raw_path)).expanduser().resolve()
+                if target.exists() and not target.is_dir():
+                    QMessageBox.warning(
+                        self,
+                        "Invalid Cache Folder",
+                        f"The selected cache folder is a file, not a directory:\n{target}",
+                    )
+                    self.cache_dir_input.setText(
+                        os.path.normpath(str(AppSettings.get_dataforge_cache_base()))
+                    )
+                    return
+                target.mkdir(parents=True, exist_ok=True)
+                accepted = self._maybe_apply_cache_change(str(target))
+            else:
+                accepted = self._maybe_apply_cache_change(None)
+        except OSError as e:
+            logger.warning(f"Could not use DataForge cache folder {raw_path!r}: {e}")
+            QMessageBox.warning(
+                self,
+                "Invalid Cache Folder",
+                f"Smart Citizen could not use that cache folder:\n{e}",
+            )
+            self.cache_dir_input.setText(
+                os.path.normpath(str(AppSettings.get_dataforge_cache_base()))
+            )
+            return
+
+        # Always re-read AppSettings on exit — the user may have cancelled,
+        # in which case the override is restored to its previous value.
+        self.cache_dir_input.setText(
+            os.path.normpath(str(AppSettings.get_dataforge_cache_base()))
+        )
+        if accepted:
+            self._refresh_p4k_status()
+
+    def _browse_cache_dir(self):
+        start_dir = (
+            self.cache_dir_input.text().strip()
+            or str(AppSettings.get_dataforge_cache_base())
+        )
+        path = QFileDialog.getExistingDirectory(
+            self, "Select DataForge Cache Folder", start_dir
+        )
+        if path:
+            self.cache_dir_input.setText(path)
+            self._save_cache_dir()
+
+    def _reset_cache_dir(self):
+        accepted = self._maybe_apply_cache_change(None)
+        self.cache_dir_input.setText(
+            os.path.normpath(str(AppSettings.get_dataforge_cache_base()))
+        )
+        if accepted:
+            self._refresh_p4k_status()
 
     # ── Channel selector ─────────────────────────────────────────────────────
 
