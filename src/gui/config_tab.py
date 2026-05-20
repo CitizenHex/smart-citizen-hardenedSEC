@@ -87,11 +87,31 @@ class ConfigTab(QWidget):
 
         import_btn = QPushButton("Import INI...")
         import_btn.setMaximumWidth(150)
+        import_btn.setToolTip(
+            "Fold an external .ini into your overrides. A conflict-resolution "
+            "dialog lets you decide per key: keep current, use imported, append, "
+            "prepend, or provide a custom value."
+        )
         import_btn.clicked.connect(self.import_ini_requested.emit)
         button_layout.addWidget(import_btn)
 
+        reset_user_ini_btn = QPushButton("Reset user.ini...")
+        reset_user_ini_btn.setMaximumWidth(150)
+        reset_user_ini_btn.setToolTip(
+            "Delete every custom string override for the active channel. "
+            "A timestamped backup is saved next to the original so you can restore it."
+        )
+        reset_user_ini_btn.clicked.connect(self.reset_user_ini_requested.emit)
+        button_layout.addWidget(reset_user_ini_btn)
+
         preview_btn = QPushButton("Preview Apply")
         preview_btn.setMaximumWidth(150)
+        preview_btn.setToolTip(
+            "Dry-run summary of what Apply to Game would write — per-source key "
+            "counts (with Enhancements broken down by category) and a "
+            "Modified / Enhanced / Unmodified / New status tally. Nothing is "
+            "written to the game until you click Apply to Game."
+        )
         preview_btn.clicked.connect(self.preview_merge)
         button_layout.addWidget(preview_btn)
 
@@ -394,68 +414,6 @@ class ConfigTab(QWidget):
         layout.addWidget(p4k_group)
 
         self._refresh_p4k_status()
-
-        # ── Tools ────────────────────────────────────────────────────────────
-        tools_group = QGroupBox("Tools")
-        tools_layout = QVBoxLayout(tools_group)
-
-        tools_desc = QLabel(
-            "Import an external INI file to merge custom strings into your user.ini. "
-            "Keys are validated against base.ini, and conflicts are resolved interactively."
-        )
-        tools_desc.setProperty("role", "secondary")
-        tools_desc.setStyleSheet("font-size: 11px;")
-        tools_desc.setWordWrap(True)
-        tools_layout.addWidget(tools_desc)
-
-        button_layout = QHBoxLayout()
-
-        import_btn = QPushButton("Import INI...")
-        import_btn.setMaximumWidth(150)
-        import_btn.setToolTip(
-            "Fold an external .ini into your overrides. A conflict-resolution "
-            "dialog lets you decide per key: keep current, use imported, append, "
-            "prepend, or provide a custom value."
-        )
-        import_btn.clicked.connect(self.import_ini_requested.emit)
-        button_layout.addWidget(import_btn)
-
-        reset_user_ini_btn = QPushButton("Reset user.ini...")
-        reset_user_ini_btn.setMaximumWidth(150)
-        reset_user_ini_btn.setToolTip(
-            "Delete every custom string override for the active channel. "
-            "A timestamped backup is saved next to the original so you can restore it."
-        )
-        reset_user_ini_btn.clicked.connect(self.reset_user_ini_requested.emit)
-        button_layout.addWidget(reset_user_ini_btn)
-
-        preview_btn = QPushButton("Preview Apply")
-        preview_btn.setMaximumWidth(150)
-        preview_btn.setToolTip(
-            "Dry-run summary of what Apply to Game would write — per-source key "
-            "counts (with Enhancements broken down by category) and a "
-            "Modified / Enhanced / Unmodified / New status tally. Nothing is "
-            "written to the game until you click Apply to Game."
-        )
-        preview_btn.clicked.connect(self.preview_merge)
-        button_layout.addWidget(preview_btn)
-
-        self._check_updates_btn = QPushButton("Check for Updates")
-        self._check_updates_btn.setMaximumWidth(170)
-        self._check_updates_btn.setToolTip(
-            "Check GitHub for a newer Smart Citizen release."
-        )
-        self._check_updates_btn.clicked.connect(self.check_updates_requested.emit)
-        button_layout.addWidget(self._check_updates_btn)
-
-        self._update_status_label = QLabel("")
-        self._update_status_label.setProperty("role", "secondary")
-        self._update_status_label.setStyleSheet("font-size: 11px;")
-        button_layout.addWidget(self._update_status_label)
-
-        button_layout.addStretch()
-        tools_layout.addLayout(button_layout)
-        layout.addWidget(tools_group)
 
         layout.addStretch()
 
