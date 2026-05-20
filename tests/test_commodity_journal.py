@@ -36,6 +36,130 @@ def gen_module():
     return mod
 
 
+class TestCraftingCostItemPickup:
+    """Regression: ``CraftingCost_Item entityClass=...`` references must be
+    counted as crafting material references alongside ``CraftingCost_Resource
+    resource=...``.
+
+    Pre-1.4.1 the scanner only collected the Resource path, which silently
+    excluded every blueprint slot that referenced a carryable directly by its
+    entity-class UUID. Concretely: the Omnisky III laser cannon spec spawns
+    Hadanite (Emitter) and Dolivine (Aperture Iris) via CraftingCost_Item,
+    so neither gem was getting the ``[CF]`` tag or the Mining Compendium
+    augmentation despite being in active crafting recipes.
+
+    Also locks the filename regex extension covering the
+    ``harvestable_mineral_1h_<gem>`` entity files where hand-mineable gems
+    actually live (the existing ``commodity_(metal|mineral|...)_<name>``
+    pattern matched bulk carryables only).
+    """
+
+    def test_resolve_collects_item_entityclass_uuids(self, gen_module, tmp_path):
+        bp_file = tmp_path / "bp_test.xml"
+        bp_file.write_text(
+            '<CraftingBlueprintRecord __type="CraftingBlueprintRecord">'
+            '<options>'
+            '<CraftingCost_Resource resource="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"/>'
+            '<CraftingCost_Item entityClass="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" quantity="3"/>'
+            '<CraftingCost_Item entityClass="00000000-0000-0000-0000-000000000000"/>'
+            '</options>'
+            '</CraftingBlueprintRecord>',
+            encoding="utf-8",
+        )
+        uuids = gen_module._resolve_resource_uuids(tmp_path)
+        assert "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" in uuids, (
+            "CraftingCost_Resource UUID must still be collected"
+        )
+        assert "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" in uuids, (
+            "CraftingCost_Item entityClass UUID must be collected"
+        )
+        assert "00000000-0000-0000-0000-000000000000" not in uuids, (
+            "Zero-UUID sentinel must be filtered"
+        )
+
+    def test_filename_regex_matches_harvestable_handheld(self, gen_module, tmp_path):
+        """An ``harvestable_mineral_1h_<gem>.xml`` carryable referenced by a
+        blueprint via CraftingCost_Item must resolve to its gem commodity."""
+        gem_uuid = "1234abcd-1234-abcd-1234-1234abcd1234"
+
+        # Carryable file with the handheld filename schema.
+        carryables = tmp_path / "carryables"
+        carryables.mkdir()
+        (carryables / "harvestable_mineral_1h_hadanite.xml").write_text(
+            f'<Entity __ref="{gem_uuid}"/>', encoding="utf-8"
+        )
+
+        # Blueprint references the gem via CraftingCost_Item.
+        bp_dir = tmp_path / "bp"
+        bp_dir.mkdir()
+        (bp_dir / "bp_craft_test_weapon.xml").write_text(
+            f'<CraftingBlueprintRecord>'
+            f'<CraftingProcess_Creation entityClass="ffff0000-0000-0000-0000-000000000000"/>'
+            f'<CraftingCost_Item entityClass="{gem_uuid}" quantity="7"/>'
+            f'</CraftingBlueprintRecord>',
+            encoding="utf-8",
+        )
+
+        loc = {
+            "items_commodities_hadanite": "Hadanite",
+            "items_commodities_hadanite_desc": "A crystal oscillator.",
+        }
+        commodities, _journal = gen_module.scan_crafting_blueprints(
+            bp_dir=bp_dir,
+            carryables_dir=carryables,
+            entity_names={},
+            loc=loc,
+        )
+        assert "items_commodities_hadanite" in commodities
+        assert "[CF]" in commodities["items_commodities_hadanite"]
+        assert "items_commodities_hadanite_desc" in commodities
+        assert "BLUEPRINT DATA" in commodities["items_commodities_hadanite_desc"]
+
+    def test_resource_and_item_paths_unify(self, gen_module, tmp_path):
+        """When a single blueprint uses both element types, BOTH commodities
+        get attributed to that blueprint."""
+        agricium_uuid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        hadanite_uuid = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+
+        carryables = tmp_path / "carryables"
+        carryables.mkdir()
+        # Bulk-schema carryable referencing the abstract resource UUID.
+        (carryables / "carryable_tbo_fl_1scu_commodity_metal_agricium.xml").write_text(
+            f'<Entity><Reference value="{agricium_uuid}"/></Entity>',
+            encoding="utf-8",
+        )
+        # Handheld-schema carryable with its own __ref as the entity UUID.
+        (carryables / "harvestable_mineral_1h_hadanite.xml").write_text(
+            f'<Entity __ref="{hadanite_uuid}"/>', encoding="utf-8"
+        )
+
+        bp_dir = tmp_path / "bp"
+        bp_dir.mkdir()
+        (bp_dir / "bp_craft_omnisky_like.xml").write_text(
+            f'<CraftingBlueprintRecord>'
+            f'<CraftingProcess_Creation entityClass="ffff0000-0000-0000-0000-000000000000"/>'
+            f'<CraftingCost_Resource resource="{agricium_uuid}"/>'
+            f'<CraftingCost_Item entityClass="{hadanite_uuid}" quantity="7"/>'
+            f'</CraftingBlueprintRecord>',
+            encoding="utf-8",
+        )
+
+        loc = {
+            "items_commodities_agricium": "Agricium",
+            "items_commodities_agricium_desc": "Industrial mineral.",
+            "items_commodities_hadanite": "Hadanite",
+            "items_commodities_hadanite_desc": "A crystal oscillator.",
+        }
+        commodities, _journal = gen_module.scan_crafting_blueprints(
+            bp_dir=bp_dir,
+            carryables_dir=carryables,
+            entity_names={},
+            loc=loc,
+        )
+        assert "[CF]" in commodities.get("items_commodities_agricium", "")
+        assert "[CF]" in commodities.get("items_commodities_hadanite", "")
+
+
 class TestScanCraftingBlueprintsReturnShape:
     def test_missing_directory_returns_two_empty_dicts(self, gen_module, tmp_path):
         """The early-return path (no crafting blueprints dir) must produce a

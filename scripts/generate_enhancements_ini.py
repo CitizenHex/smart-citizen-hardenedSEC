@@ -2834,7 +2834,32 @@ def _resolve_resource_uuids(
     xml_path_index: dict | None = None,
     records_dir: Path | None = None,
 ) -> set[str]:
-    """Collect all CraftingCost_Resource UUIDs referenced in blueprint XMLs."""
+    """Collect every material UUID a blueprint references — via both
+    ``CraftingCost_Resource resource=...`` and ``CraftingCost_Item
+    entityClass=...``.
+
+    The two element types serve different blueprint slots:
+
+    * ``CraftingCost_Resource`` points at an abstract resource-type UUID
+      (e.g. the "agricium" resource pool); it appears INSIDE every
+      carryable variant of that commodity as a tag reference, which is
+      how the downstream resolver in :func:`_build_uuid_to_commodity`
+      maps the UUID back to the commodity name. The FRAME slot in most
+      laser-cannon blueprints uses this path.
+
+    * ``CraftingCost_Item`` points directly at a carryable's own
+      ``__ref`` UUID (the entity-class UUID). The EMITTER and APERTURE
+      IRIS slots on the Omnisky III, for example, reference
+      ``harvestable_mineral_1h_hadanite.xml`` and ``..._dolivine.xml``
+      by their entity UUIDs. Pre-1.4.1 the scanner only picked up the
+      Resource path, so every gem component (Hadanite/Aphorite/
+      Dolivine/Janalite) was silently absent from the ``[CF]`` tag and
+      Mining Compendium augmentation.
+
+    Both UUID types share the same downstream resolution mechanism
+    (substring search inside carryable XML content), so the caller gets
+    a unified set.
+    """
     uuids: set[str] = set()
     if not bp_dir.exists():
         return uuids
@@ -2847,10 +2872,15 @@ def _resolve_resource_uuids(
         try:
             root = ET.parse(xml_file).getroot()
             for elem in root.iter():
-                if _poly_type(elem) == "CraftingCost_Resource":
-                    r = elem.get("resource", "")
-                    if r and r != "00000000-0000-0000-0000-000000000000":
-                        uuids.add(r)
+                ptype = _poly_type(elem)
+                if ptype == "CraftingCost_Resource":
+                    uid = elem.get("resource", "")
+                elif ptype == "CraftingCost_Item":
+                    uid = elem.get("entityClass", "")
+                else:
+                    continue
+                if uid and uid != "00000000-0000-0000-0000-000000000000":
+                    uuids.add(uid)
         except ET.ParseError:
             pass
     return uuids
@@ -2912,7 +2942,19 @@ def _build_uuid_to_commodity(
             if not matched_uuids:
                 continue
             fname = xml_file.stem
-            m = re.search(r"commodity_(?:metal|mineral|minerals|nonmetal|gas)_(\w+?)(?:_[a-d])?$", fname)
+            # Two filename schemas cover all carryable variants:
+            #   - bulk:       carryable_*_commodity_(metal|mineral|...)_<name>(_a..d)?
+            #   - handheld:   harvestable_(mineral|metal|ore)_(1h|2h)_<name>
+            # The handheld schema is where hand-mineable gems live
+            # (Hadanite/Aphorite/Dolivine/Janalite); pre-1.4.1 only the
+            # bulk schema was recognised, so blueprints referencing a gem
+            # via ``CraftingCost_Item entityClass=<harvestable_uuid>`` had
+            # no commodity name to map to and silently fell out.
+            m = re.search(
+                r"(?:commodity_(?:metal|mineral|minerals|nonmetal|gas)|"
+                r"harvestable_(?:mineral|metal|ore)_\dh)_(\w+?)(?:_[a-d])?$",
+                fname,
+            )
             if m:
                 commodity = _normalize_commodity_name(m.group(1))
                 for uid in matched_uuids:
@@ -3055,10 +3097,15 @@ def scan_crafting_blueprints(
                     break
             materials: set[str] = set()
             for elem in root.iter():
-                if _poly_type(elem) == "CraftingCost_Resource":
-                    r = elem.get("resource", "")
-                    if r in uuid_names:
-                        materials.add(uuid_names[r])
+                ptype = _poly_type(elem)
+                if ptype == "CraftingCost_Resource":
+                    uid = elem.get("resource", "")
+                elif ptype == "CraftingCost_Item":
+                    uid = elem.get("entityClass", "")
+                else:
+                    continue
+                if uid in uuid_names:
+                    materials.add(uuid_names[uid])
             for mat in materials:
                 commodity_items[mat].append((category, item_name))
         except ET.ParseError:
