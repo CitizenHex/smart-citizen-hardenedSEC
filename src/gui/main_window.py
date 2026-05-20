@@ -3134,11 +3134,14 @@ class MainWindow(QMainWindow):
 
         # Tag-builder config (issue #31): read once here on the main thread
         # and hand the worker a plain dict, so the generator's worker
-        # thread/subprocess never touches a live QSettings handle.
+        # thread/subprocess never touches a live QSettings handle. Same
+        # rule for the mission-desc annotation toggle.
         tag_configs = AppSettings.get_all_tag_configs()
+        annotate_mission_descs = AppSettings.get_tag_annotate_mission_descs()
 
         self._enhancements_worker = EnhancementsGeneratorWorker(
-            categories=categories, tag_configs=tag_configs
+            categories=categories, tag_configs=tag_configs,
+            annotate_mission_descs=annotate_mission_descs,
         )
         self.enhancements_tab.set_operation_running("Generating enhancements…")
         self.statusBar().showMessage("Generating enhancements in background…")

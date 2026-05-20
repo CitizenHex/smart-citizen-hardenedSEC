@@ -128,6 +128,12 @@ class AppSettings:
     # "delete old cache after re-extraction". The path is removed after the
     # next successful P4K extraction so the 1.4 GB orphan doesn't linger.
     PENDING_CACHE_CLEANUP = "pending_cache_cleanup"
+    # When True (default) the components Tag Builder annotation is woven
+    # into the POTENTIAL BLUEPRINTS lists inside mission descriptions
+    # (e.g. "[MIL-S1-A] Norfield"). Users who want clean mission body
+    # text can turn it off here without affecting the inline tags on
+    # the actual component names elsewhere. Issue #31 follow-up.
+    TAG_ANNOTATE_MISSION_DESCS = "tag_builder/annotate_mission_descs"
 
     # Settings keys - Data sources (new)
     # Prefix: data_sources/{source_name}/
@@ -288,6 +294,31 @@ class AppSettings:
         """Return TagConfigs for every supported category (defaults fill in)."""
         from src.utils.tag_builder import CATEGORIES
         return {cat: AppSettings.get_tag_config(cat) for cat in CATEGORIES}
+
+    @staticmethod
+    def get_tag_annotate_mission_descs() -> bool:
+        """Whether component tags are woven into POTENTIAL BLUEPRINTS lists
+        inside mission descriptions. Default True (annotation enabled),
+        preserving the v1.4.0 behavior. Issue #31 follow-up — when False,
+        the BP-pool resolver skips the tag weave entirely and mission
+        bodies render with bare names."""
+        raw = AppSettings.settings().value(
+            AppSettings.TAG_ANNOTATE_MISSION_DESCS, True, type=bool
+        )
+        # QSettings on registry mode round-trips True via the bool type
+        # arg; JsonSettings stores the raw value and we may get None
+        # for "never set", which falls through to True by intent.
+        if raw is None:
+            return True
+        return bool(raw)
+
+    @staticmethod
+    def set_tag_annotate_mission_descs(enabled: bool) -> None:
+        """Persist the mission-desc annotation toggle."""
+        AppSettings.settings().setValue(
+            AppSettings.TAG_ANNOTATE_MISSION_DESCS, bool(enabled)
+        )
+        AppSettings.settings().sync()
 
     @staticmethod
     def get_tutorial_completed_version() -> str:

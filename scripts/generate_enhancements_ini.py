@@ -3968,6 +3968,13 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     reputation_lookup = ctx["reputation_lookup"]
     xml_path_index    = ctx.get("xml_path_index")
     tag_configs       = ctx.get("tag_configs") or {}
+    # User toggle (Enhancements tab) for the inline component annotation
+    # in mission descriptions. Default True preserves v1.4.0 behavior. When
+    # False, we pass an empty tag dict so build_blueprint_pool_lookup
+    # produces bare names — same code path as the back-compat case
+    # locked by test_blueprint_pool_omits_tag_when_dict_unset.
+    annotate_descs    = ctx.get("annotate_mission_descs", True)
+    effective_tags    = entity_name_tags if annotate_descs else {}
     # Mirror the components-pipeline placement onto the BP-pool tag
     # weave so a user who picks "append" sees the same shape in both
     # the components strings AND the POTENTIAL BLUEPRINTS lists inside
@@ -4015,15 +4022,17 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         lambda: build_blueprint_pool_lookup(
             pool_dir, bp_dir, entity_names,
             entity_names_by_filename=entity_names_by_filename,
-            entity_name_tags=entity_name_tags,
+            entity_name_tags=effective_tags,
             name_tag_placement=comp_placement,
         ),
         # blueprint pool names bake in the components tag — fold the
-        # components config key in so a user edit (including placement)
+        # components config key AND the annotate-toggle in so a user edit
+        # (including placement OR turning annotation off entirely)
         # invalidates this cache alongside scitem_lookups (the source
         # of entity_name_tags). The full TagConfig.to_json() includes
-        # placement so swapping prepend ↔ append still bursts the cache.
-        extra_key=ctx.get("_components_cfg_key", ""),
+        # placement so swapping prepend ↔ append still bursts the cache;
+        # the annotate=0/1 suffix bursts it on the toggle.
+        extra_key=f"{ctx.get('_components_cfg_key', '')}|annotate={int(annotate_descs)}",
     )
 
     contractgen_dir = records / "contracts" / "contractgenerator"
@@ -4395,7 +4404,8 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
          progress_callback: Optional[Callable[[int, int, str], None]] = None,
          max_workers: int = 6,
          patches_dir: Path | None = None,
-         tag_configs: "dict | None" = None) -> None:
+         tag_configs: "dict | None" = None,
+         annotate_mission_descs: bool = True) -> None:
     import sys as sys_mod
     # Deferred import — the script is loaded by both the app worker (where
     # src.utils is on the path) and as a standalone CLI, so we swallow an
@@ -4619,6 +4629,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         "xml_path_index":    xml_path_index,
         "tag_configs":       tag_configs or {},
         "_components_cfg_key": _components_cfg_key,
+        "annotate_mission_descs": bool(annotate_mission_descs),
     }
 
     gen_jobs: dict[str, Callable] = {}
