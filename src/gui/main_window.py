@@ -404,16 +404,11 @@ class MainWindow(QMainWindow):
         footer_layout = self.create_footer()
         main_layout.addLayout(footer_layout)
 
-        # Help side-panel. Created eagerly (before restore_window_state runs)
-        # so Qt's native saveState/restoreState can persist its open/closed
-        # width across sessions — a dock only gets remembered if it exists
-        # with a stable objectName at restoreState() time. Start hidden so
-        # first-launch users aren't surprised by a panel they didn't ask for;
-        # restoreState will reopen it if the user had it open last session.
+        # Help side-panel. Created eagerly so restoreState can persist its state.
         self._ensure_help_dock()
         self.help_dock.hide()
 
-        # Editor side-panel — same eager-create rationale as the Help dock:
+        # Editor side-panel — same eager-create rationale as the help dock:
         # restoreState only remembers docks that exist with a stable
         # objectName at restore time. Hidden by default so first-launch
         # users aren't surprised.
@@ -445,13 +440,6 @@ class MainWindow(QMainWindow):
         # Button row
         button_layout = QHBoxLayout()
 
-        # Blue group — read / navigate
-        self.open_loc_dir_btn = QPushButton("Open Localization Dir")
-        self.open_loc_dir_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
-        self.open_loc_dir_btn.setToolTip("Open the game's localization directory in Windows Explorer")
-        self.open_loc_dir_btn.clicked.connect(self.open_localization_dir)
-        button_layout.addWidget(self.open_loc_dir_btn)
-
         # Green — commit
         self.apply_btn = QPushButton("Apply to Game")
         self.apply_btn.setStyleSheet(f"background-color: {get_button_color('apply')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
@@ -467,33 +455,31 @@ class MainWindow(QMainWindow):
         button_layout.addWidget(self.restore_backup_btn)
 
         # Gray group — cleanup
-        self.clear_loc_btn = QPushButton("Clear Localization")
-        self.clear_loc_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
-        self.clear_loc_btn.setToolTip("Delete the applied global.ini from the game's localization directory, reverting to vanilla game text")
-        self.clear_loc_btn.clicked.connect(self.clear_localization)
-        button_layout.addWidget(self.clear_loc_btn)
+        clear_menu = QMenu(self)
+        clear_menu.addAction("Clear Localization", self.clear_localization)
+        clear_menu.addAction("Clear Cache", self.clear_cache)
 
-        self.clear_cache_btn = QPushButton("Clear Cache")
-        self.clear_cache_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
-        self.clear_cache_btn.setToolTip("Delete all cached source files (base.ini, contracts.ini, etc.) from the local cache directory")
-        self.clear_cache_btn.clicked.connect(self.clear_cache)
-        button_layout.addWidget(self.clear_cache_btn)
+        self.clear_btn = QPushButton("Clear")
+        self.clear_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
+        self.clear_btn.setToolTip("Clear localization or cache")
+        self.clear_btn.setMenu(clear_menu)
+        button_layout.addWidget(self.clear_btn)
 
-        # Export Loc-Pack — packages the currently-applied global.ini into a
-        # zip for sharing (org-wide loc-packs, Discord drops, etc.). Reads
-        # the already-written game file rather than re-merging in memory,
-        # which keeps the export aligned with what the user has actually
-        # validated in-game. Blue 'open' info-action role since it produces
-        # output without modifying game state.
-        self.export_locpack_btn = QPushButton("Export")
-        self.export_locpack_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
-        self.export_locpack_btn.setToolTip(
-            "Package the currently-applied global.ini into a zip for sharing. "
-            "Click Apply to Game first if you haven't already — Export reads the "
-            "applied file, not the in-memory edits."
-        )
-        self.export_locpack_btn.clicked.connect(self.export_locpack)
-        button_layout.addWidget(self.export_locpack_btn)
+        import_export_menu = QMenu(self)
+        import_export_menu.addAction("Import INI…", self._handle_import_ini)
+        import_export_menu.addAction("Export INI…", self.export_locpack)
+
+        self.import_export_btn = QPushButton("Import / Export")
+        self.import_export_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
+        self.import_export_btn.setToolTip("Import an external INI or export a shareable loc-pack zip")
+        self.import_export_btn.setMenu(import_export_menu)
+        button_layout.addWidget(self.import_export_btn)
+
+        self.open_loc_dir_btn = QPushButton("Open Localization Dir")
+        self.open_loc_dir_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
+        self.open_loc_dir_btn.setToolTip("Open the game's localization directory in Windows Explorer")
+        self.open_loc_dir_btn.clicked.connect(self.open_localization_dir)
+        button_layout.addWidget(self.open_loc_dir_btn)
 
         # Editor — toggles the side-docked String Editor for editing long
         # values comfortably. Shares the 'open' info-action role so it pairs
@@ -505,9 +491,6 @@ class MainWindow(QMainWindow):
         self.editor_btn.clicked.connect(self.show_editor_dock)
         button_layout.addWidget(self.editor_btn)
 
-        # Help — sits with the other toolbar buttons rather than floating
-        # right; uses the 'open' role so it shares the blue/cyan/gold
-        # information-action palette with Open Localization Dir.
         self.help_btn = QPushButton("Help")
         self.help_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
         self.help_btn.setCheckable(True)
@@ -515,8 +498,6 @@ class MainWindow(QMainWindow):
         self.help_btn.clicked.connect(self.show_help)
         button_layout.addWidget(self.help_btn)
 
-        # Tutorial — shares the 'open' blue/cyan/gold info-action role with
-        # Help so the two read as a pair. Always restartable on demand.
         self.tutorial_btn = QPushButton("Tutorial")
         self.tutorial_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
         self.tutorial_btn.setToolTip("Start the guided tour of Smart Citizen's workflow — runs automatically on first launch; click here anytime to replay.")
@@ -1022,7 +1003,8 @@ class MainWindow(QMainWindow):
         """Toggle toolbar button enabled states."""
         self.apply_btn.setEnabled(enabled)
         self.restore_backup_btn.setEnabled(enabled)
-        self.clear_loc_btn.setEnabled(enabled)
+        self.clear_btn.setEnabled(enabled)
+        self.import_export_btn.setEnabled(enabled)
 
     @timed
     def load_default_values(self):
@@ -1606,8 +1588,7 @@ class MainWindow(QMainWindow):
         self.open_loc_dir_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {text}; {base}")
         self.apply_btn.setStyleSheet(f"background-color: {get_button_color('apply')}; color: {text}; {base}")
         self.restore_backup_btn.setStyleSheet(f"background-color: {get_button_color('restore')}; color: {text}; {base}")
-        self.clear_loc_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {text}; {base}")
-        self.clear_cache_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {text}; {base}")
+        self.clear_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {text}; {base}")
         self.editor_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {text}; {base}")
         self.help_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {text}; {base}")
         if hasattr(self, "about_browser"):
@@ -1833,20 +1814,12 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _ensure_help_dock(self) -> QDockWidget:
-        """Create the side-docked Help panel on first use and return it.
-
-        The panel is a QDockWidget docked to the right edge so users can keep
-        the guide open as a reference while editing. Users can drag it to the
-        left, undock it into a floating window, or close it via the title-bar
-        X. Qt restores its last state (position, width, visibility) on the
-        next launch because saveState/restoreState are already wired into
-        restore_window_state. An objectName is required for that mapping.
-        """
+        """Create the side-docked Help panel on first use and return it."""
         if getattr(self, "help_dock", None) is not None:
             return self.help_dock
 
         dock = QDockWidget("Help", self)
-        dock.setObjectName("helpDock")  # needed by restoreState
+        dock.setObjectName("helpDock")
         dock.setAllowedAreas(
             Qt.DockWidgetArea.RightDockWidgetArea
             | Qt.DockWidgetArea.LeftDockWidgetArea
@@ -1864,12 +1837,27 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
         self.help_dock = dock
 
-        # Keep the Help button's checked state in sync if the user closes the
-        # dock via its title-bar X instead of the toolbar button.
         dock.visibilityChanged.connect(self._on_help_dock_visibility_changed)
-
         self._render_help_html()
         return dock
+
+    def _on_help_dock_visibility_changed(self, visible: bool):
+        """Keep the toolbar Help button's checked state in sync with the dock."""
+        if hasattr(self, "help_btn"):
+            was_blocked = self.help_btn.blockSignals(True)
+            try:
+                self.help_btn.setChecked(visible)
+            finally:
+                self.help_btn.blockSignals(was_blocked)
+
+    def show_help(self):
+        """Toggle the Help side-panel."""
+        dock = self._ensure_help_dock()
+        if dock.isVisible():
+            dock.hide()
+        else:
+            dock.show()
+            dock.raise_()
 
     def _render_help_html(self):
         """(Re)render the Help panel's HTML using the current palette.
@@ -1895,33 +1883,6 @@ class MainWindow(QMainWindow):
                 "<h1>Help</h1><p>Help content could not be loaded. "
                 "See the About tab or the project README for usage details.</p>"
             )
-
-    def _on_help_dock_visibility_changed(self, visible: bool):
-        """Keep the toolbar Help button's checked state in sync with the dock."""
-        if hasattr(self, "help_btn"):
-            # blockSignals so toggling the button here doesn't loop back into
-            # show_help and flip the dock visibility again.
-            was_blocked = self.help_btn.blockSignals(True)
-            try:
-                self.help_btn.setChecked(visible)
-            finally:
-                self.help_btn.blockSignals(was_blocked)
-
-    def show_help(self):
-        """Toggle the Help side-panel.
-
-        Help content lives in HELP.md at the project root (bundled into the
-        PyInstaller onedir via SmartCitizen.spec). The first call creates the
-        dock lazily; subsequent calls flip visibility so users can keep the
-        guide open as a reference while editing without juggling a modal
-        dialog.
-        """
-        dock = self._ensure_help_dock()
-        if dock.isVisible():
-            dock.hide()
-        else:
-            dock.show()
-            dock.raise_()
 
     # ── Side-docked String Editor ────────────────────────────────────────────
 

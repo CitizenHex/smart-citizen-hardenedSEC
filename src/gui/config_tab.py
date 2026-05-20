@@ -59,6 +59,48 @@ class ConfigTab(QWidget):
         instructions.setWordWrap(True)
         layout.addWidget(instructions)
 
+        # ── Tools ────────────────────────────────────────────────────────────
+        tools_group = QGroupBox("Tools")
+        tools_layout = QVBoxLayout(tools_group)
+
+        tools_desc = QLabel(
+            "Import an external INI file to merge custom strings into your user.ini. "
+            "Keys are validated against base.ini, and conflicts are resolved interactively."
+        )
+        tools_desc.setProperty("role", "secondary")
+        tools_desc.setStyleSheet("font-size: 11px;")
+        tools_desc.setWordWrap(True)
+        tools_layout.addWidget(tools_desc)
+
+        button_layout = QHBoxLayout()
+
+        import_btn = QPushButton("Import INI...")
+        import_btn.setMaximumWidth(150)
+        import_btn.clicked.connect(self.import_ini_requested.emit)
+        button_layout.addWidget(import_btn)
+
+        preview_btn = QPushButton("Preview Apply")
+        preview_btn.setMaximumWidth(150)
+        preview_btn.clicked.connect(self.preview_merge)
+        button_layout.addWidget(preview_btn)
+
+        self._check_updates_btn = QPushButton("Check for Updates")
+        self._check_updates_btn.setMaximumWidth(170)
+        self._check_updates_btn.setToolTip(
+            "Check GitHub for a newer Smart Citizen release."
+        )
+        self._check_updates_btn.clicked.connect(self.check_updates_requested.emit)
+        button_layout.addWidget(self._check_updates_btn)
+
+        self._update_status_label = QLabel("")
+        self._update_status_label.setProperty("role", "secondary")
+        self._update_status_label.setStyleSheet("font-size: 11px;")
+        button_layout.addWidget(self._update_status_label)
+
+        button_layout.addStretch()
+        tools_layout.addLayout(button_layout)
+        layout.addWidget(tools_group)
+
         # ── Appearance ───────────────────────────────────────────────────────
         appearance_group = QGroupBox("Appearance")
         appearance_layout = QHBoxLayout(appearance_group)
@@ -82,9 +124,16 @@ class ConfigTab(QWidget):
         appearance_layout.addStretch()
         layout.addWidget(appearance_group)
 
-        # ── Star Citizen Installation ────────────────────────────────────────
-        game_group = QGroupBox("Star Citizen Installation")
-        game_layout = QVBoxLayout(game_group)
+        # ── Star Citizen Installation + Base Localization (side by side) ────
+        loc_group = QGroupBox("Star Citizen")
+        loc_outer = QHBoxLayout(loc_group)
+
+        # Left pane — game install path, channel, language
+        game_layout = QVBoxLayout()
+
+        install_label = QLabel("Installation")
+        install_label.setStyleSheet("font-weight: bold; font-size: 11px;")
+        game_layout.addWidget(install_label)
 
         game_desc = QLabel(
             "Path to your Star Citizen install root (the directory containing "
@@ -163,7 +212,54 @@ class ConfigTab(QWidget):
         self._populate_language_combo()
         self.language_combo.currentIndexChanged.connect(self._on_language_changed)
 
-        layout.addWidget(game_group)
+        game_layout.addStretch()
+        loc_outer.addLayout(game_layout, stretch=3)
+
+        # Vertical divider
+        divider = QLabel()
+        divider.setFixedWidth(1)
+        divider.setStyleSheet("background-color: palette(mid);")
+        loc_outer.addWidget(divider)
+
+        # Right pane — base localization / P4K extraction
+        p4k_layout = QVBoxLayout()
+
+        p4k_label = QLabel("Base Localization")
+        p4k_label.setStyleSheet("font-weight: bold; font-size: 11px;")
+        p4k_layout.addWidget(p4k_label)
+
+        p4k_desc = QLabel(
+            "Extract global.ini from your installed Data.p4k to get stock game strings "
+            "that always match your installed version."
+        )
+        p4k_desc.setProperty("role", "secondary")
+        p4k_desc.setStyleSheet("font-size: 11px;")
+        p4k_desc.setWordWrap(True)
+        p4k_layout.addWidget(p4k_desc)
+
+        p4k_status_row = QHBoxLayout()
+        self._p4k_status_dot = QLabel("●")
+        self._p4k_status_dot.setStyleSheet("font-size: 14px;")
+        p4k_status_row.addWidget(self._p4k_status_dot)
+
+        self._p4k_status_label = QLabel()
+        self._p4k_status_label.setProperty("role", "secondary")
+        self._p4k_status_label.setStyleSheet("font-size: 11px;")
+        p4k_status_row.addWidget(self._p4k_status_label)
+        p4k_status_row.addStretch()
+        p4k_layout.addLayout(p4k_status_row)
+
+        self._extract_btn = QPushButton("Extract from Data.p4k")
+        self._extract_btn.setMaximumWidth(180)
+        self._extract_btn.clicked.connect(self.p4k_extract_requested.emit)
+        p4k_layout.addWidget(self._extract_btn)
+
+        p4k_layout.addStretch()
+        loc_outer.addLayout(p4k_layout, stretch=2)
+
+        layout.addWidget(loc_group)
+
+        self._refresh_p4k_status()
 
         # ── Smart Citizen Data ───────────────────────────────────────────────
         data_group = QGroupBox("Smart Citizen Data")
@@ -202,82 +298,6 @@ class ConfigTab(QWidget):
 
         data_layout.addLayout(data_input_layout)
         layout.addWidget(data_group)
-
-        # ── P4K Extraction ───────────────────────────────────────────────────
-        p4k_group = QGroupBox("Base Localization (P4K Extraction)")
-        p4k_layout = QVBoxLayout(p4k_group)
-
-        p4k_desc = QLabel(
-            "Extract global.ini from your installed Data.p4k to get stock game strings "
-            "that always match your installed version."
-        )
-        p4k_desc.setProperty("role", "secondary")
-        p4k_desc.setStyleSheet("font-size: 11px;")
-        p4k_desc.setWordWrap(True)
-        p4k_layout.addWidget(p4k_desc)
-
-        p4k_status_row = QHBoxLayout()
-        self._p4k_status_dot = QLabel("●")
-        self._p4k_status_dot.setStyleSheet("font-size: 14px;")
-        p4k_status_row.addWidget(self._p4k_status_dot)
-
-        self._p4k_status_label = QLabel()
-        self._p4k_status_label.setProperty("role", "secondary")
-        self._p4k_status_label.setStyleSheet("font-size: 11px;")
-        p4k_status_row.addWidget(self._p4k_status_label)
-        p4k_status_row.addStretch()
-
-        self._extract_btn = QPushButton("Extract from Data.p4k")
-        self._extract_btn.setMaximumWidth(180)
-        self._extract_btn.clicked.connect(self.p4k_extract_requested.emit)
-        p4k_status_row.addWidget(self._extract_btn)
-
-        p4k_layout.addLayout(p4k_status_row)
-        layout.addWidget(p4k_group)
-
-        self._refresh_p4k_status()
-
-        # ── Tools ────────────────────────────────────────────────────────────
-        tools_group = QGroupBox("Tools")
-        tools_layout = QVBoxLayout(tools_group)
-
-        tools_desc = QLabel(
-            "Import an external INI file to merge custom strings into your user.ini. "
-            "Keys are validated against base.ini, and conflicts are resolved interactively."
-        )
-        tools_desc.setProperty("role", "secondary")
-        tools_desc.setStyleSheet("font-size: 11px;")
-        tools_desc.setWordWrap(True)
-        tools_layout.addWidget(tools_desc)
-
-        button_layout = QHBoxLayout()
-
-        import_btn = QPushButton("Import INI...")
-        import_btn.setMaximumWidth(150)
-        import_btn.clicked.connect(self.import_ini_requested.emit)
-        button_layout.addWidget(import_btn)
-
-        preview_btn = QPushButton("Preview Apply")
-        preview_btn.setMaximumWidth(150)
-        preview_btn.clicked.connect(self.preview_merge)
-        button_layout.addWidget(preview_btn)
-
-        self._check_updates_btn = QPushButton("Check for Updates")
-        self._check_updates_btn.setMaximumWidth(170)
-        self._check_updates_btn.setToolTip(
-            "Check GitHub for a newer Smart Citizen release."
-        )
-        self._check_updates_btn.clicked.connect(self.check_updates_requested.emit)
-        button_layout.addWidget(self._check_updates_btn)
-
-        self._update_status_label = QLabel("")
-        self._update_status_label.setProperty("role", "secondary")
-        self._update_status_label.setStyleSheet("font-size: 11px;")
-        button_layout.addWidget(self._update_status_label)
-
-        button_layout.addStretch()
-        tools_layout.addLayout(button_layout)
-        layout.addWidget(tools_group)
 
         layout.addStretch()
 
