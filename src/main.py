@@ -45,6 +45,9 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+from src.utils.crash_logger import install as _install_crash_logger
+_install_crash_logger()
+
 
 def main():
     """Application entry point."""
