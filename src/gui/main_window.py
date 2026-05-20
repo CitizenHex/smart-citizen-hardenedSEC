@@ -21,6 +21,7 @@ from PyQt6.QtGui import QDesktopServices
 
 from src.gui.coach_mark import CoachMarkStep, TutorialTour
 from src.gui.config_tab import ConfigTab
+from src.gui.error_dialog import ErrorDialogHandler, _ErrorDialogEmitter
 from src.gui.enhancements_tab import EnhancementsTab
 from src.gui.filter_header import FilterHeaderView
 from src.gui.log_tab import LogTab
@@ -395,6 +396,20 @@ class MainWindow(QMainWindow):
 
         self.tabs.addTab(self.create_about_tab(), "About")
         self.tabs.addTab(self.create_legal_tab(), "Legal")
+
+        # Error-dialog handler: surfaces ERROR/CRITICAL log records as a
+        # modal QMessageBox so users see failures without having to open
+        # the Log tab. State below is consumed by _show_error_dialog —
+        # it implements a per-cooldown-window suppression so a burst of
+        # errors (e.g. 50 parse failures during DataForge extraction)
+        # doesn't open 50 dialogs.
+        self._error_dialog_showing = False
+        self._last_error_dialog_time = 0.0
+        self._suppressed_error_count = 0
+        self._error_dialog_emitter = _ErrorDialogEmitter()
+        self._error_dialog_handler = ErrorDialogHandler(self._error_dialog_emitter)
+        self._error_dialog_emitter.error_emitted.connect(self._show_error_dialog)
+        logging.getLogger().addHandler(self._error_dialog_handler)
 
         # Revert unapplied enhancement checkbox changes when leaving the tab
         self.tabs.currentChanged.connect(self._on_tab_changed)
@@ -1018,6 +1033,74 @@ class MainWindow(QMainWindow):
                 f"<h1>About</h1><p>Unable to load about information.</p>"
                 f"<p style='color: gray;'>{str(e)}</p>"
             )
+
+    # Cooldown window (seconds) between consecutive error dialogs. Within
+    # this window, additional errors are silently counted and surfaced as
+    # "(+N errors suppressed — see Log tab)" in the body of the next
+    # dialog to fire. 5 s is a balance between "user notices each error"
+    # and "burst of 50 parse failures during extraction doesn't open 50
+    # dialogs".
+    _ERROR_DIALOG_COOLDOWN_SEC = 5.0
+
+    @pyqtSlot(str, str)
+    def _show_error_dialog(self, message: str, traceback_text: str) -> None:
+        """Show a modal error dialog for an ``ERROR``-or-above log record.
+
+        Slot for ``ErrorDialogHandler``'s ``error_emitted`` signal. Always
+        invoked on the main thread (signals from worker threads queue
+        across the thread boundary, which is the whole point of the
+        emitter pattern).
+
+        Spam protection: a dialog is shown at most once per
+        ``_ERROR_DIALOG_COOLDOWN_SEC`` window. Errors arriving while a
+        dialog is open, or during the cooldown window after one closes,
+        increment a counter; the next eligible dialog prepends a
+        "(+N suppressed)" line so the suppressed errors aren't silently
+        lost — they're still in the Log tab regardless.
+        """
+        import time
+
+        # Guard 1: a dialog is currently on-screen. Count and bail.
+        if self._error_dialog_showing:
+            self._suppressed_error_count += 1
+            return
+
+        # Guard 2: still inside the cooldown window after the previous
+        # dialog closed. Count and bail.
+        elapsed = time.monotonic() - self._last_error_dialog_time
+        if elapsed < self._ERROR_DIALOG_COOLDOWN_SEC:
+            self._suppressed_error_count += 1
+            return
+
+        self._error_dialog_showing = True
+        try:
+            if self._suppressed_error_count > 0:
+                suffix = (
+                    f"\n\n(+{self._suppressed_error_count} additional error"
+                    f"{'s' if self._suppressed_error_count != 1 else ''} "
+                    f"suppressed — see Log tab for details)"
+                )
+                body = message + suffix
+                self._suppressed_error_count = 0
+            else:
+                body = message
+
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Critical)
+            box.setWindowTitle("Smart Citizen — Error")
+            box.setText(body)
+            if traceback_text:
+                box.setDetailedText(traceback_text)
+            show_log_btn = box.addButton("Show Log", QMessageBox.ButtonRole.ActionRole)
+            box.addButton("Dismiss", QMessageBox.ButtonRole.AcceptRole)
+            box.exec()
+            if box.clickedButton() is show_log_btn:
+                log_idx = self.tabs.indexOf(self.log_tab)
+                if log_idx >= 0:
+                    self.tabs.setCurrentIndex(log_idx)
+        finally:
+            self._error_dialog_showing = False
+            self._last_error_dialog_time = time.monotonic()
 
     def create_legal_tab(self) -> QWidget:
         """Create the Legal tab — CIG community-content compliance, license
