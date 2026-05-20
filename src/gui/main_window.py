@@ -1120,14 +1120,39 @@ class MainWindow(QMainWindow):
     def _render_legal_html(self):
         """(Re)render the Legal tab HTML. Mirrors _render_about_html — force
         the browser palette to track the current theme so the viewport
-        background and scrollbar chrome update on live theme swap."""
+        background and scrollbar chrome update on live theme swap.
+
+        Also splices the CIG-compliant "Made by the Community" badge into
+        the rendered HTML right after the ``<body>`` tag. Splicing the
+        ``<img>`` post-conversion (rather than embedding it in LEGAL.md)
+        avoids the markdown renderer wrapping it in a ``<p>`` and lets
+        the absolute file path resolve through ``get_resource_path`` so
+        the frozen build finds it under ``_MEIPASS\\assets\\``.
+        """
         from PyQt6.QtWidgets import QApplication
         self.legal_browser.setPalette(QApplication.palette())
         try:
             legal_path = get_resource_path("LEGAL.md")
             with open(legal_path, 'r', encoding='utf-8') as f:
                 legal_content = f.read()
-            self.legal_browser.setHtml(self.markdown_to_html(legal_content))
+            html = self.markdown_to_html(legal_content)
+
+            # File-URL the bundled CIG badge so QTextBrowser can load it.
+            # Forward slashes only — Qt's URL parser chokes on backslashes
+            # even on Windows.
+            badge_path = str(get_resource_path("assets/sc-community.png"))
+            badge_url = "file:///" + badge_path.replace("\\", "/")
+            badge_html = (
+                f'<div style="text-align: center; margin: 10px 0 20px 0;">'
+                f'<img src="{badge_url}" alt="Made by the Community" width="200" />'
+                f'</div>'
+            )
+            # Inject the badge immediately after <body> so it sits above
+            # the H1. The renderer always emits a literal "<body>" so a
+            # plain string replace is safe.
+            html = html.replace("<body>", "<body>" + badge_html, 1)
+
+            self.legal_browser.setHtml(html)
         except Exception as e:
             logger.error(f"Error loading LEGAL.md: {e}", exc_info=True)
             self.legal_browser.setHtml(
