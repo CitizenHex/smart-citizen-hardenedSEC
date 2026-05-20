@@ -255,7 +255,6 @@ class AppSettings:
         if game_path.name.upper() in {c.upper() for c in AppSettings.AVAILABLE_CHANNELS}:
             return game_path / "data" / "languages.ini"
         return game_path / AppSettings.get_active_channel() / "data" / "languages.ini"
-        AppSettings.settings().sync()
 
     @staticmethod
     def get_favorite_prefix() -> str:

@@ -114,6 +114,6 @@ class FilterHeaderView(QHeaderView):
         if event.position().y() < label_height:
             super().mouseMoveEvent(event)
 
-    def _on_text_changed(self):
+    def _on_text_changed(self, text: str = "") -> None:
         self._debounce.stop()
         self._debounce.start()

@@ -192,10 +192,12 @@ class StringTableModel(QAbstractTableModel):
     def set_filtered_indices(self, indices: list[int]) -> None:
         """Apply a new filter result, re-sorting to maintain current sort order."""
         self.layoutAboutToBeChanged.emit()
-        self._filtered_indices = indices
-        self._apply_sort()
-        self._rebuild_reverse_index()
-        self.layoutChanged.emit()
+        try:
+            self._filtered_indices = indices
+            self._apply_sort()
+            self._rebuild_reverse_index()
+        finally:
+            self.layoutChanged.emit()
 
     def refresh_favorite_prefix(self, prefix: str) -> None:
         self.beginResetModel()
@@ -348,9 +350,11 @@ class StringTableModel(QAbstractTableModel):
         self._sort_column = column
         self._sort_order = order
         self.layoutAboutToBeChanged.emit()
-        self._apply_sort()
-        self._rebuild_reverse_index()
-        self.layoutChanged.emit()
+        try:
+            self._apply_sort()
+            self._rebuild_reverse_index()
+        finally:
+            self.layoutChanged.emit()
         # Reset after applying so subsequent header clicks use normal sort
         self._grouped_sort = False
 
