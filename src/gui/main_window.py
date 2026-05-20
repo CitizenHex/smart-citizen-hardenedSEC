@@ -1122,12 +1122,13 @@ class MainWindow(QMainWindow):
         the browser palette to track the current theme so the viewport
         background and scrollbar chrome update on live theme swap.
 
-        Also splices the CIG-compliant "Made by the Community" badge into
-        the rendered HTML right after the ``<body>`` tag. Splicing the
-        ``<img>`` post-conversion (rather than embedding it in LEGAL.md)
-        avoids the markdown renderer wrapping it in a ``<p>`` and lets
-        the absolute file path resolve through ``get_resource_path`` so
-        the frozen build finds it under ``_MEIPASS\\assets\\``.
+        Also splices the CIG-compliant "Made by the Community" badge in
+        right before the closing ``</body>`` so it sits as a footer
+        beneath the legal text. Splicing the ``<img>`` post-conversion
+        (rather than embedding it in LEGAL.md) avoids the markdown
+        renderer wrapping it in a ``<p>`` and lets the absolute file
+        path resolve through ``get_resource_path`` so the frozen build
+        finds it under ``_MEIPASS\\assets\\``.
         """
         from PyQt6.QtWidgets import QApplication
         self.legal_browser.setPalette(QApplication.palette())
@@ -1143,14 +1144,14 @@ class MainWindow(QMainWindow):
             badge_path = str(get_resource_path("assets/sc-community.png"))
             badge_url = "file:///" + badge_path.replace("\\", "/")
             badge_html = (
-                f'<div style="text-align: center; margin: 10px 0 20px 0;">'
+                f'<div style="text-align: center; margin: 30px 0 10px 0;">'
                 f'<img src="{badge_url}" alt="Made by the Community" width="200" />'
                 f'</div>'
             )
-            # Inject the badge immediately after <body> so it sits above
-            # the H1. The renderer always emits a literal "<body>" so a
-            # plain string replace is safe.
-            html = html.replace("<body>", "<body>" + badge_html, 1)
+            # Inject the badge immediately before </body> so it sits as
+            # a footer beneath the legal text. The renderer always emits
+            # a literal "</body>" so a plain string replace is safe.
+            html = html.replace("</body>", badge_html + "</body>", 1)
 
             self.legal_browser.setHtml(html)
         except Exception as e:
