@@ -9,6 +9,7 @@ a = Analysis(
         ('VERSION.TXT', '.'),
         ('ABOUT.md', '.'),
         ('HELP.md', '.'),
+        ('LEGAL.md', '.'),
         ('assets', 'assets'),
         ('patches', 'patches'),
         ('scripts/generate_enhancements_ini.py', 'scripts'),

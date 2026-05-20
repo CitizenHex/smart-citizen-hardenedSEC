@@ -394,6 +394,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.log_tab, "Log")
 
         self.tabs.addTab(self.create_about_tab(), "About")
+        self.tabs.addTab(self.create_legal_tab(), "Legal")
 
         # Revert unapplied enhancement checkbox changes when leaving the tab
         self.tabs.currentChanged.connect(self._on_tab_changed)
@@ -1018,6 +1019,39 @@ class MainWindow(QMainWindow):
                 f"<p style='color: gray;'>{str(e)}</p>"
             )
 
+    def create_legal_tab(self) -> QWidget:
+        """Create the Legal tab — CIG community-content compliance, license
+        notices, privacy/data disclosure, and AI-use statement. Content lives
+        in LEGAL.md at the repo root (bundled into the frozen build via
+        SmartCitizen.spec) and renders through the same markdown_to_html
+        pipeline as About and Help so theme swaps recolor it consistently.
+        """
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        self.legal_browser = QTextBrowser()
+        self.legal_browser.setOpenExternalLinks(True)
+        self._render_legal_html()
+        layout.addWidget(self.legal_browser)
+        return widget
+
+    def _render_legal_html(self):
+        """(Re)render the Legal tab HTML. Mirrors _render_about_html — force
+        the browser palette to track the current theme so the viewport
+        background and scrollbar chrome update on live theme swap."""
+        from PyQt6.QtWidgets import QApplication
+        self.legal_browser.setPalette(QApplication.palette())
+        try:
+            legal_path = get_resource_path("LEGAL.md")
+            with open(legal_path, 'r', encoding='utf-8') as f:
+                legal_content = f.read()
+            self.legal_browser.setHtml(self.markdown_to_html(legal_content))
+        except Exception as e:
+            logger.error(f"Error loading LEGAL.md: {e}", exc_info=True)
+            self.legal_browser.setHtml(
+                f"<h1>Legal</h1><p>Unable to load legal information.</p>"
+                f"<p style='color: gray;'>{str(e)}</p>"
+            )
+
     @pyqtSlot()
     def _set_toolbar_enabled(self, enabled: bool):
         """Toggle toolbar button enabled states."""
@@ -1601,6 +1635,8 @@ class MainWindow(QMainWindow):
             self._render_about_html()
         if hasattr(self, "help_browser"):
             self._render_help_html()
+        if hasattr(self, "legal_browser"):
+            self._render_legal_html()
         self._apply_editor_dock_canvas_tint()
 
     def _handle_reset_user_ini(self):

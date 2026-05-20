@@ -178,6 +178,7 @@ At apply-to-game time, `main_window._stamp_frontend_version(merged)` appends ` |
 | P4K tools | `assets/unp4k/` (`unp4k.exe`, `unforge.exe`) |
 | DataForge patches | `patches/` (JSON files mirroring DataForge layout; applied post-extraction) |
 | Help/About content | `HELP.md`, `ABOUT.md` at repo root — rendered inside the in-app help panel |
+| Legal tab content | `LEGAL.md` at repo root — CIG community-content compliance, license summaries, privacy/data-handling disclosure, AI-use statement; bundled via `SmartCitizen.spec` and rendered through the same markdown→HTML pipeline as About |
 | Linux/Wine guide | `LINUX.md` at repo root — user-facing Wine-prefix walkthrough; not loaded by the app |
 
 ## Common Modification Points
