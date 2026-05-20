@@ -2006,6 +2006,7 @@ def build_blueprint_pool_lookup(
     entity_names: dict[str, str],
     entity_names_by_filename: dict[str, str] | None = None,
     entity_name_tags: dict[str, str] | None = None,
+    name_tag_placement: str = "prepend",
 ) -> tuple[dict[str, list[str]], dict[str, str]]:
     """Build mapping of blueprint pool UUID → list of craftable item display names.
 
@@ -2026,13 +2027,17 @@ def build_blueprint_pool_lookup(
          not pretty). Set as a backstop so the BP tag still fires.
 
     When ``entity_name_tags`` is supplied AND the tier-1 (UUID) match
-    hits, the matching ``[CLASS-Sx-grade]`` tag is appended to the
+    hits, the matching ``[CLASS-Sx-grade]`` tag is woven into the
     display name — mirroring the tag the components pipeline writes
-    onto stock component titles. Tier-2 / tier-3 fallbacks intentionally
-    skip the tag: the tag dict is keyed by entityClass UUID, which
-    is exactly the linkage that's missing in those code paths, so
-    there's nothing to look up. FPS gear / weapons / ships never get
-    a tag entry, so they pass through bare even on a UUID hit.
+    onto stock component titles. ``name_tag_placement`` controls
+    which side the tag lands on ("prepend" / "append") and is
+    expected to match the components Tag Builder's placement so the
+    POTENTIAL BLUEPRINTS list stays visually consistent with the
+    component names on the strings tab. Tier-2 / tier-3 fallbacks
+    intentionally skip the tag: the tag dict is keyed by entityClass
+    UUID, which is exactly the linkage that's missing in those code
+    paths, so there's nothing to look up. FPS gear / weapons / ships
+    never get a tag entry, so they pass through bare even on a UUID hit.
 
     Args:
         pool_dir: Directory containing BlueprintPoolRecord XMLs.
@@ -2042,6 +2047,10 @@ def build_blueprint_pool_lookup(
             source). Optional — without it the resolver skips path 2.
         entity_name_tags: UUID → ``[CLASS-Sx-grade]`` tag. Optional —
             without it items render without the inline component tag.
+        name_tag_placement: "prepend" (tag before the name, the
+            default) or "append" (tag after). Mirrors the components
+            Tag Builder placement so the blueprint list reads the
+            same way as the strings tab.
 
     Returns:
         Tuple of:
@@ -2120,7 +2129,10 @@ def build_blueprint_pool_lookup(
                         # entry and pass through bare.
                         tag = entity_name_tags.get(entity_ref)
                         if tag:
-                            name = f"{name} {tag}"
+                            if name_tag_placement == "append":
+                                name = f"{name} {tag}"
+                            else:
+                                name = f"{tag} {name}"
                     # Tier 2: filename-stem match. Recovers real product
                     # names when CIG ships the blueprint ahead of the
                     # entity-UUID linkage (PTU 4.8 fuel-nozzle pattern).
@@ -3955,6 +3967,14 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     entity_name_tags  = ctx.get("entity_name_tags", {})
     reputation_lookup = ctx["reputation_lookup"]
     xml_path_index    = ctx.get("xml_path_index")
+    tag_configs       = ctx.get("tag_configs") or {}
+    # Mirror the components-pipeline placement onto the BP-pool tag
+    # weave so a user who picks "append" sees the same shape in both
+    # the components strings AND the POTENTIAL BLUEPRINTS lists inside
+    # mission descriptions. Default falls back to the same "prepend"
+    # default the rest of the generator uses.
+    _comp_cfg         = tag_configs.get("components") or DEFAULT_TAG_CONFIGS.get("components")
+    comp_placement    = getattr(_comp_cfg, "placement", "prepend") if _comp_cfg else "prepend"
 
     out: dict[str, str] = {}
     pu_missions_dir = records / "missionbroker" / "pu_missions"
@@ -3996,10 +4016,13 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             pool_dir, bp_dir, entity_names,
             entity_names_by_filename=entity_names_by_filename,
             entity_name_tags=entity_name_tags,
+            name_tag_placement=comp_placement,
         ),
         # blueprint pool names bake in the components tag — fold the
-        # components config key in so a user edit invalidates this cache
-        # alongside scitem_lookups (the source of entity_name_tags).
+        # components config key in so a user edit (including placement)
+        # invalidates this cache alongside scitem_lookups (the source
+        # of entity_name_tags). The full TagConfig.to_json() includes
+        # placement so swapping prepend ↔ append still bursts the cache.
         extra_key=ctx.get("_components_cfg_key", ""),
     )
 

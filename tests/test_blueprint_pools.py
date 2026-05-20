@@ -13,10 +13,14 @@ Covers two changes shipped in 1.4.0:
 
 2. ``build_scitem_lookups`` now also returns an ``entity_name_tags``
    dict — UUID → ``[CLASS-Sx-grade]`` tag — that ``build_blueprint_pool_lookup``
-   appends to ship-component blueprint names. So a mission's POTENTIAL
-   BLUEPRINTS list reads "Norfield [MIL-S1-A]" instead of bare
+   weaves into ship-component blueprint names. So a mission's POTENTIAL
+   BLUEPRINTS list reads "[MIL-S1-A] Norfield" instead of bare
    "Norfield", mirroring the inline tag the components pipeline writes
-   onto stock component titles. FPS gear / weapons / ships get no tag.
+   onto stock component titles. The placement (prepend vs append)
+   mirrors the components Tag Builder's ``placement`` setting so the
+   blueprint list stays visually consistent with the strings tab —
+   pre-1.4.1 the BP path always appended regardless of user choice
+   (issue #31 follow-up). FPS gear / weapons / ships get no tag.
 """
 from __future__ import annotations
 
@@ -290,9 +294,11 @@ class TestBlueprintNameTags:
         assert entity_names["ent-pickaxe-uuid"] == "Pyro Pickaxe"
         assert "ent-pickaxe-uuid" not in entity_name_tags
 
-    def test_blueprint_pool_appends_tag_on_uuid_hit(self, gen_module, tmp_path):
-        """``build_blueprint_pool_lookup`` should append the tag to the
-        display name when the entityClass UUID resolves AND has a tag entry."""
+    def test_blueprint_pool_prepends_tag_on_uuid_hit(self, gen_module, tmp_path):
+        """``build_blueprint_pool_lookup`` should weave the tag into the
+        display name when the entityClass UUID resolves AND has a tag entry.
+        Default placement is "prepend" so the tag lands in front of the name,
+        matching the components Tag Builder's default placement."""
         pool_dir = tmp_path / "blueprintrewards"
         bp_dir = tmp_path / "blueprints" / "crafting"
         pool_dir.mkdir(parents=True)
@@ -339,12 +345,59 @@ class TestBlueprintNameTags:
 
         items = pools["pool-adagio-uuid"]
         # Order: blueprint-pool resolution order, not alphabetical.
-        assert "Norfield [MIL-S1-A]" in items, f"tagged name missing: {items}"
+        assert "[MIL-S1-A] Norfield" in items, f"tagged name missing: {items}"
         assert "Pyro Pickaxe" in items, f"bare FPS name missing: {items}"
         # Critically, the FPS item is NOT tagged.
-        assert not any(name.startswith("Pyro Pickaxe ") for name in items), (
+        assert not any(name.endswith(" Pyro Pickaxe") or name.startswith("Pyro Pickaxe ")
+                       for name in items), (
             f"FPS gear should not get a [CLASS-Sx-grade] tag: {items}"
         )
+
+    @pytest.mark.regression
+    def test_blueprint_pool_respects_append_placement(self, gen_module, tmp_path):
+        """Pre-1.4.1 bug (issue #31 follow-up): the BP-pool weave always
+        appended the tag regardless of the components Tag Builder's
+        ``placement`` setting, so a user who picked "append" still saw
+        the (then-incorrect) appended form — but a user who picked
+        "prepend" saw the components on the strings tab as
+        ``[MIL-S1-A] Norfield`` and the same component in a mission's
+        POTENTIAL BLUEPRINTS list as ``Norfield [MIL-S1-A]``. The fix
+        threads ``name_tag_placement`` down so both paths agree."""
+        pool_dir = tmp_path / "blueprintrewards"
+        bp_dir = tmp_path / "blueprints" / "crafting"
+        pool_dir.mkdir(parents=True)
+        bp_dir.mkdir(parents=True)
+
+        (pool_dir / "pool.xml").write_text(
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<BlueprintPoolRecord __ref="pool-uuid">\n'
+            '  <BlueprintReward blueprintRecord="bp-norfield-uuid"/>\n'
+            '</BlueprintPoolRecord>\n',
+            encoding="utf-8",
+        )
+        (bp_dir / "bp_craft_norfield.xml").write_text(
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<CraftingBlueprintRecord __ref="bp-norfield-uuid">\n'
+            '  <CraftingProcess_Creation entityClass="ent-norfield-uuid"/>\n'
+            '</CraftingBlueprintRecord>\n',
+            encoding="utf-8",
+        )
+
+        pools_append, _ = gen_module.build_blueprint_pool_lookup(
+            pool_dir, bp_dir,
+            {"ent-norfield-uuid": "Norfield"},
+            entity_name_tags={"ent-norfield-uuid": "[MIL-S1-A]"},
+            name_tag_placement="append",
+        )
+        assert pools_append["pool-uuid"] == ["Norfield [MIL-S1-A]"]
+
+        pools_prepend, _ = gen_module.build_blueprint_pool_lookup(
+            pool_dir, bp_dir,
+            {"ent-norfield-uuid": "Norfield"},
+            entity_name_tags={"ent-norfield-uuid": "[MIL-S1-A]"},
+            name_tag_placement="prepend",
+        )
+        assert pools_prepend["pool-uuid"] == ["[MIL-S1-A] Norfield"]
 
     def test_tagger_strict_path_unchanged(self, gen_module):
         """Full Size:/Grade:/Class: trio still produces the legacy
@@ -489,7 +542,8 @@ class TestBlueprintNameTags:
         items = pools["pool-uuid"]
         assert "Helix" in items, f"prefix should be stripped: {items}"
         assert "S0 Helix" not in items, f"unstripped name should not appear: {items}"
-        assert "Norfield [MIL-S1-A]" in items, f"tagged name should still work: {items}"
+        # Default placement is "prepend" — locked by the prepend test above.
+        assert "[MIL-S1-A] Norfield" in items, f"tagged name should still work: {items}"
 
     def test_blueprint_pool_omits_tag_when_dict_unset(self, gen_module, tmp_path):
         """Back-compat: callers that don't pass entity_name_tags get
