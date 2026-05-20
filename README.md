@@ -43,6 +43,10 @@ Download the **`SmartCitizen-{VERSION}-Setup.exe`** installer and run it. The ap
 >
 > Note: on stock Windows 11, turning SAC off can be a one-way change — Microsoft does not always permit re-enabling without resetting Windows. Weigh that before disabling. A code-signing certificate is the only way to remove this friction permanently; Smart Citizen is a free side project, so signing will only happen if community donations cover the recurring cost.
 
+### On Linux
+
+Smart Citizen runs on Linux through the same Wine prefix as Star Citizen — see **[LINUX.md](LINUX.md)** for the full guide (download the portable build, then point a launch script at the Wine runner your game uses).
+
 ### For Developers
 
 **Prerequisites**:

@@ -22,6 +22,10 @@ class ConfigTab(QWidget):
     merge_requested = pyqtSignal()
     p4k_extract_requested = pyqtSignal()
     import_ini_requested = pyqtSignal()
+    # Emitted when the user clicks the "Reset user.ini" Tools button.
+    # MainWindow runs the confirmation dialog and the actual file work so
+    # this tab stays decoupled from filesystem state + reload orchestration.
+    reset_user_ini_requested = pyqtSignal()
     # Emitted after the user picks a new channel in the combo AND the choice
     # has already been persisted via AppSettings.set_active_channel(). Main
     # window listens and triggers a reload against the new channel's data.
@@ -162,6 +166,7 @@ class ConfigTab(QWidget):
 
         game_browse_btn = QPushButton("Browse...")
         game_browse_btn.setMaximumWidth(100)
+        game_browse_btn.setToolTip("Pick the Star Citizen install root in a folder browser.")
         game_browse_btn.clicked.connect(self._browse_game_path)
         game_input_layout.addWidget(game_browse_btn)
         game_layout.addLayout(game_input_layout)
@@ -287,6 +292,7 @@ class ConfigTab(QWidget):
 
         data_browse_btn = QPushButton("Browse...")
         data_browse_btn.setMaximumWidth(100)
+        data_browse_btn.setToolTip("Pick the Smart Citizen data folder in a folder browser.")
         data_browse_btn.clicked.connect(self._browse_data_dir)
         data_input_layout.addWidget(data_browse_btn)
 
@@ -298,6 +304,107 @@ class ConfigTab(QWidget):
 
         data_layout.addLayout(data_input_layout)
         layout.addWidget(data_group)
+
+        # ── P4K Extraction ───────────────────────────────────────────────────
+        p4k_group = QGroupBox("Base Localization (P4K Extraction)")
+        p4k_layout = QVBoxLayout(p4k_group)
+
+        p4k_desc = QLabel(
+            "Extract global.ini from your installed Data.p4k to get stock game strings "
+            "that always match your installed version."
+        )
+        p4k_desc.setProperty("role", "secondary")
+        p4k_desc.setStyleSheet("font-size: 11px;")
+        p4k_desc.setWordWrap(True)
+        p4k_layout.addWidget(p4k_desc)
+
+        p4k_status_row = QHBoxLayout()
+        self._p4k_status_dot = QLabel("●")
+        self._p4k_status_dot.setStyleSheet("font-size: 14px;")
+        p4k_status_row.addWidget(self._p4k_status_dot)
+
+        self._p4k_status_label = QLabel()
+        self._p4k_status_label.setProperty("role", "secondary")
+        self._p4k_status_label.setStyleSheet("font-size: 11px;")
+        p4k_status_row.addWidget(self._p4k_status_label)
+        p4k_status_row.addStretch()
+
+        self._extract_btn = QPushButton("Extract from Data.p4k")
+        self._extract_btn.setMaximumWidth(180)
+        self._extract_btn.setToolTip(
+            "Unpack stock localization (base.ini) plus the DataForge entity XMLs "
+            "from your installed Data.p4k. Run after every Star Citizen patch — "
+            "the strings reload into the table automatically when extraction finishes."
+        )
+        self._extract_btn.clicked.connect(self.p4k_extract_requested.emit)
+        p4k_status_row.addWidget(self._extract_btn)
+
+        p4k_layout.addLayout(p4k_status_row)
+        layout.addWidget(p4k_group)
+
+        self._refresh_p4k_status()
+
+        # ── Tools ────────────────────────────────────────────────────────────
+        tools_group = QGroupBox("Tools")
+        tools_layout = QVBoxLayout(tools_group)
+
+        tools_desc = QLabel(
+            "Import an external INI file to merge custom strings into your user.ini. "
+            "Keys are validated against base.ini, and conflicts are resolved interactively."
+        )
+        tools_desc.setProperty("role", "secondary")
+        tools_desc.setStyleSheet("font-size: 11px;")
+        tools_desc.setWordWrap(True)
+        tools_layout.addWidget(tools_desc)
+
+        button_layout = QHBoxLayout()
+
+        import_btn = QPushButton("Import INI...")
+        import_btn.setMaximumWidth(150)
+        import_btn.setToolTip(
+            "Fold an external .ini into your overrides. A conflict-resolution "
+            "dialog lets you decide per key: keep current, use imported, append, "
+            "prepend, or provide a custom value."
+        )
+        import_btn.clicked.connect(self.import_ini_requested.emit)
+        button_layout.addWidget(import_btn)
+
+        reset_user_ini_btn = QPushButton("Reset user.ini...")
+        reset_user_ini_btn.setMaximumWidth(150)
+        reset_user_ini_btn.setToolTip(
+            "Delete every custom string override for the active channel. "
+            "A timestamped backup is saved next to the original so you can restore it."
+        )
+        reset_user_ini_btn.clicked.connect(self.reset_user_ini_requested.emit)
+        button_layout.addWidget(reset_user_ini_btn)
+
+        preview_btn = QPushButton("Preview Apply")
+        preview_btn.setMaximumWidth(150)
+        preview_btn.setToolTip(
+            "Dry-run summary of what Apply to Game would write — per-source key "
+            "counts (with Enhancements broken down by category) and a "
+            "Modified / Enhanced / Unmodified / New status tally. Nothing is "
+            "written to the game until you click Apply to Game."
+        )
+        preview_btn.clicked.connect(self.preview_merge)
+        button_layout.addWidget(preview_btn)
+
+        self._check_updates_btn = QPushButton("Check for Updates")
+        self._check_updates_btn.setMaximumWidth(170)
+        self._check_updates_btn.setToolTip(
+            "Check GitHub for a newer Smart Citizen release."
+        )
+        self._check_updates_btn.clicked.connect(self.check_updates_requested.emit)
+        button_layout.addWidget(self._check_updates_btn)
+
+        self._update_status_label = QLabel("")
+        self._update_status_label.setProperty("role", "secondary")
+        self._update_status_label.setStyleSheet("font-size: 11px;")
+        button_layout.addWidget(self._update_status_label)
+
+        button_layout.addStretch()
+        tools_layout.addLayout(button_layout)
+        layout.addWidget(tools_group)
 
         layout.addStretch()
 

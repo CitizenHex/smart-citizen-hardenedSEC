@@ -267,6 +267,75 @@ class AppSettings:
         AppSettings.settings().setValue(AppSettings.FAVORITE_PREFIX, prefix)
 
     @staticmethod
+    def get_tag_config(category: str):
+        """Return the user's TagConfig for *category*, or the default if absent/bad.
+
+        Stored as one JSON blob per category under tag_builder/{category}/config
+        so the slash-key contract honored by JsonSettings (see test_json_settings)
+        doesn't have to round-trip a nested dict.
+        """
+        # Deferred import — tag_builder lives in src.utils too, and importing it
+        # at module load time would create a circular import for callers that
+        # do `from src.utils.settings import AppSettings` very early.
+        from src.utils.tag_builder import TagConfig, default_config
+        raw = AppSettings.settings().value(f"tag_builder/{category}/config", "", type=str)
+        if not raw:
+            return default_config(category)
+        try:
+            cfg = TagConfig.from_json(raw)
+        except (ValueError, TypeError) as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Stored tag config for '{category}' is malformed ({e}); falling back to defaults."
+            )
+            return default_config(category)
+        AppSettings._migrate_tag_config_mapping(category, cfg)
+        return cfg
+
+    @staticmethod
+    def _migrate_tag_config_mapping(category: str, cfg) -> None:
+        """Upgrade the mapping dict in *cfg* to the current key vocabulary.
+
+        Early ship-weapon configs stored damage entries under the compact
+        generator labels ("Phys", "Distort", "Bio") and a brief experiment
+        also kept the long-form duplicates ("Physical", "Distortion",
+        "Biochemical") side-by-side. The current mapping keys on the long
+        form so users see real English in the variant editor. Rename in
+        place when an old key is present without its new counterpart;
+        drop the old key if a new-key row already exists.
+        """
+        if category != "ship_weapons":
+            return
+        renames = {
+            "Phys":    "Physical",
+            "Distort": "Distortion",
+            "Bio":     "Biochemical",
+        }
+        mapping = cfg.class_mapping
+        for old, new in renames.items():
+            if old not in mapping:
+                continue
+            if new in mapping:
+                # Both present — keep the user-friendly new entry and drop
+                # the orphan old one.
+                del mapping[old]
+            else:
+                mapping[new] = mapping.pop(old)
+
+    @staticmethod
+    def set_tag_config(category: str, config) -> None:
+        """Persist *config* (a TagConfig) for *category* as a JSON blob."""
+        AppSettings.settings().setValue(
+            f"tag_builder/{category}/config", config.to_json()
+        )
+
+    @staticmethod
+    def get_all_tag_configs() -> dict:
+        """Return TagConfigs for every supported category (defaults fill in)."""
+        from src.utils.tag_builder import CATEGORIES
+        return {cat: AppSettings.get_tag_config(cat) for cat in CATEGORIES}
+
+    @staticmethod
     def get_tutorial_completed_version() -> str:
         """App version string that last completed the guided tour, or '' if never."""
         return AppSettings.settings().value(AppSettings.TUTORIAL_COMPLETED_VERSION, "")

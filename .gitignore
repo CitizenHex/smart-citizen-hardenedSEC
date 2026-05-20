@@ -70,6 +70,9 @@ data/contracts_version.txt
 # Local DataForge extraction scratch (Game2.dcb + unforge output, ~300 MB)
 /Data/
 
+# Local scratch dir for ad-hoc experiments / diff dumps
+/temp/
+
 # Build-time flag module — written by build_exe.py --portable, deleted
 # after the build finishes. Should never be committed; if it is, it'd
 # silently flip the default-build behavior.

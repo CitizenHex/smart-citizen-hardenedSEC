@@ -201,9 +201,11 @@ class EnhancementsGeneratorWorker(QThread):
     finished = pyqtSignal(bool)
     error = pyqtSignal(str)
 
-    def __init__(self, categories: set[str] | None = None):
+    def __init__(self, categories: set[str] | None = None,
+                 tag_configs: dict | None = None):
         super().__init__()
         self.categories = categories
+        self.tag_configs = tag_configs
 
     def run(self):
         import importlib.util
@@ -286,7 +288,8 @@ class EnhancementsGeneratorWorker(QThread):
             mod.main(base_ini, forge_dir, categories=self.categories,
                      progress_callback=_on_progress,
                      patches_dir=resolve_patches_dir(),
-                     max_workers=1)
+                     max_workers=1,
+                     tag_configs=self.tag_configs)
             logger.info("Enhancements generation worker: mod.main() completed successfully")
 
             self.finished.emit(True)
