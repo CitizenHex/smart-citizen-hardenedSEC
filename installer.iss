@@ -58,6 +58,20 @@ Filename: "{app}\SmartCitizen-v{#AppVer}.exe"; Description: "{cm:LaunchProgram,S
 var
   SCDirectoryPage: TInputDirWizardPage;
   DataDirPage: TInputDirWizardPage;
+  { 1.4.1: cache lives on a separate page so users can split the ~1.4 GB
+    DataForge tree off the user-data folder (e.g. SSD for cache,
+    OneDrive Documents for user.ini). Saved to HKCU\...\cache_dir;
+    cleared on Reset so the app's default (%LOCALAPPDATA%\Smart Citizen)
+    wins on resolution. }
+  CacheDirPage: TInputDirWizardPage;
+
+function GetLocalCacheDefault(): String;
+begin
+  { Mirrors AppSettings.get_dataforge_cache_base() default for registry
+    mode: %LOCALAPPDATA%\Smart Citizen. Channel/cache/dataforge nesting
+    is added by the app at runtime. }
+  Result := ExpandConstant('{%LOCALAPPDATA}\Smart Citizen');
+end;
 
 function IsDocsOnOneDrive(): Boolean;
 var
@@ -386,6 +400,8 @@ var
   FinalPath: String;
   DataDir: String;
   DocsDefault: String;
+  CacheDir: String;
+  CacheDefault: String;
 begin
   { Persist the user's choices from the installer wizard pages
     (SC install dir + Smart Citizen data folder) into the registry
@@ -446,6 +462,28 @@ begin
       'Software\Osiris DevWorks\Smart Citizen', 'UserDataDir');
     ForceDirectories(DataDir);
     Log('Saved user_data_dir to registry: ' + DataDir);
+  end;
+
+  { 1.4.1+: persist the cache folder choice. Same comparison rule as
+    user_data_dir — clear the override when the user accepted the
+    %LOCALAPPDATA%\Smart Citizen default so the app's runtime resolver
+    stays in charge. Otherwise write cache_dir and pre-create the
+    directory. }
+  CacheDir := CacheDirPage.Values[0];
+  CacheDefault := GetLocalCacheDefault();
+  if (CacheDir = '') or (CompareText(CacheDir, CacheDefault) = 0) then
+  begin
+    RegDeleteValue(HKCU,
+      'Software\Osiris DevWorks\Smart Citizen', 'cache_dir');
+    Log('User chose default cache folder; cleared cache_dir override.');
+  end
+  else
+  begin
+    RegWriteStringValue(HKCU,
+      'Software\Osiris DevWorks\Smart Citizen',
+      'cache_dir', CacheDir);
+    ForceDirectories(CacheDir);
+    Log('Saved cache_dir to registry: ' + CacheDir);
   end;
 end;
 
@@ -688,17 +726,19 @@ begin
   DataDirPage := CreateInputDirPage(
     SCDirectoryPage.ID,
     'Smart Citizen Data Location',
-    'Choose where Smart Citizen stores cache, custom edits, and backups.',
-    'Smart Citizen caches 2+ GB of extracted game data and stores your custom edits ' +
-    'and backups under this folder. The default is your Documents folder.'
+    'Choose where Smart Citizen stores user.ini, source cache, enhancement INIs, and backups.',
+    'Smart Citizen stores your custom edits (user.ini), the localization source cache, '
+    + 'generated enhancement INIs, and rolling backups under this folder. The default is your '
+    + 'Documents folder.'
+    + #13#10 + #13#10 +
+    'The ~1.4 GB DataForge XML cache lives on its own page next — splitting them lets you keep '
+    + 'your tiny user data wherever you like while sending the cache to a fast SSD.'
     + #13#10 + #13#10 +
     'Consider a custom location if:'
     + #13#10 +
-    '  - Your Documents folder is synced to OneDrive (causes 3-5x slower extraction'
+    '  - Your Documents folder is synced to OneDrive (causes occasional "Access is denied"'
     + #13#10 +
-    '    and occasional "Access is denied" errors during cache rebuilds)'
-    + #13#10 +
-    '  - You want the cache on a different drive (faster SSD, or to free C: space)'
+    '    errors and slow cleanup of generated INIs)'
     + #13#10 +
     '  - You manage multiple profiles or installs and want them isolated'
     + #13#10 + #13#10 +
@@ -716,6 +756,45 @@ begin
     DataDirPage.Values[0] := SuggestLocalDataDir()
   else
     DataDirPage.Values[0] := GetDocumentsBase() + '\Smart Citizen';
+
+  { 1.4.1+: DataForge cache lives on its own page so users can split it
+    off the user-data folder. The app's runtime default is
+    %LOCALAPPDATA%\Smart Citizen (never OneDrive-synced) and that's what
+    we offer here. WriteInstallerChoicesToRegistry only writes cache_dir
+    when the field differs from this default, so users who accept the
+    default keep the registry clean and let the app's resolver win. }
+  CacheDirPage := CreateInputDirPage(
+    DataDirPage.ID,
+    'DataForge Cache Location',
+    'Choose where Smart Citizen stores the ~1.4 GB DataForge XML cache.',
+    'The DataForge cache contains ~28,000 entity XMLs extracted from Star Citizen''s '
+    + 'Data.p4k file. It''s used to generate the in-game item descriptions you see in the '
+    + 'Enhancements tab.'
+    + #13#10 + #13#10 +
+    'The default keeps the cache in your Windows AppData\Local folder — never synced to '
+    + 'OneDrive — so extraction and cleanup stay fast even when your Documents are.'
+    + #13#10 + #13#10 +
+    'Pick a custom location if you want to:'
+    + #13#10 +
+    '  - Move the 1.4 GB tree to a different drive (faster SSD, or to free C: space)'
+    + #13#10 +
+    '  - Share the cache between multiple Smart Citizen installs on this PC'
+    + #13#10 + #13#10 +
+    'You can change this later from the app''s Config tab. Changing the path triggers a '
+    + 'one-time re-extraction.',
+    False,
+    'DataForge Cache'
+  );
+  CacheDirPage.Add('');
+
+  { Pre-fill: existing override > LOCALAPPDATA default. No OneDrive
+    branch because LOCALAPPDATA is the OneDrive-safe location by
+    definition (it's machine-local, never roamed). }
+  if RegQueryStringValue(HKCU, NewRegPath, 'cache_dir', SavedDataDir) and
+     (SavedDataDir <> '') then
+    CacheDirPage.Values[0] := SavedDataDir
+  else
+    CacheDirPage.Values[0] := GetLocalCacheDefault();
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;

@@ -403,6 +403,29 @@ class EnhancementsTab(QWidget):
             self._tag_builder_tabs.addTab(page, _CATEGORY_LABELS[cat])
         gl.addWidget(self._tag_builder_tabs)
 
+        # Issue #31 follow-up: cross-surface toggle for the inline
+        # component annotation inside mission POTENTIAL BLUEPRINTS lists.
+        # Default ON preserves v1.4.0 behavior. When off, mission bodies
+        # render bare names ("Norfield") even though the same component
+        # on the strings tab still shows the configured tag. The toggle
+        # is persisted alongside the per-category configs and applied
+        # by the same "Apply Tag Changes" button below — no separate
+        # save action so the user can't end up with the toggle and the
+        # configs out of sync on disk.
+        self._annotate_mission_descs_cb = QCheckBox(
+            "Annotate components in mission descriptions"
+        )
+        self._annotate_mission_descs_cb.setChecked(
+            AppSettings.get_tag_annotate_mission_descs()
+        )
+        self._annotate_mission_descs_cb.setToolTip(
+            "When checked, the configured [CLASS-Sx-grade] tag is added "
+            "to component names inside the POTENTIAL BLUEPRINTS list of "
+            "mission descriptions. Uncheck for a cleaner mission body "
+            "while keeping the tag on the actual component names elsewhere."
+        )
+        gl.addWidget(self._annotate_mission_descs_cb)
+
         btn_row = QHBoxLayout()
         apply_btn = QPushButton("Apply Tag Changes")
         apply_btn.setToolTip(
@@ -430,6 +453,9 @@ class EnhancementsTab(QWidget):
         """Persist every page's TagConfig and kick off enhancement regen."""
         for cat, page in self._tag_builder_pages.items():
             AppSettings.set_tag_config(cat, page.config)
+        AppSettings.set_tag_annotate_mission_descs(
+            self._annotate_mission_descs_cb.isChecked()
+        )
         logger.info("Tag Builder: saved configs for %s", ", ".join(self._tag_builder_pages))
         # Re-run the generator so the new tags show up in the output INIs;
         # MainWindow handles the worker lifecycle + progress UI.

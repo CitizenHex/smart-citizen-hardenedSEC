@@ -1657,43 +1657,271 @@ def _extract_mission_xp(root: ET.Element, reputation_lookup: dict[str, int] | No
     return total_rep_xp
 
 
-def _extract_spawn_counts(element: ET.Element) -> tuple[int, int, int]:
-    """Extract wave count, enemy count, and non-enemy count from spawn descriptions.
+# Spawn-group classification buckets surfaced in the MISSION DETAILS block.
+# The four-bucket model replaces the pre-1.4.1 binary "Enemies / Non-hostiles"
+# tally that defaulted any unrecognized spawn-group name to hostile, silently
+# miscounting civilians, recipients, and inanimate satellites as enemies.
+SPAWN_HOSTILE = "hostile"
+SPAWN_FRIENDLY = "friendly"
+SPAWN_OBJECTIVE = "objective"
+SPAWN_UNKNOWN = "unknown"
 
-    Parses SpawnDescription_ShipGroup and SpawnDescription_NPC_Group elements
-    within the given XML element scope.
+# Keyword table grounded in a full sweep of the LIVE DataForge cache
+# (3,123 mission + contract XMLs, 86 distinct ship-group names + 368 NPC-group
+# names). Earlier entries win — order is "specific compound names → objective
+# patterns → specific NPC roles → civilians → faction names → generic hostile
+# signals → wave/tier rollup → generic friendly catch-all". The kind column is
+# "ship", "npc", or None (matches either). Substring match against name.lower().
+#
+# Notable calls locked here:
+#   * "Allies" → hostile. In mercenary/council contracts the player IS the
+#     attacker; the "Allies" group spawned under AlliedSpawnDescriptions_BP is
+#     reinforcements allied with the antagonist NPC, not the player.
+#   * "Defenders" → hostile in both kinds. Mercenary bounty-kill contracts
+#     spawn them under MissionTargets_BP alongside the Target group — they
+#     defend the bounty target. Pre-1.4.1, the bare "defend" substring routed
+#     ship-context Defenders to friendly (wrong).
+#   * "Civs" / "Civ" → friendly. Pre-1.4.1, only the literal "civilian"
+#     substring matched, so the 80+ shorthand occurrences in infiltrate
+#     missions defaulted to hostile.
+#   * "Reinforcments" (missing 'e') and "Civillian" (extra 'l') are CIG typos
+#     in the source data — matched explicitly so they don't fall to Unknown.
+#   * Wave / tier / spawn-closet names roll up to a single "Hostiles" or
+#     "Hostile Wave" label rather than fragmenting into per-tier sub-counts.
+_SPAWN_KEYWORD_TABLE: tuple[tuple[str, str | None, str, str], ...] = (
+    # --- Tier 1: highly specific compound names ---
+    ("shiptodefend",     "ship", SPAWN_FRIENDLY,  "Ships to Defend"),
+    ("ship to defend",   "ship", SPAWN_FRIENDLY,  "Ships to Defend"),
+    ("escortship",       "ship", SPAWN_FRIENDLY,  "Escort Wings"),
+    ("escort ship",      "ship", SPAWN_FRIENDLY,  "Escort Wings"),
+    ("salvageable",      "ship", SPAWN_FRIENDLY,  "Salvageable Ships"),
+    ("recipientship",    "ship", SPAWN_FRIENDLY,  "Recipient"),
+    ("recipient",        "ship", SPAWN_FRIENDLY,  "Recipient"),
+    ("friendlyship",     "ship", SPAWN_FRIENDLY,  "Friendlies"),
+    ("interdiction",     "ship", SPAWN_HOSTILE,   "Interdiction Ships"),
+    ("acepilotship",     "ship", SPAWN_HOSTILE,   "Ace Pilots"),
+    ("acepilot",         "ship", SPAWN_HOSTILE,   "Ace Pilots"),
+    ("ace pilot",        "ship", SPAWN_HOSTILE,   "Ace Pilots"),
+    ("heist",            "ship", SPAWN_HOSTILE,   "Heist Target"),
+    ("security ships",   "ship", SPAWN_HOSTILE,   "Security Forces"),
+    ("security_ships",   "ship", SPAWN_HOSTILE,   "Security Forces"),
+    # ``initialenemies`` is matched here (above the generic ``enemy`` substring
+    # at tier 7) so the wave-style spawn label wins over the generic hostile
+    # label — keeps it visually grouped with other waves ("Hostile Wave").
+    ("initialenemies",   "ship", SPAWN_HOSTILE,   "Hostile Wave"),
 
-    Returns:
-        (num_waves, num_enemies, num_not_enemies)
+    # --- Tier 2: specific hostile faction / creature names ---
+    # These beat the generic NPC role keywords at tier 6 so a compound name
+    # like "PrivSec - Sentry - 4" or "Soldier Pirate x 3" labels by faction
+    # rather than role (the user explicitly asked for faction-level labels).
+    ("pirate",           None,   SPAWN_HOSTILE,   "Pirates"),
+    ("bandit",           None,   SPAWN_HOSTILE,   "Bandits"),
+    ("xeno",             "ship", SPAWN_HOSTILE,   "Xeno Threat"),
+    ("vulture",          "ship", SPAWN_HOSTILE,   "Xeno Threat"),
+    ("ninetails",        None,   SPAWN_HOSTILE,   "Nine Tails"),
+    ("nine tails",       None,   SPAWN_HOSTILE,   "Nine Tails"),
+    ("nine_tails",       None,   SPAWN_HOSTILE,   "Nine Tails"),
+    ("mauler",           "ship", SPAWN_HOSTILE,   "Maulers"),
+    ("polaris",          "ship", SPAWN_HOSTILE,   "Polaris"),
+    ("prospector",       "ship", SPAWN_HOSTILE,   "Prospectors"),
+    ("kopion",           None,   SPAWN_HOSTILE,   "Kopions"),
+    ("private security", "npc",  SPAWN_HOSTILE,   "Private Security"),
+    ("privatesecurity",  "npc",  SPAWN_HOSTILE,   "Private Security"),
+    ("privsec",          "npc",  SPAWN_HOSTILE,   "Private Security"),
+
+    # --- Tier 3: civilians + hostages (friendly) ---
+    # Placed before Objectives so "Probe Civillian" (CIG typo + civilian
+    # context) lands in Friendlies rather than Objectives — civilian intent
+    # is stronger than the inanimate-probe signal.
+    ("civilian",         None,   SPAWN_FRIENDLY,  "Civilians"),
+    ("civillian",        None,   SPAWN_FRIENDLY,  "Civilians"),  # CIG typo
+    ("civs",             "npc",  SPAWN_FRIENDLY,  "Civilians"),
+    ("civ",              "npc",  SPAWN_FRIENDLY,  "Civilians"),
+    ("hostage",          "npc",  SPAWN_FRIENDLY,  "Hostages"),
+
+    # --- Tier 4: inanimate / McGuffin objectives ---
+    ("probe ",           "ship", SPAWN_OBJECTIVE, "Probe"),
+    ("probe1",           "ship", SPAWN_OBJECTIVE, "Probe"),
+    ("probe2",           "ship", SPAWN_OBJECTIVE, "Probe"),
+    ("probe3",           "ship", SPAWN_OBJECTIVE, "Probe"),
+
+    # --- Tier 5: Allies → hostile (ambush / mercenary context) ---
+    ("allies",           "ship", SPAWN_HOSTILE,   "Hostile Allies"),
+    ("ally",             "ship", SPAWN_HOSTILE,   "Hostile Allies"),
+
+    # --- Tier 6: specific NPC roles ---
+    ("boss",             "npc",  SPAWN_HOSTILE,   "Boss"),
+    ("backup",           "npc",  SPAWN_HOSTILE,   "Backup"),
+    ("juggernaut",       None,   SPAWN_HOSTILE,   "Juggernauts"),
+    ("sniper",           "npc",  SPAWN_HOSTILE,   "Snipers"),
+    ("cqc",              "npc",  SPAWN_HOSTILE,   "CQC"),
+    ("soldier",          "npc",  SPAWN_HOSTILE,   "Soldiers"),
+    ("techie",           "npc",  SPAWN_HOSTILE,   "Technicians"),
+    ("techi",            "npc",  SPAWN_HOSTILE,   "Technicians"),
+    ("tech",             "npc",  SPAWN_HOSTILE,   "Technicians"),
+    ("captain",          "npc",  SPAWN_HOSTILE,   "Captain"),
+    ("sentry",           "npc",  SPAWN_HOSTILE,   "Sentries"),
+    ("guard",            "npc",  SPAWN_HOSTILE,   "Guards"),
+    ("grunt",            "npc",  SPAWN_HOSTILE,   "Grunts"),
+    ("attacker",         "npc",  SPAWN_HOSTILE,   "Attackers"),
+
+    # --- Tier 7: generic hostile signal words ---
+    ("target",           None,   SPAWN_HOSTILE,   "Targets"),
+    ("reinforcement",    None,   SPAWN_HOSTILE,   "Reinforcements"),
+    ("reinforcments",    None,   SPAWN_HOSTILE,   "Reinforcements"),  # CIG typo
+    ("enemy",            None,   SPAWN_HOSTILE,   "Hostiles"),
+    ("enemies",          None,   SPAWN_HOSTILE,   "Hostiles"),
+    ("hostile",          None,   SPAWN_HOSTILE,   "Hostiles"),
+    # Defenders OF the player's target (bounty kill, infiltrate) = hostile.
+    ("defender",         None,   SPAWN_HOSTILE,   "Defenders"),
+
+    # --- Tier 8: wave / tier / generic-hostile rollup ---
+    ("wave",             "ship", SPAWN_HOSTILE,   "Hostile Wave"),
+    # NPC tier / difficulty / location-coded spawns collapse to a single
+    # "Hostiles" label so the breakdown doesn't fragment into Level-1-x3,
+    # Level-2-x3, ... for every dataheist tier.
+    ("level ",           "npc",  SPAWN_HOSTILE,   "Hostiles"),
+    ("lightspawn",       "npc",  SPAWN_HOSTILE,   "Hostiles"),
+    ("mediumspawn",      "npc",  SPAWN_HOSTILE,   "Hostiles"),
+    ("heavyspawn",       "npc",  SPAWN_HOSTILE,   "Hostiles"),
+    ("basic",            "npc",  SPAWN_HOSTILE,   "Hostiles"),
+    ("easy",             "npc",  SPAWN_HOSTILE,   "Hostiles"),
+    ("medium",           "npc",  SPAWN_HOSTILE,   "Hostiles"),
+    ("hard",             "npc",  SPAWN_HOSTILE,   "Hostiles"),
+    ("exterior",         "npc",  SPAWN_HOSTILE,   "Hostiles"),
+    ("defence",          "npc",  SPAWN_HOSTILE,   "Hostiles"),
+    ("building",         "npc",  SPAWN_HOSTILE,   "Hostiles"),
+    ("spawncloset",      "npc",  SPAWN_HOSTILE,   "Hostiles"),
+
+    # --- Tier 9: generic friendly catch-all (lowest priority) ---
+    ("escort",           None,   SPAWN_FRIENDLY,  "Escorts"),
+    ("friendly",         None,   SPAWN_FRIENDLY,  "Friendlies"),
+    ("protect",          None,   SPAWN_FRIENDLY,  "Protected"),
+)
+
+
+def classify_spawn_group(name: str, kind: str) -> tuple[str, str]:
+    """Return ``(bucket, display_label)`` for a spawn-group ``Name``.
+
+    ``kind`` is ``"ship"`` or ``"npc"``. Falls through to
+    ``(SPAWN_UNKNOWN, "Unknown")`` when no keyword matches — the new "Unknown"
+    bucket replaces the pre-1.4.1 default-to-hostile behavior that silently
+    miscounted any unrecognized name as an enemy. Callers that have the
+    enclosing XML element handy can pass it to ``_wrapper_hostile_fallback``
+    to recover a hostile classification when the Name itself is empty or
+    unmatched but the parent ``MissionProperty`` wrapper is player-relative.
     """
-    num_enemies = 0
-    num_not_enemies = 0
-    wave_groups = 0
+    name_lower = name.lower()
+    for substring, kind_filter, bucket, label in _SPAWN_KEYWORD_TABLE:
+        if kind_filter is not None and kind_filter != kind:
+            continue
+        if substring in name_lower:
+            return bucket, label
+    return SPAWN_UNKNOWN, "Unknown"
 
-    # Ship-based spawns (hostile)
+
+# Player-relative MissionProperty wrappers that reliably indicate hostile-to-
+# player intent regardless of mission template. Used as a fallback ONLY when
+# Name-keyword classification returns Unknown — most commonly when CIG omits
+# the spawn-group ``Name`` attribute entirely (e.g. 27 unnamed groups in the
+# eckhart ship-ambush XML, all wrapped in ``TargetSpawnDescriptions_BP``).
+#
+# The relational wrappers — ``AlliedSpawnDescriptions_BP``,
+# ``AttackedShipSpawnDescriptions_BP``, ``ReinforcementsSpawnDescriptions_BP``
+# — are deliberately NOT in this list because their hostility flips per
+# mission template (e.g. "Allies" of the antagonist NPC in an ambush mission
+# are hostile to the player; reinforcements in a defend mission are friendly).
+# Only wrappers whose semantics are stable from the player's perspective
+# qualify: Hostile (literal), Target (player-relative — players target
+# hostiles), Boss (always hostile), Eliminate (verb is unambiguous).
+#
+# Format: (lowercase_substring_match_against_missionVariableName, display_label).
+# Earlier entries win.
+_WRAPPER_HOSTILE_FALLBACK: tuple[tuple[str, str], ...] = (
+    ("hostileshipspawn",   "Hostiles"),
+    ("hostilespawn",       "Hostiles"),
+    ("targetspawn",        "Targets"),
+    ("eliminate",          "Hostiles"),
+    ("boss",               "Boss"),
+)
+
+
+def _wrapper_hostile_fallback(group: ET.Element) -> tuple[str, str] | None:
+    """Return ``(SPAWN_HOSTILE, label)`` if ``group`` sits inside a
+    player-relative hostile ``MissionProperty`` wrapper, else ``None``.
+
+    Walks up the XML tree via ``getparent()`` to find the nearest enclosing
+    ``<MissionProperty missionVariableName="...">``; only the first one is
+    inspected. When the wrapper name matches a substring in
+    ``_WRAPPER_HOSTILE_FALLBACK``, the spawn group is reclassified as hostile
+    with the wrapper-derived label; otherwise the lookup stops there (the
+    wrapper IS the local mission context, walking further up doesn't help).
+    """
+    node = group.getparent()
+    while node is not None:
+        if node.tag == "MissionProperty":
+            wrapper_name = (node.get("missionVariableName") or "").lower()
+            for substring, label in _WRAPPER_HOSTILE_FALLBACK:
+                if substring in wrapper_name:
+                    return SPAWN_HOSTILE, label
+            return None
+        node = node.getparent()
+    return None
+
+
+# Per-bucket per-label breakdown of spawn counts. Outer key: bucket constant
+# (SPAWN_HOSTILE / SPAWN_FRIENDLY / SPAWN_OBJECTIVE / SPAWN_UNKNOWN). Inner
+# key: display label produced by ``classify_spawn_group``. Value: count.
+SpawnBreakdown = dict[str, dict[str, int]]
+
+
+def _empty_spawn_breakdown() -> SpawnBreakdown:
+    return {
+        SPAWN_HOSTILE: {},
+        SPAWN_FRIENDLY: {},
+        SPAWN_OBJECTIVE: {},
+        SPAWN_UNKNOWN: {},
+    }
+
+
+def _add_spawn(breakdown: SpawnBreakdown, bucket: str, label: str, count: int) -> None:
+    if count <= 0:
+        return
+    breakdown[bucket][label] = breakdown[bucket].get(label, 0) + count
+
+
+def _extract_spawn_counts(element: ET.Element) -> SpawnBreakdown:
+    """Extract a per-bucket per-label breakdown of spawn descriptions.
+
+    Parses ``SpawnDescription_ShipGroup`` and ``SpawnDescription_NPC_Group``
+    elements within the given XML element scope, classifies each by name via
+    :func:`classify_spawn_group`, and aggregates counts per (bucket, label).
+
+    Pre-1.4.1 this returned ``(num_waves, num_enemies, num_not_enemies)`` and
+    bucketed everything unrecognized as hostile — see the keyword-table
+    docstring for the misclassifications that surfaced.
+    """
+    breakdown = _empty_spawn_breakdown()
+
     for sg in element.findall(".//SpawnDescription_ShipGroup"):
-        name = sg.get("Name", "").lower()
+        name = sg.get("Name", "")
         ships = sg.findall(".//SpawnDescription_Ship")
         total = sum(int(s.get("concurrentAmount", "0")) for s in ships)
         if total <= 0:
             continue
-        # Turret spawn-groups are reported separately by
-        # _extract_turret_info — skip them here so they don't double-count
-        # in the Enemies tally.
-        if "turret" in name:
+        # Turret ship-groups are reported separately by _extract_turret_info;
+        # skipping them here keeps them off the Hostiles tally so the
+        # MISSION DETAILS block doesn't double-count once as Hostiles and
+        # once as Turrets.
+        if "turret" in name.lower():
             continue
-        # Classify by group name
-        if any(kw in name for kw in ("target", "reinforcement", "enemy", "hostile", "pirate", "bandit")):
-            num_enemies += total
-            wave_groups += 1
-        elif any(kw in name for kw in ("escort", "friendly", "salvage", "defend", "protect")):
-            num_not_enemies += total
-        else:
-            # Default: assume hostile if in a combat context
-            num_enemies += total
-            wave_groups += 1
+        bucket, label = classify_spawn_group(name, "ship")
+        if bucket == SPAWN_UNKNOWN:
+            fallback = _wrapper_hostile_fallback(sg)
+            if fallback is not None:
+                bucket, label = fallback
+        _add_spawn(breakdown, bucket, label, total)
 
-    # NPC-based spawns
     for ng in element.findall(".//SpawnDescription_NPC_Group"):
         name = ng.get("Name", "")
         auto_settings = ng.findall(".//autoSpawnSettings")
@@ -1708,24 +1936,62 @@ def _extract_spawn_counts(element: ET.Element) -> tuple[int, int, int]:
                     total_npcs += max(int(max_concurrent), 0)
 
         if total_npcs <= 0:
-            # Try parsing count from name (e.g., "Soldier x 3")
-            import re
             m = re.search(r"x\s*(\d+)", name)
             if m:
                 total_npcs = int(m.group(1))
 
-        if total_npcs > 0:
-            name_lower = name.lower()
-            if any(kw in name_lower for kw in ("target", "soldier", "cqc", "sniper", "tech", "guard", "sentry", "captain")):
-                num_enemies += total_npcs
-                wave_groups += 1
-            elif any(kw in name_lower for kw in ("escort", "friendly", "civilian", "hostage")):
-                num_not_enemies += total_npcs
-            else:
-                num_enemies += total_npcs
-                wave_groups += 1
+        if total_npcs <= 0:
+            continue
 
-    return wave_groups, num_enemies, num_not_enemies
+        bucket, label = classify_spawn_group(name, "npc")
+        if bucket == SPAWN_UNKNOWN:
+            fallback = _wrapper_hostile_fallback(ng)
+            if fallback is not None:
+                bucket, label = fallback
+        _add_spawn(breakdown, bucket, label, total_npcs)
+
+    return breakdown
+
+
+def _format_spawn_lines(breakdown: SpawnBreakdown) -> list[str]:
+    """Render a SpawnBreakdown as the MISSION DETAILS block lines.
+
+    Emits at most four ``<EM4>...</EM4>`` lines: Hostiles, Friendlies,
+    Objectives, Unknown. Each non-empty named bucket lists its types
+    alphabetically as ``Label xN``; Unknown collapses to a single count.
+    Empty buckets are omitted entirely.
+    """
+    lines: list[str] = []
+    for bucket, header in (
+        (SPAWN_HOSTILE,   "Hostiles"),
+        (SPAWN_FRIENDLY,  "Friendlies"),
+        (SPAWN_OBJECTIVE, "Objectives"),
+    ):
+        items = breakdown.get(bucket) or {}
+        if not items:
+            continue
+        parts = [f"{lbl} x{cnt}" for lbl, cnt in sorted(items.items())]
+        lines.append(f"<EM4>{header}:</EM4> {', '.join(parts)}")
+    unknown = breakdown.get(SPAWN_UNKNOWN) or {}
+    unknown_total = sum(unknown.values())
+    if unknown_total > 0:
+        lines.append(f"<EM4>Unknown:</EM4> {unknown_total}")
+    return lines
+
+
+def _merge_spawn_breakdowns_max(into: SpawnBreakdown, src: SpawnBreakdown) -> None:
+    """Per-label MAX merge ``src`` into ``into``.
+
+    Mirrors the pre-1.4.1 ``max(max_enemies, venemies)`` aggregation across
+    desc-variant tiers: a single mission description can have easy / medium /
+    hard variants with different spawn counts; we surface the worst case per
+    type so a player sizing the mission sees the top-of-tier roster.
+    """
+    for bucket, items in src.items():
+        target = into.setdefault(bucket, {})
+        for label, count in items.items():
+            if count > target.get(label, 0):
+                target[label] = count
 
 
 def _extract_turret_info(root: ET.Element) -> str | None:
@@ -1889,12 +2155,10 @@ def enhancements_mission(root: ET.Element, reputation_lookup: dict[str, int] | N
         if total_rep_xp > 0:
             lines.append(f"<EM4>Reputation XP:</EM4> +{total_rep_xp:,}")
 
-        # Extract spawn/wave counts
-        wave_groups, num_enemies, num_not_enemies = _extract_spawn_counts(root)
-        if num_enemies > 0:
-            lines.append(f"<EM4>Enemies:</EM4> {num_enemies}")
-        if num_not_enemies > 0:
-            lines.append(f"<EM4>Non-hostiles:</EM4> {num_not_enemies}")
+        # Extract spawn/wave counts — bucketed Hostiles / Friendlies /
+        # Objectives / Unknown rather than the pre-1.4.1 single-tally
+        # Enemies + Non-hostiles. Empty buckets are dropped by the formatter.
+        lines.extend(_format_spawn_lines(_extract_spawn_counts(root)))
 
         # Turret presence — groups visually with the other hostile-entity
         # tallies so a player sizing up the mission sees enemies + turrets
@@ -2006,6 +2270,7 @@ def build_blueprint_pool_lookup(
     entity_names: dict[str, str],
     entity_names_by_filename: dict[str, str] | None = None,
     entity_name_tags: dict[str, str] | None = None,
+    name_tag_placement: str = "prepend",
 ) -> tuple[dict[str, list[str]], dict[str, str]]:
     """Build mapping of blueprint pool UUID → list of craftable item display names.
 
@@ -2026,13 +2291,17 @@ def build_blueprint_pool_lookup(
          not pretty). Set as a backstop so the BP tag still fires.
 
     When ``entity_name_tags`` is supplied AND the tier-1 (UUID) match
-    hits, the matching ``[CLASS-Sx-grade]`` tag is appended to the
+    hits, the matching ``[CLASS-Sx-grade]`` tag is woven into the
     display name — mirroring the tag the components pipeline writes
-    onto stock component titles. Tier-2 / tier-3 fallbacks intentionally
-    skip the tag: the tag dict is keyed by entityClass UUID, which
-    is exactly the linkage that's missing in those code paths, so
-    there's nothing to look up. FPS gear / weapons / ships never get
-    a tag entry, so they pass through bare even on a UUID hit.
+    onto stock component titles. ``name_tag_placement`` controls
+    which side the tag lands on ("prepend" / "append") and is
+    expected to match the components Tag Builder's placement so the
+    POTENTIAL BLUEPRINTS list stays visually consistent with the
+    component names on the strings tab. Tier-2 / tier-3 fallbacks
+    intentionally skip the tag: the tag dict is keyed by entityClass
+    UUID, which is exactly the linkage that's missing in those code
+    paths, so there's nothing to look up. FPS gear / weapons / ships
+    never get a tag entry, so they pass through bare even on a UUID hit.
 
     Args:
         pool_dir: Directory containing BlueprintPoolRecord XMLs.
@@ -2042,6 +2311,10 @@ def build_blueprint_pool_lookup(
             source). Optional — without it the resolver skips path 2.
         entity_name_tags: UUID → ``[CLASS-Sx-grade]`` tag. Optional —
             without it items render without the inline component tag.
+        name_tag_placement: "prepend" (tag before the name, the
+            default) or "append" (tag after). Mirrors the components
+            Tag Builder placement so the blueprint list reads the
+            same way as the strings tab.
 
     Returns:
         Tuple of:
@@ -2120,7 +2393,10 @@ def build_blueprint_pool_lookup(
                         # entry and pass through bare.
                         tag = entity_name_tags.get(entity_ref)
                         if tag:
-                            name = f"{name} {tag}"
+                            if name_tag_placement == "append":
+                                name = f"{name} {tag}"
+                            else:
+                                name = f"{tag} {name}"
                     # Tier 2: filename-stem match. Recovers real product
                     # names when CIG ships the blueprint ahead of the
                     # entity-UUID linkage (PTU 4.8 fuel-nozzle pattern).
@@ -2331,8 +2607,9 @@ def scan_contract_generators(
                     if has_chain_prereqs:
                         handler_flags.append("Chain")
 
-                    # Extract handler-level spawn counts (shared across contracts)
-                    _, handler_enemies, handler_not_enemies = _extract_spawn_counts(handler)
+                    # Extract handler-level spawn breakdown (shared across
+                    # contracts; per-contract overrides win when non-empty).
+                    handler_spawns = _extract_spawn_counts(handler)
 
                     contracts = handler.findall(contract_xpath)
 
@@ -2520,10 +2797,16 @@ def scan_contract_generators(
                                 if "Starter" not in contract_flags:
                                     contract_flags.append("Starter")
 
-                            # Extract per-contract spawn counts (fallback to handler-level)
-                            _, contract_enemies, contract_not_enemies = _extract_spawn_counts(contract)
-                            enemies = contract_enemies or handler_enemies
-                            not_enemies = contract_not_enemies or handler_not_enemies
+                            # Extract per-contract spawn breakdown; fall back
+                            # to the handler-level breakdown when the contract
+                            # node itself has no spawn descriptions of its own
+                            # (a contract is empty when every bucket is empty).
+                            contract_spawns = _extract_spawn_counts(contract)
+                            spawns = (
+                                contract_spawns
+                                if any(contract_spawns.values())
+                                else handler_spawns
+                            )
 
                             # Extract per-contract difficulty
                             contract_difficulty = _extract_difficulty(contract)
@@ -2531,7 +2814,7 @@ def scan_contract_generators(
                             # Add all missions (not just those with XP/blueprint data)
                             if title_key not in missions:
                                 missions[title_key] = []
-                            missions[title_key].append((system_name, success_xp, failure_xp, desc_key, contract_flags, enemies, not_enemies, contract_difficulty, contract_has_bp, contract_bp_chance, contract_bp_variant))
+                            missions[title_key].append((system_name, success_xp, failure_xp, desc_key, contract_flags, spawns, contract_difficulty, contract_has_bp, contract_bp_chance, contract_bp_variant))
                         except Exception as e:
                             pass
 
@@ -2551,7 +2834,32 @@ def _resolve_resource_uuids(
     xml_path_index: dict | None = None,
     records_dir: Path | None = None,
 ) -> set[str]:
-    """Collect all CraftingCost_Resource UUIDs referenced in blueprint XMLs."""
+    """Collect every material UUID a blueprint references — via both
+    ``CraftingCost_Resource resource=...`` and ``CraftingCost_Item
+    entityClass=...``.
+
+    The two element types serve different blueprint slots:
+
+    * ``CraftingCost_Resource`` points at an abstract resource-type UUID
+      (e.g. the "agricium" resource pool); it appears INSIDE every
+      carryable variant of that commodity as a tag reference, which is
+      how the downstream resolver in :func:`_build_uuid_to_commodity`
+      maps the UUID back to the commodity name. The FRAME slot in most
+      laser-cannon blueprints uses this path.
+
+    * ``CraftingCost_Item`` points directly at a carryable's own
+      ``__ref`` UUID (the entity-class UUID). The EMITTER and APERTURE
+      IRIS slots on the Omnisky III, for example, reference
+      ``harvestable_mineral_1h_hadanite.xml`` and ``..._dolivine.xml``
+      by their entity UUIDs. Pre-1.4.1 the scanner only picked up the
+      Resource path, so every gem component (Hadanite/Aphorite/
+      Dolivine/Janalite) was silently absent from the ``[CF]`` tag and
+      Mining Compendium augmentation.
+
+    Both UUID types share the same downstream resolution mechanism
+    (substring search inside carryable XML content), so the caller gets
+    a unified set.
+    """
     uuids: set[str] = set()
     if not bp_dir.exists():
         return uuids
@@ -2564,10 +2872,15 @@ def _resolve_resource_uuids(
         try:
             root = ET.parse(xml_file).getroot()
             for elem in root.iter():
-                if _poly_type(elem) == "CraftingCost_Resource":
-                    r = elem.get("resource", "")
-                    if r and r != "00000000-0000-0000-0000-000000000000":
-                        uuids.add(r)
+                ptype = _poly_type(elem)
+                if ptype == "CraftingCost_Resource":
+                    uid = elem.get("resource", "")
+                elif ptype == "CraftingCost_Item":
+                    uid = elem.get("entityClass", "")
+                else:
+                    continue
+                if uid and uid != "00000000-0000-0000-0000-000000000000":
+                    uuids.add(uid)
         except ET.ParseError:
             pass
     return uuids
@@ -2629,7 +2942,19 @@ def _build_uuid_to_commodity(
             if not matched_uuids:
                 continue
             fname = xml_file.stem
-            m = re.search(r"commodity_(?:metal|mineral|minerals|nonmetal|gas)_(\w+?)(?:_[a-d])?$", fname)
+            # Two filename schemas cover all carryable variants:
+            #   - bulk:       carryable_*_commodity_(metal|mineral|...)_<name>(_a..d)?
+            #   - handheld:   harvestable_(mineral|metal|ore)_(1h|2h)_<name>
+            # The handheld schema is where hand-mineable gems live
+            # (Hadanite/Aphorite/Dolivine/Janalite); pre-1.4.1 only the
+            # bulk schema was recognised, so blueprints referencing a gem
+            # via ``CraftingCost_Item entityClass=<harvestable_uuid>`` had
+            # no commodity name to map to and silently fell out.
+            m = re.search(
+                r"(?:commodity_(?:metal|mineral|minerals|nonmetal|gas)|"
+                r"harvestable_(?:mineral|metal|ore)_\dh)_(\w+?)(?:_[a-d])?$",
+                fname,
+            )
             if m:
                 commodity = _normalize_commodity_name(m.group(1))
                 for uid in matched_uuids:
@@ -2726,17 +3051,21 @@ def scan_crafting_blueprints(
     loc: dict[str, str],
     xml_path_index: dict | None = None,
     records_dir: Path | None = None,
-) -> dict[str, str]:
-    """Scan crafting blueprints and produce commodity_crafting_stats entries.
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Scan crafting blueprints and produce commodity + journal entries.
 
-    Returns a dict of localization key → augmented value for commodity names and
-    descriptions that are used as crafting materials.
+    Returns ``(commodity_out, journal_out)`` — two dicts of localization-key →
+    augmented value. The commodity dict carries crafting material annotations
+    on commodity names and descriptions; the journal dict carries the Mining
+    Compendium augmentation. Both halves are always returned so the dispatcher
+    in :func:`main` can unpack the result unconditionally, including when no
+    crafting blueprints directory exists in the user's DataForge cache.
     """
     import os
 
     if not bp_dir.exists():
         logger.info("No crafting blueprints directory found")
-        return {}
+        return {}, {}
 
     # Step 1: Collect resource UUIDs from blueprints
     resource_uuids = _resolve_resource_uuids(bp_dir, xml_path_index=xml_path_index, records_dir=records_dir)
@@ -2768,10 +3097,15 @@ def scan_crafting_blueprints(
                     break
             materials: set[str] = set()
             for elem in root.iter():
-                if _poly_type(elem) == "CraftingCost_Resource":
-                    r = elem.get("resource", "")
-                    if r in uuid_names:
-                        materials.add(uuid_names[r])
+                ptype = _poly_type(elem)
+                if ptype == "CraftingCost_Resource":
+                    uid = elem.get("resource", "")
+                elif ptype == "CraftingCost_Item":
+                    uid = elem.get("entityClass", "")
+                else:
+                    continue
+                if uid in uuid_names:
+                    materials.add(uuid_names[uid])
             for mat in materials:
                 commodity_items[mat].append((category, item_name))
         except ET.ParseError:
@@ -3955,6 +4289,21 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     entity_name_tags  = ctx.get("entity_name_tags", {})
     reputation_lookup = ctx["reputation_lookup"]
     xml_path_index    = ctx.get("xml_path_index")
+    tag_configs       = ctx.get("tag_configs") or {}
+    # User toggle (Enhancements tab) for the inline component annotation
+    # in mission descriptions. Default True preserves v1.4.0 behavior. When
+    # False, we pass an empty tag dict so build_blueprint_pool_lookup
+    # produces bare names — same code path as the back-compat case
+    # locked by test_blueprint_pool_omits_tag_when_dict_unset.
+    annotate_descs    = ctx.get("annotate_mission_descs", True)
+    effective_tags    = entity_name_tags if annotate_descs else {}
+    # Mirror the components-pipeline placement onto the BP-pool tag
+    # weave so a user who picks "append" sees the same shape in both
+    # the components strings AND the POTENTIAL BLUEPRINTS lists inside
+    # mission descriptions. Default falls back to the same "prepend"
+    # default the rest of the generator uses.
+    _comp_cfg         = tag_configs.get("components") or DEFAULT_TAG_CONFIGS.get("components")
+    comp_placement    = getattr(_comp_cfg, "placement", "prepend") if _comp_cfg else "prepend"
 
     out: dict[str, str] = {}
     pu_missions_dir = records / "missionbroker" / "pu_missions"
@@ -3995,12 +4344,17 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         lambda: build_blueprint_pool_lookup(
             pool_dir, bp_dir, entity_names,
             entity_names_by_filename=entity_names_by_filename,
-            entity_name_tags=entity_name_tags,
+            entity_name_tags=effective_tags,
+            name_tag_placement=comp_placement,
         ),
         # blueprint pool names bake in the components tag — fold the
-        # components config key in so a user edit invalidates this cache
-        # alongside scitem_lookups (the source of entity_name_tags).
-        extra_key=ctx.get("_components_cfg_key", ""),
+        # components config key AND the annotate-toggle in so a user edit
+        # (including placement OR turning annotation off entirely)
+        # invalidates this cache alongside scitem_lookups (the source
+        # of entity_name_tags). The full TagConfig.to_json() includes
+        # placement so swapping prepend ↔ append still bursts the cache;
+        # the annotate=0/1 suffix bursts it on the toggle.
+        extra_key=f"{ctx.get('_components_cfg_key', '')}|annotate={int(annotate_descs)}",
     )
 
     contractgen_dir = records / "contracts" / "contractgenerator"
@@ -4055,7 +4409,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
 
         unique_xp = sorted(set(sxp for sxp, _ in seen_tiers))
         has_blueprints = title_key in mission_blueprints
-        _bp_variants = [v[8] for v in variants]
+        _bp_variants = [v[7] for v in variants]  # v[7] = contract_has_bp
         _all_have_bp = has_blueprints and all(_bp_variants)
 
         desc_bucket_has_bp: dict[str, bool] = {}
@@ -4064,7 +4418,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             dk = v[3]
             if not dk:
                 continue
-            desc_bucket_has_bp[dk] = desc_bucket_has_bp.get(dk, False) or v[8]
+            desc_bucket_has_bp[dk] = desc_bucket_has_bp.get(dk, False) or v[7]
             desc_bucket_count[dk] = desc_bucket_count.get(dk, 0) + 1
         _total_bucketed = sum(desc_bucket_count.values())
         _any_variant_has_bp = any(_bp_variants)
@@ -4099,19 +4453,18 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             desc_variants = [v for v in variants if v[3] == desc_key]
             base_desc = loc[desc_key]
             all_flags: list[str] = []
-            max_enemies = max_not_enemies = 0
+            agg_spawns = _empty_spawn_breakdown()
             all_difficulties: list[str] = []
             bp_variant_names: list[str] = []
             all_variants_have_bp = True
             any_variant_has_bp = False
             variant_bp_chance = 0.0
             desc_seen_tiers: list[tuple[int, int]] = []
-            for _, vsxp, vfxp, _, vflags, venemies, vnot, vdiff, vhas_bp, vbp_chance, vbp_variant in desc_variants:
+            for _, vsxp, vfxp, _, vflags, vspawns, vdiff, vhas_bp, vbp_chance, vbp_variant in desc_variants:
                 for f in vflags:
                     if f not in all_flags:
                         all_flags.append(f)
-                max_enemies = max(max_enemies, venemies)
-                max_not_enemies = max(max_not_enemies, vnot)
+                _merge_spawn_breakdowns_max(agg_spawns, vspawns)
                 if vdiff and vdiff not in all_difficulties:
                     all_difficulties.append(vdiff)
                 if vhas_bp:
@@ -4130,10 +4483,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             details_lines.append(f"<EM4>Mission Type:</EM4> {', '.join(all_flags) if all_flags else 'Standard'}")
             if all_difficulties:
                 details_lines.append(f"<EM4>Difficulty (1-7):</EM4> {all_difficulties[0]}")
-            if max_enemies > 0:
-                details_lines.append(f"<EM4>Enemies:</EM4> {max_enemies}")
-            if max_not_enemies > 0:
-                details_lines.append(f"<EM4>Non-hostiles:</EM4> {max_not_enemies}")
+            details_lines.extend(_format_spawn_lines(agg_spawns))
             nonzero_tiers = [(s, f) for s, f in desc_seen_tiers if s > 0]
             if len(nonzero_tiers) == 1:
                 sxp, fxp = nonzero_tiers[0]
@@ -4161,7 +4511,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
                 details_lines.append(bp_header)
 
                 pools_by_system = mission_blueprints.get(title_key, {})
-                desc_systems = {v[0] for v in desc_variants if v[8]}
+                desc_systems = {v[0] for v in desc_variants if v[7]}
                 desc_pools = {s: by_label for s, by_label in pools_by_system.items() if s in desc_systems}
                 if not desc_pools:
                     desc_pools = pools_by_system
@@ -4372,7 +4722,8 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
          progress_callback: Optional[Callable[[int, int, str], None]] = None,
          max_workers: int = 6,
          patches_dir: Path | None = None,
-         tag_configs: "dict | None" = None) -> None:
+         tag_configs: "dict | None" = None,
+         annotate_mission_descs: bool = True) -> None:
     import sys as sys_mod
     # Deferred import — the script is loaded by both the app worker (where
     # src.utils is on the path) and as a standalone CLI, so we swallow an
@@ -4596,6 +4947,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         "xml_path_index":    xml_path_index,
         "tag_configs":       tag_configs or {},
         "_components_cfg_key": _components_cfg_key,
+        "annotate_mission_descs": bool(annotate_mission_descs),
     }
 
     gen_jobs: dict[str, Callable] = {}

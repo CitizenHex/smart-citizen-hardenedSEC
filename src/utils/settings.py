@@ -121,6 +121,23 @@ class AppSettings:
     # Compatibility alias for older docs/manual registry edits. The installer
     # and current app write ``user_data_dir``; read both so either spelling works.
     USER_DATA_DIR_ALIASES = ("UserDataDir",)
+    # Explicit override for the DataForge XML cache root. Independent of
+    # USER_DATA_DIR so a user can keep user.ini / source cache / backups in
+    # Documents (or wherever) while sending the ~1.4 GB DataForge tree to a
+    # fast local SSD (or to a folder excluded from OneDrive / Defender).
+    # Pre-1.4.1 the cache was hard-pinned to %LOCALAPPDATA% with no way to
+    # move it; this key is the configurable replacement.
+    CACHE_DIR = "cache_dir"
+    # Set by the Config tab when the user accepts a cache-path change with
+    # "delete old cache after re-extraction". The path is removed after the
+    # next successful P4K extraction so the 1.4 GB orphan doesn't linger.
+    PENDING_CACHE_CLEANUP = "pending_cache_cleanup"
+    # When True (default) the components Tag Builder annotation is woven
+    # into the POTENTIAL BLUEPRINTS lists inside mission descriptions
+    # (e.g. "[MIL-S1-A] Norfield"). Users who want clean mission body
+    # text can turn it off here without affecting the inline tags on
+    # the actual component names elsewhere. Issue #31 follow-up.
+    TAG_ANNOTATE_MISSION_DESCS = "tag_builder/annotate_mission_descs"
 
     # Settings keys - Data sources (new)
     # Prefix: data_sources/{source_name}/
@@ -334,6 +351,31 @@ class AppSettings:
         """Return TagConfigs for every supported category (defaults fill in)."""
         from src.utils.tag_builder import CATEGORIES
         return {cat: AppSettings.get_tag_config(cat) for cat in CATEGORIES}
+
+    @staticmethod
+    def get_tag_annotate_mission_descs() -> bool:
+        """Whether component tags are woven into POTENTIAL BLUEPRINTS lists
+        inside mission descriptions. Default True (annotation enabled),
+        preserving the v1.4.0 behavior. Issue #31 follow-up — when False,
+        the BP-pool resolver skips the tag weave entirely and mission
+        bodies render with bare names."""
+        raw = AppSettings.settings().value(
+            AppSettings.TAG_ANNOTATE_MISSION_DESCS, True, type=bool
+        )
+        # QSettings on registry mode round-trips True via the bool type
+        # arg; JsonSettings stores the raw value and we may get None
+        # for "never set", which falls through to True by intent.
+        if raw is None:
+            return True
+        return bool(raw)
+
+    @staticmethod
+    def set_tag_annotate_mission_descs(enabled: bool) -> None:
+        """Persist the mission-desc annotation toggle."""
+        AppSettings.settings().setValue(
+            AppSettings.TAG_ANNOTATE_MISSION_DESCS, bool(enabled)
+        )
+        AppSettings.settings().sync()
 
     @staticmethod
     def get_tutorial_completed_version() -> str:
@@ -1136,6 +1178,52 @@ class AppSettings:
         return AppSettings._get_user_data_dir_override()
 
     @staticmethod
+    def _get_cache_dir_override() -> str:
+        """Return the configured DataForge cache-directory override, if any."""
+        settings = AppSettings.settings()
+        raw = settings.value(AppSettings.CACHE_DIR, "", type=str)
+        return str(raw).strip() if raw and str(raw).strip() else ""
+
+    @staticmethod
+    def get_cache_dir_override() -> str:
+        """Return the explicit DataForge cache directory override, or ``""`` when unset."""
+        return AppSettings._get_cache_dir_override()
+
+    @staticmethod
+    def set_cache_dir(path: "str | Path | None") -> None:
+        """Persist (or clear) the DataForge cache directory override.
+
+        ``None`` or an empty string clears the override; subsequent
+        :meth:`get_dataforge_cache_dir` calls fall back to the platform
+        default (%LOCALAPPDATA% in registry mode, ``<exe-dir>/data/cache/``
+        in portable mode).
+        """
+        settings = AppSettings.settings()
+        if path is None or (isinstance(path, str) and not path.strip()):
+            settings.remove(AppSettings.CACHE_DIR)
+        else:
+            settings.setValue(AppSettings.CACHE_DIR, str(path))
+        settings.sync()
+
+    @staticmethod
+    def get_pending_cache_cleanup() -> str:
+        """Return the path queued for deletion after the next successful P4K
+        re-extraction, or ``""`` when no cleanup is pending."""
+        settings = AppSettings.settings()
+        raw = settings.value(AppSettings.PENDING_CACHE_CLEANUP, "", type=str)
+        return str(raw).strip() if raw and str(raw).strip() else ""
+
+    @staticmethod
+    def set_pending_cache_cleanup(path: "str | Path | None") -> None:
+        """Mark (or clear) a directory for deletion after re-extraction."""
+        settings = AppSettings.settings()
+        if path is None or (isinstance(path, str) and not path.strip()):
+            settings.remove(AppSettings.PENDING_CACHE_CLEANUP)
+        else:
+            settings.setValue(AppSettings.PENDING_CACHE_CLEANUP, str(path))
+        settings.sync()
+
+    @staticmethod
     def get_user_data_dir() -> Path:
         r"""Get the user data directory.
 
@@ -1525,19 +1613,49 @@ class AppSettings:
         return base / 'assets' / 'unp4k' / 'unforge.exe'
 
     @staticmethod
+    def get_dataforge_cache_base() -> Path:
+        """Return the *base* directory for DataForge caches (without the
+        active-channel suffix). The full per-channel cache path lives at
+        ``{base}/{channel}/cache/dataforge/`` — see
+        :meth:`get_dataforge_cache_dir` for the resolved leaf.
+
+        Resolution order (registry mode):
+          1. ``CACHE_DIR`` registry override — set by users splitting the
+             DataForge cache off the user-data dir (e.g. fast SSD for the
+             cache, OneDrive Documents for user.ini).
+          2. ``%LOCALAPPDATA%\\Smart Citizen\\`` — the pre-1.4.1 default,
+             preserved so unchanged installs see no path movement.
+
+        Portable mode:
+          1. ``CACHE_DIR`` override if set (portable users may want the
+             1.4 GB cache off a slow USB stick).
+          2. ``<exe-dir>/data/cache/`` — sits next to all other portable
+             data so a USB-stick install is one fully self-contained folder.
+        """
+        from src.utils import build_mode
+        override = AppSettings._get_cache_dir_override()
+        if override:
+            return Path(os.path.expandvars(override)).expanduser().resolve()
+        if build_mode.IS_PORTABLE:
+            return AppSettings._portable_data_dir() / "cache"
+        return Path(
+            os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))
+        ) / "Smart Citizen"
+
+    @staticmethod
     def get_dataforge_cache_dir() -> Path:
         """Return the directory where DataForge entity XMLs are cached after unforge.
 
-        Stored under AppData\\Local (never OneDrive-synced) rather than
-        Documents. The DataForge cache is ~1.4 GB of extracted XMLs — keeping
-        it out of the OneDrive tree eliminates per-file sync hooks during
-        extraction and avoids cloud-uploading large build artefacts.
+        Defaults to ``%LOCALAPPDATA%\\Smart Citizen\\{channel}\\cache\\dataforge\\``
+        — never OneDrive-synced, eliminating per-file sync hooks during
+        extraction of the ~1.4 GB / ~28k-file XML tree. A user can override
+        the base via the Config tab (Smart Citizen Data → DataForge Cache
+        Folder); see :meth:`get_dataforge_cache_base` for the resolution
+        order. Channel nesting is preserved across all variants so each
+        SC channel stays isolated.
         """
-        local_appdata = Path(
-            os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))
-        )
         cache_dir = (
-            local_appdata / "Smart Citizen"
+            AppSettings.get_dataforge_cache_base()
             / AppSettings.get_active_channel()
             / "cache" / "dataforge"
         )
