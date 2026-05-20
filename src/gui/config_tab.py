@@ -58,57 +58,57 @@ class ConfigTab(QWidget):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        title = QLabel(tr("config.title"))
-        title.setStyleSheet("font-weight: bold; font-size: 14px;")
-        layout.addWidget(title)
+        self._title_label = QLabel(tr("config.title"))
+        self._title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        layout.addWidget(self._title_label)
 
-        instructions = QLabel(tr("config.instructions"))
-        instructions.setProperty("role", "secondary")
-        instructions.setStyleSheet("font-size: 11px;")
-        instructions.setWordWrap(True)
-        layout.addWidget(instructions)
+        self._instructions_label = QLabel(tr("config.instructions"))
+        self._instructions_label.setProperty("role", "secondary")
+        self._instructions_label.setStyleSheet("font-size: 11px;")
+        self._instructions_label.setWordWrap(True)
+        layout.addWidget(self._instructions_label)
 
         # ── Tools ────────────────────────────────────────────────────────────
-        tools_group = QGroupBox(tr("config.tools_group"))
-        tools_layout = QVBoxLayout(tools_group)
+        self._tools_group = QGroupBox(tr("config.tools_group"))
+        tools_layout = QVBoxLayout(self._tools_group)
 
-        tools_desc = QLabel(tr("config.tools_desc"))
-        tools_desc.setProperty("role", "secondary")
-        tools_desc.setStyleSheet("font-size: 11px;")
-        tools_desc.setWordWrap(True)
-        tools_layout.addWidget(tools_desc)
+        self._tools_desc_label = QLabel(tr("config.tools_desc"))
+        self._tools_desc_label.setProperty("role", "secondary")
+        self._tools_desc_label.setStyleSheet("font-size: 11px;")
+        self._tools_desc_label.setWordWrap(True)
+        tools_layout.addWidget(self._tools_desc_label)
 
         button_layout = QHBoxLayout()
 
-        import_btn = QPushButton(tr("config.import_ini_btn"))
-        import_btn.setMaximumWidth(150)
-        import_btn.setToolTip(
+        self._import_btn = QPushButton(tr("config.import_ini_btn"))
+        self._import_btn.setMaximumWidth(150)
+        self._import_btn.setToolTip(
             "Fold an external .ini into your overrides. A conflict-resolution "
             "dialog lets you decide per key: keep current, use imported, append, "
             "prepend, or provide a custom value."
         )
-        import_btn.clicked.connect(self.import_ini_requested.emit)
-        button_layout.addWidget(import_btn)
+        self._import_btn.clicked.connect(self.import_ini_requested.emit)
+        button_layout.addWidget(self._import_btn)
 
-        reset_user_ini_btn = QPushButton(tr("config.reset_user_ini_btn"))
-        reset_user_ini_btn.setMaximumWidth(150)
-        reset_user_ini_btn.setToolTip(
+        self._reset_user_ini_btn = QPushButton(tr("config.reset_user_ini_btn"))
+        self._reset_user_ini_btn.setMaximumWidth(150)
+        self._reset_user_ini_btn.setToolTip(
             "Delete every custom string override for the active channel. "
             "A timestamped backup is saved next to the original so you can restore it."
         )
-        reset_user_ini_btn.clicked.connect(self.reset_user_ini_requested.emit)
-        button_layout.addWidget(reset_user_ini_btn)
+        self._reset_user_ini_btn.clicked.connect(self.reset_user_ini_requested.emit)
+        button_layout.addWidget(self._reset_user_ini_btn)
 
-        preview_btn = QPushButton(tr("config.preview_apply_btn"))
-        preview_btn.setMaximumWidth(150)
-        preview_btn.setToolTip(
+        self._preview_btn = QPushButton(tr("config.preview_apply_btn"))
+        self._preview_btn.setMaximumWidth(150)
+        self._preview_btn.setToolTip(
             "Dry-run summary of what Apply to Game would write — per-source key "
             "counts (with Enhancements broken down by category) and a "
             "Modified / Enhanced / Unmodified / New status tally. Nothing is "
             "written to the game until you click Apply to Game."
         )
-        preview_btn.clicked.connect(self.preview_merge)
-        button_layout.addWidget(preview_btn)
+        self._preview_btn.clicked.connect(self.preview_merge)
+        button_layout.addWidget(self._preview_btn)
 
         self._check_updates_btn = QPushButton(tr("config.check_updates_btn"))
         self._check_updates_btn.setMaximumWidth(170)
@@ -125,14 +125,14 @@ class ConfigTab(QWidget):
 
         button_layout.addStretch()
         tools_layout.addLayout(button_layout)
-        layout.addWidget(tools_group)
+        layout.addWidget(self._tools_group)
 
         # ── Appearance ───────────────────────────────────────────────────────
-        appearance_group = QGroupBox(tr("config.appearance_group"))
-        appearance_layout = QHBoxLayout(appearance_group)
+        self._appearance_group = QGroupBox(tr("config.appearance_group"))
+        appearance_layout = QHBoxLayout(self._appearance_group)
 
-        theme_label = QLabel(tr("config.theme_label"))
-        appearance_layout.addWidget(theme_label)
+        self._theme_label = QLabel(tr("config.theme_label"))
+        appearance_layout.addWidget(self._theme_label)
 
         self.theme_combo = QComboBox()
         self.theme_combo.setToolTip("Switch the app theme. Takes effect immediately across the main window, toolbar, tabs, and Help panel.")
@@ -148,24 +148,24 @@ class ConfigTab(QWidget):
         self.theme_combo.setMaximumWidth(150)
         appearance_layout.addWidget(self.theme_combo)
         appearance_layout.addStretch()
-        layout.addWidget(appearance_group)
+        layout.addWidget(self._appearance_group)
 
         # ── Star Citizen Installation + Base Localization (side by side) ────
-        loc_group = QGroupBox(tr("config.star_citizen_group"))
-        loc_outer = QHBoxLayout(loc_group)
+        self._loc_group = QGroupBox(tr("config.star_citizen_group"))
+        loc_outer = QHBoxLayout(self._loc_group)
 
         # Left pane — game install path, channel, language
         game_layout = QVBoxLayout()
 
-        install_label = QLabel(tr("config.installation_label"))
-        install_label.setStyleSheet("font-weight: bold; font-size: 11px;")
-        game_layout.addWidget(install_label)
+        self._install_label = QLabel(tr("config.installation_label"))
+        self._install_label.setStyleSheet("font-weight: bold; font-size: 11px;")
+        game_layout.addWidget(self._install_label)
 
-        game_desc = QLabel(tr("config.installation_desc"))
-        game_desc.setProperty("role", "secondary")
-        game_desc.setStyleSheet("font-size: 11px; margin-bottom: 5px;")
-        game_desc.setWordWrap(True)
-        game_layout.addWidget(game_desc)
+        self._game_desc_label = QLabel(tr("config.installation_desc"))
+        self._game_desc_label.setProperty("role", "secondary")
+        self._game_desc_label.setStyleSheet("font-size: 11px; margin-bottom: 5px;")
+        self._game_desc_label.setWordWrap(True)
+        game_layout.addWidget(self._game_desc_label)
 
         game_input_layout = QHBoxLayout()
         self.game_path_input = QLineEdit()
@@ -183,18 +183,18 @@ class ConfigTab(QWidget):
         self.game_path_input.editingFinished.connect(self._save_game_path)
         game_input_layout.addWidget(self.game_path_input)
 
-        game_browse_btn = QPushButton(tr("config.browse_btn"))
-        game_browse_btn.setMaximumWidth(100)
-        game_browse_btn.setToolTip("Pick the Star Citizen install root in a folder browser.")
-        game_browse_btn.clicked.connect(self._browse_game_path)
-        game_input_layout.addWidget(game_browse_btn)
+        self._game_browse_btn = QPushButton(tr("config.browse_btn"))
+        self._game_browse_btn.setMaximumWidth(100)
+        self._game_browse_btn.setToolTip("Pick the Star Citizen install root in a folder browser.")
+        self._game_browse_btn.clicked.connect(self._browse_game_path)
+        game_input_layout.addWidget(self._game_browse_btn)
         game_layout.addLayout(game_input_layout)
 
         # ── Channel selector (LIVE / PTU / EPTU / HOTFIX / TECH-PREVIEW) ───
         channel_row = QHBoxLayout()
-        channel_label = QLabel(tr("config.channel_label"))
-        channel_label.setStyleSheet("font-size: 11px;")
-        channel_row.addWidget(channel_label)
+        self._channel_label = QLabel(tr("config.channel_label"))
+        self._channel_label.setStyleSheet("font-size: 11px;")
+        channel_row.addWidget(self._channel_label)
 
         self.channel_combo = QComboBox()
         self.channel_combo.setMaximumWidth(180)
@@ -219,9 +219,9 @@ class ConfigTab(QWidget):
 
         # ── Language selector ────────────────────────────────────────────────
         language_row = QHBoxLayout()
-        language_label = QLabel(tr("config.language_label"))
-        language_label.setStyleSheet("font-size: 11px;")
-        language_row.addWidget(language_label)
+        self._language_label = QLabel(tr("config.language_label"))
+        self._language_label.setStyleSheet("font-size: 11px;")
+        language_row.addWidget(self._language_label)
 
         self.language_combo = QComboBox()
         self.language_combo.setMaximumWidth(180)
@@ -248,15 +248,15 @@ class ConfigTab(QWidget):
         # Right pane — base localization / P4K extraction
         p4k_layout = QVBoxLayout()
 
-        p4k_label = QLabel(tr("config.base_localization_label"))
-        p4k_label.setStyleSheet("font-weight: bold; font-size: 11px;")
-        p4k_layout.addWidget(p4k_label)
+        self._base_loc_label = QLabel(tr("config.base_localization_label"))
+        self._base_loc_label.setStyleSheet("font-weight: bold; font-size: 11px;")
+        p4k_layout.addWidget(self._base_loc_label)
 
-        p4k_desc = QLabel(tr("config.base_localization_desc"))
-        p4k_desc.setProperty("role", "secondary")
-        p4k_desc.setStyleSheet("font-size: 11px;")
-        p4k_desc.setWordWrap(True)
-        p4k_layout.addWidget(p4k_desc)
+        self._base_loc_desc_label = QLabel(tr("config.base_localization_desc"))
+        self._base_loc_desc_label.setProperty("role", "secondary")
+        self._base_loc_desc_label.setStyleSheet("font-size: 11px;")
+        self._base_loc_desc_label.setWordWrap(True)
+        p4k_layout.addWidget(self._base_loc_desc_label)
 
         p4k_status_row = QHBoxLayout()
         self._p4k_status_dot = QLabel("●")
@@ -278,24 +278,24 @@ class ConfigTab(QWidget):
         p4k_layout.addStretch()
         loc_outer.addLayout(p4k_layout, stretch=2)
 
-        layout.addWidget(loc_group)
+        layout.addWidget(self._loc_group)
 
         self._refresh_p4k_status()
 
         # ── Smart Citizen Data ───────────────────────────────────────────────
-        data_group = QGroupBox(tr("config.data_group"))
-        data_layout = QVBoxLayout(data_group)
+        self._data_group = QGroupBox(tr("config.data_group"))
+        data_layout = QVBoxLayout(self._data_group)
 
-        data_desc = QLabel(tr("config.data_desc"))
-        data_desc.setProperty("role", "secondary")
-        data_desc.setStyleSheet("font-size: 11px; margin-bottom: 5px;")
-        data_desc.setWordWrap(True)
-        data_layout.addWidget(data_desc)
+        self._data_desc_label = QLabel(tr("config.data_desc"))
+        self._data_desc_label.setProperty("role", "secondary")
+        self._data_desc_label.setStyleSheet("font-size: 11px; margin-bottom: 5px;")
+        self._data_desc_label.setWordWrap(True)
+        data_layout.addWidget(self._data_desc_label)
 
         # Sub-label for the user-data row.
-        data_label = QLabel(tr("config.app_data_label"))
-        data_label.setStyleSheet("font-size: 11px;")
-        data_layout.addWidget(data_label)
+        self._app_data_label = QLabel(tr("config.app_data_label"))
+        self._app_data_label.setStyleSheet("font-size: 11px;")
+        data_layout.addWidget(self._app_data_label)
 
         data_input_layout = QHBoxLayout()
         self.data_dir_input = QLineEdit()
@@ -307,17 +307,17 @@ class ConfigTab(QWidget):
         self.data_dir_input.editingFinished.connect(self._save_data_dir)
         data_input_layout.addWidget(self.data_dir_input)
 
-        data_browse_btn = QPushButton("Browse...")
-        data_browse_btn.setMaximumWidth(100)
-        data_browse_btn.setToolTip("Pick the Smart Citizen data folder in a folder browser.")
-        data_browse_btn.clicked.connect(self._browse_data_dir)
-        data_input_layout.addWidget(data_browse_btn)
+        self._data_browse_btn = QPushButton(tr("config.browse_btn"))
+        self._data_browse_btn.setMaximumWidth(100)
+        self._data_browse_btn.setToolTip("Pick the Smart Citizen data folder in a folder browser.")
+        self._data_browse_btn.clicked.connect(self._browse_data_dir)
+        data_input_layout.addWidget(self._data_browse_btn)
 
-        data_reset_btn = QPushButton(tr("config.reset_btn"))
-        data_reset_btn.setMaximumWidth(80)
-        data_reset_btn.setToolTip("Clear the custom data folder and use Documents\\Smart Citizen.")
-        data_reset_btn.clicked.connect(self._reset_data_dir)
-        data_input_layout.addWidget(data_reset_btn)
+        self._data_reset_btn = QPushButton(tr("config.reset_btn"))
+        self._data_reset_btn.setMaximumWidth(80)
+        self._data_reset_btn.setToolTip("Clear the custom data folder and use Documents\\Smart Citizen.")
+        self._data_reset_btn.clicked.connect(self._reset_data_dir)
+        data_input_layout.addWidget(self._data_reset_btn)
 
         data_layout.addLayout(data_input_layout)
 
@@ -327,9 +327,9 @@ class ConfigTab(QWidget):
         # keeping their tiny user.ini / sources where they like. Default
         # base is %LOCALAPPDATA% (registry) or <exe-dir>/data/cache/
         # (portable) — both never OneDrive-synced.
-        cache_label = QLabel(tr("config.dataforge_cache_label"))
-        cache_label.setStyleSheet("font-size: 11px; margin-top: 8px;")
-        data_layout.addWidget(cache_label)
+        self._cache_label = QLabel(tr("config.dataforge_cache_label"))
+        self._cache_label.setStyleSheet("font-size: 11px; margin-top: 8px;")
+        data_layout.addWidget(self._cache_label)
 
         cache_input_layout = QHBoxLayout()
         self.cache_dir_input = QLineEdit()
@@ -345,30 +345,30 @@ class ConfigTab(QWidget):
         self.cache_dir_input.editingFinished.connect(self._save_cache_dir)
         cache_input_layout.addWidget(self.cache_dir_input)
 
-        cache_browse_btn = QPushButton("Browse...")
-        cache_browse_btn.setMaximumWidth(100)
-        cache_browse_btn.setToolTip("Pick the DataForge cache base folder in a folder browser.")
-        cache_browse_btn.clicked.connect(self._browse_cache_dir)
-        cache_input_layout.addWidget(cache_browse_btn)
+        self._cache_browse_btn = QPushButton(tr("config.browse_btn"))
+        self._cache_browse_btn.setMaximumWidth(100)
+        self._cache_browse_btn.setToolTip("Pick the DataForge cache base folder in a folder browser.")
+        self._cache_browse_btn.clicked.connect(self._browse_cache_dir)
+        cache_input_layout.addWidget(self._cache_browse_btn)
 
-        cache_reset_btn = QPushButton("Reset")
-        cache_reset_btn.setMaximumWidth(80)
-        cache_reset_btn.setToolTip("Clear the custom cache folder and use the platform default.")
-        cache_reset_btn.clicked.connect(self._reset_cache_dir)
-        cache_input_layout.addWidget(cache_reset_btn)
+        self._cache_reset_btn = QPushButton(tr("config.reset_btn"))
+        self._cache_reset_btn.setMaximumWidth(80)
+        self._cache_reset_btn.setToolTip("Clear the custom cache folder and use the platform default.")
+        self._cache_reset_btn.clicked.connect(self._reset_cache_dir)
+        cache_input_layout.addWidget(self._cache_reset_btn)
 
         data_layout.addLayout(cache_input_layout)
-        layout.addWidget(data_group)
+        layout.addWidget(self._data_group)
 
         # ── P4K Extraction ───────────────────────────────────────────────────
-        p4k_group = QGroupBox(tr("config.p4k_group"))
-        p4k_layout = QVBoxLayout(p4k_group)
+        self._p4k_group = QGroupBox(tr("config.p4k_group"))
+        p4k_layout = QVBoxLayout(self._p4k_group)
 
-        p4k_desc = QLabel(tr("config.p4k_desc"))
-        p4k_desc.setProperty("role", "secondary")
-        p4k_desc.setStyleSheet("font-size: 11px;")
-        p4k_desc.setWordWrap(True)
-        p4k_layout.addWidget(p4k_desc)
+        self._p4k_desc_label = QLabel(tr("config.p4k_desc"))
+        self._p4k_desc_label.setProperty("role", "secondary")
+        self._p4k_desc_label.setStyleSheet("font-size: 11px;")
+        self._p4k_desc_label.setWordWrap(True)
+        p4k_layout.addWidget(self._p4k_desc_label)
 
         p4k_status_row = QHBoxLayout()
         self._p4k_status_dot = QLabel("●")
@@ -392,11 +392,49 @@ class ConfigTab(QWidget):
         p4k_status_row.addWidget(self._extract_btn)
 
         p4k_layout.addLayout(p4k_status_row)
-        layout.addWidget(p4k_group)
+        layout.addWidget(self._p4k_group)
 
         self._refresh_p4k_status()
 
         layout.addStretch()
+
+    # ── Retranslation ─────────────────────────────────────────────────────────
+
+    def retranslate_ui(self) -> None:
+        """Re-apply tr() to every text-bearing widget after a language switch."""
+        self._title_label.setText(tr("config.title"))
+        self._instructions_label.setText(tr("config.instructions"))
+        self._tools_group.setTitle(tr("config.tools_group"))
+        self._tools_desc_label.setText(tr("config.tools_desc"))
+        self._import_btn.setText(tr("config.import_ini_btn"))
+        self._reset_user_ini_btn.setText(tr("config.reset_user_ini_btn"))
+        self._preview_btn.setText(tr("config.preview_apply_btn"))
+        self._check_updates_btn.setText(tr("config.check_updates_btn"))
+        self._appearance_group.setTitle(tr("config.appearance_group"))
+        self._theme_label.setText(tr("config.theme_label"))
+        self.theme_combo.setItemText(0, tr("config.theme_default"))
+        self.theme_combo.setItemText(1, tr("config.theme_light"))
+        self.theme_combo.setItemText(2, tr("config.theme_dark"))
+        self.theme_combo.setItemText(3, tr("config.theme_odw"))
+        self._loc_group.setTitle(tr("config.star_citizen_group"))
+        self._install_label.setText(tr("config.installation_label"))
+        self._game_desc_label.setText(tr("config.installation_desc"))
+        self._game_browse_btn.setText(tr("config.browse_btn"))
+        self._channel_label.setText(tr("config.channel_label"))
+        self._language_label.setText(tr("config.language_label"))
+        self._base_loc_label.setText(tr("config.base_localization_label"))
+        self._base_loc_desc_label.setText(tr("config.base_localization_desc"))
+        self._extract_btn.setText(tr("config.extract_btn"))
+        self._data_group.setTitle(tr("config.data_group"))
+        self._data_desc_label.setText(tr("config.data_desc"))
+        self._app_data_label.setText(tr("config.app_data_label"))
+        self._data_browse_btn.setText(tr("config.browse_btn"))
+        self._data_reset_btn.setText(tr("config.reset_btn"))
+        self._cache_label.setText(tr("config.dataforge_cache_label"))
+        self._cache_browse_btn.setText(tr("config.browse_btn"))
+        self._cache_reset_btn.setText(tr("config.reset_btn"))
+        self._p4k_group.setTitle(tr("config.p4k_group"))
+        self._p4k_desc_label.setText(tr("config.p4k_desc"))
 
     # ── Theme ────────────────────────────────────────────────────────────────
 

@@ -2550,18 +2550,86 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Switched to {channel} — reloading sources…")
         self.perform_merge_and_reload()
 
+    def retranslate_ui(self) -> None:
+        """Re-apply tr() to every text-bearing widget after a language switch."""
+        self.setWindowTitle(tr("window.title", version=get_version()))
+        self.title_label.setText(tr("branding.title"))
+        self.tagline_label.setText(tr("branding.tagline"))
+
+        # Tab bar
+        self.tabs.setTabText(self._strings_tab_index, tr("tabs.string_editor"))
+        self.tabs.setTabText(self._config_tab_index, tr("tabs.config"))
+        self.tabs.setTabText(self._enhancements_tab_index, tr("tabs.enhancements"))
+        self.tabs.setTabText(self._log_tab_index, tr("tabs.log"))
+        self.tabs.setTabText(self._about_tab_index, tr("tabs.about"))
+
+        # Toolbar buttons
+        self.apply_btn.setText(tr("toolbar.apply_btn"))
+        self.restore_backup_btn.setText(tr("toolbar.restore_backup_btn"))
+        self.clear_btn.setText(tr("toolbar.clear_btn"))
+        self.import_export_btn.setText(tr("toolbar.import_export_btn"))
+        self.open_loc_dir_btn.setText(tr("toolbar.open_loc_dir_btn"))
+        self.editor_btn.setText(tr("toolbar.editor_btn"))
+        self.help_btn.setText(tr("toolbar.help_btn"))
+        self.tutorial_btn.setText(tr("toolbar.tutorial_btn"))
+
+        # Menu actions
+        self._action_clear_loc.setText(tr("toolbar.menu_clear_localization"))
+        self._action_clear_cache.setText(tr("toolbar.menu_clear_cache"))
+        self._action_import_ini.setText(tr("toolbar.menu_import_ini"))
+        self._action_export_ini.setText(tr("toolbar.menu_export_ini"))
+
+        # Filter row
+        self._category_label.setText(tr("filters.category_label"))
+        self._status_label.setText(tr("filters.status_label"))
+        self.hide_unmodified_check.setText(tr("filters.hide_unmodified"))
+        self.favorites_only_check.setText(tr("filters.favorites_only"))
+        self.grouped_sort_btn.setText(tr("filters.group_sort_btn"))
+        self.clear_filters_btn.setText(tr("filters.clear_filters_btn"))
+        self.copy_filtered_btn.setText(tr("filters.copy_filtered_btn"))
+
+        # Status combo display text (userData internal values are preserved)
+        for i, (_internal, _key) in enumerate([
+            ("All",        "filters.status_all"),
+            ("Modified",   "filters.status_modified"),
+            ("Enhanced",   "filters.status_enhanced"),
+            ("Unmodified", "filters.status_unmodified"),
+            ("New",        "filters.status_new"),
+        ]):
+            self.status_combo.setItemText(i, tr(_key))
+
+        # Table column headers and filter placeholder text
+        new_column_names = [
+            tr("strings_tab.col_category"),
+            tr("strings_tab.col_key"),
+            tr("strings_tab.col_default_value"),
+            tr("strings_tab.col_current_value"),
+            tr("strings_tab.col_star"),
+            tr("strings_tab.col_custom_value"),
+            tr("strings_tab.col_status"),
+        ]
+        self.filter_header.update_column_names(new_column_names)
+        self._model.retranslate()
+
+        # Preview pane placeholder
+        self.preview_pane.setPlaceholderText(tr("strings_tab.preview_placeholder"))
+
+        # Status label (only update if no data is loaded — otherwise it shows row count)
+        if not self.entries:
+            self.table_status_label.setText(tr("strings_tab.no_data"))
+
+        # Cascade to child tabs
+        self.config_tab.retranslate_ui()
+        self.enhancements_tab.retranslate_ui()
+        self.log_tab.retranslate_ui()
+
     @pyqtSlot(str)
     def _on_language_changed(self, language: str) -> None:
-        """Handle a language switch from the Config tab.
-
-        Reloads the UI string table for the new language (takes effect for
-        dynamic strings immediately; widgets already constructed keep their
-        text until the next app launch).  Also re-merges so the table shows
-        game strings from the new language's global.ini.
-        """
+        """Handle a language switch from the Config tab."""
         from src.utils import i18n
         i18n.set_language(language)
         logger.info(f"MainWindow reacting to language change → {language}")
+        self.retranslate_ui()
         self.statusBar().showMessage(tr("dialogs.language_changed_status", language=language))
         self.perform_merge_and_reload()
 

@@ -55,32 +55,36 @@ class EnhancementsTab(QWidget):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        title = QLabel(tr("enhancements.title"))
-        title.setStyleSheet("font-weight: bold; font-size: 14px;")
-        layout.addWidget(title)
+        self._title_label = QLabel(tr("enhancements.title"))
+        self._title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        layout.addWidget(self._title_label)
 
-        desc = QLabel(tr("enhancements.desc"))
-        desc.setProperty("role", "secondary")
-        desc.setStyleSheet("font-size: 11px;")
-        desc.setWordWrap(True)
-        layout.addWidget(desc)
+        self._desc_label = QLabel(tr("enhancements.desc"))
+        self._desc_label.setProperty("role", "secondary")
+        self._desc_label.setStyleSheet("font-size: 11px;")
+        self._desc_label.setWordWrap(True)
+        layout.addWidget(self._desc_label)
 
-        layout.addWidget(self._build_enhancements_group())
-        layout.addWidget(self._build_favorites_group())
-        layout.addWidget(self._build_tag_builder_group())
+        self._enhancements_group = self._build_enhancements_group()
+        layout.addWidget(self._enhancements_group)
+        self._favorites_group = self._build_favorites_group()
+        layout.addWidget(self._favorites_group)
+        self._tag_builder_group = self._build_tag_builder_group()
+        layout.addWidget(self._tag_builder_group)
         layout.addStretch()
 
     # ── Enhancements ─────────────────────────────────────────────────────────
 
     def _build_enhancements_group(self) -> QGroupBox:
         group = QGroupBox(tr("enhancements.enhancements_group"))
+        self._enhancements_group_box = group
         gl = QVBoxLayout(group)
 
-        enhancements_desc = QLabel(tr("enhancements.enhancements_desc"))
-        enhancements_desc.setProperty("role", "secondary")
-        enhancements_desc.setStyleSheet("font-size: 11px;")
-        enhancements_desc.setWordWrap(True)
-        gl.addWidget(enhancements_desc)
+        self._enhancements_desc_label = QLabel(tr("enhancements.enhancements_desc"))
+        self._enhancements_desc_label.setProperty("role", "secondary")
+        self._enhancements_desc_label.setStyleSheet("font-size: 11px;")
+        self._enhancements_desc_label.setWordWrap(True)
+        gl.addWidget(self._enhancements_desc_label)
 
         # Per-category checkbox + description + status dot
         _CATEGORY_DESCRIPTIONS = {
@@ -94,6 +98,7 @@ class EnhancementsTab(QWidget):
 
         self._enhancements_status_labels: dict = {}
         self._enhancements_checkboxes: dict = {}
+        self._cat_desc_labels: dict = {}
         # Two-column grid: column-major fill so the first three categories
         # stack down the left column and the next three down the right —
         # reads top-to-bottom-then-right rather than left-to-right.
@@ -125,6 +130,7 @@ class EnhancementsTab(QWidget):
             desc.setProperty("role", "secondary")
             desc.setStyleSheet("font-size: 10px;")
             row.addWidget(desc)
+            self._cat_desc_labels[key] = desc
 
             cell = QWidget()
             cell.setLayout(row)
@@ -232,16 +238,18 @@ class EnhancementsTab(QWidget):
 
     def _build_favorites_group(self) -> QGroupBox:
         group = QGroupBox(tr("enhancements.favorites_group"))
+        self._favorites_group_box = group
         gl = QVBoxLayout(group)
 
-        favorites_desc = QLabel(tr("enhancements.favorites_desc"))
-        favorites_desc.setProperty("role", "secondary")
-        favorites_desc.setStyleSheet("font-size: 11px;")
-        favorites_desc.setWordWrap(True)
-        gl.addWidget(favorites_desc)
+        self._favorites_desc_label = QLabel(tr("enhancements.favorites_desc"))
+        self._favorites_desc_label.setProperty("role", "secondary")
+        self._favorites_desc_label.setStyleSheet("font-size: 11px;")
+        self._favorites_desc_label.setWordWrap(True)
+        gl.addWidget(self._favorites_desc_label)
 
         prefix_row = QHBoxLayout()
-        prefix_row.addWidget(QLabel(tr("enhancements.sort_prefix_label")))
+        self._sort_prefix_label = QLabel(tr("enhancements.sort_prefix_label"))
+        prefix_row.addWidget(self._sort_prefix_label)
 
         self.favorite_prefix_combo = QComboBox()
         self.favorite_prefix_combo.setToolTip("Character prepended to favorited ship names so they sort to the top of the in-game ship list. Click Apply Prefix after changing to update all existing favorites.")
@@ -262,12 +270,12 @@ class EnhancementsTab(QWidget):
         )
         prefix_row.addWidget(self.favorite_prefix_combo)
 
-        apply_prefix_btn = QPushButton(tr("enhancements.apply_btn"))
-        apply_prefix_btn.setToolTip(
+        self._apply_prefix_btn = QPushButton(tr("enhancements.apply_btn"))
+        self._apply_prefix_btn.setToolTip(
             "Save the selected prefix and update all existing favorites to use it"
         )
-        apply_prefix_btn.clicked.connect(self._apply_favorite_prefix)
-        prefix_row.addWidget(apply_prefix_btn)
+        self._apply_prefix_btn.clicked.connect(self._apply_favorite_prefix)
+        prefix_row.addWidget(self._apply_prefix_btn)
 
         prefix_row.addStretch()
         gl.addLayout(prefix_row)
@@ -368,13 +376,14 @@ class EnhancementsTab(QWidget):
         the bottom persists every page's config and re-runs the enhancement
         generator so the new tags take effect immediately."""
         group = QGroupBox(tr("enhancements.tag_builder_group"))
+        self._tag_builder_group_box = group
         gl = QVBoxLayout(group)
 
-        desc = QLabel(tr("enhancements.tag_builder_desc"))
-        desc.setProperty("role", "secondary")
-        desc.setStyleSheet("font-size: 11px;")
-        desc.setWordWrap(True)
-        gl.addWidget(desc)
+        self._tag_builder_desc_label = QLabel(tr("enhancements.tag_builder_desc"))
+        self._tag_builder_desc_label.setProperty("role", "secondary")
+        self._tag_builder_desc_label.setStyleSheet("font-size: 11px;")
+        self._tag_builder_desc_label.setWordWrap(True)
+        gl.addWidget(self._tag_builder_desc_label)
 
         self._tag_builder_tabs = QTabWidget()
         self._tag_builder_pages: dict[str, _TagBuilderPage] = {}
@@ -409,27 +418,58 @@ class EnhancementsTab(QWidget):
         gl.addWidget(self._annotate_mission_descs_cb)
 
         btn_row = QHBoxLayout()
-        apply_btn = QPushButton(tr("enhancements.apply_tag_changes_btn"))
-        apply_btn.setToolTip(
+        self._apply_tag_btn = QPushButton(tr("enhancements.apply_tag_changes_btn"))
+        self._apply_tag_btn.setToolTip(
             "Save the Components / Missiles / Ship Weapons tag configs and "
             "re-run the enhancement generator. New tags appear in-game after "
             "the next Apply to game."
         )
-        apply_btn.clicked.connect(self._apply_tag_builder)
-        btn_row.addWidget(apply_btn)
+        self._apply_tag_btn.clicked.connect(self._apply_tag_builder)
+        btn_row.addWidget(self._apply_tag_btn)
 
-        reset_btn = QPushButton(tr("enhancements.reset_defaults_btn"))
-        reset_btn.setToolTip(
+        self._reset_tag_btn = QPushButton(tr("enhancements.reset_defaults_btn"))
+        self._reset_tag_btn.setToolTip(
             "Restore the default pattern, mapping, and ordering for every "
             "category (Components / Missiles / Ship Weapons). Does not save "
             "or regenerate until you click Apply Tag Changes."
         )
-        reset_btn.clicked.connect(self._reset_all_tag_builder_pages)
-        btn_row.addWidget(reset_btn)
+        self._reset_tag_btn.clicked.connect(self._reset_all_tag_builder_pages)
+        btn_row.addWidget(self._reset_tag_btn)
 
         btn_row.addStretch()
         gl.addLayout(btn_row)
         return group
+
+    # ── Retranslation ─────────────────────────────────────────────────────────
+
+    def retranslate_ui(self) -> None:
+        """Re-apply tr() to every text-bearing widget after a language switch."""
+        self._title_label.setText(tr("enhancements.title"))
+        self._desc_label.setText(tr("enhancements.desc"))
+        self._enhancements_group_box.setTitle(tr("enhancements.enhancements_group"))
+        self._enhancements_desc_label.setText(tr("enhancements.enhancements_desc"))
+        self._apply_categories_btn.setText(tr("enhancements.apply_btn"))
+        self._generate_enhancements_btn.setText(tr("enhancements.generate_btn"))
+        _CAT_KEYS = {
+            "ships":       "enhancements.cat_desc_ships",
+            "ship_items":  "enhancements.cat_desc_ship_items",
+            "gear":        "enhancements.cat_desc_gear",
+            "missions":    "enhancements.cat_desc_missions",
+            "commodities": "enhancements.cat_desc_commodities",
+            "journal":     "enhancements.cat_desc_journal",
+        }
+        for key, lbl in self._cat_desc_labels.items():
+            if key in _CAT_KEYS:
+                lbl.setText(tr(_CAT_KEYS[key]))
+        self._favorites_group_box.setTitle(tr("enhancements.favorites_group"))
+        self._favorites_desc_label.setText(tr("enhancements.favorites_desc"))
+        self._sort_prefix_label.setText(tr("enhancements.sort_prefix_label"))
+        self._apply_prefix_btn.setText(tr("enhancements.apply_btn"))
+        self._tag_builder_group_box.setTitle(tr("enhancements.tag_builder_group"))
+        self._tag_builder_desc_label.setText(tr("enhancements.tag_builder_desc"))
+        self._annotate_mission_descs_cb.setText(tr("enhancements.annotate_mission_descs_cb"))
+        self._apply_tag_btn.setText(tr("enhancements.apply_tag_changes_btn"))
+        self._reset_tag_btn.setText(tr("enhancements.reset_defaults_btn"))
 
     def _apply_tag_builder(self):
         """Persist every page's TagConfig and kick off enhancement regen."""

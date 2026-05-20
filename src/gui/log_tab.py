@@ -83,7 +83,8 @@ class LogTab(QWidget):
         # Toolbar row
         toolbar = QHBoxLayout()
 
-        toolbar.addWidget(QLabel(tr("log.min_level_label")))
+        self._min_level_label = QLabel(tr("log.min_level_label"))
+        toolbar.addWidget(self._min_level_label)
         self._level_combo = QComboBox()
         self._level_combo.setToolTip("Minimum severity to display. Entries below the selected level are hidden (DEBUG < INFO < WARNING < ERROR).")
         for level, name in [
@@ -106,17 +107,17 @@ class LogTab(QWidget):
 
         toolbar.addStretch()
 
-        clear_btn = QPushButton(tr("log.clear_btn"))
-        clear_btn.setMaximumWidth(70)
-        clear_btn.setToolTip("Clear the on-screen log buffer. The session log file on disk is unaffected.")
-        clear_btn.clicked.connect(self._clear)
-        toolbar.addWidget(clear_btn)
+        self._clear_btn = QPushButton(tr("log.clear_btn"))
+        self._clear_btn.setMaximumWidth(70)
+        self._clear_btn.setToolTip("Clear the on-screen log buffer. The session log file on disk is unaffected.")
+        self._clear_btn.clicked.connect(self._clear)
+        toolbar.addWidget(self._clear_btn)
 
-        export_btn = QPushButton(tr("log.export_btn"))
-        export_btn.setMaximumWidth(130)
-        export_btn.setToolTip("Save the current log buffer to a .log file — useful when filing a bug report.")
-        export_btn.clicked.connect(self._export)
-        toolbar.addWidget(export_btn)
+        self._export_btn = QPushButton(tr("log.export_btn"))
+        self._export_btn.setMaximumWidth(130)
+        self._export_btn.setToolTip("Save the current log buffer to a .log file — useful when filing a bug report.")
+        self._export_btn.clicked.connect(self._export)
+        toolbar.addWidget(self._export_btn)
 
         layout.addLayout(toolbar)
 
@@ -137,6 +138,15 @@ class LogTab(QWidget):
         self._status_label.setProperty("role", "secondary")
         self._status_label.setStyleSheet("font-size: 10px;")
         layout.addWidget(self._status_label)
+
+    # ── Retranslation ─────────────────────────────────────────────────────────
+
+    def retranslate_ui(self) -> None:
+        """Re-apply tr() to every text-bearing widget after a language switch."""
+        self._min_level_label.setText(tr("log.min_level_label"))
+        self._autoscroll_cb.setText(tr("log.auto_scroll_check"))
+        self._clear_btn.setText(tr("log.clear_btn"))
+        self._export_btn.setText(tr("log.export_btn"))
 
     # ── Handler lifecycle ─────────────────────────────────────────────────────
 
