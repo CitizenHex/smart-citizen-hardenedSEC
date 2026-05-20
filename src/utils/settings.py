@@ -1435,6 +1435,20 @@ class AppSettings:
         return backups_dir
 
     @staticmethod
+    def get_logs_dir() -> Path:
+        r"""Get the logs directory (``{user_data_dir}\logs\``).
+
+        Crash dumps and manual log exports both land here. NOT per-channel:
+        a crash can fire before the channel context is established (e.g.
+        during startup migrators), so the path is rooted at the
+        user-data dir directly. Created lazily so a fresh install doesn't
+        carry an empty ``logs/`` until the first crash or export.
+        """
+        logs_dir = AppSettings.get_user_data_dir() / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        return logs_dir
+
+    @staticmethod
     def migrate_dataforge_cache_to_local() -> None:
         r"""One-shot move of the DataForge XML cache from Documents → AppData\Local.
 
