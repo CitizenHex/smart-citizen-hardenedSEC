@@ -10,8 +10,9 @@ virtual method calls across the Python/C++ boundary.
 import re as _re
 from typing import Optional
 
-from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt, pyqtSlot
 from PyQt6.QtGui import QColor
+from PyQt6.QtWidgets import QApplication
 
 from src.models.string_model import StringEntry
 from src.utils.i18n import tr
@@ -55,8 +56,7 @@ _FAV_BG_DARK = QColor("#3a3000")   # deep gold-brown for dark theme
 _FAV_BG_LIGHT = QColor("#FFF4C4")  # soft pale gold for light theme
 
 
-def _fav_row_bg() -> QColor:
-    """Return the favorite-row highlight appropriate for the current theme."""
+def _compute_fav_bg() -> QColor:
     from src.utils.settings import AppSettings
     from src.gui.theme import THEME_LIGHT
     return _FAV_BG_LIGHT if AppSettings.get_theme() == THEME_LIGHT else _FAV_BG_DARK
@@ -173,6 +173,12 @@ class StringTableModel(QAbstractTableModel):
         self._grouped_sort: bool = False
         self._sort_column: int = COL_KEY
         self._sort_order: Qt.SortOrder = Qt.SortOrder.AscendingOrder
+        # Cached values recomputed only on theme/language change, not per-paint.
+        self._header_labels: list[str] = [tr(k) for k in _HEADER_KEYS]
+        self._fav_bg: QColor = _compute_fav_bg()
+        app = QApplication.instance()
+        if app is not None:
+            app.paletteChanged.connect(self._on_palette_changed)
 
     # -- bulk setters -------------------------------------------------------
 
@@ -242,13 +248,19 @@ class StringTableModel(QAbstractTableModel):
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
         if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
-            if 0 <= section < len(_HEADER_KEYS):
-                return tr(_HEADER_KEYS[section])
+            if 0 <= section < len(self._header_labels):
+                return self._header_labels[section]
         return None
 
     def retranslate(self) -> None:
-        """Notify the view to re-query all horizontal header labels."""
+        """Recompute cached header labels and notify the view."""
+        self._header_labels = [tr(k) for k in _HEADER_KEYS]
         self.headerDataChanged.emit(Qt.Orientation.Horizontal, 0, NUM_COLUMNS - 1)
+
+    @pyqtSlot()
+    def _on_palette_changed(self) -> None:
+        """Recompute fav-row background when the app theme changes."""
+        self._fav_bg = _compute_fav_bg()
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlag:
         base = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
@@ -321,7 +333,7 @@ class StringTableModel(QAbstractTableModel):
         # -- background colour (favorite rows) ------------------------------
         if role == Qt.ItemDataRole.BackgroundRole:
             if entry.category == "Ships" and entry.custom_value.startswith(prefix):
-                return _fav_row_bg()
+                return self._fav_bg
             return None
 
         # -- alignment ------------------------------------------------------
