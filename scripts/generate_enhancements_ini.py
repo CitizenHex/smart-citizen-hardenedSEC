@@ -3009,17 +3009,21 @@ def scan_crafting_blueprints(
     loc: dict[str, str],
     xml_path_index: dict | None = None,
     records_dir: Path | None = None,
-) -> dict[str, str]:
-    """Scan crafting blueprints and produce commodity_crafting_stats entries.
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Scan crafting blueprints and produce commodity + journal entries.
 
-    Returns a dict of localization key → augmented value for commodity names and
-    descriptions that are used as crafting materials.
+    Returns ``(commodity_out, journal_out)`` — two dicts of localization-key →
+    augmented value. The commodity dict carries crafting material annotations
+    on commodity names and descriptions; the journal dict carries the Mining
+    Compendium augmentation. Both halves are always returned so the dispatcher
+    in :func:`main` can unpack the result unconditionally, including when no
+    crafting blueprints directory exists in the user's DataForge cache.
     """
     import os
 
     if not bp_dir.exists():
         logger.info("No crafting blueprints directory found")
-        return {}
+        return {}, {}
 
     # Step 1: Collect resource UUIDs from blueprints
     resource_uuids = _resolve_resource_uuids(bp_dir, xml_path_index=xml_path_index, records_dir=records_dir)
