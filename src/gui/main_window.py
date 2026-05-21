@@ -1198,6 +1198,34 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Warning", "Please configure game install path in Config tab")
             return
 
+        # Save user.ini FIRST, before touching the game file. Pre-1.4.1 the
+        # save ran AFTER the game write succeeded; an OS-level write failure
+        # (Controlled Folder Access on the game-folder portable install, a
+        # locked file, a quarantined path) left the game with the new
+        # favourites but user.ini empty — the user's edits were lost on the
+        # next launch even though the in-game state looked correct. Bailing
+        # here on save failure keeps the game file untouched so a retry can
+        # land both halves consistently.
+        try:
+            from src.utils.user_ini_manager import save_user_ini
+            user_ini_path = AppSettings.get_user_ini_path()
+            user_count = save_user_ini(self.entries, user_ini_path)
+        except Exception as e:
+            logger.exception(f"Failed to save user.ini before applying to game: {e}")
+            QMessageBox.critical(
+                self, "Cannot Save Your Edits",
+                f"Smart Citizen could not write your edits to:\n\n"
+                f"  {user_ini_path}\n\n"
+                f"{type(e).__name__}: {e}\n\n"
+                f"The game file was NOT modified. Common causes:\n"
+                f"  • Antivirus / Windows Controlled Folder Access blocking "
+                f"writes under the game folder\n"
+                f"  • The user.ini file is open in another program\n"
+                f"  • The drive is read-only or out of space\n\n"
+                f"Resolve the underlying issue and Apply again."
+            )
+            return
+
         target_path = AppSettings.get_global_ini_path()
 
         try:
@@ -1350,9 +1378,9 @@ class MainWindow(QMainWindow):
                 )
                 return
 
-            # Save user overrides to AppData
-            from src.utils.user_ini_manager import save_user_ini
-            user_count = save_user_ini(self.entries, AppSettings.get_user_ini_path())
+            # user.ini was already saved at the top of apply_to_game (before
+            # the game-side writes). Reach for the count here purely for the
+            # success-dialog summary — the save itself is locked in by now.
 
             # Count enhancement entries, broken down by category. Sorted
             # descending by count so the dialog leads with the biggest
