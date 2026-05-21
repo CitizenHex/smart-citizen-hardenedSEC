@@ -177,9 +177,10 @@ At apply-to-game time, `main_window._stamp_frontend_version(merged)` appends ` |
 | Game file | `{sc_install_root}\{active_channel}\data\Localization\english\global.ini` — resolved via `AppSettings.get_global_ini_path()` |
 | P4K tools | `assets/unp4k/` (`unp4k.exe`, `unforge.exe`) |
 | DataForge patches | `patches/` (JSON files mirroring DataForge layout; applied post-extraction) |
-| Help/About content | `HELP.md`, `ABOUT.md` at repo root — rendered inside the in-app help panel |
-| Legal tab content | `LEGAL.md` at repo root — CIG community-content compliance, license summaries, privacy/data-handling disclosure, AI-use statement; bundled via `SmartCitizen.spec` and rendered through the same markdown→HTML pipeline as About |
-| Linux/Wine guide | `LINUX.md` at repo root — user-facing Wine-prefix walkthrough; not loaded by the app |
+| Help/About content | `docs/HELP.md`, `docs/ABOUT.md` — bundled to the repo root of the frozen build via `SmartCitizen.spec` (and `scripts/build/build_exe.py` for the CLI path); rendered inside the in-app help panel via `get_resource_path("HELP.md")` so the runtime lookup stays root-relative |
+| Legal tab content | `docs/LEGAL.md` — CIG community-content compliance, license summaries, privacy/data-handling disclosure, AI-use statement; bundled via `SmartCitizen.spec` (source `docs/LEGAL.md`, bundle dest `.`) and rendered through the same markdown→HTML pipeline as About |
+| Linux/Wine guide | `docs/LINUX.md` — user-facing Wine-prefix walkthrough; not loaded by the app |
+| Release notes | `docs/{X.Y.Z}-RELEASE-NOTES.md` — historical + current per-version notes; the release workflow at `.github/workflows/release.yml` looks here first and falls back to repo root for pre-1.4.1 re-runs |
 
 ## Common Modification Points
 

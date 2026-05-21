@@ -7,9 +7,9 @@ a = Analysis(
     binaries=[],
     datas=[
         ('VERSION.TXT', '.'),
-        ('ABOUT.md', '.'),
-        ('HELP.md', '.'),
-        ('LEGAL.md', '.'),
+        ('docs/ABOUT.md', '.'),
+        ('docs/HELP.md', '.'),
+        ('docs/LEGAL.md', '.'),
         ('assets', 'assets'),
         ('patches', 'patches'),
         ('scripts/generate_enhancements_ini.py', 'scripts'),
