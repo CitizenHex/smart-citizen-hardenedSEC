@@ -1019,7 +1019,7 @@ class MainWindow(QMainWindow):
         from PyQt6.QtWidgets import QApplication
         self.about_browser.setPalette(QApplication.palette())
         try:
-            about_path = get_resource_path("ABOUT.md")
+            about_path = get_resource_path("docs/ABOUT.md")
             with open(about_path, 'r', encoding='utf-8') as f:
                 about_content = f.read()
             about_content = about_content.replace(
@@ -1105,7 +1105,7 @@ class MainWindow(QMainWindow):
     def create_legal_tab(self) -> QWidget:
         """Create the Legal tab — CIG community-content compliance, license
         notices, privacy/data disclosure, and AI-use statement. Content lives
-        in LEGAL.md at the repo root (bundled into the frozen build via
+        in docs/LEGAL.md (bundled into the frozen build via
         SmartCitizen.spec) and renders through the same markdown_to_html
         pipeline as About and Help so theme swaps recolor it consistently.
         """
@@ -1133,7 +1133,7 @@ class MainWindow(QMainWindow):
         from PyQt6.QtWidgets import QApplication
         self.legal_browser.setPalette(QApplication.palette())
         try:
-            legal_path = get_resource_path("LEGAL.md")
+            legal_path = get_resource_path("docs/LEGAL.md")
             with open(legal_path, 'r', encoding='utf-8') as f:
                 legal_content = f.read()
             html = self.markdown_to_html(legal_content)
@@ -2113,7 +2113,7 @@ class MainWindow(QMainWindow):
         from PyQt6.QtWidgets import QApplication
         self.help_browser.setPalette(QApplication.palette())
         try:
-            help_path = get_resource_path("HELP.md")
+            help_path = get_resource_path("docs/HELP.md")
             with open(help_path, "r", encoding="utf-8") as f:
                 help_markdown = f.read()
             self.help_browser.setHtml(self.markdown_to_html(help_markdown))
@@ -2138,8 +2138,8 @@ class MainWindow(QMainWindow):
     def show_help(self):
         """Toggle the Help side-panel.
 
-        Help content lives in HELP.md at the project root (bundled into the
-        PyInstaller onedir via SmartCitizen.spec). The first call creates the
+        Help content lives in docs/HELP.md (bundled into the PyInstaller
+        onedir via SmartCitizen.spec). The first call creates the
         dock lazily; subsequent calls flip visibility so users can keep the
         guide open as a reference while editing without juggling a modal
         dialog.
