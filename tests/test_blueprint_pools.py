@@ -455,6 +455,59 @@ class TestBlueprintNameTags:
         desc = "Item Type: Unrecognised Widget\\nSize: 2\\nGrade: A\\n"
         assert tag(desc) == "[S2-A]"
 
+    def test_tagger_ship_weapons_tag_with_damage_type(self, gen_module):
+        """1.4.1 regression: ship weapons in POTENTIAL BLUEPRINTS lists
+        were rendering bare ('- Tarantula GT-870 Mark 2 Cannon') because
+        _ITEM_TYPE_ABBREV only had 'Mining Laser'. Expanding the map to
+        cover every Ship-weapon Item Type makes the BP-list tag match the
+        single-letter damage code the strings-tab tagger emits — so a
+        Tarantula reads ``[B-S2] Tarantula …`` in both places."""
+        tag = gen_module._component_name_tag
+        # Ballistic family
+        assert tag("Item Type: Ballistic Cannon\\nSize: 2\\n") == "[B-S2]"
+        assert tag("Item Type: Ballistic Gatling\\nSize: 1\\n") == "[B-S1]"
+        assert tag("Item Type: Ballistic Repeater\\nSize: 3\\n") == "[B-S3]"
+        assert tag("Item Type: Mass Driver Cannon\\nSize: 4\\n") == "[B-S4]"
+        assert tag("Item Type: Railgun\\nSize: 2\\n") == "[B-S2]"
+        # Energy family (laser / plasma / neutron / tachyon)
+        assert tag("Item Type: Laser Cannon\\nSize: 1\\n") == "[E-S1]"
+        assert tag("Item Type: Laser Repeater\\nSize: 2\\n") == "[E-S2]"
+        assert tag("Item Type: Plasma Cannon\\nSize: 5\\n") == "[E-S5]"
+        assert tag("Item Type: Neutron Repeater\\nSize: 3\\n") == "[E-S3]"
+        assert tag("Item Type: Tachyon Cannon\\nSize: 7\\n") == "[E-S7]"
+        # Distortion family
+        assert tag("Item Type: Distortion Cannon\\nSize: 2\\n") == "[D-S2]"
+        assert tag("Item Type: Distortion Repeater\\nSize: 1\\n") == "[D-S1]"
+        # EMP
+        assert tag("Item Type: EMP Generator\\nSize: 3\\n") == "[EMP-S3]"
+
+    def test_tagger_ship_weapons_trailing_space_variant(self, gen_module):
+        """CIG occasionally writes ``Item Type: Laser Cannon ``\\n
+        (trailing space before the literal ``\\n``). The regex strips it
+        via ``.strip()`` before lookup, so both forms produce the same
+        tag — locking the parity so a future CIG cleanup doesn't break
+        the previously-working trailing-space variant or vice versa."""
+        tag = gen_module._component_name_tag
+        assert tag("Item Type: Laser Cannon \\nSize: 1\\n") == "[E-S1]"
+        assert tag("Item Type: Ballistic Cannon \\nSize: 3\\n") == "[B-S3]"
+
+    def test_tagger_salvage_head(self, gen_module):
+        """1.4.1 regression: salvage heads (Baler, Salvation) were
+        rendering bare in BP lists. Salvage Head → ``[SAL-Sx]``."""
+        tag = gen_module._component_name_tag
+        baler_desc = (
+            "Manufacturer: Greycat Industrial\\n"
+            "Item Type: Salvage Head\\n"
+            "Size: 2\\n"
+        )
+        assert tag(baler_desc) == "[SAL-S2]"
+        salvation_desc = (
+            "Manufacturer: Roberts Space Industries\\n"
+            "Item Type: Salvage Head\\n"
+            "Size: 1\\n"
+        )
+        assert tag(salvation_desc) == "[SAL-S1]"
+
     def test_tagger_fallback_rejects_size_only(self, gen_module):
         """A description with ONLY Size: (no Grade, no recognised Item
         Type) returns None — bare [Sx] is too weak to be informative and

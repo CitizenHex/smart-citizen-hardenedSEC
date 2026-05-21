@@ -21,6 +21,7 @@ from PyQt6.QtGui import QDesktopServices
 
 from src.gui.coach_mark import CoachMarkStep, TutorialTour
 from src.gui.config_tab import ConfigTab
+from src.gui.error_dialog import ErrorDialogHandler, _ErrorDialogEmitter
 from src.gui.enhancements_tab import EnhancementsTab
 from src.gui.filter_header import FilterHeaderView
 from src.gui.log_tab import LogTab
@@ -393,7 +394,22 @@ class MainWindow(QMainWindow):
         self.log_tab = LogTab()
         self._log_tab_index = self.tabs.addTab(self.log_tab, tr("tabs.log"))
 
-        self._about_tab_index = self.tabs.addTab(self.create_about_tab(), tr("tabs.about"))
+        self.tabs.addTab(self.create_about_tab(), "About")
+        self.tabs.addTab(self.create_legal_tab(), "Legal")
+
+        # Error-dialog handler: surfaces ERROR/CRITICAL log records as a
+        # modal QMessageBox so users see failures without having to open
+        # the Log tab. State below is consumed by _show_error_dialog —
+        # it implements a per-cooldown-window suppression so a burst of
+        # errors (e.g. 50 parse failures during DataForge extraction)
+        # doesn't open 50 dialogs.
+        self._error_dialog_showing = False
+        self._last_error_dialog_time = 0.0
+        self._suppressed_error_count = 0
+        self._error_dialog_emitter = _ErrorDialogEmitter()
+        self._error_dialog_handler = ErrorDialogHandler(self._error_dialog_emitter)
+        self._error_dialog_emitter.error_emitted.connect(self._show_error_dialog)
+        logging.getLogger().addHandler(self._error_dialog_handler)
 
         # Revert unapplied enhancement checkbox changes when leaving the tab
         self.tabs.currentChanged.connect(self._on_tab_changed)
@@ -1018,6 +1034,133 @@ class MainWindow(QMainWindow):
                 f"<p style='color: gray;'>{str(e)}</p>"
             )
 
+    # Cooldown window (seconds) between consecutive error dialogs. Within
+    # this window, additional errors are silently counted and surfaced as
+    # "(+N errors suppressed — see Log tab)" in the body of the next
+    # dialog to fire. 5 s is a balance between "user notices each error"
+    # and "burst of 50 parse failures during extraction doesn't open 50
+    # dialogs".
+    _ERROR_DIALOG_COOLDOWN_SEC = 5.0
+
+    @pyqtSlot(str, str)
+    def _show_error_dialog(self, message: str, traceback_text: str) -> None:
+        """Show a modal error dialog for an ``ERROR``-or-above log record.
+
+        Slot for ``ErrorDialogHandler``'s ``error_emitted`` signal. Always
+        invoked on the main thread (signals from worker threads queue
+        across the thread boundary, which is the whole point of the
+        emitter pattern).
+
+        Spam protection: a dialog is shown at most once per
+        ``_ERROR_DIALOG_COOLDOWN_SEC`` window. Errors arriving while a
+        dialog is open, or during the cooldown window after one closes,
+        increment a counter; the next eligible dialog prepends a
+        "(+N suppressed)" line so the suppressed errors aren't silently
+        lost — they're still in the Log tab regardless.
+        """
+        import time
+
+        # Guard 1: a dialog is currently on-screen. Count and bail.
+        if self._error_dialog_showing:
+            self._suppressed_error_count += 1
+            return
+
+        # Guard 2: still inside the cooldown window after the previous
+        # dialog closed. Count and bail.
+        elapsed = time.monotonic() - self._last_error_dialog_time
+        if elapsed < self._ERROR_DIALOG_COOLDOWN_SEC:
+            self._suppressed_error_count += 1
+            return
+
+        self._error_dialog_showing = True
+        try:
+            if self._suppressed_error_count > 0:
+                suffix = (
+                    f"\n\n(+{self._suppressed_error_count} additional error"
+                    f"{'s' if self._suppressed_error_count != 1 else ''} "
+                    f"suppressed — see Log tab for details)"
+                )
+                body = message + suffix
+                self._suppressed_error_count = 0
+            else:
+                body = message
+
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Critical)
+            box.setWindowTitle("Smart Citizen — Error")
+            box.setText(body)
+            if traceback_text:
+                box.setDetailedText(traceback_text)
+            show_log_btn = box.addButton("Show Log", QMessageBox.ButtonRole.ActionRole)
+            box.addButton("Dismiss", QMessageBox.ButtonRole.AcceptRole)
+            box.exec()
+            if box.clickedButton() is show_log_btn:
+                log_idx = self.tabs.indexOf(self.log_tab)
+                if log_idx >= 0:
+                    self.tabs.setCurrentIndex(log_idx)
+        finally:
+            self._error_dialog_showing = False
+            self._last_error_dialog_time = time.monotonic()
+
+    def create_legal_tab(self) -> QWidget:
+        """Create the Legal tab — CIG community-content compliance, license
+        notices, privacy/data disclosure, and AI-use statement. Content lives
+        in LEGAL.md at the repo root (bundled into the frozen build via
+        SmartCitizen.spec) and renders through the same markdown_to_html
+        pipeline as About and Help so theme swaps recolor it consistently.
+        """
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        self.legal_browser = QTextBrowser()
+        self.legal_browser.setOpenExternalLinks(True)
+        self._render_legal_html()
+        layout.addWidget(self.legal_browser)
+        return widget
+
+    def _render_legal_html(self):
+        """(Re)render the Legal tab HTML. Mirrors _render_about_html — force
+        the browser palette to track the current theme so the viewport
+        background and scrollbar chrome update on live theme swap.
+
+        Also splices the CIG-compliant "Made by the Community" badge in
+        right before the closing ``</body>`` so it sits as a footer
+        beneath the legal text. Splicing the ``<img>`` post-conversion
+        (rather than embedding it in LEGAL.md) avoids the markdown
+        renderer wrapping it in a ``<p>`` and lets the absolute file
+        path resolve through ``get_resource_path`` so the frozen build
+        finds it under ``_MEIPASS\\assets\\``.
+        """
+        from PyQt6.QtWidgets import QApplication
+        self.legal_browser.setPalette(QApplication.palette())
+        try:
+            legal_path = get_resource_path("LEGAL.md")
+            with open(legal_path, 'r', encoding='utf-8') as f:
+                legal_content = f.read()
+            html = self.markdown_to_html(legal_content)
+
+            # File-URL the bundled CIG badge so QTextBrowser can load it.
+            # Forward slashes only — Qt's URL parser chokes on backslashes
+            # even on Windows.
+            badge_path = str(get_resource_path("assets/sc-community.png"))
+            badge_url = "file:///" + badge_path.replace("\\", "/")
+            badge_html = (
+                f'<div style="text-align: center; margin: 30px 0 10px 0;">'
+                f'<img src="{badge_url}" alt="Made by the Community" width="200" />'
+                f'</div>'
+            )
+            # Inject the badge immediately before </body> so it sits as
+            # a footer beneath the legal text. The renderer always emits
+            # a literal "</body>" so a plain string replace is safe.
+            html = html.replace("</body>", badge_html + "</body>", 1)
+
+            self.legal_browser.setHtml(html)
+        except Exception as e:
+            logger.error(f"Error loading LEGAL.md: {e}", exc_info=True)
+            self.legal_browser.setHtml(
+                f"<h1>Legal</h1><p>Unable to load legal information.</p>"
+                f"<p style='color: gray;'>{str(e)}</p>"
+            )
+
     @pyqtSlot()
     def _set_toolbar_enabled(self, enabled: bool):
         """Toggle toolbar button enabled states."""
@@ -1602,6 +1745,8 @@ class MainWindow(QMainWindow):
             self._render_about_html()
         if hasattr(self, "help_browser"):
             self._render_help_html()
+        if hasattr(self, "legal_browser"):
+            self._render_legal_html()
         self._apply_editor_dock_canvas_tint()
 
     def _handle_reset_user_ini(self):

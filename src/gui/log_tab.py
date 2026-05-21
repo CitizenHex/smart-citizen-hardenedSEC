@@ -192,9 +192,16 @@ class LogTab(QWidget):
         self._status_label.setText(tr("log.lines_label", count=0))
 
     def _export(self):
-        default_name = f"sc_loc_editor_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        # Default to the canonical logs/ directory under user data so manual
+        # exports land alongside any auto-written crash dumps. The dialog
+        # still lets the user redirect elsewhere; passing a full path as the
+        # default ``dir`` argument opens the dialog there instead of in the
+        # OS-default / last-used location.
+        from src.utils.settings import AppSettings
+        default_name = f"smart_citizen_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        default_path = str(AppSettings.get_logs_dir() / default_name)
         path, _ = QFileDialog.getSaveFileName(
-            self, tr("log.export_title"), default_name,
+            self, "Export log", default_path,
             "Log files (*.log);;Text files (*.txt);;All files (*)"
         )
         if not path:
