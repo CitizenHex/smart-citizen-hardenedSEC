@@ -124,8 +124,8 @@ Built with **PyQt6** and inspired by the Star Citizen community's localization w
 
 **GitHub**: https://github.com/Osiris-DevWorks/smart-citizen
 
-## License
+## License & Legal
 
-Smart Citizen is licensed under the **Apache License, Version 2.0**. The full license text is in `LICENSE` next to the executable, and the source is at the [GitHub repository](https://github.com/Osiris-DevWorks/smart-citizen/blob/main/LICENSE).
+Smart Citizen is licensed under the **Apache License, Version 2.0**.
 
-Bundled `unp4k` / `unforge` tools are licensed under the MIT License — see `NOTICE` for full attribution and the Star Citizen / CIG trademark notice.
+See the **Legal** tab for the full license summary, bundled third-party software attributions (unp4k / PyQt6 / lxml), Cloud Imperium "Made by the Community" acknowledgements, privacy & data-handling disclosure, and AI-use statement.

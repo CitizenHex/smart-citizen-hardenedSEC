@@ -45,7 +45,7 @@ Download the **`SmartCitizen-{VERSION}-Setup.exe`** installer and run it. The ap
 
 ### On Linux
 
-Smart Citizen runs on Linux through the same Wine prefix as Star Citizen — see **[LINUX.md](LINUX.md)** for the full guide (download the portable build, then point a launch script at the Wine runner your game uses).
+Smart Citizen runs on Linux through the same Wine prefix as Star Citizen — see **[LINUX.md](docs/LINUX.md)** for the full guide (download the portable build, then point a launch script at the Wine runner your game uses).
 
 ### For Developers
 

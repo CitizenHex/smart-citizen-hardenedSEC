@@ -213,11 +213,24 @@ class TestDefaultBackwardsCompat:
         cfg = default_config("missiles")
         assert render_tag(cfg, {"ordinance": ordinance, "size": size}) == expected
 
-    def test_missile_bomb_default_yields_S_size(self):
-        """Bombs have no ordinance — the renderer's empty-drop should
-        produce the historical `[S2]` fallback from the size element alone."""
+    def test_missile_empty_ordinance_drops_to_size_only(self):
+        """When the ordinance value is empty, render_tag's empty-drop
+        should collapse to the size element alone (`[S2]`). The
+        ``_missile_name_tag`` caller no longer feeds empty for bombs —
+        it resolves them to ``"Bomb"`` so they render through the
+        ordinance mapping — but the renderer's behaviour for a literal
+        empty input is still covered here as an isolated unit."""
         cfg = default_config("missiles")
         assert render_tag(cfg, {"ordinance": "", "size": "2"}) == "[S2]"
+
+    def test_missile_bomb_ordinance_renders_via_mapping(self):
+        """``"Bomb"`` is in DEFAULT_MISSILE_ORDINANCE_MAPPING as
+        ("B", "B", "Bomb"). Under the default missile config (med style)
+        that resolves to ``B``, giving ``[B-S3]`` for a size-3 bomb —
+        the user-visible distinguisher between bombs and seekerless
+        ordinance the new detection path produces."""
+        cfg = default_config("missiles")
+        assert render_tag(cfg, {"ordinance": "Bomb", "size": "3"}) == "[B-S3]"
 
     def test_missile_size_disabled_preserves_legacy_guided_output(self):
         """Locks the path back to the pre-refactor `[IR]` output — users

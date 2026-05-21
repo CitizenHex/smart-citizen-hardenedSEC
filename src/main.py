@@ -58,6 +58,14 @@ def main():
     # block right after handles).
     AppSettings.setup_portable_backend_if_needed()
 
+    # Install crash handler as early as possible — must come AFTER
+    # setup_portable_backend_if_needed() (so get_logs_dir resolves to the
+    # right base in portable mode) but BEFORE the registry migrators run
+    # (so a migrator crash gets captured into the dump file rather than
+    # vanishing into the swallowed stderr of the frozen build).
+    from src.utils.crash_handler import install_crash_handler
+    install_crash_handler(AppSettings.get_logs_dir())
+
     # Skip all registry migrators in portable mode — they migrate
     # state in HKEY_CURRENT_USER, which a portable build never reads.
     # Filesystem migrators (`migrate_docs_folder_rename`,

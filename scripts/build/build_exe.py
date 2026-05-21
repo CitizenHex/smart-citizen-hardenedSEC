@@ -114,8 +114,9 @@ exe_name = f"SmartCitizen-{'Portable-' if portable_mode else ''}v{current_versio
 
 assets_dir   = os.path.join(root_dir, 'assets')
 icon_path    = os.path.join(assets_dir, 'logo.ico')
-about_file   = os.path.join(root_dir, 'ABOUT.md')
-help_file    = os.path.join(root_dir, 'HELP.md')
+about_file   = os.path.join(root_dir, 'docs', 'ABOUT.md')
+help_file    = os.path.join(root_dir, 'docs', 'HELP.md')
+legal_file   = os.path.join(root_dir, 'docs', 'LEGAL.md')
 patches_dir  = os.path.join(root_dir, 'patches')
 enhancements_script = os.path.join(root_dir, 'scripts', 'generate_enhancements_ini.py')
 
@@ -125,8 +126,9 @@ common_args = [
     '--windowed',
     '--icon', icon_path,
     '--add-data', f'{version_file}{os.pathsep}.',
-    '--add-data', f'{about_file}{os.pathsep}.',
-    '--add-data', f'{help_file}{os.pathsep}.',
+    '--add-data', f'{about_file}{os.pathsep}docs',
+    '--add-data', f'{help_file}{os.pathsep}docs',
+    '--add-data', f'{legal_file}{os.pathsep}docs',
     '--add-data', f'{assets_dir}{os.pathsep}assets',
     '--add-data', f'{patches_dir}{os.pathsep}patches',
     '--add-data', f'{enhancements_script}{os.pathsep}scripts',
