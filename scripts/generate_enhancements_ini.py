@@ -623,14 +623,29 @@ def _missile_name_tag(desc_value: str, root: ET.Element | None = None,
     size = size_m.group(1)
 
     seeker_raw = None
+    is_bomb = False
     if root is not None:
         for el in root.iter():
-            if el.tag.endswith("targetingParams") or el.tag.endswith("TargetingParams"):
+            # Bombs are unguided ordinance — they carry no trackingSignalType
+            # but author `AttachDef Type="Bomb"` (and an SCItemBombParams
+            # element) instead. Catch them on the same single-pass iter so
+            # the ordinance element resolves to "Bomb" → "B" through
+            # DEFAULT_MISSILE_ORDINANCE_MAPPING and the rendered tag is
+            # [B-S3] rather than the pre-fix bare-size [S3].
+            if not is_bomb and el.tag.endswith("AttachDef"):
+                if el.get("Type") == "Bomb":
+                    is_bomb = True
+            if not is_bomb and (el.tag.endswith("SCItemBombParams")
+                                or el.tag == "SCItemBombParams"):
+                is_bomb = True
+            if seeker_raw is None and (el.tag.endswith("targetingParams")
+                                       or el.tag.endswith("TargetingParams")):
                 raw = el.get("trackingSignalType")
                 if raw in _MISSILE_TRACKING_RAW:
                     seeker_raw = raw
-                    break
-    if seeker_raw is None:
+            if is_bomb and seeker_raw is not None:
+                break
+    if seeker_raw is None and not is_bomb:
         m = re.search(r"Tracking Signal:\s*([A-Za-z ]+?)(?:\\n|\n|$)", desc_value)
         if m:
             normalized = m.group(1).replace(" ", "")
@@ -644,13 +659,15 @@ def _missile_name_tag(desc_value: str, root: ET.Element | None = None,
         return None
     # Feed raw values; render_tag's empty-value drop handles both branches.
     # Guided missiles (seeker_raw set) keep size enabled by default →
-    # [IRS2]; bombs (seeker_raw "") collapse ordinance → [S2]. The new
-    # [IRS2] default is a deliberate change from the pre-refactor [IR]
-    # output — issue thread feedback asked for size to be visible on
-    # guided missiles ("might have multiple IR missiles and have to wait
-    # for the name to scroll to identify what size it is"). Users who
-    # prefer the old behavior can disable Size in the Tag Builder UI.
-    out = render_tag(cfg, {"ordinance": seeker_raw or "", "size": size})
+    # [IRS2]; bombs resolve to "Bomb" → [B-S3] via the mapping; anything
+    # else with neither marker collapses ordinance → [S2]. The [IRS2]
+    # default is a deliberate change from the pre-refactor [IR] output —
+    # issue thread feedback asked for size to be visible on guided
+    # missiles ("might have multiple IR missiles and have to wait for the
+    # name to scroll to identify what size it is"). Users who prefer the
+    # old behavior can disable Size in the Tag Builder UI.
+    ordinance = "Bomb" if is_bomb else (seeker_raw or "")
+    out = render_tag(cfg, {"ordinance": ordinance, "size": size})
     return out or None
 
 
