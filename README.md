@@ -26,6 +26,27 @@ A Windows desktop app for customizing Star Citizen's localization strings. Layer
 - **Auto-Update Notifier**: Smart Citizen checks GitHub Releases every 6 hours and surfaces a non-blocking notification when a newer installer is available.
 - **Themes**: Four built-in themes — SCLE (default deep-navy mobiGlas), Light, Dark, and ODW (Osiris DevWorks signature).
 
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="assets/screenshots/ss.png" alt="Smart Citizen main window"/><br/><em>Smart Citizen — main window</em></td>
+    <td width="50%"><img src="assets/screenshots/asop.png" alt="ASOP terminal with ship favorites"/><br/><em>ASOP terminal — favorites prefixed to top</em></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="assets/screenshots/item_stats.png" alt="Item and ship stat overlays"/><br/><em>Item &amp; ship stat overlays</em></td>
+    <td width="50%"><img src="assets/screenshots/mission_deets.png" alt="Mission details with blueprint reward tags"/><br/><em>Mission details with reward tags</em></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="assets/screenshots/bps.png" alt="Blueprint reward list"/><br/><em>Blueprint reward list</em></td>
+    <td width="50%"><img src="assets/screenshots/blue_prints.png" alt="Blueprint enhancements"/><br/><em>Blueprint enhancements</em></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="assets/screenshots/journal.png" alt="Journal entries"/><br/><em>Journal entries</em></td>
+    <td width="50%"><img src="assets/screenshots/radar.png" alt="Mission contract radar"/><br/><em>Mission contract radar</em></td>
+  </tr>
+</table>
+
 ## Quick Start
 
 ### Using the Release
@@ -49,27 +70,7 @@ Smart Citizen runs on Linux through the same Wine prefix as Star Citizen — see
 
 ### For Developers
 
-**Prerequisites**:
-- Python 3.9+ (recommended 3.10+)
-- Windows 10/11 (the app uses Windows Registry and is Win32-only)
-
-**Installation**:
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/Osiris-DevWorks/smart-citizen.git
-   cd smart-citizen
-   ```
-
-2. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Run the application**
-   ```bash
-   python src/main.py
-   ```
+See **[docs/CONTRIBUTOR_GUIDE.md](docs/CONTRIBUTOR_GUIDE.md)** for local setup (prerequisites, clone, install, run).
 
 ## Usage
 
