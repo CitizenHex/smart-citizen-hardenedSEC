@@ -90,15 +90,6 @@ class ConfigTab(QWidget):
         appearance_layout.addWidget(self.theme_combo)
         appearance_layout.addStretch()
 
-        self.include_new_cb = QCheckBox("Include new lines")
-        self.include_new_cb.setToolTip(
-            "When checked, items discovered from DataForge XML (status 'New') "
-            "that have non-empty text will be included in the applied global.ini."
-        )
-        self.include_new_cb.setChecked(AppSettings.get_include_new_lines())
-        self.include_new_cb.toggled.connect(self._on_include_new_toggled)
-        appearance_layout.addWidget(self.include_new_cb)
-
         layout.addWidget(appearance_group)
 
         # ── Star Citizen Installation ────────────────────────────────────────
@@ -300,6 +291,15 @@ class ConfigTab(QWidget):
         tools_desc.setStyleSheet("font-size: 11px;")
         tools_desc.setWordWrap(True)
         tools_layout.addWidget(tools_desc)
+
+        self.include_new_cb = QCheckBox("Include new lines")
+        self.include_new_cb.setToolTip(
+            "When checked, items discovered from DataForge XML (status 'New') "
+            "that have non-empty text will be included in the applied global.ini."
+        )
+        self.include_new_cb.setChecked(AppSettings.get_include_new_lines())
+        self.include_new_cb.toggled.connect(self._on_include_new_toggled)
+        tools_layout.addWidget(self.include_new_cb)
 
         button_layout = QHBoxLayout()
 

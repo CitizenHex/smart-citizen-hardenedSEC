@@ -190,9 +190,13 @@ def load_source_files(
             # User has an override for this key
             status = 'Modified'
         else:
-            # No user override — use source-origin-based status
             source = source_origin.get(key, base_source)
-            status = _determine_status_from_source(source, base_source)
+            # Discovered from DataForge XML — key only exists in enhancements,
+            # not in the global (base.ini) source.
+            if source == 'enhancements' and key not in base_sources.get(base_source, {}):
+                status = 'New'
+            else:
+                status = _determine_status_from_source(source, base_source)
 
         source = source_origin.get(key, 'user' if key not in base_merged else base_source)
 

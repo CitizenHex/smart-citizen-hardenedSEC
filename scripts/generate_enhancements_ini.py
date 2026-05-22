@@ -546,6 +546,7 @@ _ITEM_TYPE_ABBREV = {
     "Power Plant":              "POWR",
     "Quantum Drive":            "QDRV",
     "Radar":                    "RADR",
+    "Bomb Rack":                "BRK",
 
     # Ship weapons — energy damage
     "Laser Beam":               "E",
@@ -638,9 +639,36 @@ def _component_name_tag(desc_value: str, root: ET.Element | None = None,
     grade_m = re.search(r"Grade:\s*([A-D])", desc_value)
     class_m = re.search(r"Class:\s*(\w+)", desc_value)
 
+    # AttachDef fallback (bomb racks, other ordnance containers): these
+    # entities have no ItemComponentParams and their Grade is numeric (1→A).
+    attach_def = None
+    attach_grade_letter = None
+    attach_class_name = None
+    if root is not None:
+        attach_el = _find(root, "SAttachableComponentParams")
+        if attach_el is not None:
+            attach_def = attach_el.find("AttachDef")
+
+    if not grade_m and attach_def is not None:
+        num_grade = attach_def.get("Grade", "")
+        if num_grade.isdigit():
+            g_idx = int(num_grade) - 1
+            if 0 <= g_idx <= 3:
+                attach_grade_letter = "ABCD"[g_idx]
+
+    if not class_m and attach_def is not None:
+        subtype = attach_def.get("SubType", "")
+        if subtype:
+            # CamelCase → space-separated (e.g. "BombRack" → "Bomb Rack")
+            attach_class_name = re.sub(r"([a-z])([A-Z])", r"\1 \2", subtype)
+
+    # Resolve effective grade and class for downstream paths
+    grade_letter = (grade_m.group(1) if grade_m else None) or attach_grade_letter
+    class_name = (class_m.group(1) if class_m else None) or attach_class_name
+
     # When Class: is missing from text, try to derive from XML ItemComponentParams
     xml_item_type = None
-    if not class_m and root is not None:
+    if not class_name and root is not None:
         icp = _find(root, "ItemComponentParams")
         if icp is not None:
             raw_type = icp.get("itemType", "")
@@ -657,22 +685,22 @@ def _component_name_tag(desc_value: str, root: ET.Element | None = None,
 
     # Strict path: full ship-component trio with a recognised class →
     # render via the Tag Builder pipeline so user customisation applies.
-    if grade_m and class_m and class_m.group(1) in DEFAULT_COMPONENT_CLASS_MAPPING:
+    if grade_letter and class_name and class_name in DEFAULT_COMPONENT_CLASS_MAPPING:
         cfg = config or DEFAULT_TAG_CONFIGS.get("components")
         if cfg is not None and render_tag is not None:
             out = render_tag(cfg, {
-                "class": class_m.group(1),
+                "class": class_name,
                 "size":  size,
-                "grade": grade_m.group(1),
+                "grade": grade_letter,
             })
             if out:
                 return out
         # Defensive fallback when tag_builder isn't importable (e.g. tests
         # in environments without src/ on the path). Preserves the legacy
         # hardcoded output shape.
-        abbrev_tuple = DEFAULT_COMPONENT_CLASS_MAPPING.get(class_m.group(1))
+        abbrev_tuple = DEFAULT_COMPONENT_CLASS_MAPPING.get(class_name)
         if abbrev_tuple:
-            return f"[{abbrev_tuple[1]}-S{size}-{grade_m.group(1)}]"
+            return f"[{abbrev_tuple[1]}-S{size}-{grade_letter}]"
 
     # Fallback path: classify by Item Type when Class: is missing or
     # unrecognised. The character class excludes backslash so the capture
@@ -686,16 +714,19 @@ def _component_name_tag(desc_value: str, root: ET.Element | None = None,
     # Fall back to XML-derived item type when text has no Item Type: line
     if not type_abbrev and xml_item_type:
         type_abbrev = _ITEM_TYPE_ABBREV.get(xml_item_type)
+    # Fall back to AttachDef SubType (bomb racks, etc.)
+    if not type_abbrev and class_name:
+        type_abbrev = _ITEM_TYPE_ABBREV.get(class_name)
 
-    if not (type_abbrev or grade_m):
+    if not (type_abbrev or grade_letter):
         return None
 
     parts: list[str] = []
     if type_abbrev:
         parts.append(type_abbrev)
     parts.append(f"S{size}")
-    if grade_m:
-        parts.append(grade_m.group(1))
+    if grade_letter:
+        parts.append(grade_letter)
     return f"[{'-'.join(parts)}]"
 
 
@@ -1389,6 +1420,41 @@ def enhancements_missile(root: ET.Element) -> str:
     except Exception:
         pass
 
+    return "\\n".join(lines) if lines else ""
+
+
+def enhancements_bomb_rack(root: ET.Element) -> str:
+    """Extract bomb-rack enhancements: size, grade, slot count, health."""
+    # Bomb racks nest their Localization inside SAttachableComponentParams/AttachDef
+    attach = _find(root, "SAttachableComponentParams")
+    if attach is None:
+        return ""
+    ad = attach.find("AttachDef")
+    if ad is None:
+        return ""
+
+    size = ad.get("Size", "")
+    grade = ad.get("Grade", "")
+
+    # Count bomb slots from SCItemMissileRackParams/slotTags
+    rack = _find(root, "SCItemMissileRackParams")
+    slot_count = 0
+    if rack is not None:
+        slot_tags = rack.find("slotTags")
+        if slot_tags is not None:
+            slot_count = len(list(slot_tags.findall("String")))
+
+    comp_hp = _attr(root, "SHealthComponentParams", "Health")
+
+    lines = []
+    if size:
+        lines.append(f"Size: S{size}")
+    if grade:
+        lines.append(f"Grade: {grade}")
+    if slot_count > 0:
+        lines.append(f"Bomb Slots: {slot_count}")
+    if comp_hp:
+        lines.append(f"Component HP: {_fmt(comp_hp)}")
     return "\\n".join(lines) if lines else ""
 
 
@@ -4226,6 +4292,7 @@ def _run_gen_components(ctx: dict) -> dict[str, str]:
         ("cooler",          enhancements_cooler),
         ("powerplant",      enhancements_powerplant),
         ("quantumdrive",    enhancements_quantum_drive),
+        ("bombcompartments", enhancements_bomb_rack),
     ]:
         out.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc, generate_name_tags=True,
                                    name_tag_fn=_comp_tagger,
