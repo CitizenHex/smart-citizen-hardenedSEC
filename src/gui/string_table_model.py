@@ -36,7 +36,7 @@ _STATUS_COLORS = {
     "Modified": QColor("#4CAF50"),    # green — user-customized
     "Enhanced": QColor("#2196F3"),    # blue — Smart Citizen enhancement pipeline
     "Unmodified": QColor("#999999"),  # grey — stock value, unchanged
-    "New": QColor("#FF9800"),         # orange — exists only in user/enhancements
+    "New": QColor("#66BB6A"),         # green — discovered from XML, not in base.ini
 }
 _DEFAULT_STATUS_COLOR = QColor("black")
 

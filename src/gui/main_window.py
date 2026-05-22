@@ -1292,6 +1292,20 @@ class MainWindow(QMainWindow):
                 if entry.custom_value
             }
 
+            # When "Include new lines" is off, strip discovered items
+            # (status "New" with no user override) from the enhancements
+            # source so they don't flow into the applied global.ini.
+            if not AppSettings.get_include_new_lines():
+                new_keys = {
+                    entry.key for entry in self.entries
+                    if entry.status == "New" and not entry.custom_value
+                }
+                if new_keys and "enhancements" in sources_dict:
+                    sources_dict["enhancements"] = {
+                        k: v for k, v in sources_dict["enhancements"].items()
+                        if k not in new_keys
+                    }
+
             # Merge all sources in hierarchy order, with user edits on top
             merged_dict = merge_sources_by_hierarchy(sources_dict, hierarchy, user_overrides_dict)
 

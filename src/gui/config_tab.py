@@ -7,6 +7,7 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLineEdit,
     QPushButton, QLabel, QFileDialog, QMessageBox, QComboBox,
+    QCheckBox,
 )
 from PyQt6.QtCore import pyqtSignal, QTimer
 
@@ -88,6 +89,16 @@ class ConfigTab(QWidget):
         self.theme_combo.setMaximumWidth(150)
         appearance_layout.addWidget(self.theme_combo)
         appearance_layout.addStretch()
+
+        self.include_new_cb = QCheckBox("Include new lines")
+        self.include_new_cb.setToolTip(
+            "When checked, items discovered from DataForge XML (status 'New') "
+            "that have non-empty text will be included in the applied global.ini."
+        )
+        self.include_new_cb.setChecked(AppSettings.get_include_new_lines())
+        self.include_new_cb.toggled.connect(self._on_include_new_toggled)
+        appearance_layout.addWidget(self.include_new_cb)
+
         layout.addWidget(appearance_group)
 
         # ── Star Citizen Installation ────────────────────────────────────────
@@ -365,6 +376,9 @@ class ConfigTab(QWidget):
         mw = self.window()
         if hasattr(mw, "refresh_action_buttons"):
             mw.refresh_action_buttons()
+
+    def _on_include_new_toggled(self, checked: bool):
+        AppSettings.set_include_new_lines(checked)
 
     # ── Game path ────────────────────────────────────────────────────────────
 
