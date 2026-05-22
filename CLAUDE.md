@@ -4,6 +4,12 @@ This file guides Claude Code (claude.ai/code) when working in this repo.
 
 > **Before editing files under `src/<dir>/`, `scripts/`, or `tests/`, read that directory's `CLAUDE.md` first.** See *Per-directory guides* below for the list.
 
+## Communication style
+
+- **Plain words, short sentences.** Cut adjectives, hedges, and throat-clearing. If a sentence isn't earning its weight, drop it.
+- **One concept per message.** When the work involves several distinct concepts, present the first, stop, and ask the user before moving on. Do not stack ideas, decisions, or trade-offs in a wall of text.
+- **Prompt at decision points.** When the next step needs the user's preference, judgment, or clarification, ask before proceeding. A one-line confirmation is cheaper than redoing work.
+
 ## Project Overview
 
 Smart Citizen (formerly SC Localization Editor) is a Windows-only PyQt6 GUI for customizing Star Citizen localization strings. Tagline: *Smarter Strings for Star Citizen*. Users edit strings in a table backed by the `global` source (locally cached `base.ini` from Data.p4k) merged with per-channel `user.ini` overrides, then apply the result to their game with backup management.
@@ -90,6 +96,20 @@ Sources merge in user-defined order. Later sources overwrite earlier ones; user 
 
 ### Favorites use value prefix
 Favorites prepend a configurable prefix (default `*`) to `custom_value`. Stored via `AppSettings.FAVORITE_PREFIX`.
+
+### Code deduplication (DRY)
+Prefer one canonical implementation over copy-paste. Calibration:
+
+- **Two occurrences**: usually fine — leave it.
+- **Three or more**: extract. The third repeat is the signal.
+- **Magic literals used in 2+ places**: extract a named constant immediately. Common offenders: settings keys, source names (`"global"`, `"user"`, `"enhancements"`), channel names (`"LIVE"`, `"PTU"`, `"EPTU"`, `"HOTFIX"`, `"TECH-PREVIEW"`), column indices, file extensions, path segments.
+- **Near-duplicates differing in one literal or branch**: parameterize. Two functions that diverge on a single string or boolean are one function with an argument.
+
+Anchor examples already in-tree: `COL_*` constants in `src/gui/string_table_model.py`, `_entry_index_for_row()` on `MainWindow`, `AppSettings` helpers (one backend abstraction, not mode-conditional call sites), `ProgressSink` (one shared progress channel for all parallel workers).
+
+**Tolerated exception**: `CATEGORY_SUBTREES` (`src/utils/dataforge_diff.py`) ↔ `DATAFORGE_KEEP_SUBPATHS` (`src/utils/pak_extractor.py`) — two lists kept in sync deliberately; they serve different consumers and the contract is locked by tests.
+
+**Don't over-abstract.** Three similar lines beats a premature abstraction. Single-use helpers, one-off config classes, and clever metaprogramming for code that runs in one place are worse than the inline version.
 
 ## PyInstaller specs
 
