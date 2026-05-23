@@ -235,12 +235,20 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ steps.resolve.outputs.version }}"
-          $notes_file = "${version}-RELEASE-NOTES.md"
+          # Release notes live in docs/ after the 1.4.1 cleanup; older
+          # releases keep them at the repo root. Check docs/ first so the
+          # next release picks up the new home, then fall back to root so
+          # historical re-runs (workflow_dispatch against a pre-cleanup
+          # tag) still find the right file.
+          $notes_file = "docs/${version}-RELEASE-NOTES.md"
+          if (-not (Test-Path $notes_file)) {
+            $notes_file = "${version}-RELEASE-NOTES.md"
+          }
           if (Test-Path $notes_file) {
             Write-Host "Using release notes from $notes_file"
             "notes_file=$notes_file" | Out-File -Append $env:GITHUB_OUTPUT
           } else {
-            Write-Host "No $notes_file found; release will use the auto-generated body"
+            Write-Host "No release notes file found; release will use the auto-generated body"
             "notes_file=" | Out-File -Append $env:GITHUB_OUTPUT
           }
 

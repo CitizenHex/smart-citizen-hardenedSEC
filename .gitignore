@@ -81,6 +81,7 @@ src/utils/_build_info.py
 # Portable-mode runtime data (when running locally with IS_PORTABLE flipped)
 /portable_data/
 
-
 # release notes
 *-RELEASE_NOTES.md
+
+/scratch/

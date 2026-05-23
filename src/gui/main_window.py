@@ -1019,7 +1019,7 @@ class MainWindow(QMainWindow):
         from PyQt6.QtWidgets import QApplication
         self.about_browser.setPalette(QApplication.palette())
         try:
-            about_path = get_resource_path("ABOUT.md")
+            about_path = get_resource_path("docs/ABOUT.md")
             with open(about_path, 'r', encoding='utf-8') as f:
                 about_content = f.read()
             about_content = about_content.replace(
@@ -1105,7 +1105,7 @@ class MainWindow(QMainWindow):
     def create_legal_tab(self) -> QWidget:
         """Create the Legal tab — CIG community-content compliance, license
         notices, privacy/data disclosure, and AI-use statement. Content lives
-        in LEGAL.md at the repo root (bundled into the frozen build via
+        in docs/LEGAL.md (bundled into the frozen build via
         SmartCitizen.spec) and renders through the same markdown_to_html
         pipeline as About and Help so theme swaps recolor it consistently.
         """
@@ -1133,7 +1133,7 @@ class MainWindow(QMainWindow):
         from PyQt6.QtWidgets import QApplication
         self.legal_browser.setPalette(QApplication.palette())
         try:
-            legal_path = get_resource_path("LEGAL.md")
+            legal_path = get_resource_path("docs/LEGAL.md")
             with open(legal_path, 'r', encoding='utf-8') as f:
                 legal_content = f.read()
             html = self.markdown_to_html(legal_content)
@@ -1197,6 +1197,34 @@ class MainWindow(QMainWindow):
 
         if not AppSettings.get_game_install_path():
             QMessageBox.warning(self, tr("dialogs.warning_title"), tr("dialogs.no_game_path"))
+            return
+
+        # Save user.ini FIRST, before touching the game file. Pre-1.4.1 the
+        # save ran AFTER the game write succeeded; an OS-level write failure
+        # (Controlled Folder Access on the game-folder portable install, a
+        # locked file, a quarantined path) left the game with the new
+        # favourites but user.ini empty — the user's edits were lost on the
+        # next launch even though the in-game state looked correct. Bailing
+        # here on save failure keeps the game file untouched so a retry can
+        # land both halves consistently.
+        try:
+            from src.utils.user_ini_manager import save_user_ini
+            user_ini_path = AppSettings.get_user_ini_path()
+            user_count = save_user_ini(self.entries, user_ini_path)
+        except Exception as e:
+            logger.exception(f"Failed to save user.ini before applying to game: {e}")
+            QMessageBox.critical(
+                self, "Cannot Save Your Edits",
+                f"Smart Citizen could not write your edits to:\n\n"
+                f"  {user_ini_path}\n\n"
+                f"{type(e).__name__}: {e}\n\n"
+                f"The game file was NOT modified. Common causes:\n"
+                f"  • Antivirus / Windows Controlled Folder Access blocking "
+                f"writes under the game folder\n"
+                f"  • The user.ini file is open in another program\n"
+                f"  • The drive is read-only or out of space\n\n"
+                f"Resolve the underlying issue and Apply again."
+            )
             return
 
         target_path = AppSettings.get_global_ini_path()
@@ -1347,9 +1375,9 @@ class MainWindow(QMainWindow):
                 )
                 return
 
-            # Save user overrides to AppData
-            from src.utils.user_ini_manager import save_user_ini
-            user_count = save_user_ini(self.entries, AppSettings.get_user_ini_path())
+            # user.ini was already saved at the top of apply_to_game (before
+            # the game-side writes). Reach for the count here purely for the
+            # success-dialog summary — the save itself is locked in by now.
 
             # Count enhancement entries, broken down by category. Sorted
             # descending by count so the dialog leads with the biggest
@@ -2118,7 +2146,7 @@ class MainWindow(QMainWindow):
         from PyQt6.QtWidgets import QApplication
         self.help_browser.setPalette(QApplication.palette())
         try:
-            help_path = get_resource_path("HELP.md")
+            help_path = get_resource_path("docs/HELP.md")
             with open(help_path, "r", encoding="utf-8") as f:
                 help_markdown = f.read()
             self.help_browser.setHtml(self.markdown_to_html(help_markdown))
