@@ -394,8 +394,8 @@ class MainWindow(QMainWindow):
         self.log_tab = LogTab()
         self._log_tab_index = self.tabs.addTab(self.log_tab, tr("tabs.log"))
 
-        self.tabs.addTab(self.create_about_tab(), "About")
-        self.tabs.addTab(self.create_legal_tab(), "Legal")
+        self._about_tab_index = self.tabs.addTab(self.create_about_tab(), tr("tabs.about"))
+        self._legal_tab_index = self.tabs.addTab(self.create_legal_tab(), tr("tabs.legal"))
 
         # Error-dialog handler: surfaces ERROR/CRITICAL log records as a
         # modal QMessageBox so users see failures without having to open
@@ -2707,6 +2707,7 @@ class MainWindow(QMainWindow):
         self.tabs.setTabText(self._enhancements_tab_index, tr("tabs.enhancements"))
         self.tabs.setTabText(self._log_tab_index, tr("tabs.log"))
         self.tabs.setTabText(self._about_tab_index, tr("tabs.about"))
+        self.tabs.setTabText(self._legal_tab_index, tr("tabs.legal"))
 
         # Toolbar buttons
         self.apply_btn.setText(tr("toolbar.apply_btn"))

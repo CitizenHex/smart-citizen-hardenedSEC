@@ -11,7 +11,8 @@
     "config": "Config",
     "enhancements": "Aprimoramentos",
     "log": "Log",
-    "about": "Sobre"
+    "about": "Sobre",
+    "legal": "Legal"
   },
   "toolbar": {
     "apply_btn": "Aplicar ao Jogo",
