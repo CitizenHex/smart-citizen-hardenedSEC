@@ -672,16 +672,9 @@ def _component_name_tag(desc_value: str, root: ET.Element | None = None,
         icp = _find(root, "ItemComponentParams")
         if icp is not None:
             raw_type = icp.get("itemType", "")
-            # Map CamelCase XML itemType to the space-separated form
-            # used in _ITEM_TYPE_ABBREV (e.g. "ShieldGenerator" → "Shield Generator")
-            _ITEM_TYPE_XML_MAP = {
-                "ShieldGenerator": "Shield Generator",
-                "Cooler": "Cooler",
-                "PowerPlant": "Power Plant",
-                "QuantumDrive": "Quantum Drive",
-                "Radar": "Radar",
-            }
-            xml_item_type = _ITEM_TYPE_XML_MAP.get(raw_type, raw_type)
+            # CamelCase → space-separated, same split as attach_class_name
+            # (e.g. "ShieldGenerator" → "Shield Generator")
+            xml_item_type = re.sub(r"([a-z])([A-Z])", r"\1 \2", raw_type)
 
     # Strict path: full ship-component trio with a recognised class →
     # render via the Tag Builder pipeline so user customisation applies.

@@ -184,11 +184,11 @@ class TestScanEntityDirDiscovery:
         def dummy_enhancement_fn(root):
             return "stats"
 
-        gen_module.scan_entity_dir(
+        result = gen_module.scan_entity_dir(
             tmp_path, dummy_enhancement_fn, loc=loc, capture_all=False,
         )
-        # No direct way to check the counter (it's local), but the function
-        # should complete without error and produce both entries.
+        assert "item_DescSHLD_A" in result  # discovered (not in loc)
+        assert "item_DescSHLD_B" in result  # in loc, enhanced normally
 
 
 # ── scan_spaceships discovery ────────────────────────────────────────────────
@@ -252,26 +252,28 @@ class TestDiscoveredItemsInParser:
     """Covers that discovered items get 'New' status through the parser."""
 
     def test_enhancement_only_key_gets_new_status(self, tmp_path):
-        """A key only in the enhancements source gets status 'New'."""
-        from src.parser.ini_parser import parse_ini_file, load_source_files
+        """A key only in the enhancements source gets status 'New',
+        while a key in both base and enhancements gets 'Enhanced'."""
+        from src.parser.ini_parser import load_source_files
 
-        # Simulate: base.ini has key A, enhancement INI has keys A and B
-        base_ini = tmp_path / "base.ini"
-        base_ini.write_text("item_DescSHLD_A=Shield A\n", encoding="utf-8")
+        # base.ini has key A; enhancements have keys A and B
+        base = {"item_DescSHLD_A": "Shield A"}
+        enhancement = {
+            "item_DescSHLD_A": "Shield A\n\\n\\n--- STATS ---\\nHP: 1000",
+            "item_DescSHLD_B": "Discovered Shield\n\\n\\n--- STATS ---\\nHP: 500",
+        }
 
-        enhancement_ini = tmp_path / "enhancements.ini"
-        enhancement_ini.write_text(
-            "item_DescSHLD_A=Shield A\n\\n\\n--- STATS ---\\nHP: 1000\n"
-            "item_DescSHLD_B=Discovered Shield\n\\n\\n--- STATS ---\\nHP: 500\n",
-            encoding="utf-8",
+        entries = load_source_files(
+            sources_dict={"global": base, "enhancements": enhancement},
+            hierarchy=["global", "enhancements"],
+            user_overrides=None,
         )
 
-        base = parse_ini_file(base_ini)
-        enhancement = parse_ini_file(enhancement_ini)
+        discovered_b = next(e for e in entries if e.key == "item_DescSHLD_B")
+        assert discovered_b.status == "New"
 
-        assert "item_DescSHLD_A" in base
-        assert "item_DescSHLD_B" in enhancement
-        assert "item_DescSHLD_B" not in base
+        existing_a = next(e for e in entries if e.key == "item_DescSHLD_A")
+        assert existing_a.status == "Enhanced"
 
 
 # ── append_enhancements guard ────────────────────────────────────────────────

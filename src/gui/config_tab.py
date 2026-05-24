@@ -292,7 +292,7 @@ class ConfigTab(QWidget):
         tools_desc.setWordWrap(True)
         tools_layout.addWidget(tools_desc)
 
-        self.include_new_cb = QCheckBox("Include new lines")
+        self.include_new_cb = QCheckBox("Include discovered items")
         self.include_new_cb.setToolTip(
             "When checked, items discovered from DataForge XML (status 'New') "
             "that have non-empty text will be included in the applied global.ini."

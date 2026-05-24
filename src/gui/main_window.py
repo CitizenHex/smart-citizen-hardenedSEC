@@ -1292,7 +1292,7 @@ class MainWindow(QMainWindow):
                 if entry.custom_value
             }
 
-            # When "Include new lines" is off, strip discovered items
+            # When "Include discovered items" is off, strip discovered items
             # (status "New" with no user override) from the enhancements
             # source so they don't flow into the applied global.ini.
             if not AppSettings.get_include_new_lines():
