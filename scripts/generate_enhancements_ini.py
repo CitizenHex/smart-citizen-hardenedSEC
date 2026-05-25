@@ -320,6 +320,8 @@ MISSION_SEPARATOR = "\\n\\n<EM3>MISSION DETAILS</EM3>\\n"
 
 def append_enhancements(existing_value: str, enhancements_block: str,
                         separator: str = ENHANCEMENT_SEPARATOR) -> str:
+    if existing_value is None:
+        existing_value = ""
     if not enhancements_block:
         return existing_value
     # Strip any existing stats/mission details block. BP/ITEMS/BLUEPRINT DATA
@@ -448,6 +450,61 @@ def _loc_name_key(root: ET.Element) -> str | None:
     return None
 
 
+def _synthesize_description(root: ET.Element, xml_file: Path, key: str) -> str:
+    """Build a synthetic description from XML attributes when base.ini has no entry.
+
+    Returns the richest available description so discovered items still appear
+    in the table with useful context.
+    """
+    parts: list[str] = []
+
+    # 1. Item name: prefer the XML Name loc ref, fall back to filename
+    name = _loc_name_key(root)
+    if name:
+        parts.append(name)
+    else:
+        stem = xml_file.stem.replace("_", " ").strip()
+        if stem:
+            parts.append(stem)
+
+    # 2. Ship-specific attributes from VehicleComponentParams
+    vpc = _find(root, "VehicleComponentParams")
+    if vpc is not None:
+        attrs: list[str] = []
+        career = vpc.get("vehicleCareer", "")
+        if career.startswith("@"):
+            attrs.append(f"Class: {career.lstrip('@')}")
+        role = vpc.get("vehicleRole", "")
+        if role.startswith("@"):
+            attrs.append(f"Role: {role.lstrip('@')}")
+        crew = vpc.get("crewSize", "")
+        if crew:
+            attrs.append(f"Crew: {crew}")
+        bbox = _find(root, "maxBoundingBoxSize")
+        if bbox is not None:
+            length = bbox.get("y", "")
+            if length:
+                attrs.append(f"Length: {length}m")
+        if attrs:
+            parts.append(" | ".join(attrs))
+
+    # 3. Component attributes (ItemComponentParams)
+    icp = _find(root, "ItemComponentParams")
+    if icp is not None:
+        item_type = icp.get("itemType", "")
+        if item_type:
+            parts.append(f"Item Type: {item_type}")
+
+    # 4. Missile tracking signal type
+    tp = _find(root, "targetingParams")
+    if tp is not None:
+        sig = tp.get("trackingSignalType", "")
+        if sig:
+            parts.append(f"Tracking: {sig}")
+
+    return "\n".join(parts) if parts else key.replace("_", " ")
+
+
 # ── Tag emitters ─────────────────────────────────────────────────────────────
 # Each emitter pulls structured data off the description text and/or XML and
 # hands it to render_tag(). Format strings, ordering, separators, and the
@@ -482,6 +539,14 @@ _ITEM_TYPE_ABBREV = {
 
     # Salvage / repair
     "Salvage Head":             "SAL",
+
+    # Ship components
+    "Shield Generator":         "SHLD",
+    "Cooler":                   "COOL",
+    "Power Plant":              "POWR",
+    "Quantum Drive":            "QDRV",
+    "Radar":                    "RADR",
+    "Bomb Rack":                "BRK",
 
     # Ship weapons — energy damage
     "Laser Beam":               "E",
@@ -559,31 +624,76 @@ def _component_name_tag(desc_value: str, root: ET.Element | None = None,
     # (Size: 0, Size: 1). The capture is the digits only; "S0" → "0",
     # "S00" → "00", "2" → "2", so the tag normalises to f"S{captured}".
     size_m = re.search(r"Size:\s*S?(\d+)", desc_value)
-    if not size_m:
+    if size_m:
+        size = size_m.group(1)
+    elif root is not None:
+        # Fall back to XML: extract size from entity class name in root tag
+        root_tag = root.tag.split(".")[-1] if "." in root.tag else root.tag
+        xml_size = _extract_item_size(root_tag)
+        if not xml_size:
+            return None
+        size = xml_size.lstrip("S")
+    else:
         return None
-    size = size_m.group(1)
 
     grade_m = re.search(r"Grade:\s*([A-D])", desc_value)
     class_m = re.search(r"Class:\s*(\w+)", desc_value)
 
+    # AttachDef fallback (bomb racks, other ordnance containers): these
+    # entities have no ItemComponentParams and their Grade is numeric (1→A).
+    attach_def = None
+    attach_grade_letter = None
+    attach_class_name = None
+    if root is not None:
+        attach_el = _find(root, "SAttachableComponentParams")
+        if attach_el is not None:
+            attach_def = attach_el.find("AttachDef")
+
+    if not grade_m and attach_def is not None:
+        num_grade = attach_def.get("Grade", "")
+        if num_grade.isdigit():
+            g_idx = int(num_grade) - 1
+            if 0 <= g_idx <= 3:
+                attach_grade_letter = "ABCD"[g_idx]
+
+    if not class_m and attach_def is not None:
+        subtype = attach_def.get("SubType", "")
+        if subtype:
+            # CamelCase → space-separated (e.g. "BombRack" → "Bomb Rack")
+            attach_class_name = re.sub(r"([a-z])([A-Z])", r"\1 \2", subtype)
+
+    # Resolve effective grade and class for downstream paths
+    grade_letter = (grade_m.group(1) if grade_m else None) or attach_grade_letter
+    class_name = (class_m.group(1) if class_m else None) or attach_class_name
+
+    # When Class: is missing from text, try to derive from XML ItemComponentParams
+    xml_item_type = None
+    if not class_name and root is not None:
+        icp = _find(root, "ItemComponentParams")
+        if icp is not None:
+            raw_type = icp.get("itemType", "")
+            # CamelCase → space-separated, same split as attach_class_name
+            # (e.g. "ShieldGenerator" → "Shield Generator")
+            xml_item_type = re.sub(r"([a-z])([A-Z])", r"\1 \2", raw_type)
+
     # Strict path: full ship-component trio with a recognised class →
     # render via the Tag Builder pipeline so user customisation applies.
-    if grade_m and class_m and class_m.group(1) in DEFAULT_COMPONENT_CLASS_MAPPING:
+    if grade_letter and class_name and class_name in DEFAULT_COMPONENT_CLASS_MAPPING:
         cfg = config or DEFAULT_TAG_CONFIGS.get("components")
         if cfg is not None and render_tag is not None:
             out = render_tag(cfg, {
-                "class": class_m.group(1),
+                "class": class_name,
                 "size":  size,
-                "grade": grade_m.group(1),
+                "grade": grade_letter,
             })
             if out:
                 return out
         # Defensive fallback when tag_builder isn't importable (e.g. tests
         # in environments without src/ on the path). Preserves the legacy
         # hardcoded output shape.
-        abbrev_tuple = DEFAULT_COMPONENT_CLASS_MAPPING.get(class_m.group(1))
+        abbrev_tuple = DEFAULT_COMPONENT_CLASS_MAPPING.get(class_name)
         if abbrev_tuple:
-            return f"[{abbrev_tuple[1]}-S{size}-{grade_m.group(1)}]"
+            return f"[{abbrev_tuple[1]}-S{size}-{grade_letter}]"
 
     # Fallback path: classify by Item Type when Class: is missing or
     # unrecognised. The character class excludes backslash so the capture
@@ -594,16 +704,22 @@ def _component_name_tag(desc_value: str, root: ET.Element | None = None,
     type_m = re.search(r"Item Type:\s*([^\\\n]+?)\s*(?:\\n|\n|$)", desc_value)
     if type_m:
         type_abbrev = _ITEM_TYPE_ABBREV.get(type_m.group(1).strip())
+    # Fall back to XML-derived item type when text has no Item Type: line
+    if not type_abbrev and xml_item_type:
+        type_abbrev = _ITEM_TYPE_ABBREV.get(xml_item_type)
+    # Fall back to AttachDef SubType (bomb racks, etc.)
+    if not type_abbrev and class_name:
+        type_abbrev = _ITEM_TYPE_ABBREV.get(class_name)
 
-    if not (type_abbrev or grade_m):
+    if not (type_abbrev or grade_letter):
         return None
 
     parts: list[str] = []
     if type_abbrev:
         parts.append(type_abbrev)
     parts.append(f"S{size}")
-    if grade_m:
-        parts.append(grade_m.group(1))
+    if grade_letter:
+        parts.append(grade_letter)
     return f"[{'-'.join(parts)}]"
 
 
@@ -1297,6 +1413,41 @@ def enhancements_missile(root: ET.Element) -> str:
     except Exception:
         pass
 
+    return "\\n".join(lines) if lines else ""
+
+
+def enhancements_bomb_rack(root: ET.Element) -> str:
+    """Extract bomb-rack enhancements: size, grade, slot count, health."""
+    # Bomb racks nest their Localization inside SAttachableComponentParams/AttachDef
+    attach = _find(root, "SAttachableComponentParams")
+    if attach is None:
+        return ""
+    ad = attach.find("AttachDef")
+    if ad is None:
+        return ""
+
+    size = ad.get("Size", "")
+    grade = ad.get("Grade", "")
+
+    # Count bomb slots from SCItemMissileRackParams/slotTags
+    rack = _find(root, "SCItemMissileRackParams")
+    slot_count = 0
+    if rack is not None:
+        slot_tags = rack.find("slotTags")
+        if slot_tags is not None:
+            slot_count = len(list(slot_tags.findall("String")))
+
+    comp_hp = _attr(root, "SHealthComponentParams", "Health")
+
+    lines = []
+    if size:
+        lines.append(f"Size: S{size}")
+    if grade:
+        lines.append(f"Grade: {grade}")
+    if slot_count > 0:
+        lines.append(f"Bomb Slots: {slot_count}")
+    if comp_hp:
+        lines.append(f"Component HP: {_fmt(comp_hp)}")
     return "\\n".join(lines) if lines else ""
 
 
@@ -3779,7 +3930,7 @@ def scan_spaceships(
 ) -> dict[str, str]:
     """Scan DataForge spaceship entities and generate ship stat descriptions."""
     out: dict[str, str] = {}
-    matched = missed = skipped = 0
+    matched = missed = skipped = discovered = 0
 
     if xml_path_index is not None and records_dir is not None:
         key = spaceships_dir.relative_to(records_dir).as_posix()
@@ -3810,9 +3961,10 @@ def scan_spaceships(
         loc_key = desc_attr.lstrip("@")
 
         base_value = loc.get(loc_key)
-        if base_value is None:
-            missed += 1
-            continue
+        is_discovered = base_value is None
+        if is_discovered:
+            base_value = _synthesize_description(root, xml_file, loc_key)
+            discovered += 1
 
         # Match ship class to flight controller
         root_tag = root.tag
@@ -3830,10 +3982,14 @@ def scan_spaceships(
             if loc_key not in out:
                 out[loc_key] = append_enhancements(base_value, block)
                 matched += 1
+        elif is_discovered:
+            if loc_key not in out:
+                out[loc_key] = base_value
+            matched += 1
         else:
             missed += 1
 
-    logger.info(f"Spaceships: {matched} matched, {missed} no enhancements/key, {skipped} skipped (AI/templates)")
+    logger.info(f"Spaceships: {matched} matched, {discovered} discovered, {missed} no enhancements/key, {skipped} skipped (AI/templates)")
     return out
 
 
@@ -4005,7 +4161,9 @@ def scan_entity_dir(
 ) -> dict[str, str]:
     """
     Scan all XML files in entity_dir, extract localization key + enhancements,
-    and return {loc_key: augmented_value} for keys found in `loc`.
+    and return {loc_key: augmented_value}. For keys missing from `loc`, a
+    synthetic description is built from XML attributes so discovered items
+    still appear in the output.
 
     ammo_lookup is passed to enhancement_fn only when it accepts it (weapons).
     loc is the base.ini localization dict for value lookup.
@@ -4018,7 +4176,7 @@ def scan_entity_dir(
         loc_key_fn = _loc_key
 
     out: dict[str, str] = {}
-    matched = missed = skipped = 0
+    matched = missed = skipped = discovered = 0
 
     xml_files = (
         _index_rglob(xml_path_index, entity_dir, records_dir)
@@ -4037,9 +4195,10 @@ def scan_entity_dir(
             continue
 
         base_value = (loc or {}).get(key)
-        if base_value is None:
-            missed += 1
-            continue
+        is_discovered = base_value is None
+        if is_discovered:
+            base_value = _synthesize_description(root, xml_file, key)
+            discovered += 1
 
         try:
             if ammo_lookup is not None:
@@ -4053,8 +4212,8 @@ def scan_entity_dir(
         if enhancements_block:
             out[key] = append_enhancements(base_value, enhancements_block, separator)
             matched += 1
-        elif capture_all:
-            # Still emit the base value so all missions are captured
+        elif capture_all or is_discovered:
+            # Still emit the base value so all missions / discovered items are captured
             if key not in out:
                 out[key] = base_value
             matched += 1
@@ -4071,6 +4230,10 @@ def scan_entity_dir(
             name_key = _loc_name_key(root)
             if name_key:
                 name_value = loc.get(name_key)
+                is_discovered_name = name_value is None
+                if is_discovered_name:
+                    # Synthesize name from XML file stem
+                    name_value = xml_file.stem.replace("_", " ").strip()
                 if name_value:
                     tagger = name_tag_fn or _component_name_tag
                     tag = tagger(base_value, root)
@@ -4091,7 +4254,7 @@ def scan_entity_dir(
                             else:
                                 out[short_key] = f"{tag} {short_value}"
 
-    logger.info(f"{entity_dir.name}: {matched} matched, {missed} no enhancements, {skipped} no loc key")
+    logger.info(f"{entity_dir.name}: {matched} matched, {discovered} discovered, {missed} no enhancements, {skipped} no loc key")
     return out
 
 
@@ -4122,6 +4285,7 @@ def _run_gen_components(ctx: dict) -> dict[str, str]:
         ("cooler",          enhancements_cooler),
         ("powerplant",      enhancements_powerplant),
         ("quantumdrive",    enhancements_quantum_drive),
+        ("bombcompartments", enhancements_bomb_rack),
     ]:
         out.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc, generate_name_tags=True,
                                    name_tag_fn=_comp_tagger,
@@ -4462,8 +4626,9 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     mission_titles_augmented = 0
     for title_key, variants in contractgen_missions.items():
         base_title = (loc or {}).get(title_key)
-        if not base_title:
-            continue
+        is_discovered_title = not base_title
+        if is_discovered_title:
+            base_title = title_key.replace("_", " ").strip()
 
         seen_tiers: list[tuple[int, int]] = []
         # 10-tuple destructure: (system_name, success_xp, failure_xp, desc_key,
@@ -4517,12 +4682,21 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         unique_desc_keys: list[str] = []
         for v in variants:
             dk = v[3]
-            if dk and dk in loc and dk not in unique_desc_keys:
+            if dk and dk not in unique_desc_keys:
                 unique_desc_keys.append(dk)
 
         for desc_key in unique_desc_keys:
             desc_variants = [v for v in variants if v[3] == desc_key]
-            base_desc = loc[desc_key]
+            base_desc = loc.get(desc_key)
+            if base_desc is None:
+                # Synthesize from contract debug name in variant tuple
+                contract_debug = next(
+                    (v[9] for v in desc_variants if v[9]), ""
+                )
+                if contract_debug:
+                    base_desc = contract_debug.replace("_", " ").strip()
+                else:
+                    base_desc = desc_key.replace("_", " ").strip()
             all_flags: list[str] = []
             agg_spawns = _empty_spawn_breakdown()
             all_difficulties: list[str] = []
@@ -4708,8 +4882,6 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
                 if _is_sentinel_loc_ref(title_attr) or _is_sentinel_loc_ref(desc_attr):
                     continue
                 title_key = title_attr.lstrip("@")
-                if not (loc or {}).get(title_key):
-                    continue
                 xp = _extract_mission_xp(root, reputation_lookup)
                 if xp > 0:
                     pu_title_xps.setdefault(title_key, []).append(xp)
@@ -4720,7 +4892,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     for title_key, xps in pu_title_xps.items():
         base_title = (loc or {}).get(title_key)
         if not base_title:
-            continue
+            base_title = title_key.replace("_", " ").strip()
         current = out.get(title_key, base_title)
         if xp_tag_re.search(current):
             continue
