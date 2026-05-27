@@ -23,8 +23,13 @@ class AppSettings:
     # Settings keys - Favorites
     FAVORITE_PREFIX = "favorite_prefix"
 
-    # Settings keys - Mission XP label
+    # Settings keys - Mission labels
     REP_XP_LABEL = "rep_xp_label"
+    MISSION_HEADER_DETAILS = "mission_header/details"
+    MISSION_HEADER_BLUEPRINTS = "mission_header/blueprints"
+    MISSION_HEADER_ITEMS = "mission_header/items"
+    MISSION_HEADER_BLUEPRINT_DATA = "mission_header/blueprint_data"
+    MISSION_HEADER_EM_TAG = "mission_header/em_tag"
 
     # Settings keys - Appearance
     THEME = "theme"
@@ -237,6 +242,43 @@ class AppSettings:
     @staticmethod
     def set_rep_xp_label(label: str) -> None:
         AppSettings.settings().setValue(AppSettings.REP_XP_LABEL, label)
+
+    MISSION_HEADER_DEFAULTS = {
+        "details": "MISSION DETAILS",
+        "blueprints": "POTENTIAL BLUEPRINTS",
+        "items": "ITEM REWARDS",
+        "blueprint_data": "BLUEPRINT DATA",
+    }
+
+    @staticmethod
+    def get_mission_headers() -> dict[str, str]:
+        s = AppSettings.settings()
+        d = AppSettings.MISSION_HEADER_DEFAULTS
+        return {
+            "details":        s.value(AppSettings.MISSION_HEADER_DETAILS, d["details"]),
+            "blueprints":     s.value(AppSettings.MISSION_HEADER_BLUEPRINTS, d["blueprints"]),
+            "items":          s.value(AppSettings.MISSION_HEADER_ITEMS, d["items"]),
+            "blueprint_data": s.value(AppSettings.MISSION_HEADER_BLUEPRINT_DATA, d["blueprint_data"]),
+        }
+
+    @staticmethod
+    def set_mission_header(key: str, value: str) -> None:
+        key_map = {
+            "details": AppSettings.MISSION_HEADER_DETAILS,
+            "blueprints": AppSettings.MISSION_HEADER_BLUEPRINTS,
+            "items": AppSettings.MISSION_HEADER_ITEMS,
+            "blueprint_data": AppSettings.MISSION_HEADER_BLUEPRINT_DATA,
+        }
+        if key in key_map:
+            AppSettings.settings().setValue(key_map[key], value)
+
+    @staticmethod
+    def get_mission_header_em_tag() -> str:
+        return AppSettings.settings().value(AppSettings.MISSION_HEADER_EM_TAG, "EM3")
+
+    @staticmethod
+    def set_mission_header_em_tag(tag: str) -> None:
+        AppSettings.settings().setValue(AppSettings.MISSION_HEADER_EM_TAG, tag)
 
     @staticmethod
     def get_tag_config(category: str):

@@ -3150,6 +3150,8 @@ def scan_crafting_blueprints(
     xml_path_index: dict | None = None,
     records_dir: Path | None = None,
     tag_config: "TagConfig | None" = None,
+    blueprint_data_header: str = "BLUEPRINT DATA",
+    header_em_tag: str = "EM3",
 ) -> tuple[dict[str, str], dict[str, str]]:
     """Scan crafting blueprints and produce commodity + journal entries.
 
@@ -3235,7 +3237,7 @@ def scan_crafting_blueprints(
             continue
         condensed = _condense_crafted_items(commodity_items[commodity])
         bp_block = "\\n".join(f"- {line}" for line in condensed)
-        enhancements_block = f"<EM3>BLUEPRINT DATA</EM3>\\n{bp_block}"
+        enhancements_block = f"<{header_em_tag}>{blueprint_data_header}</{header_em_tag}>\\n{bp_block}"
 
         for name_key, desc_key in pairs:
             base_name = loc.get(name_key, "")
@@ -4403,6 +4405,11 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     reputation_lookup = ctx["reputation_lookup"]
     standings_lookup  = ctx.get("standings_lookup") or {}
     rep_xp_label      = ctx.get("rep_xp_label") or "Rep"
+    mh                = ctx.get("mission_headers") or {}
+    mh_em             = ctx.get("mission_header_em") or "EM3"
+    hdr_details       = mh.get("details", "MISSION DETAILS")
+    hdr_blueprints    = mh.get("blueprints", "POTENTIAL BLUEPRINTS")
+    hdr_items         = mh.get("items", "ITEM REWARDS")
     xml_path_index    = ctx.get("xml_path_index")
     tag_configs       = ctx.get("tag_configs") or {}
     # User toggle (Enhancements tab) for the inline component annotation
@@ -4420,6 +4427,8 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     _comp_cfg         = tag_configs.get("components") or DEFAULT_TAG_CONFIGS.get("components")
     comp_placement    = getattr(_comp_cfg, "placement", "prepend") if _comp_cfg else "prepend"
 
+    mission_sep = f"\\n\\n<{mh_em}>{hdr_details}</{mh_em}>\\n"
+
     out: dict[str, str] = {}
     pu_missions_dir = records / "missionbroker" / "pu_missions"
 
@@ -4428,7 +4437,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             pu_missions_dir,
             lambda root: enhancements_mission(root, reputation_lookup, rep_xp_label=rep_xp_label),
             loc=loc, loc_key_fn=_mission_loc_key,
-            separator=MISSION_SEPARATOR, capture_all=True,
+            separator=mission_sep, capture_all=True,
             xml_path_index=xml_path_index, records_dir=records,
         ))
 
@@ -4441,7 +4450,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             out.update(scan_entity_dir(
                 mission_dir,
                 lambda root: enhancements_mission(root, reputation_lookup, rep_xp_label=rep_xp_label),
-                loc=loc, separator=MISSION_SEPARATOR, capture_all=True,
+                loc=loc, separator=mission_sep, capture_all=True,
                 xml_path_index=xml_path_index, records_dir=records,
             ))
 
@@ -4673,15 +4682,15 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
                 # wall of bullets. Single-pool missions only ever produce
                 # one body part, so the extra newline is a no-op there.
                 bp_body_separator = "\\n\\n" if len(bp_body_parts) > 1 else "\\n"
-                sections.append("<EM3>POTENTIAL BLUEPRINTS</EM3>\\n" + bp_body_separator.join(bp_body_parts))
+                sections.append(f"<{mh_em}>{hdr_blueprints}</{mh_em}>\\n" + bp_body_separator.join(bp_body_parts))
 
             if title_key in mission_items:
                 item_list = "\\n".join(f"- {name}" for name in mission_items[title_key])
-                sections.append(f"<EM3>ITEM REWARDS</EM3>\\n{item_list}")
+                sections.append(f"<{mh_em}>{hdr_items}</{mh_em}>\\n{item_list}")
 
             details_block = "\\n".join(details_lines)
             if details_block:
-                sections.append(f"<EM3>MISSION DETAILS</EM3>\\n{details_block}")
+                sections.append(f"<{mh_em}>{hdr_details}</{mh_em}>\\n{details_block}")
 
             if any_variant_has_bp and has_blueprints and not all_variants_have_bp:
                 if bp_variant_names:
@@ -4694,11 +4703,11 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
                     sections.append("<EM4>? = only some variants award blueprints</EM4>")
 
             new_text = "\\n\\n".join(sections)
-            new_has_bp = "<EM3>POTENTIAL BLUEPRINTS</EM3>" in new_text
+            new_has_bp = f"<{mh_em}>{hdr_blueprints}</{mh_em}>" in new_text
             existing = out.get(desc_key)
             if existing is None:
                 out[desc_key] = new_text
-            elif new_has_bp and "<EM3>POTENTIAL BLUEPRINTS</EM3>" not in existing:
+            elif new_has_bp and f"<{mh_em}>{hdr_blueprints}</{mh_em}>" not in existing:
                 logger.debug(
                     f"Upgrading desc_key {desc_key!r} — earlier title wrote "
                     f"without blueprints, title_key {title_key!r} has them"
@@ -4828,11 +4837,15 @@ def _run_gen_commodity_journal(ctx: dict) -> tuple[dict[str, str], dict[str, str
     loc            = ctx["loc"]
     xml_path_index = ctx.get("xml_path_index")
     tag_configs    = ctx.get("tag_configs") or {}
+    mh             = ctx.get("mission_headers") or {}
+    mh_em          = ctx.get("mission_header_em") or "EM3"
     bp_dir         = records / "crafting" / "blueprints" / "crafting"
     carryables_dir = scitem_dir / "carryables"
     return scan_crafting_blueprints(bp_dir, carryables_dir, entity_names, loc,
                                     xml_path_index=xml_path_index, records_dir=records,
-                                    tag_config=tag_configs.get("commodities"))
+                                    tag_config=tag_configs.get("commodities"),
+                                    blueprint_data_header=mh.get("blueprint_data", "BLUEPRINT DATA"),
+                                    header_em_tag=mh_em)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -4844,7 +4857,9 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
          patches_dir: Path | None = None,
          tag_configs: "dict | None" = None,
          annotate_mission_descs: bool = True,
-         rep_xp_label: str = "Rep") -> None:
+         rep_xp_label: str = "Rep",
+         mission_headers: dict[str, str] | None = None,
+         mission_header_em_tag: str = "EM3") -> None:
     import sys as sys_mod
     # Deferred import — the script is loaded by both the app worker (where
     # src.utils is on the path) and as a standalone CLI, so we swallow an
@@ -5100,6 +5115,13 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         "_components_cfg_key": _components_cfg_key,
         "annotate_mission_descs": bool(annotate_mission_descs),
         "rep_xp_label":      rep_xp_label or "Rep",
+        "mission_headers":   mission_headers or {
+            "details": "MISSION DETAILS",
+            "blueprints": "POTENTIAL BLUEPRINTS",
+            "items": "ITEM REWARDS",
+            "blueprint_data": "BLUEPRINT DATA",
+        },
+        "mission_header_em": mission_header_em_tag or "EM3",
     }
 
     gen_jobs: dict[str, Callable] = {}
