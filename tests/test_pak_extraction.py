@@ -401,6 +401,7 @@ GENERATOR_READ_SUBPATHS = (
     "ammoparams/vehicle",
     "ammoparams/fps",
     "reputation/rewards/missionrewards_reputation",
+    "reputation/standings",                              # standings lookup (tier names)
     "contracts/contractgenerator",                       # scan_contract_generators
     "contracts/contracttemplates",                       # template fallback in scan_contract_generators
     "crafting/blueprintrewards/blueprintmissionpools",   # blueprint_pools lookup

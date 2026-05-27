@@ -423,6 +423,10 @@ begin
     RegPath := 'Software\Osiris DevWorks\Smart Citizen';
     RegWriteStringValue(HKCU, RegPath, 'sc_directory', FinalPath);
     RegWriteStringValue(HKCU, RegPath, 'game_install_path', FinalPath);
+    { Write sc_install_root (parent of the channel folder) so a reinstall
+      with a changed SC path doesn't leave the stale root from a prior
+      migration winning over the freshly chosen directory. }
+    RegWriteStringValue(HKCU, RegPath, 'sc_install_root', ExtractFileDir(RemoveBackslash(FinalPath)));
     RegWriteStringValue(HKCU,
       'Software\Osiris DevWorks\SC Localization Editor',
       'sc_directory', FinalPath);

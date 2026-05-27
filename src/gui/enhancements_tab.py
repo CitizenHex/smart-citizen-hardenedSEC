@@ -22,19 +22,22 @@ logger = logging.getLogger(__name__)
 # Sample values used by the live preview so the user can see what their
 # config will produce without re-running the generator.
 _PREVIEW_VALUES: dict[str, dict[str, str]] = {
-    "components":   {"class": "Military", "size": "2", "grade": "A"},
+    "components":   {"class": "Military", "size": "2", "grade": "A", "type": "Shield Generator"},
     "missiles":     {"ordinance": "Infrared", "size": "1"},
     "ship_weapons": {"damage": "Energy",   "size": "2"},
+    "commodities":  {"label": "Crafting"},
 }
 _PREVIEW_NAMES: dict[str, str] = {
     "components":   "FR-76",
     "missiles":     "Marksman I Missile",
     "ship_weapons": "MaxOx NN-14",
+    "commodities":  "Agricium",
 }
 _CATEGORY_LABELS: dict[str, str] = {
     "components":   "Components",
     "missiles":     "Missiles",
     "ship_weapons": "Ship Weapons",
+    "commodities":  "Commodities",
 }
 
 
@@ -63,7 +66,7 @@ class EnhancementsTab(QWidget):
             "category toggles for the enhancement generator, a favorites "
             "prefix for the in-game ship list, and a Tag Builder that "
             "customizes the bracketed name tags on components, missiles, "
-            "and ship weapons."
+            "ship weapons, and commodities."
         )
         desc.setProperty("role", "secondary")
         desc.setStyleSheet("font-size: 11px;")
@@ -72,8 +75,8 @@ class EnhancementsTab(QWidget):
 
         layout.addWidget(self._build_enhancements_group())
         layout.addWidget(self._build_favorites_group())
-        layout.addWidget(self._build_tag_builder_group())
-        layout.addStretch()
+        layout.addWidget(self._build_mission_labels_group())
+        layout.addWidget(self._build_tag_builder_group(), 1)
 
     # ── Enhancements ─────────────────────────────────────────────────────────
 
@@ -284,6 +287,97 @@ class EnhancementsTab(QWidget):
         gl.addLayout(prefix_row)
         return group
 
+    # ── Mission Labels ──────────────────────────────────────────────────────
+
+    def _build_mission_labels_group(self) -> QGroupBox:
+        from PyQt6.QtWidgets import QLineEdit
+        group = QGroupBox("Mission Labels")
+        gl = QVBoxLayout(group)
+
+        desc = QLabel(
+            "Customize the section headers and XP label used in mission "
+            "enhancement blocks. Changes are applied on the next enhancement "
+            "generation."
+        )
+        desc.setProperty("role", "secondary")
+        desc.setStyleSheet("font-size: 11px;")
+        desc.setWordWrap(True)
+        gl.addWidget(desc)
+
+        headers = AppSettings.get_mission_headers()
+        self._header_inputs: dict[str, QLineEdit] = {}
+
+        header_fields = [
+            ("details",        "Details header:",        "MISSION DETAILS"),
+            ("blueprints",     "Blueprints header:",     "POTENTIAL BLUEPRINTS"),
+            ("items",          "Item rewards header:",   "ITEM REWARDS"),
+            ("blueprint_data", "Blueprint data header:", "BLUEPRINT DATA"),
+        ]
+        grid = QGridLayout()
+        for i, (key, label_text, default) in enumerate(header_fields):
+            grid.addWidget(QLabel(label_text), i, 0)
+            inp = QLineEdit()
+            inp.setText(headers.get(key, default))
+            inp.setToolTip(f"Default: {default}")
+            inp.editingFinished.connect(lambda k=key: self._save_mission_header(k))
+            self._header_inputs[key] = inp
+            grid.addWidget(inp, i, 1)
+        gl.addLayout(grid)
+
+        bottom_row = QHBoxLayout()
+
+        bottom_row.addWidget(QLabel("XP label:"))
+        self._rep_xp_label_input = QLineEdit()
+        self._rep_xp_label_input.setText(AppSettings.get_rep_xp_label())
+        self._rep_xp_label_input.setMaximumWidth(120)
+        self._rep_xp_label_input.setToolTip(
+            "Text shown before the XP value on missions without a specific "
+            "reputation rank name (e.g. 'Rep: +100 XP')."
+        )
+        self._rep_xp_label_input.editingFinished.connect(self._save_rep_xp_label)
+        bottom_row.addWidget(self._rep_xp_label_input)
+
+        bottom_row.addSpacing(20)
+        bottom_row.addWidget(QLabel("Header tag:"))
+        self._header_em_combo = QComboBox()
+        for tag in ("EM1", "EM2", "EM3", "EM4"):
+            self._header_em_combo.addItem(tag, userData=tag)
+        current_em = AppSettings.get_mission_header_em_tag()
+        for i in range(self._header_em_combo.count()):
+            if self._header_em_combo.itemData(i) == current_em:
+                self._header_em_combo.setCurrentIndex(i)
+                break
+        self._header_em_combo.setToolTip(
+            "CIG emphasis tag used for section headers. EM3 is the default "
+            "(large colored text). EM1-EM4 produce different sizes and colors "
+            "in-game."
+        )
+        self._header_em_combo.currentIndexChanged.connect(self._save_header_em_tag)
+        bottom_row.addWidget(self._header_em_combo)
+
+        bottom_row.addStretch()
+        gl.addLayout(bottom_row)
+        return group
+
+    def _save_rep_xp_label(self):
+        label = self._rep_xp_label_input.text().strip()
+        if not label:
+            label = "Rep"
+            self._rep_xp_label_input.setText(label)
+        AppSettings.set_rep_xp_label(label)
+
+    def _save_mission_header(self, key: str):
+        inp = self._header_inputs.get(key)
+        if inp:
+            val = inp.text().strip()
+            if val:
+                AppSettings.set_mission_header(key, val)
+
+    def _save_header_em_tag(self):
+        tag = self._header_em_combo.currentData()
+        if tag:
+            AppSettings.set_mission_header_em_tag(tag)
+
     def _apply_favorite_prefix(self):
         new_prefix = self.favorite_prefix_combo.currentData()
         if not new_prefix:
@@ -382,12 +476,12 @@ class EnhancementsTab(QWidget):
         gl = QVBoxLayout(group)
 
         desc = QLabel(
-            "Customize the bracketed tags added to component, missile, and "
-            "ship-weapon names. Use ▲/▼ to reorder elements, untick a row to "
-            "exclude that element, or change the style dropdown to pick a "
-            "different length. Placement controls whether the tag goes "
-            "before or after the name. Click Apply Tag Builder to save and "
-            "regenerate the enhancement files."
+            "Customize the bracketed tags added to component, missile, "
+            "ship-weapon, and commodity names. Use ▲/▼ to reorder elements, "
+            "untick a row to exclude that element, or change the style "
+            "dropdown to pick a different length. Placement controls whether "
+            "the tag goes before or after the name. Click Apply Tag Changes "
+            "to save and regenerate the enhancement files."
         )
         desc.setProperty("role", "secondary")
         desc.setStyleSheet("font-size: 11px;")
@@ -502,6 +596,8 @@ class _ElementRow(QWidget):
         "class":     "Military",
         "ordinance": "Infrared",
         "damage":    "Energy",
+        "type":      "Shield Generator",
+        "label":     "Crafting",
     }
 
     def __init__(self, spec, mapping: dict | None = None,
@@ -563,20 +659,21 @@ class _ElementRow(QWidget):
         # Only kinds backed by the per-category variant mapping get the
         # mapping-edit button — size and grade are derived from raw values
         # and have nothing user-editable beyond style.
-        if spec.kind in ("class", "ordinance", "damage"):
+        if spec.kind in ("class", "ordinance", "damage", "type", "label"):
             edit_btn = QPushButton("Edit mapping…")
-            # All three mapped kinds expose Short / Medium / Long styles
-            # now; tailor only the example string to the kind.
-            if spec.kind == "ordinance":
-                tip = ("Edit the Short / Medium / Long text used for each tracking "
-                       "type (e.g. Infrared → I / IR / Infrared).")
-            elif spec.kind == "damage":
-                tip = ("Edit the Short / Medium / Long text used for each damage "
-                       "type (e.g. Energy → E / EN / Energy).")
-            else:  # class
-                tip = ("Edit the Short / Medium / Long text used for each class "
-                       "(e.g. Military → M / MIL / Military).")
-            edit_btn.setToolTip(tip)
+            _tips = {
+                "ordinance": ("Edit the Short / Medium / Long text used for each tracking "
+                              "type (e.g. Infrared → I / IR / Infrared)."),
+                "damage":    ("Edit the Short / Medium / Long text used for each damage "
+                              "type (e.g. Energy → E / EN / Energy)."),
+                "type":      ("Edit the Short / Medium / Long text used for each component "
+                              "type (e.g. Shield Generator → SH / SHLD / Shield)."),
+                "label":     ("Edit the Short / Medium / Long text for the crafting label "
+                              "(e.g. Crafting → CF / Craft / Crafting)."),
+            }
+            edit_btn.setToolTip(_tips.get(spec.kind,
+                "Edit the Short / Medium / Long text used for each class "
+                "(e.g. Military → M / MIL / Military)."))
             edit_btn.clicked.connect(self.edit_mapping_requested.emit)
             row.addWidget(edit_btn)
 
