@@ -36,6 +36,7 @@ class AppSettings:
 
     # Settings keys - Enhancements
     ENHANCEMENTS_ENABLED = "enhancements_enabled"
+    INCLUDE_NEW_LINES = "include_new_lines"
 
     # Settings keys - Tutorial
     # Stores the app version string ("0.9.3") that last marked the guided tour
@@ -189,6 +190,16 @@ class AppSettings:
     def set_enhancements_enabled(enabled: bool) -> None:
         """Enable or disable enhancements."""
         AppSettings.settings().setValue(AppSettings.ENHANCEMENTS_ENABLED, enabled)
+
+    @staticmethod
+    def get_include_new_lines() -> bool:
+        """Check whether discovered items (status 'New') are included in apply output."""
+        return AppSettings.settings().value(AppSettings.INCLUDE_NEW_LINES, False, type=bool)
+
+    @staticmethod
+    def set_include_new_lines(enabled: bool) -> None:
+        """Include or exclude discovered items from apply output."""
+        AppSettings.settings().setValue(AppSettings.INCLUDE_NEW_LINES, enabled)
 
     @staticmethod
     def get_enhancement_category_enabled(key: str) -> bool:
