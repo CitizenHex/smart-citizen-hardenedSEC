@@ -2893,6 +2893,33 @@ def scan_contract_generators(
                             if title_key not in missions:
                                 missions[title_key] = []
                             missions[title_key].append((system_name, success_xp, failure_xp, desc_key, contract_flags, spawns, contract_difficulty, contract_has_bp, contract_bp_chance, contract_bp_variant, rank_name))
+
+                            # Sub-contracts override title/desc but inherit
+                            # everything else from the parent contract.
+                            for sub in contract.findall(".//subContracts/SubContract"):
+                                sub_title_p = sub.find(".//ContractStringParam[@param='Title']")
+                                sub_desc_p = sub.find(".//ContractStringParam[@param='Description']")
+                                sub_title = sub_title_p.get("value", "").lstrip("@") if sub_title_p is not None else ""
+                                sub_desc = sub_desc_p.get("value", "").lstrip("@") if sub_desc_p is not None else ""
+                                if not sub_title or sub_title in _SENTINEL_LOC_KEYS:
+                                    continue
+                                if sub_desc in _SENTINEL_LOC_KEYS:
+                                    sub_desc = ""
+                                if sub_title not in missions:
+                                    missions[sub_title] = []
+                                missions[sub_title].append((system_name, success_xp, failure_xp, sub_desc or desc_key, contract_flags, spawns, contract_difficulty, contract_has_bp, contract_bp_chance, contract_bp_variant, rank_name))
+                                if contract_has_bp and sub_title != title_key:
+                                    for bp_pool_uuid, pool_items in [(u, blueprint_pools[u]) for u in [bp_elem.get("blueprintPool", "") for bp_elem in contract.iter("BlueprintRewards")] if u in blueprint_pools]:
+                                        pool_label = _pool_rank_label(pool_names.get(bp_pool_uuid, ""))
+                                        per_system = mission_blueprints.setdefault(sub_title, {})
+                                        per_label = per_system.setdefault(system_name, {})
+                                        existing_items = per_label.setdefault(pool_label, [])
+                                        for item in pool_items:
+                                            if item not in existing_items:
+                                                existing_items.append(item)
+                                    if sub_title not in mission_bp_chance:
+                                        mission_bp_chance[sub_title] = contract_bp_chance
+
                         except Exception as e:
                             pass
 
