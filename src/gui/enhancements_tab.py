@@ -5,7 +5,7 @@ from dataclasses import replace as dc_replace
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QGridLayout, QGroupBox, QHBoxLayout,
-    QLabel, QMessageBox, QPushButton, QSizePolicy,
+    QLabel, QMessageBox, QPushButton, QScrollArea, QSizePolicy,
     QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -22,19 +22,22 @@ logger = logging.getLogger(__name__)
 # Sample values used by the live preview so the user can see what their
 # config will produce without re-running the generator.
 _PREVIEW_VALUES: dict[str, dict[str, str]] = {
-    "components":   {"class": "Military", "size": "2", "grade": "A"},
+    "components":   {"class": "Military", "size": "2", "grade": "A", "type": "Shield Generator"},
     "missiles":     {"ordinance": "Infrared", "size": "1"},
     "ship_weapons": {"damage": "Energy",   "size": "2"},
+    "commodities":  {"label": "Crafting"},
 }
 _PREVIEW_NAMES: dict[str, str] = {
     "components":   "FR-76",
     "missiles":     "Marksman I Missile",
     "ship_weapons": "MaxOx NN-14",
+    "commodities":  "Agricium",
 }
 _CATEGORY_LABELS: dict[str, str] = {
     "components":   "Components",
     "missiles":     "Missiles",
     "ship_weapons": "Ship Weapons",
+    "commodities":  "Commodities",
 }
 
 
@@ -50,7 +53,15 @@ class EnhancementsTab(QWidget):
         self.setup_ui()
 
     def setup_ui(self):
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
@@ -63,7 +74,7 @@ class EnhancementsTab(QWidget):
             "category toggles for the enhancement generator, a favorites "
             "prefix for the in-game ship list, and a Tag Builder that "
             "customizes the bracketed name tags on components, missiles, "
-            "and ship weapons."
+            "ship weapons, and commodities."
         )
         desc.setProperty("role", "secondary")
         desc.setStyleSheet("font-size: 11px;")
@@ -74,6 +85,9 @@ class EnhancementsTab(QWidget):
         layout.addWidget(self._build_favorites_group())
         layout.addWidget(self._build_tag_builder_group())
         layout.addStretch()
+
+        scroll.setWidget(container)
+        outer.addWidget(scroll)
 
     # ── Enhancements ─────────────────────────────────────────────────────────
 
@@ -382,12 +396,12 @@ class EnhancementsTab(QWidget):
         gl = QVBoxLayout(group)
 
         desc = QLabel(
-            "Customize the bracketed tags added to component, missile, and "
-            "ship-weapon names. Use ▲/▼ to reorder elements, untick a row to "
-            "exclude that element, or change the style dropdown to pick a "
-            "different length. Placement controls whether the tag goes "
-            "before or after the name. Click Apply Tag Builder to save and "
-            "regenerate the enhancement files."
+            "Customize the bracketed tags added to component, missile, "
+            "ship-weapon, and commodity names. Use ▲/▼ to reorder elements, "
+            "untick a row to exclude that element, or change the style "
+            "dropdown to pick a different length. Placement controls whether "
+            "the tag goes before or after the name. Click Apply Tag Changes "
+            "to save and regenerate the enhancement files."
         )
         desc.setProperty("role", "secondary")
         desc.setStyleSheet("font-size: 11px;")

@@ -88,7 +88,7 @@ class TestCorruption:
 class TestGetAll:
     def test_get_all_returns_one_config_per_category(self, json_backend):
         all_cfgs = AppSettings.get_all_tag_configs()
-        assert set(all_cfgs.keys()) == {"components", "missiles", "ship_weapons"}
+        assert set(all_cfgs.keys()) == {"components", "missiles", "ship_weapons", "commodities"}
         assert all(isinstance(v, TagConfig) for v in all_cfgs.values())
 
 

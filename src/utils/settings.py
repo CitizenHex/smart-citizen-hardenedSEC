@@ -1317,11 +1317,30 @@ class AppSettings:
         a placeholder in that case.
         """
         saved = AppSettings.settings().value(AppSettings.SC_INSTALL_ROOT, "")
+
+        # Cross-check: the installer writes both game_install_path and
+        # sc_install_root.  If the user reinstalled with a different SC
+        # path, game_install_path is fresh but a stale sc_install_root
+        # from a prior migration could survive (pre-1.4.2 installers
+        # didn't write sc_install_root).  When the two disagree, derive
+        # from game_install_path — it was written more recently.
+        legacy = AppSettings.settings().value(AppSettings.GAME_INSTALL_PATH, "")
+        if saved and legacy:
+            legacy_path = Path(legacy)
+            if legacy_path.name.upper() in (c.upper() for c in AppSettings.AVAILABLE_CHANNELS):
+                derived_root = str(legacy_path.parent)
+                if os.path.normcase(derived_root) != os.path.normcase(saved):
+                    logger.info(
+                        f"SC_INSTALL_ROOT {saved!r} disagrees with "
+                        f"GAME_INSTALL_PATH {legacy!r} — using derived root {derived_root!r}"
+                    )
+                    AppSettings.settings().setValue(AppSettings.SC_INSTALL_ROOT, derived_root)
+                    return derived_root
+
         if saved:
             return saved
 
         # Derive from the legacy per-channel path if it's set.
-        legacy = AppSettings.settings().value(AppSettings.GAME_INSTALL_PATH, "")
         if legacy:
             legacy_path = Path(legacy)
             if legacy_path.name.upper() in (c.upper() for c in AppSettings.AVAILABLE_CHANNELS):

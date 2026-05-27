@@ -2933,6 +2933,27 @@ class MainWindow(QMainWindow):
             self._startup_progress.close()
             self._startup_progress = None
 
+        # If there's no SC path and no cached base.ini, guide the user
+        # to the Config tab rather than loading (which would just error).
+        base_ini = AppSettings.get_cache_dir() / "base.ini"
+        if not base_ini.exists() and not AppSettings.get_sc_install_root():
+            QMessageBox.information(
+                self,
+                "Star Citizen Path Required",
+                "No Star Citizen install path is configured and no cached "
+                "localization data was found.\n\n"
+                "Please set your Star Citizen install path on the Config tab, "
+                "then click Extract to load your game's localization strings.",
+            )
+            # Switch to Config tab so the user lands in the right place.
+            tabs = self.findChild(QTabWidget)
+            if tabs is not None:
+                for i in range(tabs.count()):
+                    if tabs.tabText(i) == "Config":
+                        tabs.setCurrentIndex(i)
+                        break
+            return
+
         # Prompt user to extract from p4k if base.ini is missing or outdated
         p4k_extraction_started = self._check_p4k_freshness()
 
@@ -3410,6 +3431,14 @@ class MainWindow(QMainWindow):
 
     def _on_dataforge_extract_error(self, message: str):
         logger.error(f"DataForge extraction error: {message}")
+        if getattr(self, "_forge_progress_dialog", None) is not None:
+            self._forge_progress_dialog.close()
+            self._forge_progress_dialog = None
+        QMessageBox.warning(
+            self, "DataForge Extraction Error",
+            f"DataForge extraction failed:\n\n{message}\n\n"
+            "Check the Log tab for details.",
+        )
 
     def _on_dataforge_extract_finished(self, success: bool):
         self._forge_worker.quit()

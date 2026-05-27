@@ -521,7 +521,8 @@ _ITEM_TYPE_ABBREV = {
 
 
 def _component_name_tag(desc_value: str, root: ET.Element | None = None,
-                        config: "TagConfig | None" = None) -> str | None:
+                        config: "TagConfig | None" = None,
+                        component_type: str = "") -> str | None:
     """Build a bracket annotation tag from a component-style description.
 
     Two paths, both producing the same ``[…]`` shape:
@@ -571,11 +572,14 @@ def _component_name_tag(desc_value: str, root: ET.Element | None = None,
     if grade_m and class_m and class_m.group(1) in DEFAULT_COMPONENT_CLASS_MAPPING:
         cfg = config or DEFAULT_TAG_CONFIGS.get("components")
         if cfg is not None and render_tag is not None:
-            out = render_tag(cfg, {
+            values = {
                 "class": class_m.group(1),
                 "size":  size,
                 "grade": grade_m.group(1),
-            })
+            }
+            if component_type:
+                values["type"] = component_type
+            out = render_tag(cfg, values)
             if out:
                 return out
         # Defensive fallback when tag_builder isn't importable (e.g. tests
@@ -2565,11 +2569,12 @@ def scan_contract_generators(
     xml_path_index: dict | None = None,
     records_dir: Path | None = None,
     pool_names: dict[str, str] | None = None,
+    standings_lookup: dict[str, str] | None = None,
 ):
     """Scan contract generator XMLs for mission variants with different systems.
 
     Returns tuple of:
-        - missions: dict mapping title_key → [(system_name, success_xp, failure_xp, desc_key, flags, num_enemies, num_not_enemies), ...]
+        - missions: dict mapping title_key → [(system_name, success_xp, failure_xp, desc_key, flags, spawns, difficulty, has_bp, bp_chance, bp_variant, rank_name), ...]
         - mission_blueprints: dict title_key → dict system_name → dict pool_label → list of craftable item display names.
           The pool_label dimension preserves rank-tier sub-grouping derived from the
           pool filename (e.g. ``Rank 0–1`` / ``Rank 2–3`` / ``Rank 4`` from Shubin
@@ -2588,7 +2593,8 @@ def scan_contract_generators(
     blueprint_pools = blueprint_pools or {}
     entity_names = entity_names or {}
     pool_names = pool_names or {}
-    # Variant tuple: (system_name, success_xp, failure_xp, desc_key, flags, num_enemies, num_not_enemies)
+    standings_lookup = standings_lookup or {}
+    # Variant tuple: (system_name, success_xp, failure_xp, desc_key, flags, spawns, difficulty, has_bp, bp_chance, bp_variant, rank_name)
     missions: dict[str, list[tuple[str, int, int, str, list[str], int, int]]] = {}
     # Per-system, per-pool-label item lists. The extra label dimension keeps
     # items from different rank-tier pools separate inside one system so the
@@ -2656,6 +2662,8 @@ def scan_contract_generators(
 
             for handler_xpath, contract_xpath in handler_configs:
                 for handler in root.findall(handler_xpath):
+                    if handler.get("notForRelease") == "1":
+                        continue
                     debug_name = handler.get("debugName", "")
 
                     handler_system_name = _extract_system(debug_name, debug_name or "Unknown")
@@ -2679,6 +2687,9 @@ def scan_contract_generators(
 
                     for contract in contracts:
                         try:
+                            if contract.get("notForRelease") == "1":
+                                continue
+
                             # Prefer the contract's own debugName when picking
                             # a system token — one handler can host contracts
                             # for multiple systems (Shubin Rank0 has Stanton &
@@ -2875,10 +2886,13 @@ def scan_contract_generators(
                             # Extract per-contract difficulty
                             contract_difficulty = _extract_difficulty(contract)
 
+                            # Resolve minStanding UUID to a reputation rank name
+                            rank_name = standings_lookup.get(min_standing, "") if min_standing else ""
+
                             # Add all missions (not just those with XP/blueprint data)
                             if title_key not in missions:
                                 missions[title_key] = []
-                            missions[title_key].append((system_name, success_xp, failure_xp, desc_key, contract_flags, spawns, contract_difficulty, contract_has_bp, contract_bp_chance, contract_bp_variant))
+                            missions[title_key].append((system_name, success_xp, failure_xp, desc_key, contract_flags, spawns, contract_difficulty, contract_has_bp, contract_bp_chance, contract_bp_variant, rank_name))
                         except Exception as e:
                             pass
 
@@ -3115,6 +3129,7 @@ def scan_crafting_blueprints(
     loc: dict[str, str],
     xml_path_index: dict | None = None,
     records_dir: Path | None = None,
+    tag_config: "TagConfig | None" = None,
 ) -> tuple[dict[str, str], dict[str, str]]:
     """Scan crafting blueprints and produce commodity + journal entries.
 
@@ -3205,7 +3220,12 @@ def scan_crafting_blueprints(
         for name_key, desc_key in pairs:
             base_name = loc.get(name_key, "")
             if base_name and name_key not in out:
-                out[name_key] = f"{base_name} <EM4>[CF]</EM4>"
+                cfg = tag_config or DEFAULT_TAG_CONFIGS.get("commodities")
+                tag_str = render_tag(cfg, {"label": "Crafting"}) if cfg else "[CF]"
+                if cfg and getattr(cfg, "placement", "append") == "prepend":
+                    out[name_key] = f"<EM4>{tag_str}</EM4> {base_name}"
+                else:
+                    out[name_key] = f"{base_name} <EM4>{tag_str}</EM4>"
 
             base_desc = loc.get(desc_key, "")
             if base_desc and desc_key not in out:
@@ -4110,11 +4130,18 @@ def _run_gen_components(ctx: dict) -> dict[str, str]:
     tag_configs     = ctx.get("tag_configs") or {}
     comp_cfg        = tag_configs.get("components") or DEFAULT_TAG_CONFIGS.get("components")
     comp_placement  = getattr(comp_cfg, "placement", "prepend") if comp_cfg else "prepend"
-    # Closure tagger so the (desc, root) call shape in scan_entity_dir
-    # stays uniform across categories — render_tag's user config is
-    # captured here instead of threaded through scan_entity_dir.
-    def _comp_tagger(desc_value: str, root: ET.Element | None = None) -> str | None:
-        return _component_name_tag(desc_value, root, config=comp_cfg)
+    _SUBDIR_TO_TYPE = {
+        "shieldgenerator": "Shield Generator",
+        "cooler":          "Cooler",
+        "powerplant":      "Power Plant",
+        "quantumdrive":    "Quantum Drive",
+        "radar":           "Radar",
+    }
+
+    def _make_comp_tagger(comp_type: str):
+        def _tagger(desc_value: str, root: ET.Element | None = None) -> str | None:
+            return _component_name_tag(desc_value, root, config=comp_cfg, component_type=comp_type)
+        return _tagger
 
     out: dict[str, str] = {}
     for subdir, fn in [
@@ -4123,14 +4150,16 @@ def _run_gen_components(ctx: dict) -> dict[str, str]:
         ("powerplant",      enhancements_powerplant),
         ("quantumdrive",    enhancements_quantum_drive),
     ]:
+        tagger = _make_comp_tagger(_SUBDIR_TO_TYPE.get(subdir, ""))
         out.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc, generate_name_tags=True,
-                                   name_tag_fn=_comp_tagger,
+                                   name_tag_fn=tagger,
                                    name_tag_placement=comp_placement,
                                    xml_path_index=xml_path_index, records_dir=records))
     radar_dir = ships_scitem / "radar"
     if radar_dir.exists():
+        tagger = _make_comp_tagger(_SUBDIR_TO_TYPE.get("radar", ""))
         out.update(scan_entity_dir(radar_dir, enhancements_radar, loc=loc, generate_name_tags=True,
-                                   name_tag_fn=_comp_tagger,
+                                   name_tag_fn=tagger,
                                    name_tag_placement=comp_placement,
                                    xml_path_index=xml_path_index, records_dir=records))
 
@@ -4352,6 +4381,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     entity_names_by_filename = ctx.get("entity_names_by_filename", {})
     entity_name_tags  = ctx.get("entity_name_tags", {})
     reputation_lookup = ctx["reputation_lookup"]
+    standings_lookup  = ctx.get("standings_lookup") or {}
     xml_path_index    = ctx.get("xml_path_index")
     tag_configs       = ctx.get("tag_configs") or {}
     # User toggle (Enhancements tab) for the inline component annotation
@@ -4426,6 +4456,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         contractgen_dir, reputation_lookup, blueprint_pools, entity_names,
         xml_path_index=xml_path_index, records_dir=records,
         pool_names=pool_names,
+        standings_lookup=standings_lookup,
     )
     logger.info(f"Processed {len(contractgen_missions)} contract generator mission variants")
 
@@ -4465,20 +4496,13 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         if not base_title:
             continue
 
-        seen_tiers: list[tuple[int, int]] = []
-        # 10-tuple destructure: (system_name, success_xp, failure_xp, desc_key,
-        # contract_flags, spawns, contract_difficulty, contract_has_bp,
-        # contract_bp_chance, contract_bp_variant). The 1.4.1 spawn-classifier
-        # refactor collapsed the prior (enemies, not_enemies) pair into a
-        # single ``spawns`` breakdown dict — this destructure was missed in
-        # the original sweep, surfacing as a 11-vs-10 unpack ValueError in
-        # the field on missions with contract variants.
-        for _, sxp, fxp, _, _, _, _, _, _, _ in variants:
-            tier = (sxp, fxp)
+        seen_tiers: list[tuple[int, int, str]] = []
+        for _, sxp, fxp, _, _, _, _, _, _, _, rname in variants:
+            tier = (sxp, fxp, rname)
             if tier not in seen_tiers:
                 seen_tiers.append(tier)
 
-        unique_xp = sorted(set(sxp for sxp, _ in seen_tiers))
+        unique_xp = sorted(set(sxp for sxp, _, _ in seen_tiers))
         has_blueprints = title_key in mission_blueprints
         _bp_variants = [v[7] for v in variants]  # v[7] = contract_has_bp
         _all_have_bp = has_blueprints and all(_bp_variants)
@@ -4530,8 +4554,8 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             all_variants_have_bp = True
             any_variant_has_bp = False
             variant_bp_chance = 0.0
-            desc_seen_tiers: list[tuple[int, int]] = []
-            for _, vsxp, vfxp, _, vflags, vspawns, vdiff, vhas_bp, vbp_chance, vbp_variant in desc_variants:
+            desc_seen_tiers: list[tuple[int, int, str]] = []
+            for _, vsxp, vfxp, _, vflags, vspawns, vdiff, vhas_bp, vbp_chance, vbp_variant, vrname in desc_variants:
                 for f in vflags:
                     if f not in all_flags:
                         all_flags.append(f)
@@ -4546,7 +4570,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
                         bp_variant_names.append(short_name)
                 else:
                     all_variants_have_bp = False
-                tier = (vsxp, vfxp)
+                tier = (vsxp, vfxp, vrname)
                 if tier not in desc_seen_tiers:
                     desc_seen_tiers.append(tier)
 
@@ -4555,15 +4579,17 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             if all_difficulties:
                 details_lines.append(f"<EM4>Difficulty (1-7):</EM4> {all_difficulties[0]}")
             details_lines.extend(_format_spawn_lines(agg_spawns))
-            nonzero_tiers = [(s, f) for s, f in desc_seen_tiers if s > 0]
+            nonzero_tiers = [(s, f, rn) for s, f, rn in desc_seen_tiers if s > 0]
             if len(nonzero_tiers) == 1:
-                sxp, fxp = nonzero_tiers[0]
-                details_lines.append(f"<EM4>Reputation XP:</EM4> +{sxp:,}")
+                sxp, fxp, rn = nonzero_tiers[0]
+                label = f"{rn}:" if rn else "Reputation XP:"
+                details_lines.append(f"<EM4>{label}</EM4> +{sxp:,} XP")
                 if fxp < 0:
                     details_lines.append(f"<EM4>Failure Penalty:</EM4> {fxp:,} XP")
             elif len(nonzero_tiers) > 1:
-                for i, (sxp, fxp) in enumerate(sorted(nonzero_tiers, key=lambda t: t[0]), 1):
-                    line = f"<EM4>Tier {i}:</EM4> +{sxp:,} XP"
+                for i, (sxp, fxp, rn) in enumerate(sorted(nonzero_tiers, key=lambda t: t[0]), 1):
+                    label = rn if rn else f"Tier {i}"
+                    line = f"<EM4>{label}:</EM4> +{sxp:,} XP"
                     if fxp < 0:
                         line += f" (Failure: {fxp:,})"
                     details_lines.append(line)
@@ -4780,10 +4806,12 @@ def _run_gen_commodity_journal(ctx: dict) -> tuple[dict[str, str], dict[str, str
     entity_names   = ctx["entity_names"]
     loc            = ctx["loc"]
     xml_path_index = ctx.get("xml_path_index")
+    tag_configs    = ctx.get("tag_configs") or {}
     bp_dir         = records / "crafting" / "blueprints" / "crafting"
     carryables_dir = scitem_dir / "carryables"
     return scan_crafting_blueprints(bp_dir, carryables_dir, entity_names, loc,
-                                    xml_path_index=xml_path_index, records_dir=records)
+                                    xml_path_index=xml_path_index, records_dir=records,
+                                    tag_config=tag_configs.get("commodities"))
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -4903,6 +4931,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
     controller_lookup: dict = {}
     armor_lookup: dict = {}
     reputation_lookup: dict[str, int] = {}
+    standings_lookup: dict[str, str] = {}
 
     # Components Tag Builder config — drives the [CLASS-Sx-grade] tags that
     # get baked into both scitem_lookups (entity_name_tags) and the pickle
@@ -4959,6 +4988,30 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
     if _want("mission_rewards"):
         lookup_jobs["reputation"] = _build_reputation
 
+    def _build_standings():
+        standings_dir = records / "reputation" / "standings"
+        def _builder() -> dict[str, str]:
+            out: dict[str, str] = {}
+            if not standings_dir.exists():
+                return out
+            for xml_file in standings_dir.rglob("*.xml"):
+                try:
+                    root = ET.parse(xml_file).getroot()
+                    uuid = root.get("__ref")
+                    display_name = root.get("displayName", "")
+                    if uuid and display_name.startswith("@"):
+                        loc_key = display_name.lstrip("@")
+                        resolved = (loc or {}).get(loc_key, "")
+                        if resolved:
+                            out[uuid] = resolved
+                except ET.ParseError:
+                    continue
+            return out
+        return _cached_lookup(forge_dir, "standings", _builder)
+
+    if _want("mission_rewards"):
+        lookup_jobs["standings"] = _build_standings
+
     if lookup_jobs:
         logger.info(f"Building {len(lookup_jobs)} lookups in parallel (workers={min(max_workers, len(lookup_jobs))})…")
         _flush()
@@ -4990,6 +5043,10 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             reputation_lookup = results["reputation"]
             logger.info(f"Loaded {len(reputation_lookup)} reputation reward definitions")
             _tick("Built reputation lookup")
+        if "standings" in results:
+            standings_lookup = results["standings"]
+            logger.info(f"Loaded {len(standings_lookup)} reputation standing definitions")
+            _tick("Built standings lookup")
 
     # ── Output-file generators (parallel wave) ────────────────────────────────
     # Generators run in a ThreadPoolExecutor. Each is a module-level function
@@ -5015,6 +5072,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         "controller_lookup": controller_lookup,
         "armor_lookup":      armor_lookup,
         "reputation_lookup": reputation_lookup,
+        "standings_lookup":  standings_lookup,
         "xml_path_index":    xml_path_index,
         "tag_configs":       tag_configs or {},
         "_components_cfg_key": _components_cfg_key,
