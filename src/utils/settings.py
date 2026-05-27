@@ -250,6 +250,7 @@ class AppSettings:
             )
             return default_config(category)
         AppSettings._migrate_tag_config_mapping(category, cfg)
+        AppSettings._backfill_new_elements(category, cfg)
         return cfg
 
     @staticmethod
@@ -281,6 +282,33 @@ class AppSettings:
                 del mapping[old]
             else:
                 mapping[new] = mapping.pop(old)
+
+    @staticmethod
+    def _backfill_new_elements(category: str, cfg) -> None:
+        """Append element kinds added in a newer version that the stored
+        config doesn't have yet (e.g. ``type`` added to components in 1.4.2).
+        New elements are appended disabled so existing output is unchanged."""
+        from src.utils.tag_builder import (
+            CATEGORY_ELEMENT_KINDS, DEFAULT_TAG_CONFIGS, DEFAULT_MAPPINGS,
+            ElementSpec,
+        )
+        expected_kinds = CATEGORY_ELEMENT_KINDS.get(category, ())
+        existing_kinds = {e.kind for e in cfg.elements}
+        defaults = DEFAULT_TAG_CONFIGS.get(category)
+        for kind in expected_kinds:
+            if kind not in existing_kinds:
+                default_spec = None
+                if defaults:
+                    default_spec = next((e for e in defaults.elements if e.kind == kind), None)
+                cfg.elements.append(ElementSpec(
+                    kind=kind,
+                    enabled=default_spec.enabled if default_spec else False,
+                    style=default_spec.style if default_spec else "",
+                ))
+        default_mapping = DEFAULT_MAPPINGS.get(category, {})
+        for key, val in default_mapping.items():
+            if key not in cfg.class_mapping:
+                cfg.class_mapping[key] = val
 
     @staticmethod
     def set_tag_config(category: str, config) -> None:

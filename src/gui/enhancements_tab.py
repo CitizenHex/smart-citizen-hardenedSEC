@@ -504,6 +504,8 @@ class _ElementRow(QWidget):
         "class":     "Military",
         "ordinance": "Infrared",
         "damage":    "Energy",
+        "type":      "Shield Generator",
+        "label":     "Crafting",
     }
 
     def __init__(self, spec, mapping: dict | None = None,
@@ -565,20 +567,21 @@ class _ElementRow(QWidget):
         # Only kinds backed by the per-category variant mapping get the
         # mapping-edit button — size and grade are derived from raw values
         # and have nothing user-editable beyond style.
-        if spec.kind in ("class", "ordinance", "damage"):
+        if spec.kind in ("class", "ordinance", "damage", "type", "label"):
             edit_btn = QPushButton("Edit mapping…")
-            # All three mapped kinds expose Short / Medium / Long styles
-            # now; tailor only the example string to the kind.
-            if spec.kind == "ordinance":
-                tip = ("Edit the Short / Medium / Long text used for each tracking "
-                       "type (e.g. Infrared → I / IR / Infrared).")
-            elif spec.kind == "damage":
-                tip = ("Edit the Short / Medium / Long text used for each damage "
-                       "type (e.g. Energy → E / EN / Energy).")
-            else:  # class
-                tip = ("Edit the Short / Medium / Long text used for each class "
-                       "(e.g. Military → M / MIL / Military).")
-            edit_btn.setToolTip(tip)
+            _tips = {
+                "ordinance": ("Edit the Short / Medium / Long text used for each tracking "
+                              "type (e.g. Infrared → I / IR / Infrared)."),
+                "damage":    ("Edit the Short / Medium / Long text used for each damage "
+                              "type (e.g. Energy → E / EN / Energy)."),
+                "type":      ("Edit the Short / Medium / Long text used for each component "
+                              "type (e.g. Shield Generator → SH / SHLD / Shield)."),
+                "label":     ("Edit the Short / Medium / Long text for the crafting label "
+                              "(e.g. Crafting → CF / Craft / Crafting)."),
+            }
+            edit_btn.setToolTip(_tips.get(spec.kind,
+                "Edit the Short / Medium / Long text used for each class "
+                "(e.g. Military → M / MIL / Military)."))
             edit_btn.clicked.connect(self.edit_mapping_requested.emit)
             row.addWidget(edit_btn)
 
