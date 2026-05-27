@@ -2188,7 +2188,8 @@ def _extract_mission_flags(root: ET.Element) -> list[str]:
     return flags
 
 
-def enhancements_mission(root: ET.Element, reputation_lookup: dict[str, int] | None = None) -> str:
+def enhancements_mission(root: ET.Element, reputation_lookup: dict[str, int] | None = None,
+                         rep_xp_label: str = "Rep") -> str:
     """Extract mission/contract reward stats (aUEC + Reputation XP) and flags.
 
     Extracts:
@@ -2201,27 +2202,19 @@ def enhancements_mission(root: ET.Element, reputation_lookup: dict[str, int] | N
     reputation_lookup = reputation_lookup or {}
 
     try:
-        # Engagement Type comes first so players can see at a glance whether
-        # to kit up for FPS or ship combat. Re-extract the loc_key here
-        # rather than threading it through scan_entity_dir's callback —
-        # cheap (single attribute read), avoids changing the enhancement_fn
-        # signature shared with non-mission generators.
         loc_key = _mission_loc_key(root) or _loc_key(root)
         lines.append(f"<EM4>Engagement Type:</EM4> {_classify_mission_engagement(loc_key)}")
 
-        # Extract mission flags
         flags = _extract_mission_flags(root)
         lines.append(f"<EM4>Mission Type:</EM4> {', '.join(flags) if flags else 'Standard'}")
 
-        # Extract difficulty rating
         difficulty = _extract_difficulty(root)
         if difficulty:
             lines.append(f"<EM4>Difficulty (1-7):</EM4> {difficulty}")
 
-        # Extract mission success XP (from first/success outcome only, not all outcomes)
         total_rep_xp = _extract_mission_xp(root, reputation_lookup)
         if total_rep_xp > 0:
-            lines.append(f"<EM4>Reputation XP:</EM4> +{total_rep_xp:,}")
+            lines.append(f"<EM4>{rep_xp_label}:</EM4> +{total_rep_xp:,}")
 
         # Extract spawn/wave counts — bucketed Hostiles / Friendlies /
         # Objectives / Unknown rather than the pre-1.4.1 single-tally
@@ -4409,6 +4402,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     entity_name_tags  = ctx.get("entity_name_tags", {})
     reputation_lookup = ctx["reputation_lookup"]
     standings_lookup  = ctx.get("standings_lookup") or {}
+    rep_xp_label      = ctx.get("rep_xp_label") or "Rep"
     xml_path_index    = ctx.get("xml_path_index")
     tag_configs       = ctx.get("tag_configs") or {}
     # User toggle (Enhancements tab) for the inline component annotation
@@ -4432,7 +4426,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     if pu_missions_dir.exists():
         out.update(scan_entity_dir(
             pu_missions_dir,
-            lambda root: enhancements_mission(root, reputation_lookup),
+            lambda root: enhancements_mission(root, reputation_lookup, rep_xp_label=rep_xp_label),
             loc=loc, loc_key_fn=_mission_loc_key,
             separator=MISSION_SEPARATOR, capture_all=True,
             xml_path_index=xml_path_index, records_dir=records,
@@ -4446,7 +4440,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         if mission_dir.exists():
             out.update(scan_entity_dir(
                 mission_dir,
-                lambda root: enhancements_mission(root, reputation_lookup),
+                lambda root: enhancements_mission(root, reputation_lookup, rep_xp_label=rep_xp_label),
                 loc=loc, separator=MISSION_SEPARATOR, capture_all=True,
                 xml_path_index=xml_path_index, records_dir=records,
             ))
@@ -4609,7 +4603,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             nonzero_tiers = [(s, f, rn) for s, f, rn in desc_seen_tiers if s > 0]
             if len(nonzero_tiers) == 1:
                 sxp, fxp, rn = nonzero_tiers[0]
-                label = f"{rn}:" if rn else "Reputation XP:"
+                label = f"{rn}:" if rn else f"{rep_xp_label}:"
                 details_lines.append(f"<EM4>{label}</EM4> +{sxp:,} XP")
                 if fxp < 0:
                     details_lines.append(f"<EM4>Failure Penalty:</EM4> {fxp:,} XP")
@@ -4849,7 +4843,8 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
          max_workers: int = 6,
          patches_dir: Path | None = None,
          tag_configs: "dict | None" = None,
-         annotate_mission_descs: bool = True) -> None:
+         annotate_mission_descs: bool = True,
+         rep_xp_label: str = "Rep") -> None:
     import sys as sys_mod
     # Deferred import — the script is loaded by both the app worker (where
     # src.utils is on the path) and as a standalone CLI, so we swallow an
@@ -5104,6 +5099,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         "tag_configs":       tag_configs or {},
         "_components_cfg_key": _components_cfg_key,
         "annotate_mission_descs": bool(annotate_mission_descs),
+        "rep_xp_label":      rep_xp_label or "Rep",
     }
 
     gen_jobs: dict[str, Callable] = {}

@@ -75,6 +75,7 @@ class EnhancementsTab(QWidget):
 
         layout.addWidget(self._build_enhancements_group())
         layout.addWidget(self._build_favorites_group())
+        layout.addWidget(self._build_mission_labels_group())
         layout.addWidget(self._build_tag_builder_group(), 1)
 
     # ── Enhancements ─────────────────────────────────────────────────────────
@@ -285,6 +286,45 @@ class EnhancementsTab(QWidget):
         prefix_row.addStretch()
         gl.addLayout(prefix_row)
         return group
+
+    # ── Mission Labels ──────────────────────────────────────────────────────
+
+    def _build_mission_labels_group(self) -> QGroupBox:
+        from PyQt6.QtWidgets import QLineEdit
+        group = QGroupBox("Mission Labels")
+        gl = QVBoxLayout(group)
+
+        desc = QLabel(
+            "Customize the label shown on mission reputation XP lines "
+            "when no specific rank name is available."
+        )
+        desc.setProperty("role", "secondary")
+        desc.setStyleSheet("font-size: 11px;")
+        desc.setWordWrap(True)
+        gl.addWidget(desc)
+
+        row = QHBoxLayout()
+        row.addWidget(QLabel("XP label:"))
+        self._rep_xp_label_input = QLineEdit()
+        self._rep_xp_label_input.setText(AppSettings.get_rep_xp_label())
+        self._rep_xp_label_input.setMaximumWidth(150)
+        self._rep_xp_label_input.setToolTip(
+            "Text shown before the XP value on missions without a specific "
+            "reputation rank name (e.g. 'Rep: +100 XP'). "
+            "Applied on the next enhancement generation."
+        )
+        self._rep_xp_label_input.editingFinished.connect(self._save_rep_xp_label)
+        row.addWidget(self._rep_xp_label_input)
+        row.addStretch()
+        gl.addLayout(row)
+        return group
+
+    def _save_rep_xp_label(self):
+        label = self._rep_xp_label_input.text().strip()
+        if not label:
+            label = "Rep"
+            self._rep_xp_label_input.setText(label)
+        AppSettings.set_rep_xp_label(label)
 
     def _apply_favorite_prefix(self):
         new_prefix = self.favorite_prefix_combo.currentData()

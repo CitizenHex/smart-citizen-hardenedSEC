@@ -23,6 +23,9 @@ class AppSettings:
     # Settings keys - Favorites
     FAVORITE_PREFIX = "favorite_prefix"
 
+    # Settings keys - Mission XP label
+    REP_XP_LABEL = "rep_xp_label"
+
     # Settings keys - Appearance
     THEME = "theme"
 
@@ -225,6 +228,15 @@ class AppSettings:
     def set_favorite_prefix(prefix: str) -> None:
         """Set the character prepended to favorited ship names."""
         AppSettings.settings().setValue(AppSettings.FAVORITE_PREFIX, prefix)
+
+    @staticmethod
+    def get_rep_xp_label() -> str:
+        """Label shown on single-tier mission XP lines (default 'Rep')."""
+        return AppSettings.settings().value(AppSettings.REP_XP_LABEL, "Rep")
+
+    @staticmethod
+    def set_rep_xp_label(label: str) -> None:
+        AppSettings.settings().setValue(AppSettings.REP_XP_LABEL, label)
 
     @staticmethod
     def get_tag_config(category: str):

@@ -3336,6 +3336,7 @@ class MainWindow(QMainWindow):
         self._enhancements_worker = EnhancementsGeneratorWorker(
             categories=categories, tag_configs=tag_configs,
             annotate_mission_descs=annotate_mission_descs,
+            rep_xp_label=AppSettings.get_rep_xp_label(),
         )
         self.enhancements_tab.set_operation_running("Generating enhancements…")
         self.statusBar().showMessage("Generating enhancements in background…")

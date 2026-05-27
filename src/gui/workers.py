@@ -203,17 +203,13 @@ class EnhancementsGeneratorWorker(QThread):
 
     def __init__(self, categories: set[str] | None = None,
                  tag_configs: dict | None = None,
-                 annotate_mission_descs: bool = True):
+                 annotate_mission_descs: bool = True,
+                 rep_xp_label: str = "Rep"):
         super().__init__()
         self.categories = categories
         self.tag_configs = tag_configs
-        # User toggle: when False, mission-description POTENTIAL
-        # BLUEPRINTS lists render with bare names instead of the
-        # `[CLASS-Sx-grade]`-annotated form. Read on the main thread
-        # before launching the worker so the value is frozen at
-        # pipeline-launch time (matches the tag_configs hand-off
-        # pattern — settings stay off background threads).
         self.annotate_mission_descs = annotate_mission_descs
+        self.rep_xp_label = rep_xp_label
 
     def run(self):
         import importlib.util
@@ -298,7 +294,8 @@ class EnhancementsGeneratorWorker(QThread):
                      patches_dir=resolve_patches_dir(),
                      max_workers=1,
                      tag_configs=self.tag_configs,
-                     annotate_mission_descs=self.annotate_mission_descs)
+                     annotate_mission_descs=self.annotate_mission_descs,
+                     rep_xp_label=self.rep_xp_label)
             logger.info("Enhancements generation worker: mod.main() completed successfully")
 
             self.finished.emit(True)
