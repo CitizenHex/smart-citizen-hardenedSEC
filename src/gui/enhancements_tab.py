@@ -52,10 +52,6 @@ class EnhancementsTab(QWidget):
         self._loaded_prefix = AppSettings.get_favorite_prefix()
         self.setup_ui()
 
-    def minimumSizeHint(self):
-        from PyQt6.QtCore import QSize
-        return QSize(0, 0)
-
     def setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
