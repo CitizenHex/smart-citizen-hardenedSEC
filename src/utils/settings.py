@@ -354,7 +354,7 @@ class AppSettings:
         config doesn't have yet (e.g. ``type`` added to components in 1.4.2).
         New elements are appended disabled so existing output is unchanged."""
         from src.utils.tag_builder import (
-            CATEGORY_ELEMENT_KINDS, DEFAULT_TAG_CONFIGS, DEFAULT_MAPPINGS,
+            CATEGORY_ELEMENT_KINDS, DEFAULT_TAG_CONFIGS, DEFAULT_KIND_MAPPINGS,
             ElementSpec,
         )
         expected_kinds = CATEGORY_ELEMENT_KINDS.get(category, ())
@@ -370,10 +370,10 @@ class AppSettings:
                     enabled=default_spec.enabled if default_spec else False,
                     style=default_spec.style if default_spec else "",
                 ))
-        default_mapping = DEFAULT_MAPPINGS.get(category, {})
-        for key, val in default_mapping.items():
-            if key not in cfg.class_mapping:
-                cfg.class_mapping[key] = val
+            kind_mapping = DEFAULT_KIND_MAPPINGS.get(kind, {})
+            for key, val in kind_mapping.items():
+                if key not in cfg.class_mapping:
+                    cfg.class_mapping[key] = val
 
     @staticmethod
     def set_tag_config(category: str, config) -> None:

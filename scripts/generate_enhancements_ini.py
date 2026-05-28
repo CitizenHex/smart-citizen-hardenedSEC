@@ -4727,9 +4727,9 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             augmented_title += " <EM4>[BP?]</EM4>"
         nonzero_xp = [x for x in unique_xp if x > 0]
         if len(nonzero_xp) == 1:
-            augmented_title += f" <EM4>[{nonzero_xp[0]:,} XP]</EM4>"
+            augmented_title += f" <EM4>[{nonzero_xp[0]:,} {rep_xp_label}]</EM4>"
         elif len(nonzero_xp) > 1:
-            augmented_title += f" <EM4>[{min(nonzero_xp):,}\u2013{max(nonzero_xp):,} XP]</EM4>"
+            augmented_title += f" <EM4>[{min(nonzero_xp):,}\u2013{max(nonzero_xp):,} {rep_xp_label}]</EM4>"
         out[title_key] = augmented_title
         mission_titles_augmented += 1
 
@@ -4944,7 +4944,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             except (ET.ParseError, Exception):
                 continue
 
-    xp_tag_re = re.compile(r"<EM4>\[\d[\d,]*(?:[–\-]\d[\d,]*)?\s*XP\]</EM4>")
+    xp_tag_re = re.compile(r"<EM4>\[\d[\d,]*(?:[–\-]\d[\d,]*)?\s*\w+\]</EM4>")
     for title_key, xps in pu_title_xps.items():
         base_title = (loc or {}).get(title_key)
         if not base_title:
@@ -4954,9 +4954,9 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             continue
         unique_xp = sorted(set(xps))
         if len(unique_xp) == 1:
-            current += f" <EM4>[{unique_xp[0]:,} XP]</EM4>"
+            current += f" <EM4>[{unique_xp[0]:,} {rep_xp_label}]</EM4>"
         else:
-            current += f" <EM4>[{min(unique_xp):,}\u2013{max(unique_xp):,} XP]</EM4>"
+            current += f" <EM4>[{min(unique_xp):,}\u2013{max(unique_xp):,} {rep_xp_label}]</EM4>"
         out[title_key] = current
         mission_titles_augmented += 1
 
