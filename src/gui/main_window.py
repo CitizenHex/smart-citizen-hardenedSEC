@@ -396,17 +396,6 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.create_about_tab(), "About")
         self.tabs.addTab(self.create_legal_tab(), "Legal")
 
-        # Lock the tab widget height after all tabs are added so switching
-        # between tabs of different content heights doesn't resize the
-        # widget (and shift everything above/below it).
-        self.tabs.currentChanged.connect(self._lock_tab_height)
-
-    def _lock_tab_height(self):
-        """Set minimumHeight on first tab switch so the tab widget never shrinks."""
-        if not hasattr(self, "_tab_height_locked"):
-            self._tab_height_locked = True
-            self.tabs.setMinimumHeight(self.tabs.height())
-
         # Error-dialog handler: surfaces ERROR/CRITICAL log records as a
         # modal QMessageBox so users see failures without having to open
         # the Log tab. State below is consumed by _show_error_dialog —
