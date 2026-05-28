@@ -139,6 +139,33 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+      - name: Hide prior installer-preview comments
+        # Pushes to a labeled PR trigger a rebuild + new comment on each
+        # commit, so an active integration PR accumulates a stack of stale
+        # download links. Minimize all prior comments matching our marker
+        # via GitHub's GraphQL minimizeComment so the latest is the only
+        # one users see at full opacity. Uses minimize (not delete) so the
+        # comment history is preserved.
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        run: |
+          $pr = ${{ github.event.pull_request.number }}
+          # List comments, filter to ours by the unique marker phrase
+          $comments = gh api "repos/${{ github.repository }}/issues/$pr/comments" --paginate --jq '.[] | select(.body | contains("Tester installer built for this PR")) | select(.user.login == "github-actions[bot]") | .node_id'
+          if (-not $comments) {
+            Write-Host "No prior installer-preview comments to hide"
+            exit 0
+          }
+          foreach ($node_id in $comments -split "`n") {
+            if (-not $node_id) { continue }
+            $mutation = "mutation { minimizeComment(input: { subjectId: ""$node_id"", classifier: OUTDATED }) { minimizedComment { isMinimized } } }"
+            gh api graphql -f query="$mutation" 2>&1 | Out-Null
+            Write-Host "Hid prior comment: $node_id"
+          }
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
       - name: Comment on PR with download instructions
         # Only relevant for pull_request triggers (workflow_dispatch
         # doesn't have a PR to comment on). Uses gh CLI which is

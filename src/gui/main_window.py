@@ -2570,6 +2570,9 @@ class MainWindow(QMainWindow):
         if getattr(self, "_tutorial_first_run_checked", False):
             return
         self._tutorial_first_run_checked = True
+        if AppSettings.get_tutorial_disabled():
+            QTimer.singleShot(0, self._start_post_tutorial_tasks)
+            return
         last_seen = AppSettings.get_tutorial_completed_version()
         current = get_version()
         if last_seen == current:

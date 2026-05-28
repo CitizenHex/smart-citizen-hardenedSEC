@@ -88,6 +88,17 @@ class ConfigTab(QWidget):
         self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
         self.theme_combo.setMaximumWidth(150)
         appearance_layout.addWidget(self.theme_combo)
+
+        appearance_layout.addSpacing(20)
+        self.disable_tutorial_cb = QCheckBox("Disable Tutorial")
+        self.disable_tutorial_cb.setToolTip(
+            "When checked, the guided tour will not auto-launch on a new "
+            "version. The Tutorial button in the toolbar still works."
+        )
+        self.disable_tutorial_cb.setChecked(AppSettings.get_tutorial_disabled())
+        self.disable_tutorial_cb.toggled.connect(AppSettings.set_tutorial_disabled)
+        appearance_layout.addWidget(self.disable_tutorial_cb)
+
         appearance_layout.addStretch()
 
         layout.addWidget(appearance_group)

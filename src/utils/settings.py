@@ -53,6 +53,7 @@ class AppSettings:
     # as completed, so a future release can re-trigger it if the tour gains
     # new steps worth showing again. Empty string means "never shown".
     TUTORIAL_COMPLETED_VERSION = "tutorial_completed_version"
+    TUTORIAL_DISABLED = "tutorial_disabled"
 
     # Settings keys - App self-update check
     # Unix epoch of the last successful GitHub Releases check; the auto-check
@@ -425,6 +426,16 @@ class AppSettings:
     def set_tutorial_completed_version(version: str) -> None:
         """Record that the guided tour was completed for *version*."""
         AppSettings.settings().setValue(AppSettings.TUTORIAL_COMPLETED_VERSION, version)
+        AppSettings.settings().sync()
+
+    @staticmethod
+    def get_tutorial_disabled() -> bool:
+        """When True, the tutorial never auto-launches (Config tab opt-out)."""
+        return AppSettings.settings().value(AppSettings.TUTORIAL_DISABLED, False, type=bool)
+
+    @staticmethod
+    def set_tutorial_disabled(disabled: bool) -> None:
+        AppSettings.settings().setValue(AppSettings.TUTORIAL_DISABLED, bool(disabled))
         AppSettings.settings().sync()
 
     @staticmethod
