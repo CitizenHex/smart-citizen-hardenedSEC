@@ -1,5 +1,5 @@
 ---
-description: Pre-release sanity check before merging release/X.Y.Z to main — runs the three quality checks plus a contributor-acknowledgement audit
+description: Pre-release sanity check before merging release/X.Y.Z to main — runs quality checks, security review, and contributor-acknowledgement audit
 ---
 
 # /pre_release
@@ -32,9 +32,15 @@ Follow the procedure in `.claude/commands/docs_sync_check.md`. Present findings 
 
 Follow the procedure in `.claude/commands/standards_check.md`. Present findings grouped by severity and end with the verdict line.
 
+**CHECKPOINT — ready for the next check?** Wait for the user.
+
+## 4. Security review
+
+Run `/security-review` on the pending changes. Present findings grouped by severity and end with the verdict line.
+
 **CHECKPOINT — ready for the contributor audit?** Wait for the user.
 
-## 4. Contributor acknowledgement audit
+## 5. Contributor acknowledgement audit
 
 Verify every code contributor is acknowledged in `docs/ABOUT.md` and `README.md`.
 
@@ -107,6 +113,6 @@ End with a one-line **verdict**:
 
 ## Final summary
 
-After all four steps complete, give a one-line overall verdict for release readiness — the worst-case verdict across the four checks. List any remaining Critical/Major findings the user needs to address before the `release/X.Y.Z` → `main` merge.
+After all five steps complete, give a one-line overall verdict for release readiness — the worst-case verdict across the five checks. List any remaining Critical/Major findings the user needs to address before the `release/X.Y.Z` → `main` merge.
 
 Reminder: this command does not ship the release. Merging `release/X.Y.Z` to `main`, tagging, building the installer, and creating the GitHub release are separate steps documented in root `CLAUDE.md` → *Version & Release → Release checklist*.
