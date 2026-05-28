@@ -74,9 +74,13 @@ class EnhancementsTab(QWidget):
         layout.addWidget(desc)
 
         layout.addWidget(self._build_enhancements_group())
-        layout.addWidget(self._build_favorites_group())
+
+        mid_row = QHBoxLayout()
+        mid_row.addWidget(self._build_favorites_group())
+        mid_row.addWidget(self._build_mission_labels_group(), 1)
+        layout.addLayout(mid_row)
+
         layout.addWidget(self._build_tag_builder_group(), 1)
-        layout.addWidget(self._build_mission_labels_group())
 
     # ── Enhancements ─────────────────────────────────────────────────────────
 
@@ -239,15 +243,6 @@ class EnhancementsTab(QWidget):
     def _build_favorites_group(self) -> QGroupBox:
         group = QGroupBox("Favorites")
         gl = QVBoxLayout(group)
-
-        favorites_desc = QLabel(
-            "Favorited ships have a prefix character prepended to their name so they "
-            "sort to the top of the in-game ship list. Choose which character to use:"
-        )
-        favorites_desc.setProperty("role", "secondary")
-        favorites_desc.setStyleSheet("font-size: 11px;")
-        favorites_desc.setWordWrap(True)
-        gl.addWidget(favorites_desc)
 
         prefix_row = QHBoxLayout()
         prefix_row.addWidget(QLabel("Sort prefix:"))
@@ -822,6 +817,15 @@ class _TagBuilderPage(QWidget):
         n = max(len(self._rows), 1)
         for i, r in enumerate(self._rows):
             r.set_move_enabled(can_up=(i > 0), can_down=(i < n - 1))
+
+        # Equalize style-combo and label widths across all rows so columns
+        # line up visually.
+        if self._rows:
+            max_combo = max(r.style_combo.sizeHint().width() for r in self._rows)
+            max_label = max(r.label.sizeHint().width() for r in self._rows)
+            for r in self._rows:
+                r.style_combo.setMinimumWidth(max_combo)
+                r.label.setMinimumWidth(max_label)
 
     def _move_row(self, index: int, delta: int) -> None:
         """Swap ``self.config.elements[index]`` with its neighbor at
