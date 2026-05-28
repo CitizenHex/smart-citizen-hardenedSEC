@@ -75,8 +75,8 @@ class EnhancementsTab(QWidget):
 
         layout.addWidget(self._build_enhancements_group())
         layout.addWidget(self._build_favorites_group())
-        layout.addWidget(self._build_mission_labels_group())
         layout.addWidget(self._build_tag_builder_group(), 1)
+        layout.addWidget(self._build_mission_labels_group())
 
     # ── Enhancements ─────────────────────────────────────────────────────────
 
@@ -105,13 +105,10 @@ class EnhancementsTab(QWidget):
 
         self._enhancements_status_labels: dict = {}
         self._enhancements_checkboxes: dict = {}
-        # Two-column grid: column-major fill so the first three categories
-        # stack down the left column and the next three down the right —
-        # reads top-to-bottom-then-right rather than left-to-right.
         categories_layout = QGridLayout()
         categories_layout.setHorizontalSpacing(24)
         categories_layout.setVerticalSpacing(4)
-        column_height = 3  # half the 6-category list, rounded up
+        column_height = 2
         for idx, (key, label) in enumerate(AppSettings.ENHANCEMENT_LABELS.items()):
             cell_row = idx % column_height
             cell_col = idx // column_height
@@ -142,12 +139,10 @@ class EnhancementsTab(QWidget):
             cell.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
             categories_layout.addWidget(cell, cell_row, cell_col)
 
-        # Let the two content columns hug their natural width; a third
-        # spacer column absorbs any excess horizontal space so the right
-        # column doesn't drift to mid-window when the grid is widened.
         categories_layout.setColumnStretch(0, 0)
         categories_layout.setColumnStretch(1, 0)
-        categories_layout.setColumnStretch(2, 1)
+        categories_layout.setColumnStretch(2, 0)
+        categories_layout.setColumnStretch(3, 1)
         gl.addLayout(categories_layout)
 
         btn_row = QHBoxLayout()
@@ -294,51 +289,41 @@ class EnhancementsTab(QWidget):
         group = QGroupBox("Mission Labels")
         gl = QVBoxLayout(group)
 
-        desc = QLabel(
-            "Customize the section headers and XP label used in mission "
-            "enhancement blocks. Changes are applied on the next enhancement "
-            "generation."
-        )
-        desc.setProperty("role", "secondary")
-        desc.setStyleSheet("font-size: 11px;")
-        desc.setWordWrap(True)
-        gl.addWidget(desc)
-
         headers = AppSettings.get_mission_headers()
         self._header_inputs: dict[str, QLineEdit] = {}
 
-        header_fields = [
-            ("details",        "Details header:",        "MISSION DETAILS"),
-            ("blueprints",     "Blueprints header:",     "POTENTIAL BLUEPRINTS"),
-            ("items",          "Item rewards header:",   "ITEM REWARDS"),
-            ("blueprint_data", "Blueprint data header:", "BLUEPRINT DATA"),
+        # 6 fields in a 3-col × 2-row grid
+        fields = [
+            ("details",        "Details:",        headers.get("details", "MISSION DETAILS")),
+            ("blueprints",     "Blueprints:",     headers.get("blueprints", "POTENTIAL BLUEPRINTS")),
+            ("items",          "Item rewards:",   headers.get("items", "ITEM REWARDS")),
+            ("blueprint_data", "Blueprint data:", headers.get("blueprint_data", "BLUEPRINT DATA")),
         ]
+
         grid = QGridLayout()
-        for i, (key, label_text, default) in enumerate(header_fields):
-            grid.addWidget(QLabel(label_text), i, 0)
+        grid.setHorizontalSpacing(16)
+        grid.setVerticalSpacing(4)
+        col_height = 2
+        for idx, (key, label_text, value) in enumerate(fields):
+            row = idx % col_height
+            col = (idx // col_height) * 2
+            grid.addWidget(QLabel(label_text), row, col)
             inp = QLineEdit()
-            inp.setText(headers.get(key, default))
-            inp.setToolTip(f"Default: {default}")
+            inp.setText(value)
             inp.editingFinished.connect(lambda k=key: self._save_mission_header(k))
             self._header_inputs[key] = inp
-            grid.addWidget(inp, i, 1)
-        gl.addLayout(grid)
+            grid.addWidget(inp, row, col + 1)
 
-        bottom_row = QHBoxLayout()
-
-        bottom_row.addWidget(QLabel("XP label:"))
+        # XP label and header tag in the third column pair
+        grid.addWidget(QLabel("XP label:"), 0, 4)
         self._rep_xp_label_input = QLineEdit()
         self._rep_xp_label_input.setText(AppSettings.get_rep_xp_label())
-        self._rep_xp_label_input.setMaximumWidth(120)
-        self._rep_xp_label_input.setToolTip(
-            "Text shown before the XP value on missions without a specific "
-            "reputation rank name (e.g. 'Rep: +100 XP')."
-        )
+        self._rep_xp_label_input.setMaximumWidth(100)
+        self._rep_xp_label_input.setToolTip("Label for missions without a rank name (e.g. 'Rep: +100 XP')")
         self._rep_xp_label_input.editingFinished.connect(self._save_rep_xp_label)
-        bottom_row.addWidget(self._rep_xp_label_input)
+        grid.addWidget(self._rep_xp_label_input, 0, 5)
 
-        bottom_row.addSpacing(20)
-        bottom_row.addWidget(QLabel("Header tag:"))
+        grid.addWidget(QLabel("Header tag:"), 1, 4)
         self._header_em_combo = QComboBox()
         for tag in ("EM1", "EM2", "EM3", "EM4"):
             self._header_em_combo.addItem(tag, userData=tag)
@@ -347,16 +332,11 @@ class EnhancementsTab(QWidget):
             if self._header_em_combo.itemData(i) == current_em:
                 self._header_em_combo.setCurrentIndex(i)
                 break
-        self._header_em_combo.setToolTip(
-            "CIG emphasis tag used for section headers. EM3 is the default "
-            "(large colored text). EM1-EM4 produce different sizes and colors "
-            "in-game."
-        )
+        self._header_em_combo.setToolTip("Emphasis tag for section headers (default EM3)")
         self._header_em_combo.currentIndexChanged.connect(self._save_header_em_tag)
-        bottom_row.addWidget(self._header_em_combo)
+        grid.addWidget(self._header_em_combo, 1, 5)
 
-        bottom_row.addStretch()
-        gl.addLayout(bottom_row)
+        gl.addLayout(grid)
         return group
 
     def _save_rep_xp_label(self):
@@ -476,16 +456,10 @@ class EnhancementsTab(QWidget):
         gl = QVBoxLayout(group)
 
         desc = QLabel(
-            "Customize the bracketed tags added to component, missile, "
-            "ship-weapon, and commodity names. Use ▲/▼ to reorder elements, "
-            "untick a row to exclude that element, or change the style "
-            "dropdown to pick a different length. Placement controls whether "
-            "the tag goes before or after the name. Click Apply Tag Changes "
-            "to save and regenerate the enhancement files."
+            "Customize bracketed name tags. Reorder with ▲/▼, untick to exclude, pick a style, then Apply."
         )
         desc.setProperty("role", "secondary")
         desc.setStyleSheet("font-size: 11px;")
-        desc.setWordWrap(True)
         gl.addWidget(desc)
 
         self._tag_builder_tabs = QTabWidget()
