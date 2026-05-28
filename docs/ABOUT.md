@@ -24,6 +24,7 @@ Thanks to those who've contributed code to Smart Citizen:
 - **Ishikudeska**
 - **jonigirl**
 - **Coerwyn**
+- **denis-coach**
 
 ## Acknowledgements
 

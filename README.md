@@ -191,6 +191,15 @@ StarCitizen/
 - [RSI Terms of Service](https://robertsspaceindustries.com/en/tos)
 - [Translation & Fan Localization Statement](https://support.robertsspaceindustries.com/hc/en-us/articles/360006895793-Star-Citizen-Fankit-and-Fandom-FAQ#h_01JNKSPM7MRSB1WNBW6FGD2H98)
 
+## Contributors
+
+Thanks to those who've contributed code to Smart Citizen:
+
+- [**Ishikudeska**](https://github.com/Ishikudeska)
+- **jonigirl**
+- [**Coerwyn**](https://github.com/Coerwyn)
+- [**denis-coach**](https://github.com/denis-coach)
+
 ## Acknowledgments
 
 - **Boogie Man, Tichro, Perseus, Flat Earth, Lord Valium** — testers who helped shape Smart Citizen across the 0.x cycle
