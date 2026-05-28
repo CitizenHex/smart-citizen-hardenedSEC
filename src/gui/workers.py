@@ -204,9 +204,9 @@ class EnhancementsGeneratorWorker(QThread):
     def __init__(self, categories: set[str] | None = None,
                  tag_configs: dict | None = None,
                  annotate_mission_descs: bool = True,
-                 rep_xp_label: str = "Rep",
+                 rep_xp_label: str = AppSettings.DEFAULT_REP_XP_LABEL,
                  mission_headers: dict[str, str] | None = None,
-                 mission_header_em_tag: str = "EM3"):
+                 mission_header_em_tag: str = AppSettings.DEFAULT_MISSION_HEADER_EM_TAG):
         super().__init__()
         self.categories = categories
         self.tag_configs = tag_configs

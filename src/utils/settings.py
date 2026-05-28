@@ -31,6 +31,16 @@ class AppSettings:
     MISSION_HEADER_BLUEPRINT_DATA = "mission_header/blueprint_data"
     MISSION_HEADER_EM_TAG = "mission_header/em_tag"
 
+    # Mission label defaults — source of truth for fallback values
+    DEFAULT_REP_XP_LABEL = "Rep"
+    DEFAULT_MISSION_HEADER_EM_TAG = "EM3"
+    MISSION_HEADER_DEFAULTS = {
+        "details": "MISSION DETAILS",
+        "blueprints": "POTENTIAL BLUEPRINTS",
+        "items": "ITEM REWARDS",
+        "blueprint_data": "BLUEPRINT DATA",
+    }
+
     # Settings keys - Appearance
     THEME = "theme"
 
@@ -248,18 +258,11 @@ class AppSettings:
     @staticmethod
     def get_rep_xp_label() -> str:
         """Label shown on single-tier mission XP lines (default 'Rep')."""
-        return AppSettings.settings().value(AppSettings.REP_XP_LABEL, "Rep")
+        return AppSettings.settings().value(AppSettings.REP_XP_LABEL, AppSettings.DEFAULT_REP_XP_LABEL)
 
     @staticmethod
     def set_rep_xp_label(label: str) -> None:
         AppSettings.settings().setValue(AppSettings.REP_XP_LABEL, label)
-
-    MISSION_HEADER_DEFAULTS = {
-        "details": "MISSION DETAILS",
-        "blueprints": "POTENTIAL BLUEPRINTS",
-        "items": "ITEM REWARDS",
-        "blueprint_data": "BLUEPRINT DATA",
-    }
 
     @staticmethod
     def get_mission_headers() -> dict[str, str]:
@@ -285,7 +288,7 @@ class AppSettings:
 
     @staticmethod
     def get_mission_header_em_tag() -> str:
-        return AppSettings.settings().value(AppSettings.MISSION_HEADER_EM_TAG, "EM3")
+        return AppSettings.settings().value(AppSettings.MISSION_HEADER_EM_TAG, AppSettings.DEFAULT_MISSION_HEADER_EM_TAG)
 
     @staticmethod
     def set_mission_header_em_tag(tag: str) -> None:

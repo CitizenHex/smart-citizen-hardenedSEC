@@ -3384,7 +3384,6 @@ class MainWindow(QMainWindow):
                 title="Generating Enhancements",
             )
 
-        self._enhancements_worker.progress.connect(self.enhancements_tab.set_operation_progress)
         self._enhancements_worker.progress.connect(self.statusBar().showMessage)
         self._enhancements_worker.progress.connect(self._enhancements_progress_dialog.setLabelText)
         self._enhancements_worker.progress_pct.connect(self._enhancements_progress_dialog.set_progress)
@@ -3437,7 +3436,6 @@ class MainWindow(QMainWindow):
             title="DataForge Extraction",
         )
 
-        self._forge_worker.progress.connect(self.enhancements_tab.set_operation_progress)
         self._forge_worker.progress.connect(self.statusBar().showMessage)
         self._forge_worker.progress.connect(self._forge_progress_dialog.setLabelText)
         self._forge_worker.progress_pct.connect(self._forge_progress_dialog.set_progress)

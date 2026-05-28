@@ -317,6 +317,24 @@ def _index_rglob(xml_path_index: dict, entity_dir: Path, records_dir: Path) -> l
 ENHANCEMENT_SEPARATOR = "\\n\\n--- STATS ---\\n"
 MISSION_SEPARATOR = "\\n\\n<EM3>MISSION DETAILS</EM3>\\n"
 
+# Default section header text — mirrored from AppSettings.MISSION_HEADER_DEFAULTS
+# (not imported because this script runs standalone too). Keep these two
+# locations in sync; the test_mission_headers regression guards either side.
+_DEFAULT_MISSION_HEADERS = {
+    "details":        "MISSION DETAILS",
+    "blueprints":     "POTENTIAL BLUEPRINTS",
+    "items":          "ITEM REWARDS",
+    "blueprint_data": "BLUEPRINT DATA",
+}
+_DEFAULT_REP_XP_LABEL = "Rep"
+_DEFAULT_MISSION_HEADER_EM_TAG = "EM3"
+
+
+def _humanize_key(key: str) -> str:
+    """Best-effort fallback display for a loc key with no human title:
+    `Eckhart_Nyx_DefendShip` -> `Eckhart Nyx DefendShip`."""
+    return key.replace("_", " ").strip()
+
 
 def append_enhancements(existing_value: str, enhancements_block: str,
                         separator: str = ENHANCEMENT_SEPARATOR) -> str:
@@ -463,7 +481,7 @@ def _synthesize_description(root: ET.Element, xml_file: Path, key: str) -> str:
     if name:
         parts.append(name)
     else:
-        stem = xml_file.stem.replace("_", " ").strip()
+        stem = _humanize_key(xml_file.stem)
         if stem:
             parts.append(stem)
 
@@ -2340,7 +2358,7 @@ def _extract_mission_flags(root: ET.Element) -> list[str]:
 
 
 def enhancements_mission(root: ET.Element, reputation_lookup: dict[str, int] | None = None,
-                         rep_xp_label: str = "Rep") -> str:
+                         rep_xp_label: str = _DEFAULT_REP_XP_LABEL) -> str:
     """Extract mission/contract reward stats (aUEC + Reputation XP) and flags.
 
     Extracts:
@@ -2446,6 +2464,20 @@ def _pool_rank_label(pool_name: str) -> str:
     if m:
         return f"Rank {m.group(1)}"
     return ""
+
+
+def _merge_blueprint_pool(
+    mission_blueprints: dict, title_key: str, system_name: str,
+    pool_uuid: str, pool_items: list, pool_label: str,
+) -> None:
+    """Merge *pool_items* into mission_blueprints[title_key][system_name][pool_label],
+    preserving order and de-duplicating across repeated calls."""
+    per_system = mission_blueprints.setdefault(title_key, {})
+    per_label = per_system.setdefault(system_name, {})
+    existing_items = per_label.setdefault(pool_label, [])
+    for item in pool_items:
+        if item not in existing_items:
+            existing_items.append(item)
 
 
 def _name_from_blueprint_filename(bp_xml: Path) -> str:
@@ -2935,12 +2967,10 @@ def scan_contract_generators(
                                     # which keeps their sub-section header at the
                                     # bare ``[system_name]`` shape.
                                     pool_label = _pool_rank_label(pool_names.get(pool_uuid, ""))
-                                    per_system = mission_blueprints.setdefault(title_key, {})
-                                    per_label = per_system.setdefault(system_name, {})
-                                    existing_items = per_label.setdefault(pool_label, [])
-                                    for item in pool_items:
-                                        if item not in existing_items:
-                                            existing_items.append(item)
+                                    _merge_blueprint_pool(
+                                        mission_blueprints, title_key, system_name,
+                                        pool_uuid, pool_items, pool_label,
+                                    )
                                     try:
                                         contract_bp_chance = float(bp_elem.get("chance", "1"))
                                     except (ValueError, TypeError):
@@ -3053,19 +3083,20 @@ def scan_contract_generators(
                                     missions[sub_title] = []
                                 missions[sub_title].append((system_name, success_xp, failure_xp, sub_desc or desc_key, contract_flags, spawns, contract_difficulty, contract_has_bp, contract_bp_chance, contract_bp_variant, rank_name))
                                 if contract_has_bp and sub_title != title_key:
-                                    for bp_pool_uuid, pool_items in [(u, blueprint_pools[u]) for u in [bp_elem.get("blueprintPool", "") for bp_elem in contract.iter("BlueprintRewards")] if u in blueprint_pools]:
-                                        pool_label = _pool_rank_label(pool_names.get(bp_pool_uuid, ""))
-                                        per_system = mission_blueprints.setdefault(sub_title, {})
-                                        per_label = per_system.setdefault(system_name, {})
-                                        existing_items = per_label.setdefault(pool_label, [])
-                                        for item in pool_items:
-                                            if item not in existing_items:
-                                                existing_items.append(item)
+                                    for bp_elem in contract.iter("BlueprintRewards"):
+                                        sub_pool_uuid = bp_elem.get("blueprintPool", "")
+                                        if sub_pool_uuid not in blueprint_pools:
+                                            continue
+                                        pool_label = _pool_rank_label(pool_names.get(sub_pool_uuid, ""))
+                                        _merge_blueprint_pool(
+                                            mission_blueprints, sub_title, system_name,
+                                            sub_pool_uuid, blueprint_pools[sub_pool_uuid], pool_label,
+                                        )
                                     if sub_title not in mission_bp_chance:
                                         mission_bp_chance[sub_title] = contract_bp_chance
 
                         except Exception as e:
-                            pass
+                            logger.debug(f"Skipped contract {contract.get('debugName', '?')}: {e}")
 
         # Sort variants by system name for consistent output (Stanton first, then others alphabetically)
         for title_key in missions:
@@ -4275,7 +4306,7 @@ def scan_entity_dir(
                 is_discovered_name = name_value is None
                 if is_discovered_name:
                     # Synthesize name from XML file stem
-                    name_value = xml_file.stem.replace("_", " ").strip()
+                    name_value = _humanize_key(xml_file.stem)
                 if name_value:
                     tagger = name_tag_fn or _component_name_tag
                     tag = tagger(base_value, root)
@@ -4568,12 +4599,12 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     entity_name_tags  = ctx.get("entity_name_tags", {})
     reputation_lookup = ctx["reputation_lookup"]
     standings_lookup  = ctx.get("standings_lookup") or {}
-    rep_xp_label      = ctx.get("rep_xp_label") or "Rep"
+    rep_xp_label      = ctx.get("rep_xp_label") or _DEFAULT_REP_XP_LABEL
     mh                = ctx.get("mission_headers") or {}
-    mh_em             = ctx.get("mission_header_em") or "EM3"
-    hdr_details       = mh.get("details", "MISSION DETAILS")
-    hdr_blueprints    = mh.get("blueprints", "POTENTIAL BLUEPRINTS")
-    hdr_items         = mh.get("items", "ITEM REWARDS")
+    mh_em             = ctx.get("mission_header_em") or _DEFAULT_MISSION_HEADER_EM_TAG
+    hdr_details       = mh.get("details", _DEFAULT_MISSION_HEADERS["details"])
+    hdr_blueprints    = mh.get("blueprints", _DEFAULT_MISSION_HEADERS["blueprints"])
+    hdr_items         = mh.get("items", _DEFAULT_MISSION_HEADERS["items"])
     xml_path_index    = ctx.get("xml_path_index")
     tag_configs       = ctx.get("tag_configs") or {}
     # User toggle (Enhancements tab) for the inline component annotation
@@ -4689,7 +4720,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         base_title = (loc or {}).get(title_key)
         is_discovered_title = not base_title
         if is_discovered_title:
-            base_title = title_key.replace("_", " ").strip()
+            base_title = _humanize_key(title_key)
 
         seen_tiers: list[tuple[int, int, str]] = []
         for _, sxp, fxp, _, _, _, _, _, _, _, rname in variants:
@@ -4748,9 +4779,9 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
                     (v[9] for v in desc_variants if v[9]), ""
                 )
                 if contract_debug:
-                    base_desc = contract_debug.replace("_", " ").strip()
+                    base_desc = _humanize_key(contract_debug)
                 else:
-                    base_desc = desc_key.replace("_", " ").strip()
+                    base_desc = _humanize_key(desc_key)
             all_flags: list[str] = []
             agg_spawns = _empty_spawn_breakdown()
             all_difficulties: list[str] = []
@@ -4948,7 +4979,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     for title_key, xps in pu_title_xps.items():
         base_title = (loc or {}).get(title_key)
         if not base_title:
-            base_title = title_key.replace("_", " ").strip()
+            base_title = _humanize_key(title_key)
         current = out.get(title_key, base_title)
         if xp_tag_re.search(current):
             continue
@@ -5010,13 +5041,13 @@ def _run_gen_commodity_journal(ctx: dict) -> tuple[dict[str, str], dict[str, str
     xml_path_index = ctx.get("xml_path_index")
     tag_configs    = ctx.get("tag_configs") or {}
     mh             = ctx.get("mission_headers") or {}
-    mh_em          = ctx.get("mission_header_em") or "EM3"
+    mh_em          = ctx.get("mission_header_em") or _DEFAULT_MISSION_HEADER_EM_TAG
     bp_dir         = records / "crafting" / "blueprints" / "crafting"
     carryables_dir = scitem_dir / "carryables"
     return scan_crafting_blueprints(bp_dir, carryables_dir, entity_names, loc,
                                     xml_path_index=xml_path_index, records_dir=records,
                                     tag_config=tag_configs.get("commodities"),
-                                    blueprint_data_header=mh.get("blueprint_data", "BLUEPRINT DATA"),
+                                    blueprint_data_header=mh.get("blueprint_data", _DEFAULT_MISSION_HEADERS["blueprint_data"]),
                                     header_em_tag=mh_em)
 
 
@@ -5029,9 +5060,9 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
          patches_dir: Path | None = None,
          tag_configs: "dict | None" = None,
          annotate_mission_descs: bool = True,
-         rep_xp_label: str = "Rep",
+         rep_xp_label: str = _DEFAULT_REP_XP_LABEL,
          mission_headers: dict[str, str] | None = None,
-         mission_header_em_tag: str = "EM3") -> None:
+         mission_header_em_tag: str = _DEFAULT_MISSION_HEADER_EM_TAG) -> None:
     import sys as sys_mod
     # Deferred import — the script is loaded by both the app worker (where
     # src.utils is on the path) and as a standalone CLI, so we swallow an
@@ -5286,14 +5317,9 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         "tag_configs":       tag_configs or {},
         "_components_cfg_key": _components_cfg_key,
         "annotate_mission_descs": bool(annotate_mission_descs),
-        "rep_xp_label":      rep_xp_label or "Rep",
-        "mission_headers":   mission_headers or {
-            "details": "MISSION DETAILS",
-            "blueprints": "POTENTIAL BLUEPRINTS",
-            "items": "ITEM REWARDS",
-            "blueprint_data": "BLUEPRINT DATA",
-        },
-        "mission_header_em": mission_header_em_tag or "EM3",
+        "rep_xp_label":      rep_xp_label or _DEFAULT_REP_XP_LABEL,
+        "mission_headers":   mission_headers or dict(_DEFAULT_MISSION_HEADERS),
+        "mission_header_em": mission_header_em_tag or _DEFAULT_MISSION_HEADER_EM_TAG,
     }
 
     gen_jobs: dict[str, Callable] = {}

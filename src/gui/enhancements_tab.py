@@ -283,11 +283,12 @@ class EnhancementsTab(QWidget):
         self._header_inputs: dict[str, QLineEdit] = {}
 
         # 6 fields in a 3-col × 2-row grid
+        d = AppSettings.MISSION_HEADER_DEFAULTS
         fields = [
-            ("details",        "Details:",        headers.get("details", "MISSION DETAILS")),
-            ("blueprints",     "Blueprints:",     headers.get("blueprints", "POTENTIAL BLUEPRINTS")),
-            ("items",          "Item rewards:",   headers.get("items", "ITEM REWARDS")),
-            ("blueprint_data", "Blueprint data:", headers.get("blueprint_data", "BLUEPRINT DATA")),
+            ("details",        "Details:",        headers.get("details", d["details"])),
+            ("blueprints",     "Blueprints:",     headers.get("blueprints", d["blueprints"])),
+            ("items",          "Item rewards:",   headers.get("items", d["items"])),
+            ("blueprint_data", "Blueprint data:", headers.get("blueprint_data", d["blueprint_data"])),
         ]
 
         grid = QGridLayout()
@@ -332,7 +333,7 @@ class EnhancementsTab(QWidget):
     def _save_rep_xp_label(self):
         label = self._rep_xp_label_input.text().strip()
         if not label:
-            label = "Rep"
+            label = AppSettings.DEFAULT_REP_XP_LABEL
             self._rep_xp_label_input.setText(label)
         AppSettings.set_rep_xp_label(label)
 
@@ -386,9 +387,6 @@ class EnhancementsTab(QWidget):
 
     def set_operation_running(self, message: str):
         self._generate_enhancements_btn.setEnabled(False)
-
-    def set_operation_progress(self, message: str):
-        pass
 
     def set_operation_idle(self):
         self._generate_enhancements_btn.setEnabled(True)
