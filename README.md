@@ -104,7 +104,7 @@ The Config tab lets you set:
 - **Data sources**: enable/disable, drag-drop merge priority
 - **Import INI**: fold an external `.ini` into your overrides
 
-The Enhancements tab lets you toggle each enhancement category (ship stats, weapon stats, mission tags, etc.) and configure the ship favorite prefix character.
+The Enhancements tab lets you toggle each enhancement category (ship stats, weapon stats, mission tags, etc.), configure the ship favorite prefix, customize the **Tag Builder** for components, missiles, ship weapons, and commodities, and adjust **Mission Labels** (section headers, XP label, emphasis tag).
 
 ### Data Storage
 

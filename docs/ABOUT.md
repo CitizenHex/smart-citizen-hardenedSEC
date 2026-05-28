@@ -73,10 +73,11 @@ Smart Citizen also bundles upstream tooling from:
 - **Ship Stats**: SCM speed, hydrogen/quantum fuel, cargo capacity, full weapon loadouts, and armor multipliers (physical / energy / distortion / thermal) appended to ship descriptions
 - **Component Stats**: Shield HP, power draw, cooling rate, regen, and similar stats for shields, coolers, power plants, quantum drives, and radars — with `[MIL-S2-A]`-style name tags by default (fully customizable in the Tag Builder)
 - **Weapon Stats**: DPS, fire rate, range, and damage on ship guns and turrets from S1 through capital. Ship weapons get a `[E-S2]`-style damage+size tag, missiles `[IR-S1] Arrester III`, and bombs `[S5] 500SCB Cluster`
-- **Mission Annotations**: `[BP]` / `[BP?]` blueprint reward tags on titles, plus structured *MISSION DETAILS*, *POTENTIAL BLUEPRINTS*, and *ITEM REWARDS* blocks in descriptions
-- **Journal Cross-References**: Mining Compendium entries get crafting cross-references; commodities used in crafting get a `[CF]` name tag and a list of every blueprint that calls for them
+- **Mission Annotations**: `[BP]` / `[BP?]` blueprint reward tags on titles, plus structured *MISSION DETAILS*, *POTENTIAL BLUEPRINTS*, and *ITEM REWARDS* blocks in descriptions. Reputation tier lines show actual rank names (Rookie, Jr. Contractor, etc.) instead of generic numbering
+- **Journal Cross-References**: Mining Compendium entries get crafting cross-references; commodities used in crafting get a customizable `[CF]` name tag and a list of every blueprint that calls for them
 - **Ship Favorites**: Star a ship to prepend a configurable prefix (default `*`) so favorites sort to the top of the in-game ASOP terminal
-- **Tag Builder**: Customize the bracketed tags on components, missiles, and ship weapons — reorder elements, change abbreviation length (M / MIL / Military), pick separators and brackets, or place the tag after the name instead of before
+- **Tag Builder**: Customize the bracketed tags on components, missiles, ship weapons, and commodities — reorder elements, change abbreviation length (M / MIL / Military), pick separators and brackets, or place the tag after the name instead of before. Components have an optional Type element (Shield, Cooler, etc.)
+- **Mission Labels**: Rename the section headers (MISSION DETAILS, POTENTIAL BLUEPRINTS, etc.), the XP label, and the emphasis tag used for headers
 - **Declarative CIG Data-Bug Patches**: A patch system applies fixes to known DataForge bugs at extraction time so in-game text reads correctly without waiting on CIG
 - **Selective Categories**: Enable or disable each enhancement category independently from the Enhancements tab
 
