@@ -369,8 +369,11 @@ class MainWindow(QMainWindow):
         toolbar_row.addWidget(self.preview_pane, stretch=1)
         main_layout.addLayout(toolbar_row)
 
-        # Tabs
+        # Tabs — Ignored vertical policy so the tab widget doesn't resize
+        # when switching between tabs of different heights (the Enhancements
+        # tab is taller than String Editor / Log / About / Legal).
         self.tabs = QTabWidget()
+        self.tabs.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Ignored)
         self._strings_tab_index = self.tabs.addTab(self.create_strings_tab(), "String Editor")
 
         # Config tab
