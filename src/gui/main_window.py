@@ -414,7 +414,7 @@ class MainWindow(QMainWindow):
         self.tabs.currentChanged.connect(self._on_tab_changed)
         self._previous_tab_index = self.tabs.currentIndex()
 
-        main_layout.addWidget(self.tabs)
+        main_layout.addWidget(self.tabs, 1)
 
         # Footer
         footer_layout = self.create_footer()
