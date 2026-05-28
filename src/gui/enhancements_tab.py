@@ -716,93 +716,63 @@ class _TagBuilderPage(QWidget):
         # With the Localization Enhancements section now using a two-column
         # grid (freeing ~84px of vertical space), the natural layout
         # comfortably fits without needing scroll/min-height tricks.
-        self._page_layout = QVBoxLayout(self)
-        self._page_layout.setContentsMargins(8, 8, 8, 8)
-        self._page_layout.setSpacing(6)
+        top = QHBoxLayout(self)
+        top.setContentsMargins(8, 4, 8, 4)
+        top.setSpacing(12)
 
-        # ── Element rows ──────────────────────────────────────────────
-        # Earlier attempts wrapped the rows in a QListWidget+setItemWidget
-        # and then a QFrame+QVBoxLayout. Both forms had a lazy-layout race
-        # inside the QTabWidget where rows wouldn't compute their final
-        # geometry until something (resize, maximize, modal dialog) kicked
-        # the layout. Putting rows directly into the page's own QVBoxLayout
-        # removes the nested-layout level that was the source of the race.
-        rows_hint = QLabel(
-            "Use ▲/▼ on each row to change tag element order. Untick a row to "
-            "exclude that element."
-        )
-        rows_hint.setProperty("role", "secondary")
-        rows_hint.setStyleSheet("font-size: 10px;")
-        rows_hint.setWordWrap(True)
-        self._page_layout.addWidget(rows_hint)
-
-        # Insertion index for row widgets — they go right after the hint
-        # and before the separator/enclosing/placement row. Updated by
-        # _repopulate_list when rows are added/removed.
-        self._rows_insert_at = self._page_layout.count()
+        # ── Left: element rows ────────────────────────────────────────
+        self._rows_column = QVBoxLayout()
+        self._rows_column.setSpacing(2)
+        self._page_layout = self._rows_column
+        self._rows_insert_at = 0
         self._repopulate_list()
+        self._rows_column.addStretch()
+        top.addLayout(self._rows_column, 1)
 
-        # ── Separator + Enclosing ──────────────────────────────────────
-        sep_row = QHBoxLayout()
-        sep_row.addWidget(QLabel("Separator:"))
+        # ── Right: controls + preview ─────────────────────────────────
+        right = QVBoxLayout()
+        right.setSpacing(4)
+
+        ctrl_grid = QGridLayout()
+        ctrl_grid.setVerticalSpacing(4)
+        ctrl_grid.setHorizontalSpacing(6)
+
+        ctrl_grid.addWidget(QLabel("Separator:"), 0, 0)
         self.sep_combo = QComboBox()
-        self.sep_combo.setToolTip(
-            "Character placed between elements inside the tag (e.g. the "
-            "'-' in [MIL-S2-A])."
-        )
         for key, label, _ in SEPARATORS:
             self.sep_combo.addItem(label, userData=key)
         self._select_combo(self.sep_combo, config.separator)
         self.sep_combo.currentIndexChanged.connect(self._on_sep_changed)
-        sep_row.addWidget(self.sep_combo)
+        ctrl_grid.addWidget(self.sep_combo, 0, 1)
 
-        sep_row.addSpacing(20)
-        sep_row.addWidget(QLabel("Enclosing:"))
+        ctrl_grid.addWidget(QLabel("Enclosing:"), 1, 0)
         self.enc_combo = QComboBox()
-        self.enc_combo.setToolTip(
-            "Brackets wrapped around the tag. Choose None to use just a "
-            "space between the tag and the item name."
-        )
         for key, label, _open, _close in ENCLOSINGS:
             self.enc_combo.addItem(label, userData=key)
         self._select_combo(self.enc_combo, config.enclosing)
         self.enc_combo.currentIndexChanged.connect(self._on_enc_changed)
-        sep_row.addWidget(self.enc_combo)
+        ctrl_grid.addWidget(self.enc_combo, 1, 1)
 
-        sep_row.addSpacing(20)
-        sep_row.addWidget(QLabel("Placement:"))
+        ctrl_grid.addWidget(QLabel("Placement:"), 2, 0)
         self.placement_combo = QComboBox()
-        self.placement_combo.setToolTip(
-            "Whether the tag is shown before the item name (default) or "
-            "after it."
-        )
         for key, label in PLACEMENTS:
             self.placement_combo.addItem(label, userData=key)
         self._select_combo(self.placement_combo, config.placement)
         self.placement_combo.currentIndexChanged.connect(self._on_placement_changed)
-        sep_row.addWidget(self.placement_combo)
+        ctrl_grid.addWidget(self.placement_combo, 2, 1)
 
-        sep_row.addStretch()
-        self._page_layout.addLayout(sep_row)
+        right.addLayout(ctrl_grid)
 
-        # ── Live preview ───────────────────────────────────────────────
-        # QLabel.sizeHint() doesn't account for CSS padding, so the visible
-        # rect ends up shorter than the padded text wants — top/bottom
-        # glyphs get clipped. Set a minimum height that covers the font's
-        # line height plus the stylesheet padding (~12px font + 12px
-        # padding + a couple px of breathing room).
         self.preview_label = QLabel()
-        self.preview_label.setMinimumHeight(34)
+        self.preview_label.setMinimumHeight(28)
         self.preview_label.setStyleSheet(
             "font-family: Consolas, 'Courier New', monospace; "
-            "font-size: 12px; padding: 6px; "
+            "font-size: 12px; padding: 4px; "
             "background: rgba(0, 0, 0, 30); border-radius: 3px;"
         )
-        self._page_layout.addWidget(self.preview_label)
-        # Reset lives at the group level beside Apply Tag Changes, so it
-        # applies to every category at once (rather than the prior
-        # per-page button that only reset whichever tab was active).
-        self._page_layout.addStretch()
+        right.addWidget(self.preview_label)
+        right.addStretch()
+        top.addLayout(right, 0)
 
         self._refresh_preview()
 
