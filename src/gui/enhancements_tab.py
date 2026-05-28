@@ -868,14 +868,12 @@ class _TagBuilderPage(QWidget):
         On accept, merges the edited subset back into the full mapping."""
         from src.utils.tag_builder import DEFAULT_KIND_MAPPINGS
         kind_defaults = DEFAULT_KIND_MAPPINGS.get(kind, {})
-        kind_keys = set(kind_defaults.keys()) | {
-            k for k in self.config.class_mapping
-            if k in kind_defaults or k not in {
-                kk for kd in DEFAULT_KIND_MAPPINGS.values()
-                if kd is not kind_defaults for kk in kd
-            }
-        }
-        kind_mapping = {k: v for k, v in self.config.class_mapping.items() if k in kind_keys}
+        # Keys that belong to OTHER kinds — exclude them from this dialog.
+        other_keys = set()
+        for other_kind, other_map in DEFAULT_KIND_MAPPINGS.items():
+            if other_kind != kind:
+                other_keys.update(other_map.keys())
+        kind_mapping = {k: v for k, v in self.config.class_mapping.items() if k not in other_keys}
 
         kind_label = ELEMENT_LABELS.get(kind, kind or self.category)
         title = f"Edit {kind_label} variants"
@@ -885,7 +883,7 @@ class _TagBuilderPage(QWidget):
         if dialog.exec():
             result = dialog.result_mapping()
             for k in list(self.config.class_mapping):
-                if k in kind_keys:
+                if k not in other_keys:
                     del self.config.class_mapping[k]
             self.config.class_mapping.update(result)
             self._repopulate_list()
