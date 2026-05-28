@@ -7,6 +7,7 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLineEdit,
     QPushButton, QLabel, QFileDialog, QMessageBox, QComboBox,
+    QCheckBox,
 )
 from PyQt6.QtCore import pyqtSignal, QTimer
 
@@ -68,7 +69,8 @@ class ConfigTab(QWidget):
         layout.addWidget(instructions)
 
         # ── Appearance ───────────────────────────────────────────────────────
-        appearance_group = QGroupBox("Appearance")
+        self.appearance_group = QGroupBox("Appearance")
+        appearance_group = self.appearance_group
         appearance_layout = QHBoxLayout(appearance_group)
 
         theme_label = QLabel("Theme:")
@@ -87,11 +89,24 @@ class ConfigTab(QWidget):
         self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
         self.theme_combo.setMaximumWidth(150)
         appearance_layout.addWidget(self.theme_combo)
+
+        appearance_layout.addSpacing(20)
+        self.disable_tutorial_cb = QCheckBox("Disable Tutorial")
+        self.disable_tutorial_cb.setToolTip(
+            "When checked, the guided tour will not auto-launch on a new "
+            "version. The Tutorial button in the toolbar still works."
+        )
+        self.disable_tutorial_cb.setChecked(AppSettings.get_tutorial_disabled())
+        self.disable_tutorial_cb.toggled.connect(AppSettings.set_tutorial_disabled)
+        appearance_layout.addWidget(self.disable_tutorial_cb)
+
         appearance_layout.addStretch()
+
         layout.addWidget(appearance_group)
 
         # ── Star Citizen Installation ────────────────────────────────────────
-        game_group = QGroupBox("Star Citizen Installation")
+        self.game_group = QGroupBox("Star Citizen Installation")
+        game_group = self.game_group
         game_layout = QVBoxLayout(game_group)
 
         game_desc = QLabel(
@@ -156,7 +171,8 @@ class ConfigTab(QWidget):
         layout.addWidget(game_group)
 
         # ── Smart Citizen Data ───────────────────────────────────────────────
-        data_group = QGroupBox("Smart Citizen Data")
+        self.data_group = QGroupBox("Smart Citizen Data")
+        data_group = self.data_group
         data_layout = QVBoxLayout(data_group)
 
         data_desc = QLabel(
@@ -239,7 +255,8 @@ class ConfigTab(QWidget):
         layout.addWidget(data_group)
 
         # ── P4K Extraction ───────────────────────────────────────────────────
-        p4k_group = QGroupBox("Base Localization (P4K Extraction)")
+        self.p4k_group = QGroupBox("Base Localization (P4K Extraction)")
+        p4k_group = self.p4k_group
         p4k_layout = QVBoxLayout(p4k_group)
 
         p4k_desc = QLabel(
@@ -278,7 +295,8 @@ class ConfigTab(QWidget):
         self._refresh_p4k_status()
 
         # ── Tools ────────────────────────────────────────────────────────────
-        tools_group = QGroupBox("Tools")
+        self.tools_group = QGroupBox("Tools")
+        tools_group = self.tools_group
         tools_layout = QVBoxLayout(tools_group)
 
         tools_desc = QLabel(
@@ -289,6 +307,15 @@ class ConfigTab(QWidget):
         tools_desc.setStyleSheet("font-size: 11px;")
         tools_desc.setWordWrap(True)
         tools_layout.addWidget(tools_desc)
+
+        self.include_new_cb = QCheckBox("Include discovered items")
+        self.include_new_cb.setToolTip(
+            "When checked, items discovered from DataForge XML (status 'New') "
+            "that have non-empty text will be included in the applied global.ini."
+        )
+        self.include_new_cb.setChecked(AppSettings.get_include_new_lines())
+        self.include_new_cb.toggled.connect(self._on_include_new_toggled)
+        tools_layout.addWidget(self.include_new_cb)
 
         button_layout = QHBoxLayout()
 
@@ -365,6 +392,9 @@ class ConfigTab(QWidget):
         mw = self.window()
         if hasattr(mw, "refresh_action_buttons"):
             mw.refresh_action_buttons()
+
+    def _on_include_new_toggled(self, checked: bool):
+        AppSettings.set_include_new_lines(checked)
 
     # ── Game path ────────────────────────────────────────────────────────────
 

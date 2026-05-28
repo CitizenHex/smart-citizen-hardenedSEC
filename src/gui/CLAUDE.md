@@ -1,0 +1,26 @@
+# src/gui/CLAUDE.md
+
+GUI layer (PyQt6). See the root `CLAUDE.md` for project context and cross-cutting design decisions.
+
+## Files
+
+- `main_window.py` — main window with table, toolbar, filters, backup/restore, DataForge extraction trigger, worker orchestration. The largest file in the repo; runs the core workflow load→merge→edit→apply. Workers live in `workers.py`; pure-Python helpers (`validate_applied_file`, `filter_entry_indices`, `markdown_to_html`) live in their own modules and are wrapped by thin `MainWindow` methods. Owns `_stamp_frontend_version` — see *Frontend version stamp on apply* below.
+- `workers.py` — every `QThread` background worker plus the shared `AnimatedProgressDialog` and `SelectAllDelegate`. Workers: `FileLoaderWorker` (sources → `StringEntry` list + sort keys), `StartupSyncWorker` (refresh URL-backed sources at startup), `EnhancementsGeneratorWorker` (run `scripts/generate_enhancements_ini.py` in-process via `importlib.util`), `P4kExtractWorker` (unp4k extract of `global.ini`), `DataForgeExtractWorker` (unp4k + unforge + post-extract patches). Each emits `progress` (str) and `progress_pct` (completed, total, message); `AnimatedProgressDialog.set_progress` consumes the latter. Exception: `AppUpdateCheckWorker` lives in `src/utils/app_updater.py` because the worker, version comparison, and registry timestamp-cap belong together.
+- `markdown_renderer.py` — `markdown_to_html(text, text_color, base_color, link_color)` for About/Help. Pure-Python; the Qt caller passes palette colours so the converter has no Qt dep. Stash-and-restore code-span handling keeps `**` and `_` inside backticks literal (loc keys like `vehicle_Name*` shouldn't sprout `<em>` tags).
+- `config_tab.py` — **Config Tab**: source management, drag-drop merge hierarchy, SC install path, DataForge extraction trigger.
+- `enhancements_tab.py` — **Enhancements Tab**: stats-overlay toggles, ship favorites prefix, DataForge extraction trigger. Emits `merge_requested` and `stats_pipeline_requested`.
+- `log_tab.py` — **Log Tab**: in-app log viewer. Bridges Python `logging` to Qt via `_LogEmitter` (thread-safe). Level filtering, auto-scroll, export.
+- `filter_header.py` — `FilterHeaderView`: `QHeaderView` subclass with a per-column `QLineEdit` filter row below header labels, debounced.
+- `string_table_model.py` — `QAbstractTableModel` behind the strings `QTableView`. Replaces the old `QTableWidget.populate_table()`; renders visible rows on demand and sorts in Python (`sort()` override) rather than per-comparison `lessThan()`. Column constants live here: `COL_CATEGORY`, `COL_KEY`, `COL_DEFAULT`, `COL_CURRENT`, `COL_STAR`, `COL_CUSTOM`, `COL_STATUS`.
+- `import_dialog.py` — `ImportConflictDialog` for resolving conflicts when importing INI files into user overrides. Per-key strategies: keep current, use imported, append, prepend, custom.
+- `tag_mapping_dialog.py` — `TagMappingDialog`: modal editor for the Tag Builder's per-category variant mapping (Short / Medium / Long × class/ordinance/damage). Hides Medium for kinds with only Short/Long (missile ordinance) via `medium_column_visible`. Pure presentation; the underlying `TagConfig` lives in `src/utils/tag_builder.py`.
+- `theme.py` — palette swap on `QApplication` plus branded font loading (`load_application_fonts()` registers the Hyperspace Race OTF from `assets/fonts/`). Theme-aware widgets rely on palette `WindowText`/`Text`; dim/secondary labels mark themselves with `setProperty("role", "secondary")` and the app-level QSS rule in `apply_theme()` recolors them on live theme swap. Progress-bar contrast uses the palette's `Highlight` role (Fusion's native chunk color) — do not add `QProgressBar::chunk` QSS, it switches Qt to a styled path that stops animating in indeterminate mode.
+- `coach_mark.py` — `CoachMarkOverlay` plus `TutorialTour` for the in-app guided tour. Self-contained: the main window builds `CoachMarkStep` records (target widget, title, description, optional pre-action) and calls `tour.start()`. The overlay dims the window, spotlights the target, floats a callout with Back/Next/Skip; emits `finished(completed: bool)`.
+
+## Design decisions
+
+### Sortable columns require indirect row lookup
+The table is a `QTableView` backed by `StringTableModel` (`string_table_model.py`), which holds a filtered/sorted list of indices into `self.entries`. Row index ≠ entry index when sorted or filtered. **All row→entry lookups go through `_entry_index_for_row(row)`** on `MainWindow` (which delegates to `self._model.entry_index_for_row(row)`). Direct indexing into `self.entries` by row number gives wrong results. Use the `COL_*` constants from `string_table_model.py`, not hard-coded column numbers.
+
+### Frontend version stamp on apply
+At apply-to-game time, `main_window._stamp_frontend_version(merged)` appends ` | Localizations Enhanced with Smart Citizen v{VERSION}` to the launcher's `Frontend_PU_Version` loc-key, so users can see in-game that the loc-pack is active. `_FRONTEND_VERSION_STAMP_RE` strips any prior stamp before re-applying, so the suffix doesn't pile up across applies or version upgrades. If the key is absent from the merge (older patches, custom configs), the stamp is skipped — never inserted. `tests/test_frontend_version_stamp.py` locks the no-double-stamp guarantee.

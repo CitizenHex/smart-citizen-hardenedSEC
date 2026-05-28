@@ -26,6 +26,27 @@ A Windows desktop app for customizing Star Citizen's localization strings. Layer
 - **Auto-Update Notifier**: Smart Citizen checks GitHub Releases every 6 hours and surfaces a non-blocking notification when a newer installer is available.
 - **Themes**: Four built-in themes — SCLE (default deep-navy mobiGlas), Light, Dark, and ODW (Osiris DevWorks signature).
 
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="assets/screenshots/ss.png" alt="Smart Citizen main window"/><br/><em>Smart Citizen — main window</em></td>
+    <td width="50%"><img src="assets/screenshots/asop.png" alt="ASOP terminal with ship favorites"/><br/><em>ASOP terminal — favorites prefixed to top</em></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="assets/screenshots/item_stats.png" alt="Item and ship stat overlays"/><br/><em>Item &amp; ship stat overlays</em></td>
+    <td width="50%"><img src="assets/screenshots/mission_deets.png" alt="Mission details with blueprint reward tags"/><br/><em>Mission details with reward tags</em></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="assets/screenshots/bps.png" alt="Blueprint reward list"/><br/><em>Blueprint reward list</em></td>
+    <td width="50%"><img src="assets/screenshots/blue_prints.png" alt="Blueprint enhancements"/><br/><em>Blueprint enhancements</em></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="assets/screenshots/journal.png" alt="Journal entries"/><br/><em>Journal entries</em></td>
+    <td width="50%"><img src="assets/screenshots/radar.png" alt="Mission contract radar"/><br/><em>Mission contract radar</em></td>
+  </tr>
+</table>
+
 ## Quick Start
 
 ### Using the Release
@@ -49,27 +70,7 @@ Smart Citizen runs on Linux through the same Wine prefix as Star Citizen — see
 
 ### For Developers
 
-**Prerequisites**:
-- Python 3.9+ (recommended 3.10+)
-- Windows 10/11 (the app uses Windows Registry and is Win32-only)
-
-**Installation**:
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/Osiris-DevWorks/smart-citizen.git
-   cd smart-citizen
-   ```
-
-2. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Run the application**
-   ```bash
-   python src/main.py
-   ```
+See **[docs/CONTRIBUTOR_GUIDE.md](docs/CONTRIBUTOR_GUIDE.md)** for local setup (prerequisites, clone, install, run).
 
 ## Usage
 
@@ -103,7 +104,7 @@ The Config tab lets you set:
 - **Data sources**: enable/disable, drag-drop merge priority
 - **Import INI**: fold an external `.ini` into your overrides
 
-The Enhancements tab lets you toggle each enhancement category (ship stats, weapon stats, mission tags, etc.) and configure the ship favorite prefix character.
+The Enhancements tab lets you toggle each enhancement category (ship stats, weapon stats, mission tags, etc.), configure the ship favorite prefix, customize the **Tag Builder** for components, missiles, ship weapons, and commodities, and adjust **Mission Labels** (section headers, XP label, emphasis tag).
 
 ### Data Storage
 
@@ -189,6 +190,15 @@ StarCitizen/
 - Use at your own discretion as a third-party contribution.
 - [RSI Terms of Service](https://robertsspaceindustries.com/en/tos)
 - [Translation & Fan Localization Statement](https://support.robertsspaceindustries.com/hc/en-us/articles/360006895793-Star-Citizen-Fankit-and-Fandom-FAQ#h_01JNKSPM7MRSB1WNBW6FGD2H98)
+
+## Contributors
+
+Thanks to those who've contributed code to Smart Citizen:
+
+- [**Ishikudeska**](https://github.com/Ishikudeska)
+- **jonigirl**
+- [**Coerwyn**](https://github.com/Coerwyn)
+- [**denis-coach**](https://github.com/denis-coach)
 
 ## Acknowledgments
 

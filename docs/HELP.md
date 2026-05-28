@@ -94,7 +94,8 @@ When Star Citizen updates, your edits are preserved in `<data folder>\<channel>\
 - Toggle stat overlays that append numerical stats to descriptions — SCM speed, shield HP, DPS, cargo capacity, mining-laser beam stats (Fracture / Extraction), handheld salvage-tool rates, blueprint pools, mission XP, and more.
 - Enable or disable each enhancement category independently.
 - Configure the ship favorites prefix character.
-- **Tag Builder** — customize the bracketed tags placed on component, missile, and ship-weapon names. Reorder elements with ▲/▼, toggle individual elements off, change abbreviation length (`M` / `MIL` / `Military`), pick separator (none, hyphen, space, etc.) and brackets (square, round, none, etc.), and choose whether the tag appears before or after the name. Click **Apply Tag Builder** to save and regenerate.
+- **Tag Builder** — customize the bracketed tags placed on component, missile, ship-weapon, and commodity names. Reorder elements with ▲/▼, toggle individual elements off, change abbreviation length (`M` / `MIL` / `Military`), pick separator (none, hyphen, space, etc.) and brackets (square, round, none, etc.), and choose whether the tag appears before or after the name. Components also have an optional **Type** element (Shield, Cooler, Power Plant, etc.) — disabled by default. Click **Apply Tag Changes** to save and regenerate.
+- **Mission Labels** — customize the section headers used in mission enhancement blocks (MISSION DETAILS, POTENTIAL BLUEPRINTS, ITEM REWARDS, BLUEPRINT DATA), the XP label shown on missions without a specific reputation rank (default "Rep"), and the emphasis tag (EM1–EM4) used for headers.
 - Click **Generate Enhancements** to extract DataForge data from `Data.p4k` and rebuild the enhancement INI files. Declarative patches under `patches/` are re-applied idempotently on every regen so known CIG data bugs stay fixed without waiting for a game patch.
 
 ## Config Tab

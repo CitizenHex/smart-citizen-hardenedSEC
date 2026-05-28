@@ -42,7 +42,7 @@ CATEGORY_SUBTREES: dict[str, list[str]] = {
     "components":  ["entities/itemports", "entities/scitem"],
     "ship_weapons":["entities/scitem/weapons/spacecraft"],
     "fps_weapons": ["entities/scitem/weapons/fps"],
-    "missions":    ["entities/missions", "libs/foundry/records/missions"],
+    "missions":    ["entities/missions", "libs/foundry/records/missions", "reputation/standings"],
     "commodities": ["entities/scitem/cargo", "libs/economy"],
     "journal":     ["libs/foundry/records/journal"],
 }

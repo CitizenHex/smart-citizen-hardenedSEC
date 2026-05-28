@@ -369,7 +369,6 @@ class MainWindow(QMainWindow):
         toolbar_row.addWidget(self.preview_pane, stretch=1)
         main_layout.addLayout(toolbar_row)
 
-        # Tabs
         self.tabs = QTabWidget()
         self._strings_tab_index = self.tabs.addTab(self.create_strings_tab(), "String Editor")
 
@@ -415,7 +414,7 @@ class MainWindow(QMainWindow):
         self.tabs.currentChanged.connect(self._on_tab_changed)
         self._previous_tab_index = self.tabs.currentIndex()
 
-        main_layout.addWidget(self.tabs)
+        main_layout.addWidget(self.tabs, 1)
 
         # Footer
         footer_layout = self.create_footer()
@@ -1291,6 +1290,20 @@ class MainWindow(QMainWindow):
                 for entry in self.entries
                 if entry.custom_value
             }
+
+            # When "Include discovered items" is off, strip discovered items
+            # (status "New" with no user override) from the enhancements
+            # source so they don't flow into the applied global.ini.
+            if not AppSettings.get_include_new_lines():
+                new_keys = {
+                    entry.key for entry in self.entries
+                    if entry.status == "New" and not entry.custom_value
+                }
+                if new_keys and "enhancements" in sources_dict:
+                    sources_dict["enhancements"] = {
+                        k: v for k, v in sources_dict["enhancements"].items()
+                        if k not in new_keys
+                    }
 
             # Merge all sources in hierarchy order, with user edits on top
             merged_dict = merge_sources_by_hierarchy(sources_dict, hierarchy, user_overrides_dict)
@@ -2430,15 +2443,26 @@ class MainWindow(QMainWindow):
         enh_tab = getattr(self, "_enhancements_tab_index", 2)
 
         return {
-            "welcome":      {"target": lambda: None,                                            "pre_action": None},
-            "extract":      {"target": lambda: self.config_tab._extract_btn,                    "pre_action": _switch_to(config_tab)},
-            "edit":         {"target": lambda: self.table,                                      "pre_action": _switch_to(strings_tab)},
-            "filter_row":   {"target": lambda: self.filter_header,                               "pre_action": _switch_to(strings_tab)},
-            "editor":       {"target": lambda: self.editor_btn,                                  "pre_action": _switch_to(strings_tab)},
-            "preview":      {"target": lambda: self.preview_pane,                               "pre_action": _switch_to(strings_tab)},
-            "apply":        {"target": lambda: self.apply_btn,                                  "pre_action": None},
-            "enhancements": {"target": lambda: self.enhancements_tab._generate_enhancements_btn, "pre_action": _switch_to(enh_tab)},
-            "help":         {"target": lambda: self.help_btn,                                   "pre_action": _switch_to(strings_tab)},
+            "welcome":               {"target": lambda: None,                                                  "pre_action": None},
+            "extract":               {"target": lambda: self.config_tab._extract_btn,                          "pre_action": _switch_to(config_tab)},
+            "edit":                  {"target": lambda: self.table,                                            "pre_action": _switch_to(strings_tab)},
+            "filter_row":            {"target": lambda: self.filter_header,                                    "pre_action": _switch_to(strings_tab)},
+            "editor":                {"target": lambda: self.editor_btn,                                       "pre_action": _switch_to(strings_tab)},
+            "preview":               {"target": lambda: self.preview_pane,                                     "pre_action": _switch_to(strings_tab)},
+            "apply":                 {"target": lambda: self.apply_btn,                                        "pre_action": None},
+            "enhancements":          {"target": lambda: self.enhancements_tab._generate_enhancements_btn,      "pre_action": _switch_to(enh_tab)},
+            # Enhancements tab section deep-dive
+            "enh_categories":        {"target": lambda: self.enhancements_tab.localization_enhancements_group, "pre_action": _switch_to(enh_tab)},
+            "enh_favorites":         {"target": lambda: self.enhancements_tab.favorites_group,                 "pre_action": _switch_to(enh_tab)},
+            "enh_mission_labels":    {"target": lambda: self.enhancements_tab.mission_labels_group,            "pre_action": _switch_to(enh_tab)},
+            "enh_tag_builder":       {"target": lambda: self.enhancements_tab.tag_builder_group,               "pre_action": _switch_to(enh_tab)},
+            # Config tab section deep-dive
+            "cfg_appearance":        {"target": lambda: self.config_tab.appearance_group,                      "pre_action": _switch_to(config_tab)},
+            "cfg_sc_install":        {"target": lambda: self.config_tab.game_group,                            "pre_action": _switch_to(config_tab)},
+            "cfg_data_folder":       {"target": lambda: self.config_tab.data_group,                            "pre_action": _switch_to(config_tab)},
+            "cfg_p4k_extraction":    {"target": lambda: self.config_tab.p4k_group,                             "pre_action": _switch_to(config_tab)},
+            "cfg_tools":             {"target": lambda: self.config_tab.tools_group,                           "pre_action": _switch_to(config_tab)},
+            "help":                  {"target": lambda: self.help_btn,                                         "pre_action": _switch_to(strings_tab)},
         }
 
     def _build_tutorial_steps(self) -> list[CoachMarkStep]:
@@ -2557,6 +2581,9 @@ class MainWindow(QMainWindow):
         if getattr(self, "_tutorial_first_run_checked", False):
             return
         self._tutorial_first_run_checked = True
+        if AppSettings.get_tutorial_disabled():
+            QTimer.singleShot(0, self._start_post_tutorial_tasks)
+            return
         last_seen = AppSettings.get_tutorial_completed_version()
         current = get_version()
         if last_seen == current:
@@ -2932,6 +2959,27 @@ class MainWindow(QMainWindow):
         if self._startup_progress is not None:
             self._startup_progress.close()
             self._startup_progress = None
+
+        # If there's no SC path and no cached base.ini, guide the user
+        # to the Config tab rather than loading (which would just error).
+        base_ini = AppSettings.get_cache_dir() / "base.ini"
+        if not base_ini.exists() and not AppSettings.get_sc_install_root():
+            QMessageBox.information(
+                self,
+                "Star Citizen Path Required",
+                "No Star Citizen install path is configured and no cached "
+                "localization data was found.\n\n"
+                "Please set your Star Citizen install path on the Config tab, "
+                "then click Extract to load your game's localization strings.",
+            )
+            # Switch to Config tab so the user lands in the right place.
+            tabs = self.findChild(QTabWidget)
+            if tabs is not None:
+                for i in range(tabs.count()):
+                    if tabs.tabText(i) == "Config":
+                        tabs.setCurrentIndex(i)
+                        break
+            return
 
         # Prompt user to extract from p4k if base.ini is missing or outdated
         p4k_extraction_started = self._check_p4k_freshness()
@@ -3315,6 +3363,9 @@ class MainWindow(QMainWindow):
         self._enhancements_worker = EnhancementsGeneratorWorker(
             categories=categories, tag_configs=tag_configs,
             annotate_mission_descs=annotate_mission_descs,
+            rep_xp_label=AppSettings.get_rep_xp_label(),
+            mission_headers=AppSettings.get_mission_headers(),
+            mission_header_em_tag=AppSettings.get_mission_header_em_tag(),
         )
         self.enhancements_tab.set_operation_running("Generating enhancements…")
         self.statusBar().showMessage("Generating enhancements in background…")
@@ -3347,7 +3398,6 @@ class MainWindow(QMainWindow):
                 title="Generating Enhancements",
             )
 
-        self._enhancements_worker.progress.connect(self.enhancements_tab.set_operation_progress)
         self._enhancements_worker.progress.connect(self.statusBar().showMessage)
         self._enhancements_worker.progress.connect(self._enhancements_progress_dialog.setLabelText)
         self._enhancements_worker.progress_pct.connect(self._enhancements_progress_dialog.set_progress)
@@ -3400,7 +3450,6 @@ class MainWindow(QMainWindow):
             title="DataForge Extraction",
         )
 
-        self._forge_worker.progress.connect(self.enhancements_tab.set_operation_progress)
         self._forge_worker.progress.connect(self.statusBar().showMessage)
         self._forge_worker.progress.connect(self._forge_progress_dialog.setLabelText)
         self._forge_worker.progress_pct.connect(self._forge_progress_dialog.set_progress)
@@ -3410,6 +3459,14 @@ class MainWindow(QMainWindow):
 
     def _on_dataforge_extract_error(self, message: str):
         logger.error(f"DataForge extraction error: {message}")
+        if getattr(self, "_forge_progress_dialog", None) is not None:
+            self._forge_progress_dialog.close()
+            self._forge_progress_dialog = None
+        QMessageBox.warning(
+            self, "DataForge Extraction Error",
+            f"DataForge extraction failed:\n\n{message}\n\n"
+            "Check the Log tab for details.",
+        )
 
     def _on_dataforge_extract_finished(self, success: bool):
         self._forge_worker.quit()
