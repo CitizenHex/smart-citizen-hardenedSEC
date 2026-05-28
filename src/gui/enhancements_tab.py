@@ -860,21 +860,34 @@ class _TagBuilderPage(QWidget):
 
     # ── Mapping editor ───────────────────────────────────────────────────
 
-    def _open_mapping_dialog(self, _kind: str | None = None):
-        """Open the variant-mapping editor seeded with this category's
-        current mapping. On accept, copy the result into self.config and
-        refresh the preview. The ``_kind`` argument is informational; one
-        mapping dict per category is shared by every mapped element."""
-        title = f"Edit {_CATEGORY_LABELS[self.category]} variants"
-        defaults = DEFAULT_MAPPINGS.get(self.category, {})
+    def _open_mapping_dialog(self, kind: str | None = None):
+        """Open the variant-mapping editor for a specific element kind.
+
+        Filters the shared class_mapping to only the keys belonging to
+        *kind* so the user sees Class entries OR Type entries, not both.
+        On accept, merges the edited subset back into the full mapping."""
+        from src.utils.tag_builder import DEFAULT_KIND_MAPPINGS
+        kind_defaults = DEFAULT_KIND_MAPPINGS.get(kind, {})
+        kind_keys = set(kind_defaults.keys()) | {
+            k for k in self.config.class_mapping
+            if k in kind_defaults or k not in {
+                kk for kd in DEFAULT_KIND_MAPPINGS.values()
+                if kd is not kind_defaults for kk in kd
+            }
+        }
+        kind_mapping = {k: v for k, v in self.config.class_mapping.items() if k in kind_keys}
+
+        kind_label = ELEMENT_LABELS.get(kind, kind or self.category)
+        title = f"Edit {kind_label} variants"
         dialog = TagMappingDialog(
-            self.config.class_mapping, defaults, title, parent=self,
+            kind_mapping, kind_defaults, title, parent=self,
         )
         if dialog.exec():
-            self.config.class_mapping = dialog.result_mapping()
-            # Rebuild the row list so the style dropdowns pick up the new
-            # variant text in their parenthetical sample (e.g. "Short (M)"
-            # → "Short (ML)" after editing Military's short variant).
+            result = dialog.result_mapping()
+            for k in list(self.config.class_mapping):
+                if k in kind_keys:
+                    del self.config.class_mapping[k]
+            self.config.class_mapping.update(result)
             self._repopulate_list()
             self._refresh_preview()
 

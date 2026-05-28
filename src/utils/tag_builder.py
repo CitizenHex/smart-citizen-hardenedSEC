@@ -103,7 +103,7 @@ ELEMENT_LABELS: dict[str, str] = {
     "grade":     "Grade",
     "ordinance": "Ordinance",
     "damage":    "Damage type",
-    "type":      "Component type",
+    "type":      "Type",
     "label":     "Label",
 }
 
@@ -197,6 +197,14 @@ DEFAULT_MAPPINGS: dict[str, dict[str, tuple[str, str, str]]] = {
     "missiles":     DEFAULT_MISSILE_ORDINANCE_MAPPING,
     "ship_weapons": DEFAULT_SHIP_WEAPON_DAMAGE_MAPPING,
     "commodities":  DEFAULT_COMMODITY_LABEL_MAPPING,
+}
+
+DEFAULT_KIND_MAPPINGS: dict[str, dict[str, tuple[str, str, str]]] = {
+    "class":     DEFAULT_COMPONENT_CLASS_MAPPING,
+    "type":      DEFAULT_COMPONENT_TYPE_MAPPING,
+    "ordinance": DEFAULT_MISSILE_ORDINANCE_MAPPING,
+    "damage":    DEFAULT_SHIP_WEAPON_DAMAGE_MAPPING,
+    "label":     DEFAULT_COMMODITY_LABEL_MAPPING,
 }
 
 
