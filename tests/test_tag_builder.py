@@ -287,3 +287,70 @@ class TestShipWeaponDefaults:
         # If the dominant damage label is one we don't have in the mapping,
         # surface it verbatim so the user can edit the mapping.
         assert render_tag(cfg, {"damage": "Plasma", "size": "1"}) == "[Plasma-S1]"
+
+
+# ── Component type element ──────────────────────────────────────────────────
+
+class TestComponentTypeElement:
+    """render_tag with the ``type`` element kind (new in 1.4.2)."""
+
+    def test_type_short_shield_generator(self):
+        cfg = default_config("components")
+        for el in cfg.elements:
+            if el.kind == "type":
+                el.enabled = True
+                el.style = "short"
+        assert render_tag(cfg, {"class": "Military", "size": "2", "grade": "A", "type": "Shield Generator"}) == "[MIL-S2-A-SH]"
+
+    def test_type_med_cooler(self):
+        cfg = default_config("components")
+        for el in cfg.elements:
+            if el.kind == "type":
+                el.enabled = True
+                el.style = "med"
+        assert render_tag(cfg, {"class": "Military", "size": "2", "grade": "A", "type": "Cooler"}) == "[MIL-S2-A-COOL]"
+
+    def test_type_disabled_no_change(self):
+        """Default config has type disabled; output matches the pre-1.4.2 format."""
+        cfg = default_config("components")
+        # type is disabled by default -- verify
+        type_spec = next(e for e in cfg.elements if e.kind == "type")
+        assert type_spec.enabled is False
+        assert render_tag(cfg, {"class": "Military", "size": "2", "grade": "A", "type": "Shield Generator"}) == "[MIL-S2-A]"
+
+    def test_type_long_power_plant(self):
+        cfg = default_config("components")
+        for el in cfg.elements:
+            if el.kind == "type":
+                el.enabled = True
+                el.style = "long"
+        assert render_tag(cfg, {"class": "Military", "size": "2", "grade": "A", "type": "Power Plant"}) == "[MIL-S2-A-Power]"
+
+
+# ── Commodity label element ─────────────────────────────────────────────────
+
+class TestCommodityLabelElement:
+    """render_tag with the ``label`` element kind for commodities."""
+
+    def test_label_short_crafting(self):
+        cfg = default_config("commodities")
+        assert render_tag(cfg, {"label": "Crafting"}) == "[CF]"
+
+    def test_label_med_crafting(self):
+        cfg = default_config("commodities")
+        for el in cfg.elements:
+            if el.kind == "label":
+                el.style = "med"
+        assert render_tag(cfg, {"label": "Crafting"}) == "[Craft]"
+
+    def test_label_long_crafting(self):
+        cfg = default_config("commodities")
+        for el in cfg.elements:
+            if el.kind == "label":
+                el.style = "long"
+        assert render_tag(cfg, {"label": "Crafting"}) == "[Crafting]"
+
+    def test_label_round_enclosing(self):
+        cfg = default_config("commodities")
+        cfg.enclosing = "round"
+        assert render_tag(cfg, {"label": "Crafting"}) == "(CF)"
