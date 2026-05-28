@@ -16,7 +16,7 @@
     {
       "id": "enhancements",
       "title": "2. Enhancements",
-      "description": "Optional but recommended: the Enhancements tab toggles stat overlays for ships, components, weapons, mission blueprints/rewards, and commodity crafting. Use the Tag Builder to customize the bracketed prefix tags on components, missiles, ship weapons, and commodities. Mission Labels lets you rename section headers (MISSION DETAILS, POTENTIAL BLUEPRINTS, etc.) and the XP label. Generate Enhancements runs the pipeline that produces those overlays from your extracted data.",
+      "description": "Optional but recommended: the Enhancements tab toggles stat overlays for ships, components, weapons, mission blueprints/rewards, and commodity crafting. Generate Enhancements runs the pipeline that produces those overlays from your extracted data. We'll walk through the individual sections of this tab later in the tour.",
       "preferred_side": "above"
     },
     {
@@ -50,8 +50,62 @@
       "preferred_side": "below"
     },
     {
+      "id": "enh_categories",
+      "title": "8. Enhancements: Categories",
+      "description": "Toggle which enhancement categories run when you Generate. Ships, components, ship weapons, FPS weapons, missions, and commodity crafting can each be enabled independently.",
+      "preferred_side": "right"
+    },
+    {
+      "id": "enh_favorites",
+      "title": "9. Enhancements: Favorites",
+      "description": "Pick the prefix character prepended to favorited ship names so they sort to the top of the in-game ASOP terminal. Default is *.",
+      "preferred_side": "right"
+    },
+    {
+      "id": "enh_mission_labels",
+      "title": "10. Enhancements: Mission Labels",
+      "description": "Customize the section headers (MISSION DETAILS / POTENTIAL BLUEPRINTS / ITEM REWARDS / BLUEPRINT DATA), the XP label shown on missions without a specific reputation rank (default Rep), and the emphasis tag (EM1–EM4) for headers.",
+      "preferred_side": "above"
+    },
+    {
+      "id": "enh_tag_builder",
+      "title": "11. Enhancements: Tag Builder",
+      "description": "Build the bracketed name tags added to components, missiles, ship weapons, and commodities. Reorder elements with ▲/▼, untick to exclude, change abbreviation length, pick separator and brackets, or place the tag after the name instead of before.",
+      "preferred_side": "above"
+    },
+    {
+      "id": "cfg_appearance",
+      "title": "12. Config: Appearance",
+      "description": "Pick the app theme (Default / Light / Dark / ODW) and optionally disable the auto-tour on new versions.",
+      "preferred_side": "right"
+    },
+    {
+      "id": "cfg_sc_install",
+      "title": "13. Config: Star Citizen Installation",
+      "description": "Path to your Star Citizen install root (the directory containing LIVE, PTU, EPTU, etc.). Auto-detected at install time; edit here if your game lives elsewhere. The Channel dropdown picks which channel the app reads and writes.",
+      "preferred_side": "right"
+    },
+    {
+      "id": "cfg_data_folder",
+      "title": "14. Config: Smart Citizen Data",
+      "description": "Where user.ini, caches, DataForge extraction, generated enhancement INIs, and backups live. Defaults to Documents\\Smart Citizen; move it off OneDrive if extraction or cache cleanup is slow.",
+      "preferred_side": "right"
+    },
+    {
+      "id": "cfg_p4k_extraction",
+      "title": "15. Config: Base Localization",
+      "description": "The Extract from Data.p4k button lives here. This is the sole source for base strings and enhancement data — re-run it after game patches to refresh.",
+      "preferred_side": "right"
+    },
+    {
+      "id": "cfg_tools",
+      "title": "16. Config: Tools",
+      "description": "Import an external INI into your overrides via the conflict-resolution dialog, or reset your user.ini for the active channel (auto-backed-up before clearing).",
+      "preferred_side": "right"
+    },
+    {
       "id": "help",
-      "title": "8. Help & feedback",
+      "title": "17. Help & feedback",
       "description": "The Help button opens a side-panel with the full guide, a Known Issues list, and a feedback link to the Smart Citizen Discord channel. That's everything you need to get started — good luck, citizen.",
       "preferred_side": "below"
     }

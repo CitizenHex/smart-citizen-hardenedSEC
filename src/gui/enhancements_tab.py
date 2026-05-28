@@ -85,7 +85,8 @@ class EnhancementsTab(QWidget):
     # ── Enhancements ─────────────────────────────────────────────────────────
 
     def _build_enhancements_group(self) -> QGroupBox:
-        group = QGroupBox("Localization Enhancements")
+        self.localization_enhancements_group = QGroupBox("Localization Enhancements")
+        group = self.localization_enhancements_group
         gl = QVBoxLayout(group)
 
         enhancements_desc = QLabel(
@@ -236,7 +237,8 @@ class EnhancementsTab(QWidget):
     # ── Favorites ─────────────────────────────────────────────────────────────
 
     def _build_favorites_group(self) -> QGroupBox:
-        group = QGroupBox("Favorites")
+        self.favorites_group = QGroupBox("Favorites")
+        group = self.favorites_group
         gl = QVBoxLayout(group)
 
         prefix_row = QHBoxLayout()
@@ -276,7 +278,8 @@ class EnhancementsTab(QWidget):
 
     def _build_mission_labels_group(self) -> QGroupBox:
         from PyQt6.QtWidgets import QLineEdit
-        group = QGroupBox("Mission Labels")
+        self.mission_labels_group = QGroupBox("Mission Labels")
+        group = self.mission_labels_group
         gl = QVBoxLayout(group)
 
         headers = AppSettings.get_mission_headers()
@@ -433,7 +436,8 @@ class EnhancementsTab(QWidget):
         dropdowns, and a live preview. The "Apply Tag Builder" button at
         the bottom persists every page's config and re-runs the enhancement
         generator so the new tags take effect immediately."""
-        group = QGroupBox("Tag Builder")
+        self.tag_builder_group = QGroupBox("Tag Builder")
+        group = self.tag_builder_group
         gl = QVBoxLayout(group)
 
         desc = QLabel(

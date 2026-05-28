@@ -2443,15 +2443,26 @@ class MainWindow(QMainWindow):
         enh_tab = getattr(self, "_enhancements_tab_index", 2)
 
         return {
-            "welcome":      {"target": lambda: None,                                            "pre_action": None},
-            "extract":      {"target": lambda: self.config_tab._extract_btn,                    "pre_action": _switch_to(config_tab)},
-            "edit":         {"target": lambda: self.table,                                      "pre_action": _switch_to(strings_tab)},
-            "filter_row":   {"target": lambda: self.filter_header,                               "pre_action": _switch_to(strings_tab)},
-            "editor":       {"target": lambda: self.editor_btn,                                  "pre_action": _switch_to(strings_tab)},
-            "preview":      {"target": lambda: self.preview_pane,                               "pre_action": _switch_to(strings_tab)},
-            "apply":        {"target": lambda: self.apply_btn,                                  "pre_action": None},
-            "enhancements": {"target": lambda: self.enhancements_tab._generate_enhancements_btn, "pre_action": _switch_to(enh_tab)},
-            "help":         {"target": lambda: self.help_btn,                                   "pre_action": _switch_to(strings_tab)},
+            "welcome":               {"target": lambda: None,                                                  "pre_action": None},
+            "extract":               {"target": lambda: self.config_tab._extract_btn,                          "pre_action": _switch_to(config_tab)},
+            "edit":                  {"target": lambda: self.table,                                            "pre_action": _switch_to(strings_tab)},
+            "filter_row":            {"target": lambda: self.filter_header,                                    "pre_action": _switch_to(strings_tab)},
+            "editor":                {"target": lambda: self.editor_btn,                                       "pre_action": _switch_to(strings_tab)},
+            "preview":               {"target": lambda: self.preview_pane,                                     "pre_action": _switch_to(strings_tab)},
+            "apply":                 {"target": lambda: self.apply_btn,                                        "pre_action": None},
+            "enhancements":          {"target": lambda: self.enhancements_tab._generate_enhancements_btn,      "pre_action": _switch_to(enh_tab)},
+            # Enhancements tab section deep-dive
+            "enh_categories":        {"target": lambda: self.enhancements_tab.localization_enhancements_group, "pre_action": _switch_to(enh_tab)},
+            "enh_favorites":         {"target": lambda: self.enhancements_tab.favorites_group,                 "pre_action": _switch_to(enh_tab)},
+            "enh_mission_labels":    {"target": lambda: self.enhancements_tab.mission_labels_group,            "pre_action": _switch_to(enh_tab)},
+            "enh_tag_builder":       {"target": lambda: self.enhancements_tab.tag_builder_group,               "pre_action": _switch_to(enh_tab)},
+            # Config tab section deep-dive
+            "cfg_appearance":        {"target": lambda: self.config_tab.appearance_group,                      "pre_action": _switch_to(config_tab)},
+            "cfg_sc_install":        {"target": lambda: self.config_tab.game_group,                            "pre_action": _switch_to(config_tab)},
+            "cfg_data_folder":       {"target": lambda: self.config_tab.data_group,                            "pre_action": _switch_to(config_tab)},
+            "cfg_p4k_extraction":    {"target": lambda: self.config_tab.p4k_group,                             "pre_action": _switch_to(config_tab)},
+            "cfg_tools":             {"target": lambda: self.config_tab.tools_group,                           "pre_action": _switch_to(config_tab)},
+            "help":                  {"target": lambda: self.help_btn,                                         "pre_action": _switch_to(strings_tab)},
         }
 
     def _build_tutorial_steps(self) -> list[CoachMarkStep]:

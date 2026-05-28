@@ -69,7 +69,8 @@ class ConfigTab(QWidget):
         layout.addWidget(instructions)
 
         # ── Appearance ───────────────────────────────────────────────────────
-        appearance_group = QGroupBox("Appearance")
+        self.appearance_group = QGroupBox("Appearance")
+        appearance_group = self.appearance_group
         appearance_layout = QHBoxLayout(appearance_group)
 
         theme_label = QLabel("Theme:")
@@ -104,7 +105,8 @@ class ConfigTab(QWidget):
         layout.addWidget(appearance_group)
 
         # ── Star Citizen Installation ────────────────────────────────────────
-        game_group = QGroupBox("Star Citizen Installation")
+        self.game_group = QGroupBox("Star Citizen Installation")
+        game_group = self.game_group
         game_layout = QVBoxLayout(game_group)
 
         game_desc = QLabel(
@@ -169,7 +171,8 @@ class ConfigTab(QWidget):
         layout.addWidget(game_group)
 
         # ── Smart Citizen Data ───────────────────────────────────────────────
-        data_group = QGroupBox("Smart Citizen Data")
+        self.data_group = QGroupBox("Smart Citizen Data")
+        data_group = self.data_group
         data_layout = QVBoxLayout(data_group)
 
         data_desc = QLabel(
@@ -252,7 +255,8 @@ class ConfigTab(QWidget):
         layout.addWidget(data_group)
 
         # ── P4K Extraction ───────────────────────────────────────────────────
-        p4k_group = QGroupBox("Base Localization (P4K Extraction)")
+        self.p4k_group = QGroupBox("Base Localization (P4K Extraction)")
+        p4k_group = self.p4k_group
         p4k_layout = QVBoxLayout(p4k_group)
 
         p4k_desc = QLabel(
@@ -291,7 +295,8 @@ class ConfigTab(QWidget):
         self._refresh_p4k_status()
 
         # ── Tools ────────────────────────────────────────────────────────────
-        tools_group = QGroupBox("Tools")
+        self.tools_group = QGroupBox("Tools")
+        tools_group = self.tools_group
         tools_layout = QVBoxLayout(tools_group)
 
         tools_desc = QLabel(
