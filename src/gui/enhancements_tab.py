@@ -178,11 +178,6 @@ class EnhancementsTab(QWidget):
         self._forge_status_label.setStyleSheet("font-size: 10px;")
         gl.addWidget(self._forge_status_label)
 
-        self._operation_label = QLabel()
-        self._operation_label.setStyleSheet("font-size: 10px; color: #2196F3;")
-        self._operation_label.setVisible(False)
-        gl.addWidget(self._operation_label)
-
         self.refresh_enhancements_status()
         return group
 
@@ -390,20 +385,13 @@ class EnhancementsTab(QWidget):
     # ── Operation state ───────────────────────────────────────────────────────
 
     def set_operation_running(self, message: str):
-        """Disable the enhancements button and show an inline progress message."""
         self._generate_enhancements_btn.setEnabled(False)
-        self._operation_label.setText(message)
-        self._operation_label.setVisible(True)
 
     def set_operation_progress(self, message: str):
-        """Update the inline progress message without changing button state."""
-        self._operation_label.setText(message)
+        pass
 
     def set_operation_idle(self):
-        """Re-enable the enhancements button and hide the progress message."""
         self._generate_enhancements_btn.setEnabled(True)
-        self._operation_label.setVisible(False)
-        self._operation_label.setText("")
 
     # ── Status refresh ────────────────────────────────────────────────────────
 
