@@ -25,9 +25,9 @@ Stop on the first failure.
 
 **CHECKPOINT — preflight passes. Ready to build the installer for `vX.Y.Z`?** Wait for the user.
 
-## 1. Build the installer
+## 1. Build the installer locally (for smoke-testing only)
 
-The build produces two artifacts: a PyInstaller onedir build and an Inno Setup installer (`.exe`) that wraps it.
+**The distributed installer is built by `.github/workflows/release.yml` on tag push, not by this command.** This local build exists only so the user can install and smoke-test the binary *before* triggering the public release. Do not attach the local artifact to a GitHub release — that races with the workflow.
 
 ### 1a. PyInstaller onedir build
 
@@ -35,7 +35,7 @@ The build produces two artifacts: a PyInstaller onedir build and an Inno Setup i
 .venv/Scripts/python.exe scripts/build/build_exe.py
 ```
 
-Run from the repo root. Output lands in `dist/SmartCitizen/`. If the build fails, abort and surface the error — usually a missing dependency or a hook/spec drift.
+Run from the repo root. Output lands in `dist/SmartCitizen-vX.Y.Z/`. If the build fails, abort and surface the error.
 
 ### 1b. Inno Setup installer
 
@@ -45,74 +45,59 @@ Inno Setup is per-user; invoke via PowerShell with the full ISCC path:
 powershell -NoProfile -Command "& 'C:\Users\<USERNAME>\AppData\Local\Programs\Inno Setup 6\ISCC.exe' installer.iss"
 ```
 
-Substitute the current Windows username. Output: `dist/SmartCitizen-X.Y.Z-Setup.exe`. If ISCC isn't found at that path, ask the user where it's installed before proceeding.
+Output: `dist/SmartCitizen-X.Y.Z-Setup.exe`. If ISCC isn't at that path, ask the user where it's installed.
 
-Confirm `dist/SmartCitizen-X.Y.Z-Setup.exe` exists after the compile. Capture its size.
+**CHECKPOINT — installer built at `dist/SmartCitizen-X.Y.Z-Setup.exe` (N MB). Install and smoke-test it before merging to main.** Wait for the user. Do not proceed without explicit go.
 
-**CHECKPOINT — installer built at `dist/SmartCitizen-X.Y.Z-Setup.exe` (N MB). Test it manually before continuing.** Wait for the user to confirm they've installed and smoke-tested the build. Do not proceed without explicit go.
+## 2. Confirm release notes exist (pre-merge)
 
-## 2. Merge release branch to main
+The `release.yml` workflow reads `docs/X.Y.Z-RELEASE-NOTES.md` (or root fallback) when publishing — confirm the file exists before merging so the published release isn't auto-generated.
 
-This is destructive — once `main` advances and tags are pushed, the release is effectively shipped. Confirm before each git command in this section.
+Look in this order:
+1. `docs/X.Y.Z-RELEASE-NOTES.md` (post-1.4.1 convention)
+2. `X.Y.Z-RELEASE-NOTES.md` at repo root (legacy)
 
-### 2a. Update main locally
+If neither exists, ask the user whether to draft one now or proceed with the workflow's auto-generated notes. Don't fabricate notes.
+
+If notes exist, verify the SAC (Smart App Control) banner is present at the top per project memory. If missing, surface that and ask whether to add it.
+
+**CHECKPOINT — release notes confirmed. Ready to merge `release/X.Y.Z` into `main`?** Wait for the user.
+
+## 3. Merge release branch to main (this triggers the release workflow)
+
+The push to `main` triggers `.github/workflows/release.yml`, which:
+- Reads `VERSION.TXT`, derives `vX.Y.Z`, auto-tags the merge commit
+- Runs tests, builds installer + portable zip, publishes the GitHub release
+- Posts the Discord notification
+
+So **the push IS the ship**. Confirm each git command in this section.
+
+### 3a. Update main locally
 
 ```bash
 git checkout main
 git pull origin main
 ```
 
-If the pull merges (i.e. `main` diverged unexpectedly), surface that and ask — do not continue automatically.
+If the pull produces a merge (main diverged unexpectedly), surface that and ask — do not continue automatically.
 
-### 2b. Merge the release branch
+### 3b. Merge the release branch
 
 ```bash
 git merge --no-ff release/X.Y.Z -m "Merge release/X.Y.Z into main"
 ```
 
-`--no-ff` preserves the release branch's history as a discrete merge commit. If merge conflicts arise, abort and ask the user to resolve manually — do not attempt automated conflict resolution at this stage.
+`--no-ff` preserves the release branch's history as a discrete merge commit. On merge conflicts, abort and ask the user to resolve manually.
 
-### 2c. Tag the release on main
-
-```bash
-git tag -a vX.Y.Z -m "Release vX.Y.Z"
-```
-
-### 2d. Push branch and tag
+### 3c. Push main
 
 ```bash
 git push origin main
-git push origin vX.Y.Z
 ```
 
-Do these as two separate pushes so a tag-push failure doesn't leave `main` in a half-pushed state.
+This triggers `release.yml`. The workflow auto-creates and pushes `vX.Y.Z` — no manual `git tag` needed.
 
-**CHECKPOINT — `main` is now at `vX.Y.Z` on origin. Ready to publish the GitHub release?** Wait for the user.
-
-## 3. Publish the GitHub release
-
-### 3a. Locate release notes
-
-Look in this order:
-1. `docs/X.Y.Z-RELEASE-NOTES.md` (post-1.4.1 convention)
-2. `X.Y.Z-RELEASE-NOTES.md` at repo root (legacy)
-3. Prompt the user — if neither exists, ask whether to draft a stub now or skip notes for this release. Don't fabricate notes.
-
-If notes exist, verify the SAC banner is present at the top per project memory (every Smart Citizen X.Y.Z-RELEASE-NOTES.md needs the Smart App Control workaround). If missing, surface that and ask whether to add it.
-
-### 3b. Create the release with installer attached
-
-```bash
-gh release create vX.Y.Z dist/SmartCitizen-X.Y.Z-Setup.exe \
-  --title "Smart Citizen vX.Y.Z" \
-  --notes-file <notes-path>
-```
-
-If no notes file resolved, prompt for an inline `--notes` body and use that, or fall back to `--generate-notes`.
-
-The Discord webhook fires from `.github/workflows/release.yml` automatically when `DISCORD_RELEASE_WEBHOOK_URL` is configured; no manual ping needed.
-
-**CHECKPOINT — release `vX.Y.Z` published with installer attached. Discord webhook will fire from CI.** Wait for the user.
+**CHECKPOINT — `main` pushed. The release workflow is now running. Watch it at:** `gh run watch` or the Actions tab. Wait for the user to confirm the workflow completed successfully (installer + portable zip attached, Discord notification posted).
 
 ## 4. Open the next integration branch
 
@@ -135,7 +120,7 @@ Print:
 
 ## Notes
 
-- This command performs destructive git operations (`merge`, `tag`, `push`) and external publishes (`gh release create`). Every checkpoint exists because the prior step is the last reversible point. Honor them.
-- Never combine the merge, tag, and push into a single non-interactive run. The user is the gate.
-- The installer build (step 1) happens **before** the merge (step 2) so a build break doesn't leave `main` advanced past a non-shippable artifact.
-- Tester pre-release installers (`installer-preview.yml`) are a separate flow and don't replace this command — they produce throwaway artifacts; this command produces the canonical release.
+- This command's destructive step is the **push to main**. That push triggers `release.yml`, which builds and publishes the canonical installer + portable zip. There is no `gh release create` invocation in this command — the workflow owns publishing.
+- Never combine the merge and push into a single non-interactive run. The user is the gate.
+- The local installer build (step 1) is for the user's pre-merge smoke test only. Do NOT attach it to a GitHub release manually; that races with the workflow.
+- Tester pre-release installers (`installer-preview.yml`) are a separate flow — they produce throwaway artifacts off PR branches; this command produces the canonical release via `release.yml`.
