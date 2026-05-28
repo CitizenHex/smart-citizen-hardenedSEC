@@ -727,7 +727,7 @@ class _TagBuilderPage(QWidget):
         self._rows_insert_at = 0
         self._repopulate_list()
         self._rows_column.addStretch()
-        top.addLayout(self._rows_column, 1)
+        top.addLayout(self._rows_column, 0)
 
         # ── Right: controls + preview ─────────────────────────────────
         right = QVBoxLayout()
@@ -773,6 +773,7 @@ class _TagBuilderPage(QWidget):
         right.addWidget(self.preview_label)
         right.addStretch()
         top.addLayout(right, 0)
+        top.addStretch(1)
 
         self._refresh_preview()
 
