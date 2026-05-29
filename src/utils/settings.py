@@ -33,17 +33,37 @@ class AppSettings:
     # Settings keys - Favorites
     FAVORITE_PREFIX = "favorite_prefix"
 
+    # Settings keys - Mission labels
+    REP_XP_LABEL = "rep_xp_label"
+    MISSION_HEADER_DETAILS = "mission_header/details"
+    MISSION_HEADER_BLUEPRINTS = "mission_header/blueprints"
+    MISSION_HEADER_ITEMS = "mission_header/items"
+    MISSION_HEADER_BLUEPRINT_DATA = "mission_header/blueprint_data"
+    MISSION_HEADER_EM_TAG = "mission_header/em_tag"
+
+    # Mission label defaults — source of truth for fallback values
+    DEFAULT_REP_XP_LABEL = "Rep"
+    DEFAULT_MISSION_HEADER_EM_TAG = "EM3"
+    MISSION_HEADER_DEFAULTS = {
+        "details": "MISSION DETAILS",
+        "blueprints": "POTENTIAL BLUEPRINTS",
+        "items": "ITEM REWARDS",
+        "blueprint_data": "BLUEPRINT DATA",
+    }
+
     # Settings keys - Appearance
     THEME = "theme"
 
     # Settings keys - Enhancements
     ENHANCEMENTS_ENABLED = "enhancements_enabled"
+    INCLUDE_NEW_LINES = "include_new_lines"
 
     # Settings keys - Tutorial
     # Stores the app version string ("0.9.3") that last marked the guided tour
     # as completed, so a future release can re-trigger it if the tour gains
     # new steps worth showing again. Empty string means "never shown".
     TUTORIAL_COMPLETED_VERSION = "tutorial_completed_version"
+    TUTORIAL_DISABLED = "tutorial_disabled"
 
     # Settings keys - App self-update check
     # Unix epoch of the last successful GitHub Releases check; the auto-check
@@ -197,6 +217,16 @@ class AppSettings:
         AppSettings.settings().setValue(AppSettings.ENHANCEMENTS_ENABLED, enabled)
 
     @staticmethod
+    def get_include_new_lines() -> bool:
+        """Check whether discovered items (status 'New') are included in apply output."""
+        return AppSettings.settings().value(AppSettings.INCLUDE_NEW_LINES, False, type=bool)
+
+    @staticmethod
+    def set_include_new_lines(enabled: bool) -> None:
+        """Include or exclude discovered items from apply output."""
+        AppSettings.settings().setValue(AppSettings.INCLUDE_NEW_LINES, enabled)
+
+    @staticmethod
     def get_enhancement_category_enabled(key: str) -> bool:
         """Check if a specific enhancement category is enabled (default: True)."""
         return AppSettings.settings().value(
@@ -307,6 +337,45 @@ class AppSettings:
         AppSettings.settings().setValue(AppSettings.FAVORITE_PREFIX, prefix)
 
     @staticmethod
+    def get_rep_xp_label() -> str:
+        """Label shown on single-tier mission XP lines (default 'Rep')."""
+        return AppSettings.settings().value(AppSettings.REP_XP_LABEL, AppSettings.DEFAULT_REP_XP_LABEL)
+
+    @staticmethod
+    def set_rep_xp_label(label: str) -> None:
+        AppSettings.settings().setValue(AppSettings.REP_XP_LABEL, label)
+
+    @staticmethod
+    def get_mission_headers() -> dict[str, str]:
+        s = AppSettings.settings()
+        d = AppSettings.MISSION_HEADER_DEFAULTS
+        return {
+            "details":        s.value(AppSettings.MISSION_HEADER_DETAILS, d["details"]),
+            "blueprints":     s.value(AppSettings.MISSION_HEADER_BLUEPRINTS, d["blueprints"]),
+            "items":          s.value(AppSettings.MISSION_HEADER_ITEMS, d["items"]),
+            "blueprint_data": s.value(AppSettings.MISSION_HEADER_BLUEPRINT_DATA, d["blueprint_data"]),
+        }
+
+    @staticmethod
+    def set_mission_header(key: str, value: str) -> None:
+        key_map = {
+            "details": AppSettings.MISSION_HEADER_DETAILS,
+            "blueprints": AppSettings.MISSION_HEADER_BLUEPRINTS,
+            "items": AppSettings.MISSION_HEADER_ITEMS,
+            "blueprint_data": AppSettings.MISSION_HEADER_BLUEPRINT_DATA,
+        }
+        if key in key_map:
+            AppSettings.settings().setValue(key_map[key], value)
+
+    @staticmethod
+    def get_mission_header_em_tag() -> str:
+        return AppSettings.settings().value(AppSettings.MISSION_HEADER_EM_TAG, AppSettings.DEFAULT_MISSION_HEADER_EM_TAG)
+
+    @staticmethod
+    def set_mission_header_em_tag(tag: str) -> None:
+        AppSettings.settings().setValue(AppSettings.MISSION_HEADER_EM_TAG, tag)
+
+    @staticmethod
     def get_tag_config(category: str):
         """Return the user's TagConfig for *category*, or the default if absent/bad.
 
@@ -330,6 +399,7 @@ class AppSettings:
             )
             return default_config(category)
         AppSettings._migrate_tag_config_mapping(category, cfg)
+        AppSettings._backfill_new_elements(category, cfg)
         return cfg
 
     @staticmethod
@@ -361,6 +431,33 @@ class AppSettings:
                 del mapping[old]
             else:
                 mapping[new] = mapping.pop(old)
+
+    @staticmethod
+    def _backfill_new_elements(category: str, cfg) -> None:
+        """Append element kinds added in a newer version that the stored
+        config doesn't have yet (e.g. ``type`` added to components in 1.4.2).
+        New elements are appended disabled so existing output is unchanged."""
+        from src.utils.tag_builder import (
+            CATEGORY_ELEMENT_KINDS, DEFAULT_TAG_CONFIGS, DEFAULT_KIND_MAPPINGS,
+            ElementSpec,
+        )
+        expected_kinds = CATEGORY_ELEMENT_KINDS.get(category, ())
+        existing_kinds = {e.kind for e in cfg.elements}
+        defaults = DEFAULT_TAG_CONFIGS.get(category)
+        for kind in expected_kinds:
+            if kind not in existing_kinds:
+                default_spec = None
+                if defaults:
+                    default_spec = next((e for e in defaults.elements if e.kind == kind), None)
+                cfg.elements.append(ElementSpec(
+                    kind=kind,
+                    enabled=default_spec.enabled if default_spec else False,
+                    style=default_spec.style if default_spec else "",
+                ))
+            kind_mapping = DEFAULT_KIND_MAPPINGS.get(kind, {})
+            for key, val in kind_mapping.items():
+                if key not in cfg.class_mapping:
+                    cfg.class_mapping[key] = val
 
     @staticmethod
     def set_tag_config(category: str, config) -> None:
@@ -409,6 +506,16 @@ class AppSettings:
     def set_tutorial_completed_version(version: str) -> None:
         """Record that the guided tour was completed for *version*."""
         AppSettings.settings().setValue(AppSettings.TUTORIAL_COMPLETED_VERSION, version)
+        AppSettings.settings().sync()
+
+    @staticmethod
+    def get_tutorial_disabled() -> bool:
+        """When True, the tutorial never auto-launches (Config tab opt-out)."""
+        return AppSettings.settings().value(AppSettings.TUTORIAL_DISABLED, False, type=bool)
+
+    @staticmethod
+    def set_tutorial_disabled(disabled: bool) -> None:
+        AppSettings.settings().setValue(AppSettings.TUTORIAL_DISABLED, bool(disabled))
         AppSettings.settings().sync()
 
     @staticmethod
@@ -1397,11 +1504,30 @@ class AppSettings:
         a placeholder in that case.
         """
         saved = AppSettings.settings().value(AppSettings.SC_INSTALL_ROOT, "")
+
+        # Cross-check: the installer writes both game_install_path and
+        # sc_install_root.  If the user reinstalled with a different SC
+        # path, game_install_path is fresh but a stale sc_install_root
+        # from a prior migration could survive (pre-1.4.2 installers
+        # didn't write sc_install_root).  When the two disagree, derive
+        # from game_install_path — it was written more recently.
+        legacy = AppSettings.settings().value(AppSettings.GAME_INSTALL_PATH, "")
+        if saved and legacy:
+            legacy_path = Path(legacy)
+            if legacy_path.name.upper() in (c.upper() for c in AppSettings.AVAILABLE_CHANNELS):
+                derived_root = str(legacy_path.parent)
+                if os.path.normcase(derived_root) != os.path.normcase(saved):
+                    logger.info(
+                        f"SC_INSTALL_ROOT {saved!r} disagrees with "
+                        f"GAME_INSTALL_PATH {legacy!r} — using derived root {derived_root!r}"
+                    )
+                    AppSettings.settings().setValue(AppSettings.SC_INSTALL_ROOT, derived_root)
+                    return derived_root
+
         if saved:
             return saved
 
         # Derive from the legacy per-channel path if it's set.
-        legacy = AppSettings.settings().value(AppSettings.GAME_INSTALL_PATH, "")
         if legacy:
             legacy_path = Path(legacy)
             if legacy_path.name.upper() in (c.upper() for c in AppSettings.AVAILABLE_CHANNELS):

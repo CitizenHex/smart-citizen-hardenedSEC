@@ -121,6 +121,7 @@ DATAFORGE_KEEP_SUBPATHS: tuple[str, ...] = (
     "ammoparams/vehicle",
     "ammoparams/fps",
     "reputation/rewards/missionrewards_reputation",
+    "reputation/standings",
 )
 
 

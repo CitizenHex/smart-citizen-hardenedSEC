@@ -1,7 +1,8 @@
 # IDE & Local
 .idea/
 .vscode/
-.claude/
+.claude/*
+!.claude/commands/
 *.swp
 *.swo
 *~

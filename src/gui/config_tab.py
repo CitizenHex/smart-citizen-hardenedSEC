@@ -7,6 +7,7 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLineEdit,
     QPushButton, QLabel, QFileDialog, QMessageBox, QComboBox,
+    QCheckBox,
 )
 from PyQt6.QtCore import pyqtSignal, QTimer
 
@@ -78,6 +79,15 @@ class ConfigTab(QWidget):
         self._tools_desc_label.setWordWrap(True)
         tools_layout.addWidget(self._tools_desc_label)
 
+        self.include_new_cb = QCheckBox("Include discovered items")
+        self.include_new_cb.setToolTip(
+            "When checked, items discovered from DataForge XML (status 'New') "
+            "that have non-empty text will be included in the applied global.ini."
+        )
+        self.include_new_cb.setChecked(AppSettings.get_include_new_lines())
+        self.include_new_cb.toggled.connect(self._on_include_new_toggled)
+        tools_layout.addWidget(self.include_new_cb)
+
         button_layout = QHBoxLayout()
 
         self._import_btn = QPushButton(tr("config.import_ini_btn"))
@@ -147,6 +157,17 @@ class ConfigTab(QWidget):
         self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
         self.theme_combo.setMaximumWidth(150)
         appearance_layout.addWidget(self.theme_combo)
+
+        appearance_layout.addSpacing(20)
+        self.disable_tutorial_cb = QCheckBox("Disable Tutorial")
+        self.disable_tutorial_cb.setToolTip(
+            "When checked, the guided tour will not auto-launch on a new "
+            "version. The Tutorial button in the toolbar still works."
+        )
+        self.disable_tutorial_cb.setChecked(AppSettings.get_tutorial_disabled())
+        self.disable_tutorial_cb.toggled.connect(AppSettings.set_tutorial_disabled)
+        appearance_layout.addWidget(self.disable_tutorial_cb)
+
         appearance_layout.addStretch()
         layout.addWidget(self._appearance_group)
 
@@ -460,6 +481,9 @@ class ConfigTab(QWidget):
         mw = self.window()
         if hasattr(mw, "refresh_action_buttons"):
             mw.refresh_action_buttons()
+
+    def _on_include_new_toggled(self, checked: bool):
+        AppSettings.set_include_new_lines(checked)
 
     # ── Game path ────────────────────────────────────────────────────────────
 

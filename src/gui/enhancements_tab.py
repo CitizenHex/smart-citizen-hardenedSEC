@@ -23,19 +23,22 @@ logger = logging.getLogger(__name__)
 # Sample values used by the live preview so the user can see what their
 # config will produce without re-running the generator.
 _PREVIEW_VALUES: dict[str, dict[str, str]] = {
-    "components":   {"class": "Military", "size": "2", "grade": "A"},
+    "components":   {"class": "Military", "size": "2", "grade": "A", "type": "Shield Generator"},
     "missiles":     {"ordinance": "Infrared", "size": "1"},
     "ship_weapons": {"damage": "Energy",   "size": "2"},
+    "commodities":  {"label": "Crafting"},
 }
 _PREVIEW_NAMES: dict[str, str] = {
     "components":   "FR-76",
     "missiles":     "Marksman I Missile",
     "ship_weapons": "MaxOx NN-14",
+    "commodities":  "Agricium",
 }
 _CATEGORY_LABELS: dict[str, str] = {
     "components":   "Components",
     "missiles":     "Missiles",
     "ship_weapons": "Ship Weapons",
+    "commodities":  "Commodities",
 }
 
 
@@ -67,10 +70,15 @@ class EnhancementsTab(QWidget):
 
         self._enhancements_group = self._build_enhancements_group()
         layout.addWidget(self._enhancements_group)
+
+        mid_row = QHBoxLayout()
         self._favorites_group = self._build_favorites_group()
-        layout.addWidget(self._favorites_group)
+        mid_row.addWidget(self._favorites_group)
+        mid_row.addWidget(self._build_mission_labels_group(), 1)
+        layout.addLayout(mid_row)
+
         self._tag_builder_group = self._build_tag_builder_group()
-        layout.addWidget(self._tag_builder_group)
+        layout.addWidget(self._tag_builder_group, 1)
         layout.addStretch()
 
     # ── Enhancements ─────────────────────────────────────────────────────────
@@ -105,7 +113,7 @@ class EnhancementsTab(QWidget):
         categories_layout = QGridLayout()
         categories_layout.setHorizontalSpacing(24)
         categories_layout.setVerticalSpacing(4)
-        column_height = 3  # half the 6-category list, rounded up
+        column_height = 2
         for idx, (key, label) in enumerate(AppSettings.ENHANCEMENT_LABELS.items()):
             cell_row = idx % column_height
             cell_col = idx // column_height
@@ -137,12 +145,10 @@ class EnhancementsTab(QWidget):
             cell.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
             categories_layout.addWidget(cell, cell_row, cell_col)
 
-        # Let the two content columns hug their natural width; a third
-        # spacer column absorbs any excess horizontal space so the right
-        # column doesn't drift to mid-window when the grid is widened.
         categories_layout.setColumnStretch(0, 0)
         categories_layout.setColumnStretch(1, 0)
-        categories_layout.setColumnStretch(2, 1)
+        categories_layout.setColumnStretch(2, 0)
+        categories_layout.setColumnStretch(3, 1)
         gl.addLayout(categories_layout)
 
         btn_row = QHBoxLayout()
@@ -173,11 +179,6 @@ class EnhancementsTab(QWidget):
         self._forge_status_label.setProperty("role", "secondary")
         self._forge_status_label.setStyleSheet("font-size: 10px;")
         gl.addWidget(self._forge_status_label)
-
-        self._operation_label = QLabel()
-        self._operation_label.setStyleSheet("font-size: 10px; color: #2196F3;")
-        self._operation_label.setVisible(False)
-        gl.addWidget(self._operation_label)
 
         self.refresh_enhancements_status()
         return group
@@ -247,6 +248,7 @@ class EnhancementsTab(QWidget):
         self._favorites_desc_label.setWordWrap(True)
         gl.addWidget(self._favorites_desc_label)
 
+
         prefix_row = QHBoxLayout()
         self._sort_prefix_label = QLabel(tr("enhancements.sort_prefix_label"))
         prefix_row.addWidget(self._sort_prefix_label)
@@ -280,6 +282,84 @@ class EnhancementsTab(QWidget):
         prefix_row.addStretch()
         gl.addLayout(prefix_row)
         return group
+
+    # ── Mission Labels ──────────────────────────────────────────────────────
+
+    def _build_mission_labels_group(self) -> QGroupBox:
+        from PyQt6.QtWidgets import QLineEdit
+        self.mission_labels_group = QGroupBox("Mission Labels")
+        group = self.mission_labels_group
+        gl = QVBoxLayout(group)
+
+        headers = AppSettings.get_mission_headers()
+        self._header_inputs: dict[str, QLineEdit] = {}
+
+        # 6 fields in a 3-col × 2-row grid
+        d = AppSettings.MISSION_HEADER_DEFAULTS
+        fields = [
+            ("details",        "Details:",        headers.get("details", d["details"])),
+            ("blueprints",     "Blueprints:",     headers.get("blueprints", d["blueprints"])),
+            ("items",          "Item rewards:",   headers.get("items", d["items"])),
+            ("blueprint_data", "Blueprint data:", headers.get("blueprint_data", d["blueprint_data"])),
+        ]
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(16)
+        grid.setVerticalSpacing(4)
+        col_height = 2
+        for idx, (key, label_text, value) in enumerate(fields):
+            row = idx % col_height
+            col = (idx // col_height) * 2
+            grid.addWidget(QLabel(label_text), row, col)
+            inp = QLineEdit()
+            inp.setText(value)
+            inp.editingFinished.connect(lambda k=key: self._save_mission_header(k))
+            self._header_inputs[key] = inp
+            grid.addWidget(inp, row, col + 1)
+
+        # XP label and header tag in the third column pair
+        grid.addWidget(QLabel("XP label:"), 0, 4)
+        self._rep_xp_label_input = QLineEdit()
+        self._rep_xp_label_input.setText(AppSettings.get_rep_xp_label())
+        self._rep_xp_label_input.setMaximumWidth(100)
+        self._rep_xp_label_input.setToolTip("Label for missions without a rank name (e.g. 'Rep: +100 XP')")
+        self._rep_xp_label_input.editingFinished.connect(self._save_rep_xp_label)
+        grid.addWidget(self._rep_xp_label_input, 0, 5)
+
+        grid.addWidget(QLabel("Header tag:"), 1, 4)
+        self._header_em_combo = QComboBox()
+        for tag in ("EM1", "EM2", "EM3", "EM4"):
+            self._header_em_combo.addItem(tag, userData=tag)
+        current_em = AppSettings.get_mission_header_em_tag()
+        for i in range(self._header_em_combo.count()):
+            if self._header_em_combo.itemData(i) == current_em:
+                self._header_em_combo.setCurrentIndex(i)
+                break
+        self._header_em_combo.setToolTip("Emphasis tag for section headers (default EM3)")
+        self._header_em_combo.currentIndexChanged.connect(self._save_header_em_tag)
+        grid.addWidget(self._header_em_combo, 1, 5)
+
+        gl.addLayout(grid)
+        return group
+
+    def _save_rep_xp_label(self):
+        label = self._rep_xp_label_input.text().strip()
+        if not label:
+            label = AppSettings.DEFAULT_REP_XP_LABEL
+            self._rep_xp_label_input.setText(label)
+        AppSettings.set_rep_xp_label(label)
+
+    def _save_mission_header(self, key: str):
+        inp = self._header_inputs.get(key)
+        if inp:
+            val = inp.text().strip()
+            if val:
+                AppSettings.set_mission_header(key, val)
+
+    def _save_header_em_tag(self):
+        tag = self._header_em_combo.currentData()
+        if tag:
+            AppSettings.set_mission_header_em_tag(tag)
 
     def _apply_favorite_prefix(self):
         new_prefix = self.favorite_prefix_combo.currentData()
@@ -318,20 +398,10 @@ class EnhancementsTab(QWidget):
     # ── Operation state ───────────────────────────────────────────────────────
 
     def set_operation_running(self, message: str):
-        """Disable the enhancements button and show an inline progress message."""
         self._generate_enhancements_btn.setEnabled(False)
-        self._operation_label.setText(message)
-        self._operation_label.setVisible(True)
-
-    def set_operation_progress(self, message: str):
-        """Update the inline progress message without changing button state."""
-        self._operation_label.setText(message)
 
     def set_operation_idle(self):
-        """Re-enable the enhancements button and hide the progress message."""
         self._generate_enhancements_btn.setEnabled(True)
-        self._operation_label.setVisible(False)
-        self._operation_label.setText("")
 
     # ── Status refresh ────────────────────────────────────────────────────────
 
@@ -524,6 +594,8 @@ class _ElementRow(QWidget):
         "class":     "Military",
         "ordinance": "Infrared",
         "damage":    "Energy",
+        "type":      "Shield Generator",
+        "label":     "Crafting",
     }
 
     def __init__(self, spec, mapping: dict | None = None,
@@ -585,20 +657,21 @@ class _ElementRow(QWidget):
         # Only kinds backed by the per-category variant mapping get the
         # mapping-edit button — size and grade are derived from raw values
         # and have nothing user-editable beyond style.
-        if spec.kind in ("class", "ordinance", "damage"):
+        if spec.kind in ("class", "ordinance", "damage", "type", "label"):
             edit_btn = QPushButton("Edit mapping…")
-            # All three mapped kinds expose Short / Medium / Long styles
-            # now; tailor only the example string to the kind.
-            if spec.kind == "ordinance":
-                tip = ("Edit the Short / Medium / Long text used for each tracking "
-                       "type (e.g. Infrared → I / IR / Infrared).")
-            elif spec.kind == "damage":
-                tip = ("Edit the Short / Medium / Long text used for each damage "
-                       "type (e.g. Energy → E / EN / Energy).")
-            else:  # class
-                tip = ("Edit the Short / Medium / Long text used for each class "
-                       "(e.g. Military → M / MIL / Military).")
-            edit_btn.setToolTip(tip)
+            _tips = {
+                "ordinance": ("Edit the Short / Medium / Long text used for each tracking "
+                              "type (e.g. Infrared → I / IR / Infrared)."),
+                "damage":    ("Edit the Short / Medium / Long text used for each damage "
+                              "type (e.g. Energy → E / EN / Energy)."),
+                "type":      ("Edit the Short / Medium / Long text used for each component "
+                              "type (e.g. Shield Generator → SH / SHLD / Shield)."),
+                "label":     ("Edit the Short / Medium / Long text for the crafting label "
+                              "(e.g. Crafting → CF / Craft / Crafting)."),
+            }
+            edit_btn.setToolTip(_tips.get(spec.kind,
+                "Edit the Short / Medium / Long text used for each class "
+                "(e.g. Military → M / MIL / Military)."))
             edit_btn.clicked.connect(self.edit_mapping_requested.emit)
             row.addWidget(edit_btn)
 
@@ -667,93 +740,64 @@ class _TagBuilderPage(QWidget):
         # With the Localization Enhancements section now using a two-column
         # grid (freeing ~84px of vertical space), the natural layout
         # comfortably fits without needing scroll/min-height tricks.
-        self._page_layout = QVBoxLayout(self)
-        self._page_layout.setContentsMargins(8, 8, 8, 8)
-        self._page_layout.setSpacing(6)
+        top = QHBoxLayout(self)
+        top.setContentsMargins(8, 4, 8, 4)
+        top.setSpacing(12)
 
-        # ── Element rows ──────────────────────────────────────────────
-        # Earlier attempts wrapped the rows in a QListWidget+setItemWidget
-        # and then a QFrame+QVBoxLayout. Both forms had a lazy-layout race
-        # inside the QTabWidget where rows wouldn't compute their final
-        # geometry until something (resize, maximize, modal dialog) kicked
-        # the layout. Putting rows directly into the page's own QVBoxLayout
-        # removes the nested-layout level that was the source of the race.
-        rows_hint = QLabel(
-            "Use ▲/▼ on each row to change tag element order. Untick a row to "
-            "exclude that element."
-        )
-        rows_hint.setProperty("role", "secondary")
-        rows_hint.setStyleSheet("font-size: 10px;")
-        rows_hint.setWordWrap(True)
-        self._page_layout.addWidget(rows_hint)
-
-        # Insertion index for row widgets — they go right after the hint
-        # and before the separator/enclosing/placement row. Updated by
-        # _repopulate_list when rows are added/removed.
-        self._rows_insert_at = self._page_layout.count()
+        # ── Left: element rows ────────────────────────────────────────
+        self._rows_column = QVBoxLayout()
+        self._rows_column.setSpacing(2)
+        self._page_layout = self._rows_column
+        self._rows_insert_at = 0
         self._repopulate_list()
+        self._rows_column.addStretch()
+        top.addLayout(self._rows_column, 0)
 
-        # ── Separator + Enclosing ──────────────────────────────────────
-        sep_row = QHBoxLayout()
-        sep_row.addWidget(QLabel("Separator:"))
+        # ── Right: controls + preview ─────────────────────────────────
+        right = QVBoxLayout()
+        right.setSpacing(4)
+
+        ctrl_grid = QGridLayout()
+        ctrl_grid.setVerticalSpacing(4)
+        ctrl_grid.setHorizontalSpacing(6)
+
+        ctrl_grid.addWidget(QLabel("Separator:"), 0, 0)
         self.sep_combo = QComboBox()
-        self.sep_combo.setToolTip(
-            "Character placed between elements inside the tag (e.g. the "
-            "'-' in [MIL-S2-A])."
-        )
         for key, label, _ in SEPARATORS:
             self.sep_combo.addItem(label, userData=key)
         self._select_combo(self.sep_combo, config.separator)
         self.sep_combo.currentIndexChanged.connect(self._on_sep_changed)
-        sep_row.addWidget(self.sep_combo)
+        ctrl_grid.addWidget(self.sep_combo, 0, 1)
 
-        sep_row.addSpacing(20)
-        sep_row.addWidget(QLabel("Enclosing:"))
+        ctrl_grid.addWidget(QLabel("Enclosing:"), 1, 0)
         self.enc_combo = QComboBox()
-        self.enc_combo.setToolTip(
-            "Brackets wrapped around the tag. Choose None to use just a "
-            "space between the tag and the item name."
-        )
         for key, label, _open, _close in ENCLOSINGS:
             self.enc_combo.addItem(label, userData=key)
         self._select_combo(self.enc_combo, config.enclosing)
         self.enc_combo.currentIndexChanged.connect(self._on_enc_changed)
-        sep_row.addWidget(self.enc_combo)
+        ctrl_grid.addWidget(self.enc_combo, 1, 1)
 
-        sep_row.addSpacing(20)
-        sep_row.addWidget(QLabel("Placement:"))
+        ctrl_grid.addWidget(QLabel("Placement:"), 2, 0)
         self.placement_combo = QComboBox()
-        self.placement_combo.setToolTip(
-            "Whether the tag is shown before the item name (default) or "
-            "after it."
-        )
         for key, label in PLACEMENTS:
             self.placement_combo.addItem(label, userData=key)
         self._select_combo(self.placement_combo, config.placement)
         self.placement_combo.currentIndexChanged.connect(self._on_placement_changed)
-        sep_row.addWidget(self.placement_combo)
+        ctrl_grid.addWidget(self.placement_combo, 2, 1)
 
-        sep_row.addStretch()
-        self._page_layout.addLayout(sep_row)
+        right.addLayout(ctrl_grid)
 
-        # ── Live preview ───────────────────────────────────────────────
-        # QLabel.sizeHint() doesn't account for CSS padding, so the visible
-        # rect ends up shorter than the padded text wants — top/bottom
-        # glyphs get clipped. Set a minimum height that covers the font's
-        # line height plus the stylesheet padding (~12px font + 12px
-        # padding + a couple px of breathing room).
         self.preview_label = QLabel()
-        self.preview_label.setMinimumHeight(34)
+        self.preview_label.setMinimumHeight(28)
         self.preview_label.setStyleSheet(
             "font-family: Consolas, 'Courier New', monospace; "
-            "font-size: 12px; padding: 6px; "
+            "font-size: 12px; padding: 4px; "
             "background: rgba(0, 0, 0, 30); border-radius: 3px;"
         )
-        self._page_layout.addWidget(self.preview_label)
-        # Reset lives at the group level beside Apply Tag Changes, so it
-        # applies to every category at once (rather than the prior
-        # per-page button that only reset whichever tab was active).
-        self._page_layout.addStretch()
+        right.addWidget(self.preview_label)
+        right.addStretch()
+        top.addLayout(right, 0)
+        top.addStretch(1)
 
         self._refresh_preview()
 
@@ -803,6 +847,15 @@ class _TagBuilderPage(QWidget):
         for i, r in enumerate(self._rows):
             r.set_move_enabled(can_up=(i > 0), can_down=(i < n - 1))
 
+        # Equalize style-combo and label widths across all rows so columns
+        # line up visually.
+        if self._rows:
+            max_combo = max(r.style_combo.sizeHint().width() for r in self._rows)
+            max_label = max(r.label.sizeHint().width() for r in self._rows)
+            for r in self._rows:
+                r.style_combo.setMinimumWidth(max_combo)
+                r.label.setMinimumWidth(max_label)
+
     def _move_row(self, index: int, delta: int) -> None:
         """Swap ``self.config.elements[index]`` with its neighbor at
         ``index + delta`` (delta is -1 or +1) and rebuild the row list."""
@@ -836,21 +889,32 @@ class _TagBuilderPage(QWidget):
 
     # ── Mapping editor ───────────────────────────────────────────────────
 
-    def _open_mapping_dialog(self, _kind: str | None = None):
-        """Open the variant-mapping editor seeded with this category's
-        current mapping. On accept, copy the result into self.config and
-        refresh the preview. The ``_kind`` argument is informational; one
-        mapping dict per category is shared by every mapped element."""
-        title = f"Edit {_CATEGORY_LABELS[self.category]} variants"
-        defaults = DEFAULT_MAPPINGS.get(self.category, {})
+    def _open_mapping_dialog(self, kind: str | None = None):
+        """Open the variant-mapping editor for a specific element kind.
+
+        Filters the shared class_mapping to only the keys belonging to
+        *kind* so the user sees Class entries OR Type entries, not both.
+        On accept, merges the edited subset back into the full mapping."""
+        from src.utils.tag_builder import DEFAULT_KIND_MAPPINGS
+        kind_defaults = DEFAULT_KIND_MAPPINGS.get(kind, {})
+        # Keys that belong to OTHER kinds — exclude them from this dialog.
+        other_keys = set()
+        for other_kind, other_map in DEFAULT_KIND_MAPPINGS.items():
+            if other_kind != kind:
+                other_keys.update(other_map.keys())
+        kind_mapping = {k: v for k, v in self.config.class_mapping.items() if k not in other_keys}
+
+        kind_label = ELEMENT_LABELS.get(kind, kind or self.category)
+        title = f"Edit {kind_label} variants"
         dialog = TagMappingDialog(
-            self.config.class_mapping, defaults, title, parent=self,
+            kind_mapping, kind_defaults, title, parent=self,
         )
         if dialog.exec():
-            self.config.class_mapping = dialog.result_mapping()
-            # Rebuild the row list so the style dropdowns pick up the new
-            # variant text in their parenthetical sample (e.g. "Short (M)"
-            # → "Short (ML)" after editing Military's short variant).
+            result = dialog.result_mapping()
+            for k in list(self.config.class_mapping):
+                if k not in other_keys:
+                    del self.config.class_mapping[k]
+            self.config.class_mapping.update(result)
             self._repopulate_list()
             self._refresh_preview()
 

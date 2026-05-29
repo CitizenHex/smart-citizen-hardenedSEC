@@ -23,15 +23,16 @@ logger = logging.getLogger(__name__)
 
 # ── Category + element vocabulary ─────────────────────────────────────────────
 
-CATEGORIES = ("components", "missiles", "ship_weapons")
+CATEGORIES = ("components", "missiles", "ship_weapons", "commodities")
 
 # Which element kinds each category supports — order here is the *default*
 # order shown in the UI before the user reorders. Each kind maps to a value
 # key in the values-dict passed to render_tag.
 CATEGORY_ELEMENT_KINDS: dict[str, tuple[str, ...]] = {
-    "components":   ("class", "size", "grade"),
+    "components":   ("class", "size", "grade", "type"),
     "missiles":     ("ordinance", "size"),
     "ship_weapons": ("damage", "size"),
+    "commodities":  ("label",),
 }
 
 # Which element kinds resolve through the per-category `class_mapping` dict.
@@ -41,6 +42,7 @@ MAPPED_KINDS: dict[str, str] = {
     "components":   "class",
     "missiles":     "ordinance",
     "ship_weapons": "damage",
+    "commodities":  "label",
 }
 
 
@@ -73,6 +75,16 @@ STYLES_DAMAGE: tuple[tuple[str, str], ...] = (
     ("med",   "Medium (EN)"),
     ("long",  "Long (Energy)"),
 )
+STYLES_TYPE: tuple[tuple[str, str], ...] = (
+    ("short", "Short (SH)"),
+    ("med",   "Medium (SHLD)"),
+    ("long",  "Long (Shield)"),
+)
+STYLES_LABEL: tuple[tuple[str, str], ...] = (
+    ("short", "Short (CF)"),
+    ("med",   "Medium (Craft)"),
+    ("long",  "Long (Crafting)"),
+)
 
 STYLES_BY_KIND: dict[str, tuple[tuple[str, str], ...]] = {
     "class":     STYLES_CLASS,
@@ -80,6 +92,8 @@ STYLES_BY_KIND: dict[str, tuple[tuple[str, str], ...]] = {
     "grade":     STYLES_GRADE,
     "ordinance": STYLES_ORDINANCE,
     "damage":    STYLES_DAMAGE,
+    "type":      STYLES_TYPE,
+    "label":     STYLES_LABEL,
 }
 
 # Human-friendly element kind labels for the UI.
@@ -89,6 +103,8 @@ ELEMENT_LABELS: dict[str, str] = {
     "grade":     "Grade",
     "ordinance": "Ordinance",
     "damage":    "Damage type",
+    "type":      "Type",
+    "label":     "Label",
 }
 
 
@@ -164,10 +180,31 @@ DAMAGE_LABEL_TO_MAPPING_KEY: dict[str, str] = {
     # Energy / Thermal / Stun already match between compact and full forms.
 }
 
+DEFAULT_COMPONENT_TYPE_MAPPING: dict[str, tuple[str, str, str]] = {
+    "Shield Generator": ("SH",  "SHLD", "Shield"),
+    "Cooler":           ("CL",  "COOL", "Cooler"),
+    "Power Plant":      ("PW",  "POWR", "Power"),
+    "Quantum Drive":    ("QD",  "QDRV", "Quantum"),
+    "Radar":            ("RD",  "RADR", "Radar"),
+}
+
+DEFAULT_COMMODITY_LABEL_MAPPING: dict[str, tuple[str, str, str]] = {
+    "Crafting": ("CF", "Craft", "Crafting"),
+}
+
 DEFAULT_MAPPINGS: dict[str, dict[str, tuple[str, str, str]]] = {
     "components":   DEFAULT_COMPONENT_CLASS_MAPPING,
     "missiles":     DEFAULT_MISSILE_ORDINANCE_MAPPING,
     "ship_weapons": DEFAULT_SHIP_WEAPON_DAMAGE_MAPPING,
+    "commodities":  DEFAULT_COMMODITY_LABEL_MAPPING,
+}
+
+DEFAULT_KIND_MAPPINGS: dict[str, dict[str, tuple[str, str, str]]] = {
+    "class":     DEFAULT_COMPONENT_CLASS_MAPPING,
+    "type":      DEFAULT_COMPONENT_TYPE_MAPPING,
+    "ordinance": DEFAULT_MISSILE_ORDINANCE_MAPPING,
+    "damage":    DEFAULT_SHIP_WEAPON_DAMAGE_MAPPING,
+    "label":     DEFAULT_COMMODITY_LABEL_MAPPING,
 }
 
 
@@ -246,10 +283,11 @@ DEFAULT_TAG_CONFIGS: dict[str, TagConfig] = {
             ElementSpec("class", True, "med"),     # MIL
             ElementSpec("size",  True, "sn"),      # S2
             ElementSpec("grade", True, "letter"),  # A
+            ElementSpec("type",  False, "short"),  # SH (disabled by default)
         ],
         separator="hyphen",
         enclosing="square",
-        class_mapping=dict(DEFAULT_COMPONENT_CLASS_MAPPING),
+        class_mapping={**DEFAULT_COMPONENT_CLASS_MAPPING, **DEFAULT_COMPONENT_TYPE_MAPPING},
     ),
     # Missiles match the components default look: `[IR-S1]` for guided,
     # `[S2]` for bombs (the renderer's empty-value drop collapses the
@@ -275,6 +313,16 @@ DEFAULT_TAG_CONFIGS: dict[str, TagConfig] = {
         separator="hyphen",
         enclosing="square",
         class_mapping=dict(DEFAULT_SHIP_WEAPON_DAMAGE_MAPPING),
+    ),
+    # Commodities: static crafting label, default `[CF]`.
+    "commodities": TagConfig(
+        elements=[
+            ElementSpec("label", True, "short"),
+        ],
+        separator="none",
+        enclosing="square",
+        placement="append",
+        class_mapping=dict(DEFAULT_COMMODITY_LABEL_MAPPING),
     ),
 }
 
@@ -315,7 +363,7 @@ def _style_value(kind: str, style: str, raw: str,
             return f"Grade {raw}"
         return raw  # "letter"
 
-    if kind in ("class", "ordinance", "damage"):
+    if kind in ("class", "ordinance", "damage", "label", "type"):
         variants = mapping.get(raw)
         if variants is None:
             # Unknown raw value — surface it verbatim so the user can edit

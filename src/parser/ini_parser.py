@@ -184,16 +184,17 @@ def load_source_files(
         custom_value = effective_user_overrides.get(key, '')
 
         # Determine status
-        if key not in base_merged:
-            # Only in user overrides — user added a brand-new key
-            status = 'New'
-        elif custom_value:
-            # User has an override for this key
+        key_in_base = key in base_merged
+        in_global_source = key in base_sources.get(base_source, {})
+        if custom_value and key_in_base:
             status = 'Modified'
         else:
-            # No user override — use source-origin-based status
             source = source_origin.get(key, base_source)
-            status = _determine_status_from_source(source, base_source)
+            status = _determine_status_from_source(
+                source, base_source,
+                key_in_base=key_in_base,
+                in_global_source=in_global_source,
+            )
 
         source = source_origin.get(key, 'user' if key not in base_merged else base_source)
 
@@ -403,15 +404,27 @@ def _determine_status(original_value: str, custom_value: str) -> str:
     return 'Unmodified'
 
 
-def _determine_status_from_source(source_name: str, base_source: str) -> str:
+def _determine_status_from_source(
+    source_name: str, base_source: str, *,
+    key_in_base: bool, in_global_source: bool = True,
+) -> str:
     """Determine status based on which source provided the value.
 
     Args:
         source_name: Name of the source that provided this value
         base_source: Name of the base source (usually 'global')
+        key_in_base: Whether the key exists in the merged base (i.e. in
+            base.ini or a non-user source). False means the key was
+            added by the user and has no base value.
+        in_global_source: Whether the key exists in the stock base
+            source (e.g. base.ini). False when the key was discovered
+            from DataForge XML via the enhancements pipeline and has
+            no entry in the global source.
 
     Returns:
         One of:
+        - 'New': key absent from the stock base — either XML-discovered
+          via the enhancements pipeline or user-added
         - 'Modified': user explicitly customized this value
         - 'Enhanced': Smart Citizen's enhancements pipeline produced
           this value (ship stats, mission rewards, etc.) without user
@@ -422,6 +435,10 @@ def _determine_status_from_source(source_name: str, base_source: str) -> str:
           overrode the base — kept generic since this branch is rare
           post-1.0 (the four URL-based sources retired in 0.7.0).
     """
+    if not key_in_base:
+        return 'New'  # Not in any base source — user-added
+    if not in_global_source:
+        return 'New'  # Only in enhancements, not in stock base — XML-discovered
     if source_name == 'user':
         return 'Modified'  # User explicitly customized
     if source_name == 'enhancements':
