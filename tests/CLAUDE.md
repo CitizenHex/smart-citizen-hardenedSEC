@@ -10,12 +10,18 @@ Split by domain:
 - `test_missions.py` — mission rewards pipeline.
 - `test_mission_engagement.py` — FPS / Ship / FPS&Ship engagement classifier from CIG loc-key naming.
 - `test_mission_turrets.py` — turret detection from `SpawnDescription_ShipGroup Name="Turrets"` plus the `OverrideTurretHosility_BP` mission-variable signal. Fabricated XML, so no populated cache needed.
+- `test_spawn_classifier.py` — 1.4.1 4-bucket spawn classifier (Crew / Boarders / Wave Hostiles / Wave Allies) that replaced the flat "Enemies" tally on mission descriptions.
+- `test_mission_variant_tuple.py` — 1.4.1 regression: a variant adding an 11th tuple field threw `ValueError: too many values to unpack (expected 10)`. Locks the variant-tuple shape.
+- `test_mission_desc_annotation_toggle.py` — 1.4.1 Tag-Builder toggle that suppresses `[CLASS-…]` component annotations inside mission descriptions while leaving the standalone component INIs annotated.
+- `test_missile_name_tag.py` — 1.4.1: bomb name tags carry their ordinance letter, not size-only, so the variant column distinguishes `[BOMB-X-…]` from `[BOMB-Y-…]`.
+- `test_commodity_journal.py` — 1.4.1 generator guard for the `commodity_journal` unpack crash when the crafting cache directory is missing.
 - `test_blueprint_pools.py` — multi-source pool merge regression, component-style tag annotation, CIG-prefix strip, pool rank-tier label.
 - `test_pak_extraction.py` — P4K/DataForge.
 - `test_progress_sink.py` — thread-safe progress coalescing.
 - `test_dataforge_patcher.py` — declarative XML patching.
 - `test_app_updater.py` — GitHub Releases version-check worker.
 - `test_channel_layout.py` — per-channel directory migration.
+- `test_cache_dir.py` — 1.4.1 split of the DataForge cache override from the user-data override: `CACHE_DIR` is its own registry key, defaults to `%LOCALAPPDATA%\Smart Citizen\<channel>\cache\dataforge\` when unset, and never falls back to the user-data override.
 - `test_retired_url_sources_migration.py` — 1.0 cleanup of contracts/components/ships/commodities/gear sources retired in 0.7.0. Covers fresh-install defaults, upgrade-time prune, URL-vs-local guard, idempotence.
 - `test_applied_file_validator.py` — post-apply `global.ini` vs stock `base.ini`.
 - `test_entry_filter.py` — column-filter logic plus the `NUM_COLUMNS` getter-tuple drift guard.
@@ -34,6 +40,8 @@ Split by domain:
 - `test_mining_salvage_stats.py` — 1.4.0 `enhancements_mining_laser` / `enhancements_salvage_tool` extractors. Per-mode beam stats for mining heads and handheld salvage tools, fabricated XML.
 - `test_ship_weapon_tag.py` — 1.4.0 guard for `_ship_weapon_name_tag_factory`: EMP devices with size but no damage and tractor beams must NOT emit a damage tag; real combat weapons must.
 - `test_user_ini_reset.py` — `reset_user_ini(path, *, backup=True)` contract for the Config tab's **Reset user.ini** button. Returns `None` when source absent, `backup=True` renames to a timestamped sibling, `backup=False` deletes outright, same-second double-call doesn't clobber the first backup.
+- `test_crash_handler.py` — `sys.excepthook` + `threading.excepthook` install plus the ring-buffer log dump to `{logs_dir}/crash_*.log`.
+- `test_error_dialog.py` — `logging.ERROR`/`CRITICAL` → modal-dialog handler plus the main-thread signal hop.
 
 QThread workers in `src/gui/workers.py` have no automated tests — they need `pytest-qt` (not a dev dep). Manual smoke testing is the only path.
 

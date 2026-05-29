@@ -16,7 +16,7 @@ Smart Citizen (formerly SC Localization Editor) is a Windows-only PyQt6 GUI for 
 
 **Branding**: User-facing strings, registry path (`Osiris DevWorks\Smart Citizen`), and the default data root (`Documents\Smart Citizen\`) use the new name. `AppSettings` keeps one-shot migrators for the legacy `Osiris DevWorks\SC Localization Editor` registry tree and `Documents\SC Localization Editor\` folder (rebrand was 0.9.0); keep them while pre-0.9 users may upgrade.
 
-**Version**: `VERSION.TXT` is the sole source of truth. Now 1.4.2.
+**Version**: `VERSION.TXT` is the sole source of truth. Now 1.4.3.
 
 Build modes are covered in `src/utils/CLAUDE.md` under *Portable vs registry build mode*.
 
@@ -126,7 +126,8 @@ Anchor examples already in-tree: `COL_*` constants in `src/gui/string_table_mode
 | **Per-channel data** | `{user_data_root}\{LIVE\|PTU\|EPTU\|HOTFIX\|TECH-PREVIEW}\` — 0.9.3+ nests user.ini / cache / backups / dataforge under the active channel so each SC channel is isolated. Migrator: `AppSettings.migrate_game_path_to_channel_layout()`. |
 | User overrides | `{user_data_root}\{active_channel}\user.ini` (legacy `overrides.ini` auto-migrated) |
 | Cached sources | `{user_data_root}\{active_channel}\cache\` — only `base.ini` post-1.0 (four legacy URL sources retired in 0.7.0); enhancement INIs live here too |
-| DataForge cache | `%LOCALAPPDATA%\Osiris DevWorks\Smart Citizen\{active_channel}\dataforge\` (entity XMLs from Data.p4k). Moved out of `Documents\` in 1.x — `migrate_dataforge_cache_to_local()` relocates the legacy `…\cache\dataforge\` tree on first launch. Resolved via `AppSettings.get_dataforge_cache_dir()`. |
+| DataForge cache | `%LOCALAPPDATA%\Smart Citizen\{active_channel}\cache\dataforge\` by default (entity XMLs from Data.p4k); overrideable independently of the user-data root via the `CACHE_DIR` registry key (1.4.1+ — `AppSettings.get_cache_dir_override()` / `set_cache_dir()`, wired to the Config tab's *DataForge Cache Folder*; the cache override does *not* fall back to the user-data override). Moved out of `Documents\` in 1.x — `migrate_dataforge_cache_to_local()` relocates the legacy `…\cache\dataforge\` tree on first launch. Resolved via `AppSettings.get_dataforge_cache_dir()`. |
+| Crash dumps + log exports | `{user_data_root}\logs\` (NOT per-channel — a crash can fire before the channel context is established, e.g. during startup migrators). Resolved via `AppSettings.get_logs_dir()`; created lazily on first crash or export. |
 | Enhancement INIs | `{user_data_root}\{active_channel}\cache\` (`ships_desc_enhancements.ini`, `components_desc_enhancements.ini`, `ship_weapons_desc_enhancements.ini`, `fps_weapons_desc_enhancements.ini`, `mission_rewards_enhancements.ini`, `commodity_crafting_enhancements.ini`) |
 | Backups | `{user_data_root}\{active_channel}\backups\` (max 5, oldest auto-deleted) |
 | Game file | `{sc_install_root}\{active_channel}\data\Localization\english\global.ini` — `AppSettings.get_global_ini_path()` |
@@ -182,6 +183,9 @@ Anchor examples already in-tree: `COL_*` constants in `src/gui/string_table_mode
 | Change Tag Builder UI / live preview | `src/gui/enhancements_tab.py`, `src/gui/tag_mapping_dialog.py` | `_PREVIEW_VALUES`, `TagMappingDialog` |
 | Persist/load tag configs | `src/utils/settings.py` | `AppSettings.get_tag_config()`, `set_tag_config()`, `get_all_tag_configs()` |
 | Add a new stats-enhancement generator (e.g. mining/salvage analogue) | `scripts/generate_enhancements_ini.py` | `enhancements_mining_laser`, `enhancements_salvage_tool` (reference pattern); register in `CATEGORY_SUBTREES` + `DATAFORGE_KEEP_SUBPATHS` |
+| Change crash-dump behavior | `src/utils/crash_handler.py`, `src/main.py` | `install_crash_handler()`; install site is the early `main()` setup, before the QApplication is constructed |
+| Change error-dialog cooldown / coalescing | `src/gui/main_window.py`, `src/gui/error_dialog.py` | `MainWindow._show_error_dialog()` (cooldown / spam protection lives on the slot, not the `ErrorDialogHandler`) |
+| Move the DataForge cache off the default path | `src/utils/settings.py`, `src/gui/config_tab.py` | `AppSettings.get_cache_dir_override()` / `set_cache_dir()` (1.4.1+; independent of the user-data override) |
 
 ## Version & Release
 
