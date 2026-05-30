@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 SC_LANGUAGE_IDS: dict[str, str] = {
     "english":       "english",
     "french":        "french_(france)",
-    "german":        "german_(germany)",
     "spanish":       "spanish_(latin_america)",
     "portuguese_br": "portuguese_(brazil)",
 }

@@ -51,7 +51,9 @@
     "col_custom_value": "Custom Value",
     "col_status": "Status",
     "no_data": "No data loaded",
-    "preview_placeholder": "Select a row to preview its rendered text."
+    "preview_placeholder": "Select a row to preview its rendered text.",
+    "context_underline": "Underline",
+    "context_highlight": "Highlight"
   },
   "config": {
     "title": "Configuration",
@@ -219,7 +221,16 @@
     "no_sources_body": "No sources configured. Please configure data sources in Config tab.",
     "merge_failed": "Merge failed",
     "merging_sources": "Merging sources...",
-    "language_changed_status": "Language changed to {language} — reloading sources…"
+    "language_changed_status": "Language changed to {language} — reloading sources…",
+    "file_not_found_title": "File Not Found",
+    "file_not_found_body": "File does not exist:\n{path}",
+    "empty_file_title": "Empty File",
+    "empty_file_body": "The imported file contains no valid key=value entries.",
+    "copy_filtered_title": "Copy Filtered",
+    "copy_filtered_empty": "No rows to copy.",
+    "copy_filtered_done": "Copied {count} rows to clipboard.",
+    "copy_error_title": "Copy Error",
+    "copy_error_body": "Failed to copy to clipboard: {error}"
   },
   "status_bar": {
     "update_checking": "Checking…",

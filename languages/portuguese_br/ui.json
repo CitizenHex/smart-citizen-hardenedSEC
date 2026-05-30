@@ -86,7 +86,7 @@
     "p4k_desc": "Extrai o arquivo global.ini do Data.p4k instalado para obter as strings originais do jogo, que sempre correspondem à sua versão instalada.",
     "p4k_status_found_with_base": "Data.p4k encontrado  |  Última atualização do base.ini: {date}",
     "p4k_status_found_no_base": "Data.p4k encontrado  |  base.ini ainda não foi extraído",
-    "p4k_status_not_found": "Data.p4k não encontrado at: {path}",
+    "p4k_status_not_found": "Data.p4k não encontrado em: {path}",
     "p4k_status_no_path": "Caminho de instalação do jogo não está configurado",
     "select_sc_root": "Selecione a pasta raiz de instalação do Star Citizen",
     "select_data_folder": "Selecione a pasta de Dados do Smart Citizen",

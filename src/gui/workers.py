@@ -22,6 +22,7 @@ from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QProgressBar, QProgressDialog, QStyledItemDelegate
 
 from src.parser.ini_parser import load_source_files, load_sources_from_settings
+from src.utils.i18n import tr
 from src.utils.resource_path import resolve_patches_dir
 from src.utils.settings import AppSettings
 from src.utils.dataforge_diff import dirty_categories
@@ -419,10 +420,10 @@ class SelectAllDelegate(QStyledItemDelegate):
         menu = editor.createStandardContextMenu()
         menu.addSeparator()
         has_sel = editor.hasSelectedText()
-        em3 = menu.addAction("Underline")
+        em3 = menu.addAction(tr("strings_tab.context_underline"))
         em3.setEnabled(has_sel)
         em3.triggered.connect(lambda: SelectAllDelegate._wrap_selection(editor, "EM3"))
-        em4 = menu.addAction("Highlight")
+        em4 = menu.addAction(tr("strings_tab.context_highlight"))
         em4.setEnabled(has_sel)
         em4.triggered.connect(lambda: SelectAllDelegate._wrap_selection(editor, "EM4"))
         menu.exec(editor.mapToGlobal(pos))

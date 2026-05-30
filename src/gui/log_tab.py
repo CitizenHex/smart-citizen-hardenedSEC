@@ -201,7 +201,7 @@ class LogTab(QWidget):
         default_name = f"smart_citizen_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
         default_path = str(AppSettings.get_logs_dir() / default_name)
         path, _ = QFileDialog.getSaveFileName(
-            self, "Export log", default_path,
+            self, tr("log.export_title"), default_path,
             "Log files (*.log);;Text files (*.txt);;All files (*)"
         )
         if not path:

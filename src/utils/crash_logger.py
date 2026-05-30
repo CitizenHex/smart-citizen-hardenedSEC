@@ -33,8 +33,8 @@ def _prune_old_logs(crash_dir: Path) -> None:
     for old in logs[:-_MAX_CRASH_LOGS]:
         try:
             old.unlink()
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.warning(f"Could not prune old crash log {old}: {exc}")
 
 
 def _write_crash_report(exc_type, exc_value, exc_tb) -> Path | None:

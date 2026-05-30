@@ -433,10 +433,14 @@ class ConfigTab(QWidget):
         self._check_updates_btn.setText(tr("config.check_updates_btn"))
         self._appearance_group.setTitle(tr("config.appearance_group"))
         self._theme_label.setText(tr("config.theme_label"))
-        self.theme_combo.setItemText(0, tr("config.theme_default"))
-        self.theme_combo.setItemText(1, tr("config.theme_light"))
-        self.theme_combo.setItemText(2, tr("config.theme_dark"))
-        self.theme_combo.setItemText(3, tr("config.theme_odw"))
+        self.theme_combo.blockSignals(True)
+        try:
+            self.theme_combo.setItemText(0, tr("config.theme_default"))
+            self.theme_combo.setItemText(1, tr("config.theme_light"))
+            self.theme_combo.setItemText(2, tr("config.theme_dark"))
+            self.theme_combo.setItemText(3, tr("config.theme_odw"))
+        finally:
+            self.theme_combo.blockSignals(False)
         self._loc_group.setTitle(tr("config.star_citizen_group"))
         self._install_label.setText(tr("config.installation_label"))
         self._game_desc_label.setText(tr("config.installation_desc"))

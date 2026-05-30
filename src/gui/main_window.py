@@ -1919,13 +1919,13 @@ class MainWindow(QMainWindow):
             else:
                 resolved_path = source
                 if not Path(resolved_path).exists():
-                    QMessageBox.warning(self, "File Not Found", f"File does not exist:\n{resolved_path}")
+                    QMessageBox.warning(self, tr("dialogs.file_not_found_title"), tr("dialogs.file_not_found_body", path=resolved_path))
                     return
 
             # Step 3: Parse imported file
             imported = parse_ini_file(resolved_path)
             if not imported:
-                QMessageBox.warning(self, "Empty File", "The imported file contains no valid key=value entries.")
+                QMessageBox.warning(self, tr("dialogs.empty_file_title"), tr("dialogs.empty_file_body"))
                 return
 
             # Step 4: Validate against base.ini keys
@@ -2375,10 +2375,10 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         cursor = self.editor_dock_text.textCursor()
         has_sel = cursor.hasSelection()
-        em3 = menu.addAction("Underline")
+        em3 = menu.addAction(tr("strings_tab.context_underline"))
         em3.setEnabled(has_sel)
         em3.triggered.connect(lambda: self._editor_dock_wrap("EM3"))
-        em4 = menu.addAction("Highlight")
+        em4 = menu.addAction(tr("strings_tab.context_highlight"))
         em4.setEnabled(has_sel)
         em4.triggered.connect(lambda: self._editor_dock_wrap("EM4"))
         menu.exec(self.editor_dock_text.mapToGlobal(pos))
@@ -2790,14 +2790,18 @@ class MainWindow(QMainWindow):
         self.copy_filtered_btn.setText(tr("filters.copy_filtered_btn"))
 
         # Status combo display text (userData internal values are preserved)
-        for i, (_internal, _key) in enumerate([
-            ("All",        "filters.status_all"),
-            ("Modified",   "filters.status_modified"),
-            ("Enhanced",   "filters.status_enhanced"),
-            ("Unmodified", "filters.status_unmodified"),
-            ("New",        "filters.status_new"),
-        ]):
-            self.status_combo.setItemText(i, tr(_key))
+        self.status_combo.blockSignals(True)
+        try:
+            for i, (_internal, _key) in enumerate([
+                ("All",        "filters.status_all"),
+                ("Modified",   "filters.status_modified"),
+                ("Enhanced",   "filters.status_enhanced"),
+                ("Unmodified", "filters.status_unmodified"),
+                ("New",        "filters.status_new"),
+            ]):
+                self.status_combo.setItemText(i, tr(_key))
+        finally:
+            self.status_combo.blockSignals(False)
 
         # Table column headers and filter placeholder text
         new_column_names = [
@@ -2827,6 +2831,19 @@ class MainWindow(QMainWindow):
     @pyqtSlot(str)
     def _on_language_changed(self, language: str) -> None:
         """Handle a language switch from the Config tab."""
+        if self._loader_worker is not None and self._loader_worker.isRunning():
+            logger.info("Language switch: cancelling in-flight FileLoaderWorker")
+            try:
+                self._loader_worker.finished.disconnect(self._on_loading_finished)
+                self._loader_worker.error.disconnect(self._on_loading_error)
+            except (TypeError, RuntimeError):
+                pass
+            self._loader_worker.quit()
+            self._loader_worker.wait(5000)
+            self._loader_worker = None
+            if self._loading_progress is not None:
+                self._loading_progress.close()
+                self._loading_progress = None
         from src.utils import i18n
         i18n.set_language(language)
         logger.info(f"MainWindow reacting to language change → {language}")
@@ -3636,7 +3653,7 @@ class MainWindow(QMainWindow):
             self.entries,
             self.default_values,
             self.filter_header.get_filter_texts(),
-            self.category_combo.currentText(),
+            self.category_combo.currentData() or self.category_combo.currentText(),
             self.status_combo.currentData() or "All",
             self.hide_unmodified_check.isChecked(),
             self.favorites_only_check.isChecked(),
@@ -3659,7 +3676,7 @@ class MainWindow(QMainWindow):
 
         self.category_combo.blockSignals(True)
         self.category_combo.clear()
-        self.category_combo.addItem("All")
+        self.category_combo.addItem(tr("filters.status_all"), userData="All")
         self.category_combo.addItems(categories)
         self.category_combo.blockSignals(False)
 
@@ -3789,16 +3806,16 @@ class MainWindow(QMainWindow):
             lines.append(line)
 
         if len(lines) <= 1:
-            QMessageBox.information(self, "Copy Filtered", "No rows to copy.")
+            QMessageBox.information(self, tr("dialogs.copy_filtered_title"), tr("dialogs.copy_filtered_empty"))
             return
 
         text_to_copy = "\n".join(lines)
         try:
             import pyperclip
             pyperclip.copy(text_to_copy)
-            QMessageBox.information(self, "Copy Filtered", f"Copied {len(lines) - 1} rows to clipboard.")
+            QMessageBox.information(self, tr("dialogs.copy_filtered_title"), tr("dialogs.copy_filtered_done", count=len(lines) - 1))
         except Exception as e:
-            QMessageBox.warning(self, "Copy Error", f"Failed to copy to clipboard: {e}")
+            QMessageBox.warning(self, tr("dialogs.copy_error_title"), tr("dialogs.copy_error_body", error=e))
 
     def show_context_menu(self, position):
         """Show right-click context menu."""

@@ -54,7 +54,7 @@ def parse_ini_file(path: str | Path) -> Dict[str, str]:
                     if clean_key:
                         result[clean_key] = value
     except Exception as e:
-        print(f"Error parsing INI file {path}: {e}")
+        logger.warning(f"Error parsing INI file {path}: {e}")
 
     return result
 
@@ -332,6 +332,11 @@ def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str], 
                     hierarchy = hierarchy[:idx] + [_SOURCE_LANGUAGE] + hierarchy[idx:]
                 else:
                     hierarchy = hierarchy + [_SOURCE_LANGUAGE]
+            else:
+                logger.warning(
+                    f"Language overlay file for '{selected_language}' exists but parsed empty; "
+                    f"falling back to English strings"
+                )
         else:
             logger.warning(
                 f"Language global.ini not found for '{selected_language}'; using English only"

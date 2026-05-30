@@ -50,6 +50,8 @@ def _deep_merge(base: dict, overlay: dict) -> None:
         if isinstance(v, dict) and isinstance(base.get(k), dict):
             _deep_merge(base[k], v)
         else:
+            if isinstance(base.get(k), dict) and not isinstance(v, dict):
+                logger.warning(f"i18n: key {k!r} in overlay is a scalar but base has a dict; replacing")
             base[k] = v
 
 
@@ -60,10 +62,11 @@ def set_language(lang: str) -> None:
     back to English rather than returning the bare key string.
     """
     global _current_lang, _strings
-    _current_lang = lang
-    _strings = _load_file("english")
+    new_strings = _load_file("english")
     if lang != "english":
-        _deep_merge(_strings, _load_file(lang))
+        _deep_merge(new_strings, _load_file(lang))
+    _current_lang = lang
+    _strings = new_strings
     logger.debug(f"i18n: UI language set to {lang!r}")
 
 

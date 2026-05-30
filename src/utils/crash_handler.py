@@ -156,7 +156,12 @@ def _make_main_thread_hook(logs_dir: Path, original):
             if original is not None:
                 original(exc_type, exc_value, exc_tb)
             return
-        _write_crash_dump(logs_dir, exc_type, exc_value, exc_tb, "MainThread")
+        crash_path = _write_crash_dump(logs_dir, exc_type, exc_value, exc_tb, "MainThread")
+        try:
+            from src.utils.crash_logger import _show_crash_dialog
+            _show_crash_dialog(exc_type, exc_value, crash_path)
+        except Exception:
+            pass
         if original is not None:
             original(exc_type, exc_value, exc_tb)
     return hook
