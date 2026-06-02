@@ -31,14 +31,22 @@ from utils.settings import AppSettings
 def isolated_qsettings(tmp_path, monkeypatch):
     """Point QSettings at an in-memory / file-scoped store so tests don't
     stomp on the real Windows Registry. Uses IniFormat under tmp_path which
-    QSettings will use when we force the format + path."""
+    QSettings will use when we force the format + path.
+
+    Returns the SAME instance on every AppSettings.settings() call. A fresh
+    QSettings per call relied on cross-instance write visibility: IniFormat
+    buffers writes and only flushes on sync()/destruction, so a setValue on
+    one instance was not reliably seen by a value() read on the next. That
+    surfaced as an environment-dependent CI failure (a set-then-get inside a
+    single test reading back empty). One shared instance makes set and get
+    hit the same in-memory store, removing the disk-flush dependency.
+    """
     settings_file = tmp_path / "test_registry.ini"
-    # Swap out AppSettings.settings() for a QSettings instance backed by our
-    # temp file. Scoped per test.
-    original = AppSettings.settings
+    # One instance, reused for the whole test, so set-then-get is consistent.
+    shared = QSettings(str(settings_file), QSettings.Format.IniFormat)
 
     def _isolated():
-        return QSettings(str(settings_file), QSettings.Format.IniFormat)
+        return shared
 
     monkeypatch.setattr(AppSettings, "settings", staticmethod(_isolated))
     # Clear any lru_cache or cached state on AppSettings if added later.
@@ -258,9 +266,15 @@ class TestAvailableChannels:
     def test_empty_list_when_root_set_but_no_channels_installed(
         self, isolated_qsettings, tmp_path
     ):
-        empty_root = tmp_path / "empty_sc"
-        empty_root.mkdir()
-        AppSettings.set_sc_install_root(str(empty_root))
+        # The root must look like a real SC install so get_sc_install_root()
+        # accepts it: as of #119 it validates that the saved root contains at
+        # least one channel subdir, else it rejects the value and falls through
+        # to auto-detect. Create the LIVE channel folder but no Data.p4k inside,
+        # so the root is valid yet no channel is actually installed, which
+        # makes get_available_channels() filter everything out.
+        sc_root = tmp_path / "StarCitizen"
+        (sc_root / "LIVE").mkdir(parents=True)
+        AppSettings.set_sc_install_root(str(sc_root))
         assert AppSettings.get_available_channels() == []
 
 

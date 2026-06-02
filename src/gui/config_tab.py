@@ -7,13 +7,14 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLineEdit,
     QPushButton, QLabel, QFileDialog, QMessageBox, QComboBox,
-    QCheckBox,
+    QCheckBox, QScrollArea, QFrame,
 )
 from PyQt6.QtCore import pyqtSignal, QTimer
 
 from src.gui.theme import AVAILABLE_THEMES, THEME_LIGHT, THEME_DARK, THEME_SCLE, THEME_ODW
 from src.utils.i18n import tr
 from src.utils.settings import AppSettings
+from src.utils.user_ini_manager import migrate_user_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,13 @@ class ConfigTab(QWidget):
         self.setup_ui()
 
     def setup_ui(self):
-        layout = QVBoxLayout(self)
+        # Build into an inner content widget that a QScrollArea hosts, so the
+        # tab degrades gracefully on short viewports (e.g. a 4K TV with
+        # Windows display scaling, which gives the app a small logical height
+        # and previously squished the Config tab — #98). The wrap is added at
+        # the end of this method.
+        content = QWidget()
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
@@ -419,6 +426,23 @@ class ConfigTab(QWidget):
 
         layout.addStretch()
 
+        # Host the content in a scroll area. MainWindow adds the tab widget
+        # with stretch=1, so the scroll area fills the tab and this does NOT
+        # reintroduce the tab-switch resize that got the 1.4.x Enhancements
+        # scroll-area attempt reverted (#65). Keep the frame and viewport
+        # background clear so the themed background shows through rather than
+        # the scroll area painting its own Base colour.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.viewport().setAutoFillBackground(False)
+        content.setAutoFillBackground(False)
+        scroll.setWidget(content)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scroll)
+
     # ── Retranslation ─────────────────────────────────────────────────────────
 
     def retranslate_ui(self) -> None:
@@ -561,8 +585,44 @@ class ConfigTab(QWidget):
         self.data_dir_input.setText(os.path.normpath(str(new_dir)))
         if new_dir != current_dir:
             logger.info(f"Smart Citizen data folder changed: {current_dir} → {new_dir}")
+            self._maybe_migrate_data(current_dir, new_dir)
             self._refresh_p4k_status()
             self.data_dir_changed.emit(str(new_dir))
+
+    def _maybe_migrate_data(self, old_dir, new_dir) -> None:
+        """Offer to copy existing data (overrides, backups, cached strings)
+        from the previous data folder into the new one, so favourites and
+        edits follow the move instead of being left behind (issue #103).
+        Copies (never overwrites), so the originals remain as a safety net."""
+        try:
+            old_path = Path(old_dir)
+            if not old_path.exists() or not any(old_path.iterdir()):
+                return
+        except OSError:
+            return
+        reply = QMessageBox.question(
+            self,
+            "Move Your Data?",
+            "Copy your existing Smart Citizen data (overrides, backups, cached "
+            f"strings) from\n\n{old_dir}\n\nto the new folder\n\n{new_dir}?\n\n"
+            "Files already in the new folder are kept, and the originals are "
+            "left in place.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            count = migrate_user_data_dir(old_dir, new_dir)
+            QMessageBox.information(
+                self, "Data Migrated",
+                f"Copied {count} file(s) into the new data folder.",
+            )
+        except Exception as e:  # pragma: no cover - defensive UI guard
+            logger.exception(f"Data migration failed: {e}")
+            QMessageBox.warning(
+                self, "Migration Failed", f"Could not migrate your data:\n{e}"
+            )
 
     def _browse_data_dir(self):
         start_dir = self.data_dir_input.text().strip() or str(AppSettings.get_user_data_dir())
@@ -580,6 +640,7 @@ class ConfigTab(QWidget):
         self.data_dir_input.setText(os.path.normpath(str(new_dir)))
         if new_dir != current_dir:
             logger.info(f"Smart Citizen data folder reset to default: {new_dir}")
+            self._maybe_migrate_data(current_dir, new_dir)
             self._refresh_p4k_status()
             self.data_dir_changed.emit(str(new_dir))
 
