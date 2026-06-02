@@ -109,8 +109,22 @@ _cleanup_build_info()
 
 print()
 
-# Build executable with PyInstaller
-exe_name = f"SmartCitizen-{'Portable-' if portable_mode else ''}v{current_version}"
+# Build executable with PyInstaller.
+# The registry / installer build uses a STABLE exe name (SmartCitizen.exe) so
+# the installed path and the desktop / Start Menu shortcuts survive version
+# updates (#104): a copied or pinned shortcut keeps working because the target
+# no longer changes every release. The portable build keeps the versioned name
+# so the downloadable zip and its folder identify the version at a glance.
+exe_name = (
+    f"SmartCitizen-Portable-v{current_version}" if portable_mode else "SmartCitizen"
+)
+
+# Write PyInstaller's generated .spec into build/ (ephemeral, wiped each run)
+# instead of the repo root, so the stable --name never clobbers the
+# hand-maintained root SmartCitizen.spec or litters the root with per-version
+# spec files.
+spec_path = os.path.join(root_dir, 'build')
+os.makedirs(spec_path, exist_ok=True)
 
 assets_dir   = os.path.join(root_dir, 'assets')
 icon_path    = os.path.join(assets_dir, 'logo.ico')
@@ -133,7 +147,7 @@ common_args = [
     '--add-data', f'{patches_dir}{os.pathsep}patches',
     '--add-data', f'{enhancements_script}{os.pathsep}scripts',
     '--workpath', os.path.join(root_dir, 'build'),
-    '--specpath', root_dir,
+    '--specpath', spec_path,
     '--hidden-import=PyQt6',
     '--hidden-import=src.gui',
     '--hidden-import=src.parser',
