@@ -18,6 +18,39 @@ SC_LANGUAGE_IDS: dict[str, str] = {
 }
 
 
+def _is_valid_sc_root(path: str) -> bool:
+    """Return True if *path* looks like a valid Star Citizen install root.
+
+    Checks whether the directory contains at least one channel subfolder
+    (LIVE, PTU, EPTU, HOTFIX, TECH-PREVIEW).  This guards against stale
+    registry values like ``SmartCitizen 1.4.1`` being returned as the
+    install root.
+    """
+    try:
+        p = Path(path)
+        if not p.is_dir():
+            return False
+        return any((p / ch).is_dir() for ch in (
+            "LIVE", "PTU", "EPTU", "HOTFIX", "TECH-PREVIEW"
+        ))
+    except (OSError, ValueError):
+        return False
+
+
+def _path_ends_in_channel(path: str) -> bool:
+    """Return True if *path*'s last component is a recognised channel name.
+
+    Used to distinguish per-channel paths (``...\\LIVE``) from install roots
+    (``...\\StarCitizen``).  Case-insensitive match against
+    :data:`AppSettings.AVAILABLE_CHANNELS`.
+    """
+    try:
+        name = Path(path).name.upper()
+    except (OSError, ValueError):
+        return False
+    return name in {c.upper() for c in AppSettings.AVAILABLE_CHANNELS}
+
+
 class AppSettings:
     """Wrapper around QSettings for application configuration."""
 
@@ -43,6 +76,9 @@ class AppSettings:
     # Mission label defaults — source of truth for fallback values
     DEFAULT_REP_XP_LABEL = "Rep"
     DEFAULT_MISSION_HEADER_EM_TAG = "EM3"
+    # Selectable emphasis tags. EM1/EM2 were removed in 1.5.0 — they never
+    # render in-game (only EM3 = underline and EM4 = color do). See issue #99.
+    MISSION_HEADER_EM_TAGS = ("EM3", "EM4")
     MISSION_HEADER_DEFAULTS = {
         "details": "MISSION DETAILS",
         "blueprints": "POTENTIAL BLUEPRINTS",
@@ -368,7 +404,14 @@ class AppSettings:
 
     @staticmethod
     def get_mission_header_em_tag() -> str:
-        return AppSettings.settings().value(AppSettings.MISSION_HEADER_EM_TAG, AppSettings.DEFAULT_MISSION_HEADER_EM_TAG)
+        tag = AppSettings.settings().value(
+            AppSettings.MISSION_HEADER_EM_TAG, AppSettings.DEFAULT_MISSION_HEADER_EM_TAG
+        )
+        # Coerce a stored EM1/EM2 (removed in 1.5.0; never rendered in-game)
+        # back to the default so generated output never carries a dead tag.
+        if tag not in AppSettings.MISSION_HEADER_EM_TAGS:
+            return AppSettings.DEFAULT_MISSION_HEADER_EM_TAG
+        return tag
 
     @staticmethod
     def set_mission_header_em_tag(tag: str) -> None:
@@ -399,6 +442,13 @@ class AppSettings:
             return default_config(category)
         AppSettings._migrate_tag_config_mapping(category, cfg)
         AppSettings._backfill_new_elements(category, cfg)
+        # 1.5.0: commodities gained a second flag (Collection). A stored
+        # single-element config used separator "none", which would mash the
+        # two flags together as "[CFCollection]". Pipe is the intended joiner,
+        # and the separator was meaningless for the old single-element tag, so
+        # upgrading it is safe (#97).
+        if category == "commodities" and cfg.separator == "none":
+            cfg.separator = "pipe"
         return cfg
 
     @staticmethod
@@ -591,7 +641,14 @@ class AppSettings:
         # Legacy path stored under the old key.
         saved = AppSettings.settings().value(AppSettings.GAME_INSTALL_PATH, "")
         if saved:
-            return saved
+            saved_path = Path(saved)
+            if _path_ends_in_channel(saved):
+                # Ends with a channel name — trust it.
+                return saved
+            # Doesn't end with a channel name — might be a stale root.
+            # Only trust it if it actually contains channel subdirs.
+            if _is_valid_sc_root(saved):
+                return saved
 
         # Installer-written registry key (older flow).
         try:
@@ -600,8 +657,13 @@ class AppSettings:
             sc_directory, _ = winreg.QueryValueEx(registry_key, 'sc_directory')
             winreg.CloseKey(registry_key)
             if sc_directory:
-                AppSettings.settings().setValue(AppSettings.GAME_INSTALL_PATH, sc_directory)
-                return sc_directory
+                sc_path = Path(sc_directory)
+                if _path_ends_in_channel(sc_directory):
+                    AppSettings.settings().setValue(AppSettings.GAME_INSTALL_PATH, sc_directory)
+                    return sc_directory
+                if _is_valid_sc_root(sc_directory):
+                    AppSettings.settings().setValue(AppSettings.GAME_INSTALL_PATH, sc_directory)
+                    return sc_directory
         except (WindowsError, OSError):
             pass
 
@@ -1513,7 +1575,7 @@ class AppSettings:
         legacy = AppSettings.settings().value(AppSettings.GAME_INSTALL_PATH, "")
         if saved and legacy:
             legacy_path = Path(legacy)
-            if legacy_path.name.upper() in (c.upper() for c in AppSettings.AVAILABLE_CHANNELS):
+            if _path_ends_in_channel(legacy):
                 derived_root = str(legacy_path.parent)
                 if os.path.normcase(derived_root) != os.path.normcase(saved):
                     logger.info(
@@ -1523,15 +1585,16 @@ class AppSettings:
                     AppSettings.settings().setValue(AppSettings.SC_INSTALL_ROOT, derived_root)
                     return derived_root
 
-        if saved:
+        if saved and _is_valid_sc_root(saved):
             return saved
 
         # Derive from the legacy per-channel path if it's set.
         if legacy:
             legacy_path = Path(legacy)
-            if legacy_path.name.upper() in (c.upper() for c in AppSettings.AVAILABLE_CHANNELS):
+            if _path_ends_in_channel(legacy):
                 return str(legacy_path.parent)
-            return legacy  # assume it was already a root
+            if _is_valid_sc_root(legacy):
+                return legacy
 
         for candidate in [
             r"C:\Program Files\Roberts Space Industries\StarCitizen",

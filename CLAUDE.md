@@ -16,7 +16,7 @@ Smart Citizen (formerly SC Localization Editor) is a Windows-only PyQt6 GUI for 
 
 **Branding**: User-facing strings, registry path (`Osiris DevWorks\Smart Citizen`), and the default data root (`Documents\Smart Citizen\`) use the new name. `AppSettings` keeps one-shot migrators for the legacy `Osiris DevWorks\SC Localization Editor` registry tree and `Documents\SC Localization Editor\` folder (rebrand was 0.9.0); keep them while pre-0.9 users may upgrade.
 
-**Version**: `VERSION.TXT` is the sole source of truth. Now 1.4.2.
+**Version**: `VERSION.TXT` is the sole source of truth. Now 1.5.0.
 
 Build modes are covered in `src/utils/CLAUDE.md` under *Portable vs registry build mode*.
 
@@ -126,7 +126,8 @@ Anchor examples already in-tree: `COL_*` constants in `src/gui/string_table_mode
 | **Per-channel data** | `{user_data_root}\{LIVE\|PTU\|EPTU\|HOTFIX\|TECH-PREVIEW}\` — 0.9.3+ nests user.ini / cache / backups / dataforge under the active channel so each SC channel is isolated. Migrator: `AppSettings.migrate_game_path_to_channel_layout()`. |
 | User overrides | `{user_data_root}\{active_channel}\user.ini` (legacy `overrides.ini` auto-migrated) |
 | Cached sources | `{user_data_root}\{active_channel}\cache\` — only `base.ini` post-1.0 (four legacy URL sources retired in 0.7.0); enhancement INIs live here too |
-| DataForge cache | `%LOCALAPPDATA%\Osiris DevWorks\Smart Citizen\{active_channel}\dataforge\` (entity XMLs from Data.p4k). Moved out of `Documents\` in 1.x — `migrate_dataforge_cache_to_local()` relocates the legacy `…\cache\dataforge\` tree on first launch. Resolved via `AppSettings.get_dataforge_cache_dir()`. |
+| DataForge cache | `%LOCALAPPDATA%\Smart Citizen\{active_channel}\cache\dataforge\` by default (entity XMLs from Data.p4k); overrideable independently of the user-data root via the `CACHE_DIR` registry key (1.4.1+ — `AppSettings.get_cache_dir_override()` / `set_cache_dir()`, wired to the Config tab's *DataForge Cache Folder*; the cache override does *not* fall back to the user-data override). Moved out of `Documents\` in 1.x — `migrate_dataforge_cache_to_local()` relocates the legacy `…\cache\dataforge\` tree on first launch. Resolved via `AppSettings.get_dataforge_cache_dir()`. |
+| Crash dumps + log exports | `{user_data_root}\logs\` (NOT per-channel — a crash can fire before the channel context is established, e.g. during startup migrators). Resolved via `AppSettings.get_logs_dir()`; created lazily on first crash or export. |
 | Enhancement INIs | `{user_data_root}\{active_channel}\cache\` (`ships_desc_enhancements.ini`, `components_desc_enhancements.ini`, `ship_weapons_desc_enhancements.ini`, `fps_weapons_desc_enhancements.ini`, `mission_rewards_enhancements.ini`, `commodity_crafting_enhancements.ini`) |
 | Backups | `{user_data_root}\{active_channel}\backups\` (max 5, oldest auto-deleted) |
 | Game file | `{sc_install_root}\{active_channel}\data\Localization\english\global.ini` — `AppSettings.get_global_ini_path()` |
@@ -182,6 +183,9 @@ Anchor examples already in-tree: `COL_*` constants in `src/gui/string_table_mode
 | Change Tag Builder UI / live preview | `src/gui/enhancements_tab.py`, `src/gui/tag_mapping_dialog.py` | `_PREVIEW_VALUES`, `TagMappingDialog` |
 | Persist/load tag configs | `src/utils/settings.py` | `AppSettings.get_tag_config()`, `set_tag_config()`, `get_all_tag_configs()` |
 | Add a new stats-enhancement generator (e.g. mining/salvage analogue) | `scripts/generate_enhancements_ini.py` | `enhancements_mining_laser`, `enhancements_salvage_tool` (reference pattern); register in `CATEGORY_SUBTREES` + `DATAFORGE_KEEP_SUBPATHS` |
+| Change crash-dump behavior | `src/utils/crash_handler.py`, `src/main.py` | `install_crash_handler()`; install site is the early `main()` setup, before the QApplication is constructed |
+| Change error-dialog cooldown / coalescing | `src/gui/main_window.py`, `src/gui/error_dialog.py` | `MainWindow._show_error_dialog()` (cooldown / spam protection lives on the slot, not the `ErrorDialogHandler`) |
+| Move the DataForge cache off the default path | `src/utils/settings.py`, `src/gui/config_tab.py` | `AppSettings.get_cache_dir_override()` / `set_cache_dir()` (1.4.1+; independent of the user-data override) |
 
 ## Version & Release
 
@@ -208,7 +212,11 @@ Don't propose tagging, drafting release notes, or merging to `main` mid-integrat
 
 Discord notification fires via GitHub Actions (`scripts/discord_notify.py`) when `DISCORD_RELEASE_WEBHOOK_URL` secret is set.
 
-**Tester pre-release installers**: `.github/workflows/installer-preview.yml` builds a downloadable `SmartCitizen-{VERSION}-Setup.exe` artifact outside the standard release flow. Triggers: (1) `workflow_dispatch` from the Actions tab against any branch, (2) adding the `build-installer` label to a PR (later pushes to the labeled PR rebuild via `synchronize`; remove the label to stop rebuilds). In the integration-branch model this is the *primary* signal that a release is near test sign-off — when the user adds the label, treat the active release branch as approaching ship. Artifact: `smartcitizen-installer-{SHA}`, 30-day retention (testers need lead time vs. CI's 7). `installer-preview-cleanup.yml` deletes the artifacts on PR merge so storage doesn't accumulate stale builds. The `concurrency` group cancels in-flight builds when a newer commit lands on the same PR / branch.
+**Tester pre-release installers**: `.github/workflows/installer-preview.yml` builds a downloadable `SmartCitizen-{VERSION}-Setup.exe` artifact outside the standard release flow. Triggers: (1) `workflow_dispatch` from the Actions tab against any branch, (2) adding the `build-installer` label to a PR (later pushes to the labeled PR rebuild via `synchronize`; remove the label to stop rebuilds). In the integration-branch model this is the *primary* signal that a release is near test sign-off — when the user adds the label, treat the active release branch as approaching ship. Artifact: `smartcitizen-installer-{SHA}`, 30-day retention (testers need lead time vs. CI's 7). The `concurrency` group cancels in-flight builds when a newer commit lands on the same PR / branch.
+
+**Tester pre-release portable builds**: `.github/workflows/portable-preview.yml` is the sibling of installer-preview for the portable variant. Same triggers and gate, but keyed off the `build-portable` label and `workflow_dispatch`; it runs `build_exe.py --portable` and uploads the `SmartCitizen-Portable-v{VERSION}.zip` (a no-install onedir — unzip, run the `.exe`, portable mode writes `data/` next to it). Artifact: `smartcitizen-portable-{SHA}`, 30-day retention, same concurrency cancel behavior. Use it when a tester wants to run without installing or to smoke-test portable-mode behavior (no registry) before a release.
+
+**Preview artifact cleanup**: `installer-preview-cleanup.yml` (workflow name "Preview Artifact Cleanup") deletes the tester-build artifacts on PR merge so storage doesn't accumulate stale builds. It cleans *both* preview workflows (installer + portable) — its `WORKFLOWS` list must stay in sync with any new `*-preview.yml` that uploads per-PR artifacts.
 
 ## Debugging
 
