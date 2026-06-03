@@ -4,8 +4,8 @@ from dataclasses import replace as dc_replace
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QGridLayout, QGroupBox, QHBoxLayout,
-    QLabel, QMessageBox, QPushButton, QSizePolicy,
+    QCheckBox, QComboBox, QFrame, QGridLayout, QGroupBox, QHBoxLayout,
+    QLabel, QMessageBox, QPushButton, QScrollArea, QSizePolicy,
     QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -59,7 +59,8 @@ class EnhancementsTab(QWidget):
         self.setup_ui()
 
     def setup_ui(self):
-        layout = QVBoxLayout(self)
+        content = QWidget()
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
@@ -85,6 +86,17 @@ class EnhancementsTab(QWidget):
         self._tag_builder_group = self._build_tag_builder_group()
         layout.addWidget(self._tag_builder_group, 1)
         layout.addStretch()
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.viewport().setAutoFillBackground(False)
+        content.setAutoFillBackground(False)
+        scroll.setWidget(content)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scroll)
 
     # ── Enhancements ─────────────────────────────────────────────────────────
 
