@@ -61,11 +61,11 @@ This will:
 - Clean previous builds
 - Package the application into a single `.exe` file
 - Include all necessary data files (global.ini)
-- Create `dist/SmartCitizen-v0.1.0.exe`
+- Create the onedir build at `dist/SmartCitizen/` with a stable `SmartCitizen.exe` (the name no longer carries the version, so installed shortcuts survive updates)
 
 **Testing the EXE:**
 ```bash
-dist\SmartCitizen-v0.1.0.exe
+dist\SmartCitizen\SmartCitizen.exe
 ```
 
 ---

@@ -31,7 +31,7 @@ echo   - Executable created
 echo.
 
 echo Step 4: Verifying onedir build...
-if exist "dist\SmartCitizen-v*\" (
+if exist "dist\SmartCitizen\" (
     echo   - Build folder exists: OK
 ) else (
     echo   - ERROR: Build folder not found!
