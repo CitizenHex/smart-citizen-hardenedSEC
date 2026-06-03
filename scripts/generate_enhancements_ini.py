@@ -1654,8 +1654,16 @@ def enhancements_quantum_drive(root: ET.Element) -> str:
         return ""
     fuel_req = qd.get("quantumFuelRequirement")
 
-    # SQuantumDriveParams is an inline struct: <params __type="SQuantumDriveParams" driveSpeed=... />
+    # SQuantumDriveParams used to be an inline struct with a __type marker:
+    # <params __type="SQuantumDriveParams" driveSpeed=... />. The 4.x quantum
+    # rework dropped the __type attribute, leaving a bare <params> child on
+    # SCItemQuantumDriveParams (alongside <splineJumpParams>), which made the
+    # type-based lookup miss and silently dropped QT Speed / Spool / Cooldown /
+    # Accel / Calibration from every quantum drive. Try the typed form first
+    # for older data, then the bare child.
     params   = _find_by_type(root, "SQuantumDriveParams")
+    if params is None and qd is not None:
+        params = qd.find("params")
     speed    = params.get("driveSpeed")           if params is not None else None
     spool    = params.get("spoolUpTime")          if params is not None else None
     cooldown = params.get("cooldownTime")         if params is not None else None
