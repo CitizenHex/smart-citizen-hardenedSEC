@@ -388,6 +388,7 @@ class MainWindow(QMainWindow):
         self.enhancements_tab = EnhancementsTab()
         self.enhancements_tab.merge_requested.connect(self.perform_merge_and_reload)
         self.enhancements_tab.enhancements_pipeline_requested.connect(self._run_enhancements_pipeline)
+        self.enhancements_tab.favorite_prefix_changed.connect(self._on_favorite_prefix_changed)
         self._enhancements_tab_index = self.tabs.addTab(self.enhancements_tab, tr("tabs.enhancements"))
 
         self.log_tab = LogTab()
@@ -1709,6 +1710,24 @@ class MainWindow(QMainWindow):
             e.status = "Modified" if pending != e.original_value else "Unmodified"
             restored += 1
         return restored
+
+    @pyqtSlot(str, str)
+    def _on_favorite_prefix_changed(self, old_prefix: str, new_prefix: str):
+        """Re-prefix in-memory favourites after the sort prefix changed (#140).
+
+        ``_apply_favorite_prefix`` already migrated ``user.ini`` on disk, but
+        ``perform_merge_and_reload`` snapshots the current in-memory
+        ``custom_value``s and restores them over the freshly-loaded entries.
+        Without re-prefixing memory here, that snapshot still holds the old
+        prefix and clobbers the migrated value straight back. Re-prefix in
+        memory first so the snapshot carries the new prefix and the restore is
+        a no-op. Mirrors the user.ini migration's ``startswith`` rule.
+        """
+        if old_prefix and old_prefix != new_prefix:
+            for e in self.entries:
+                if e.custom_value.startswith(old_prefix):
+                    e.custom_value = new_prefix + e.custom_value[len(old_prefix):]
+        self.perform_merge_and_reload()
 
     def perform_merge_and_reload(self):
         """Perform merge of configured sources and reload table.

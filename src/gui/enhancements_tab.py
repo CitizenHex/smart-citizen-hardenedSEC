@@ -47,6 +47,11 @@ class EnhancementsTab(QWidget):
 
     merge_requested = pyqtSignal()
     enhancements_pipeline_requested = pyqtSignal()   # extract DataForge if needed, then generate enhancements
+    # (old_prefix, new_prefix) — the favourite sort prefix changed. MainWindow
+    # re-prefixes in-memory favourites to match the migrated user.ini before
+    # reloading, so the reload's pending-edit snapshot doesn't clobber the new
+    # prefix back to the old one (#140).
+    favorite_prefix_changed = pyqtSignal(str, str)
 
     def __init__(self):
         super().__init__()
@@ -458,7 +463,10 @@ class EnhancementsTab(QWidget):
 
         AppSettings.set_favorite_prefix(new_prefix)
         self._loaded_prefix = new_prefix
-        self.merge_requested.emit()
+        # Hand the old/new prefix to MainWindow so it can re-prefix in-memory
+        # favourites before the reload (see signal doc). Emitting merge_requested
+        # alone would let the pending-edit snapshot restore the old prefix.
+        self.favorite_prefix_changed.emit(old_prefix, new_prefix)
 
     # ── Operation state ───────────────────────────────────────────────────────
 
