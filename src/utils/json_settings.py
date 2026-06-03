@@ -91,7 +91,13 @@ class JsonSettings:
             with tmp.open("w", encoding="utf-8") as f:
                 json.dump(self._data, f, indent=2, sort_keys=True, ensure_ascii=False)
             tmp.replace(self._path)
-        except OSError as e:
+        except (OSError, TypeError, ValueError) as e:
+            # OSError: disk/IO. TypeError/ValueError: a non-JSON-serialisable
+            # value reached the store (e.g. a QByteArray). Degrade to "not
+            # persisted" with a warning rather than crashing the app — a write
+            # on close must never take the process down (#141). The real file
+            # is left untouched because the rename only happens after a clean
+            # dump, so the store stays consistent.
             logger.warning("JsonSettings could not write %s: %s", self._path, e)
             # Best-effort cleanup of the tmp file.
             try:

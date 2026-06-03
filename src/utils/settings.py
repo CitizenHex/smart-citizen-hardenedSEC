@@ -1,4 +1,5 @@
 """Settings management using QSettings."""
+import base64
 import logging
 import os
 from pathlib import Path
@@ -793,24 +794,66 @@ class AppSettings:
         AppSettings.settings().setValue(AppSettings.AUTO_WRITE_ENABLED, enabled)
 
     @staticmethod
-    def get_window_geometry() -> bytes:
-        """Get saved window geometry."""
-        return AppSettings.settings().value(AppSettings.WINDOW_GEOMETRY, b"")
+    def _encode_qbytes(value) -> str:
+        """Encode a QByteArray / bytes as a base64 ASCII string.
+
+        Window geometry/state come from QWidget.saveGeometry()/saveState() as
+        QByteArray. QSettings stores those natively, but the portable backend
+        (JsonSettings) json.dumps its store, and a QByteArray isn't
+        JSON-serialisable — storing it raw crashed portable-mode close (#141).
+        Base64 text round-trips through both backends.
+        """
+        if not value:
+            return ""
+        try:
+            return base64.b64encode(bytes(value)).decode("ascii")
+        except (TypeError, ValueError):
+            return ""
 
     @staticmethod
-    def set_window_geometry(geometry: bytes) -> None:
-        """Save window geometry."""
-        AppSettings.settings().setValue(AppSettings.WINDOW_GEOMETRY, geometry)
+    def _decode_qbytes(value) -> bytes:
+        """Inverse of _encode_qbytes. Tolerates a legacy raw QByteArray / bytes
+        value stored in the registry by builds before the base64 change, so
+        existing registry installs keep their saved geometry on upgrade."""
+        if not value:
+            return b""
+        if isinstance(value, str):
+            try:
+                return base64.b64decode(value.encode("ascii"))
+            except (ValueError, TypeError):
+                return b""
+        try:
+            return bytes(value)  # legacy QByteArray / bytes from the registry
+        except (TypeError, ValueError):
+            return b""
+
+    @staticmethod
+    def get_window_geometry() -> bytes:
+        """Get saved window geometry."""
+        return AppSettings._decode_qbytes(
+            AppSettings.settings().value(AppSettings.WINDOW_GEOMETRY, "")
+        )
+
+    @staticmethod
+    def set_window_geometry(geometry) -> None:
+        """Save window geometry (stored as base64 text; see _encode_qbytes)."""
+        AppSettings.settings().setValue(
+            AppSettings.WINDOW_GEOMETRY, AppSettings._encode_qbytes(geometry)
+        )
 
     @staticmethod
     def get_window_state() -> bytes:
         """Get saved window state."""
-        return AppSettings.settings().value(AppSettings.WINDOW_STATE, b"")
+        return AppSettings._decode_qbytes(
+            AppSettings.settings().value(AppSettings.WINDOW_STATE, "")
+        )
 
     @staticmethod
-    def set_window_state(state: bytes) -> None:
-        """Save window state."""
-        AppSettings.settings().setValue(AppSettings.WINDOW_STATE, state)
+    def set_window_state(state) -> None:
+        """Save window state (stored as base64 text; see _encode_qbytes)."""
+        AppSettings.settings().setValue(
+            AppSettings.WINDOW_STATE, AppSettings._encode_qbytes(state)
+        )
 
     @staticmethod
     def get_source_path(source_name: str) -> str:
