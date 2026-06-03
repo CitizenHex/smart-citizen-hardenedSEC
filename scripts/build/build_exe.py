@@ -132,6 +132,7 @@ about_file   = os.path.join(root_dir, 'docs', 'ABOUT.md')
 help_file    = os.path.join(root_dir, 'docs', 'HELP.md')
 legal_file   = os.path.join(root_dir, 'docs', 'LEGAL.md')
 patches_dir  = os.path.join(root_dir, 'patches')
+languages_dir = os.path.join(root_dir, 'languages')
 enhancements_script = os.path.join(root_dir, 'scripts', 'generate_enhancements_ini.py')
 
 common_args = [
@@ -145,6 +146,11 @@ common_args = [
     '--add-data', f'{legal_file}{os.pathsep}docs',
     '--add-data', f'{assets_dir}{os.pathsep}assets',
     '--add-data', f'{patches_dir}{os.pathsep}patches',
+    # UI translation files. Without this the frozen app can't resolve any
+    # tr() key (get_resource_path misses languages/<lang>/ui.json), so the
+    # whole UI renders raw keys like 'branding.title'. Mirrors the
+    # ('languages', 'languages') entry in SmartCitizen.spec.
+    '--add-data', f'{languages_dir}{os.pathsep}languages',
     '--add-data', f'{enhancements_script}{os.pathsep}scripts',
     '--workpath', os.path.join(root_dir, 'build'),
     '--specpath', spec_path,
