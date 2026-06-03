@@ -39,6 +39,7 @@ from src.gui.workers import (
     DataForgeExtractWorker,
     EnhancementsGeneratorWorker,
     FileLoaderWorker,
+    LanguageBaseDownloadWorker,
     P4kExtractWorker,
     SelectAllDelegate,
     StartupSyncWorker,
@@ -266,6 +267,9 @@ class MainWindow(QMainWindow):
 
         # Startup sync worker
         self._startup_sync_worker: Optional[StartupSyncWorker] = None
+
+        # Per-language base.ini download worker (#30)
+        self._lang_dl_worker: Optional[LanguageBaseDownloadWorker] = None
 
         # P4K extraction worker and progress dialog
         self._p4k_worker: Optional[P4kExtractWorker] = None
@@ -2863,6 +2867,76 @@ class MainWindow(QMainWindow):
         logger.info(f"MainWindow reacting to language change → {language}")
         self.retranslate_ui()
         self.statusBar().showMessage(tr("dialogs.language_changed_status", language=language))
+        # Point the `global` base source at this language's base.ini (English
+        # = the P4K extraction; other languages = a downloaded global.ini),
+        # downloading it first if needed, then reload. See #30.
+        self._apply_language_base_source(language)
+
+    def _apply_language_base_source(self, language: str) -> None:
+        """Repoint the `global` merge source at *language*'s base.ini, then
+        reload. English uses the local P4K base.ini. Other languages use a
+        per-language download; if a mapped URL exists we fetch it (freshness-
+        checked), otherwise we fall back to any cached copy or to English.
+        """
+        english_base = AppSettings.get_base_ini_path(AppSettings.DEFAULT_LANGUAGE)
+
+        if language == AppSettings.DEFAULT_LANGUAGE:
+            AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, str(english_base))
+            self.perform_merge_and_reload()
+            return
+
+        dest = AppSettings.get_base_ini_path(language)
+        url = AppSettings.get_language_base_url(language)
+
+        if not url:
+            # No URL mapped for this language. Use a cached copy if we have one,
+            # otherwise fall back to the English base so the table still loads.
+            if dest.exists():
+                AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, str(dest))
+            else:
+                logger.warning(f"No base.ini URL mapped for {language!r}; using English base.")
+                AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, str(english_base))
+                self.statusBar().showMessage(
+                    tr("dialogs.language_no_url", language=language)
+                )
+            self.perform_merge_and_reload()
+            return
+
+        # Have a URL — download (freshness-checked) on a worker, then repoint.
+        dialog = AnimatedProgressDialog(
+            tr("dialogs.language_downloading", language=language),
+            parent=self, title="Smart Citizen",
+        )
+        self._lang_dl_worker = LanguageBaseDownloadWorker(url, dest)
+        self._lang_dl_worker.finished.connect(
+            lambda ok, lang=language, d=dest, dlg=dialog: self._on_language_base_ready(lang, d, dlg, ok)
+        )
+        self._lang_dl_worker.start()
+
+    def _on_language_base_ready(self, language: str, dest, dialog, ok: bool) -> None:
+        """Finish a language switch once its base.ini download settled."""
+        if dialog is not None:
+            dialog.close()
+        if self._lang_dl_worker is not None:
+            self._lang_dl_worker.quit()
+            self._lang_dl_worker.wait()
+            self._lang_dl_worker = None
+
+        if dest.exists():
+            # Downloaded fresh, or a usable cached copy is already present.
+            AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, str(dest))
+        else:
+            # Download failed and nothing cached — fall back to English so the
+            # app stays usable, and tell the user.
+            logger.warning(f"{language!r} base.ini unavailable; falling back to English base.")
+            AppSettings.set_source_path(
+                AppSettings.SOURCE_GLOBAL,
+                str(AppSettings.get_base_ini_path(AppSettings.DEFAULT_LANGUAGE)),
+            )
+            QMessageBox.warning(
+                self, "Smart Citizen",
+                tr("dialogs.language_download_failed", language=language),
+            )
         self.perform_merge_and_reload()
 
     @pyqtSlot(str)

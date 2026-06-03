@@ -194,6 +194,39 @@ class StartupSyncWorker(QThread):
         self.finished.emit()
 
 
+class LanguageBaseDownloadWorker(QThread):
+    """Download a language's global.ini to its per-language base.ini path.
+
+    Uses ``download_file_if_changed`` so an unchanged remote (matched via
+    ETag / Last-Modified) is a fast no-op: switching back to a language whose
+    base.ini we already cached doesn't re-download the ~10 MB file.
+    """
+
+    finished = pyqtSignal(bool)  # True = a base.ini is present and usable
+    error = pyqtSignal(str)
+
+    def __init__(self, url: str, dest_path):
+        super().__init__()
+        self._url = url
+        self._dest = dest_path
+
+    def run(self):
+        from src.utils.updater import download_file_if_changed
+        try:
+            changed = download_file_if_changed(self._url, self._dest)
+            logger.info(
+                f"Language base.ini ready: {self._dest} "
+                f"({'downloaded' if changed else 'unchanged, used cache'})"
+            )
+            self.finished.emit(True)
+        except Exception as e:
+            logger.exception(f"Language base.ini download failed: {e}")
+            self.error.emit(str(e))
+            # finished(False): a download failure isn't fatal — the caller
+            # falls back to any cached copy, or to English.
+            self.finished.emit(False)
+
+
 class EnhancementsGeneratorWorker(QThread):
     """Worker thread for generating enhancements INI files via generate_enhancements_ini.py."""
 

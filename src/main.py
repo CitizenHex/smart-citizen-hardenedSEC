@@ -134,7 +134,17 @@ def main():
     # source.
     _global_stored = AppSettings.get_source_path(AppSettings.SOURCE_GLOBAL)
     if not (_global_stored.startswith("http://") or _global_stored.startswith("https://")):
-        _canonical_global = str(AppSettings.get_cache_dir() / "base.ini")
+        # Point at the selected language's base.ini (#30). English uses the
+        # P4K extraction; other languages use a downloaded global.ini. If a
+        # non-English language hasn't been downloaded yet, fall back to the
+        # English base so the table still loads — switching language in the
+        # Config tab fetches the language file and repoints the source.
+        _lang = AppSettings.get_selected_language()
+        _lang_base = AppSettings.get_base_ini_path(_lang)
+        if _lang != AppSettings.DEFAULT_LANGUAGE and not _lang_base.exists():
+            _canonical_global = str(AppSettings.get_base_ini_path(AppSettings.DEFAULT_LANGUAGE))
+        else:
+            _canonical_global = str(_lang_base)
         if _global_stored != _canonical_global:
             AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, _canonical_global)
             logger.info(

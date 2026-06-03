@@ -7,7 +7,7 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLineEdit,
     QPushButton, QLabel, QFileDialog, QMessageBox, QComboBox,
-    QCheckBox, QScrollArea, QFrame,
+    QCheckBox, QScrollArea, QFrame, QDialog, QDialogButtonBox, QGridLayout,
 )
 from PyQt6.QtCore import pyqtSignal, QTimer
 
@@ -260,6 +260,17 @@ class ConfigTab(QWidget):
             "fall back to English automatically."
         )
         language_row.addWidget(self.language_combo)
+
+        self._map_lang_btn = QPushButton(tr("config.map_language_btn"))
+        self._map_lang_btn.setMaximumWidth(160)
+        self._map_lang_btn.setToolTip(
+            "Set a URL to each language's global.ini. When you switch to that "
+            "language, Smart Citizen downloads it and uses it as the base "
+            "strings instead of the English Data.p4k extraction."
+        )
+        self._map_lang_btn.clicked.connect(self._open_language_source_dialog)
+        language_row.addWidget(self._map_lang_btn)
+
         language_row.addStretch()
         game_layout.addLayout(language_row)
 
@@ -438,6 +449,7 @@ class ConfigTab(QWidget):
         self._game_browse_btn.setText(tr("config.browse_btn"))
         self._channel_label.setText(tr("config.channel_label"))
         self._language_label.setText(tr("config.language_label"))
+        self._map_lang_btn.setText(tr("config.map_language_btn"))
         self._extract_btn.setText(tr("config.extract_btn"))
         self._data_group.setTitle(tr("config.data_group"))
         self._data_desc_label.setText(tr("config.data_desc"))
@@ -866,6 +878,10 @@ class ConfigTab(QWidget):
         logger.info(f"Language changed to: {language}")
         self.language_changed.emit(language)
 
+    def _open_language_source_dialog(self):
+        """Open the Map Language File dialog to edit per-language base.ini URLs."""
+        LanguageSourceDialog(self).exec()
+
     # ── P4K status ───────────────────────────────────────────────────────────
 
     def _refresh_p4k_status(self):
@@ -990,3 +1006,59 @@ class ConfigTab(QWidget):
         except Exception as e:
             logger.exception(f"Error previewing merge: {e}")
             QMessageBox.critical(self, tr("dialogs.error_title"), f"Failed to preview merge: {e}")
+
+
+class LanguageSourceDialog(QDialog):
+    """Edit per-language override URLs for the base.ini (global.ini) download.
+
+    One row per non-English language Smart Citizen knows about (the bundled
+    languages/sources.json keys, plus any language that already has an
+    override). The URL a user enters here wins over the bundled map; switching
+    to that language downloads it and uses it as the base strings (issue #30).
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(tr("config.map_language_title"))
+        self.setMinimumWidth(560)
+        from src.utils.settings import _bundled_language_sources
+
+        layout = QVBoxLayout(self)
+        info = QLabel(tr("config.map_language_desc"))
+        info.setWordWrap(True)
+        info.setProperty("role", "secondary")
+        layout.addWidget(info)
+
+        # Languages: bundled-map keys + any with an existing override, minus
+        # English and the JSON comment field.
+        bundled = _bundled_language_sources()
+        langs = {
+            k for k in bundled
+            if k not in ("_comment", AppSettings.DEFAULT_LANGUAGE)
+        }
+
+        self._inputs: dict[str, QLineEdit] = {}
+        grid = QGridLayout()
+        for row, lang in enumerate(sorted(langs)):
+            label = QLabel(lang.replace("_", " ").title())
+            edit = QLineEdit(AppSettings.get_language_source_override(lang))
+            edit.setPlaceholderText(
+                bundled.get(lang, "") or "https://…/global.ini"
+            )
+            grid.addWidget(label, row, 0)
+            grid.addWidget(edit, row, 1)
+            self._inputs[lang] = edit
+        layout.addLayout(grid)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._save)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _save(self):
+        for lang, edit in self._inputs.items():
+            AppSettings.set_language_source_override(lang, edit.text().strip())
+        logger.info("Saved language base.ini URL overrides")
+        self.accept()
