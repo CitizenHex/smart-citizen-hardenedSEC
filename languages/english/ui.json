@@ -235,6 +235,7 @@
     "language_downloading": "Downloading {language} localization…",
     "language_no_url": "No download URL set for {language}; showing the English base. Use Map Language File to set one.",
     "language_download_failed": "Couldn't download the {language} localization, and no cached copy was found. Showing the English base instead. Check the URL in Map Language File and your connection, then try again.",
+    "language_generating_enhancements": "Generating {language} enhancements from DataForge…",
     "file_not_found_title": "File Not Found",
     "file_not_found_body": "File does not exist:\n{path}",
     "empty_file_title": "Empty File",

@@ -362,11 +362,15 @@ def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str], 
     enhancements_key_categories: Dict[str, str] = {}
     enabled_categories = AppSettings.get_enabled_enhancement_categories()
     if enabled_categories:
+        # Enhancements live next to the active language's base.ini, so a
+        # non-English language reads its own (language-prose + English stats)
+        # files instead of the English ones bleeding through (#30, Approach 1).
+        enhancements_dir = AppSettings.get_enhancements_dir(selected_language)
         enhancements_combined: Dict[str, str] = {}
         for label, filename in AppSettings.ENHANCEMENTS_FILES.items():
             if label not in enabled_categories:
                 continue
-            enhancements_file = cache_dir / filename
+            enhancements_file = enhancements_dir / filename
             if enhancements_file.exists():
                 data = parse_ini_file(enhancements_file)
                 category = _ENHANCEMENTS_LABEL_CATEGORY.get(label)

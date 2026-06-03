@@ -2894,13 +2894,14 @@ class MainWindow(QMainWindow):
             # otherwise fall back to the English base so the table still loads.
             if dest.exists():
                 AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, str(dest))
+                self._reload_with_language_enhancements(language)
             else:
                 logger.warning(f"No base.ini URL mapped for {language!r}; using English base.")
                 AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, str(english_base))
                 self.statusBar().showMessage(
                     tr("dialogs.language_no_url", language=language)
                 )
-            self._show_loading_progress(tr("dialogs.merging_sources"))
+                self._show_loading_progress(tr("dialogs.merging_sources"))
             return
 
         # Have a URL — download (freshness-checked) on a worker, then repoint.
@@ -2926,6 +2927,7 @@ class MainWindow(QMainWindow):
         if dest.exists():
             # Downloaded fresh, or a usable cached copy is already present.
             AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, str(dest))
+            self._reload_with_language_enhancements(language)
         else:
             # Download failed and nothing cached — fall back to English so the
             # app stays usable, and tell the user.
@@ -2938,7 +2940,61 @@ class MainWindow(QMainWindow):
                 self, "Smart Citizen",
                 tr("dialogs.language_download_failed", language=language),
             )
-        self._show_loading_progress(tr("dialogs.merging_sources"))
+            self._show_loading_progress(tr("dialogs.merging_sources"))
+
+    def _language_enhancements_fresh(self, language: str) -> bool:
+        """True if *language*'s enhancement files are present and were built
+        against the current DataForge extraction.
+
+        Stale (or absent) means the generator must re-run before the reload so
+        the table shows this language's prose with up-to-date English stat
+        blocks. With no enhancement categories enabled there is nothing to
+        generate, so the answer is trivially fresh.
+        """
+        enabled = AppSettings.get_enabled_enhancement_categories()
+        if not enabled:
+            return True
+        stamp = AppSettings.get_enhancements_stamp(language)
+        if not stamp or stamp != AppSettings.get_dataforge_build_key():
+            return False
+        enh_dir = AppSettings.get_enhancements_dir(language)
+        for label in enabled:
+            filename = AppSettings.ENHANCEMENTS_FILES.get(label)
+            if filename and not (enh_dir / filename).exists():
+                return False
+        return True
+
+    def _reload_with_language_enhancements(self, language: str) -> None:
+        """Reload after a language switch, regenerating that language's
+        enhancements first when they are missing or stale.
+
+        Fresh (or nothing to generate) → reload straight away. Stale and a
+        DataForge cache is present → run the generator for this language; its
+        finished handler triggers the reload. Stale but no DataForge cache →
+        reload the language prose alone (degraded, no stat blocks) since stats
+        can't be generated without an extraction.
+        """
+        if self._language_enhancements_fresh(language):
+            self._show_loading_progress(tr("dialogs.merging_sources"))
+            return
+
+        records = (
+            AppSettings.get_dataforge_cache_dir()
+            / "raw" / "libs" / "foundry" / "records"
+        )
+        if not records.exists():
+            logger.warning(
+                f"{language!r} enhancements are stale/missing but no DataForge "
+                "cache is present; loading language prose without stat overlays."
+            )
+            self._show_loading_progress(tr("dialogs.merging_sources"))
+            return
+
+        logger.info(f"Regenerating enhancements for {language!r} against its base.ini")
+        self.statusBar().showMessage(
+            tr("dialogs.language_generating_enhancements", language=language)
+        )
+        self._run_enhancements_generation(language=language)
 
     @pyqtSlot(str)
     def _on_data_dir_changed(self, data_dir: str) -> None:
@@ -3515,8 +3571,15 @@ class MainWindow(QMainWindow):
         else:
             self._run_dataforge_extraction()
 
-    def _run_enhancements_generation(self, categories: set[str] | None = None):
-        """Launch EnhancementsGeneratorWorker in the background with animated progress dialog."""
+    def _run_enhancements_generation(self, categories: set[str] | None = None,
+                                     language: str | None = None):
+        """Launch EnhancementsGeneratorWorker in the background with animated progress dialog.
+
+        *language* selects which language's base.ini to generate against
+        (None = the currently selected language). Resolved here on the main
+        thread and handed to the worker as a concrete value so a mid-run
+        language switch can't change what the worker is generating.
+        """
         if self._enhancements_worker is not None:
             # Defensive: if extraction handed off but a stale enhancements
             # worker is somehow still around, don't orphan the forge dialog.
@@ -3529,6 +3592,8 @@ class MainWindow(QMainWindow):
         # Use enabled categories from settings if none specified
         if categories is None:
             categories = AppSettings.get_enabled_enhancement_categories()
+        if language is None:
+            language = AppSettings.get_selected_language()
 
         # Tag-builder config (issue #31): read once here on the main thread
         # and hand the worker a plain dict, so the generator's worker
@@ -3544,6 +3609,7 @@ class MainWindow(QMainWindow):
             mission_headers=AppSettings.get_mission_headers(),
             mission_header_em_tag=AppSettings.get_mission_header_em_tag(),
             mission_detail_fields=AppSettings.get_mission_detail_fields(),
+            language=language,
         )
         self.enhancements_tab.set_operation_running("Generating enhancements…")
         self.statusBar().showMessage("Generating enhancements in background…")

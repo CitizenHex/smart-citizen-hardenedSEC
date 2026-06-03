@@ -226,9 +226,19 @@ def write_ini(path: Path, entries: dict[str, str]) -> None:
 #     (<= _MAX_CIG_SIZE) so a real product name like "S71 Rifle" keeps its
 #     "S71" instead of being mangled to "Rifle". Both lookups carry the
 #     affected names, so both bump to force a rebuild.
+#   scitem_lookups v7 / blueprint_pools v11 / standings v2 (2.0.0) —
+#     per-language enhancement generation (#30) made the generation loc
+#     language-dependent, but these caches key only on DataForge build:
+#     a French-first build would bake French names/standings into the
+#     pickle and the next English run would silently reuse them. The
+#     builders now always consume the ENGLISH base.ini loc (annotations
+#     deliberately stay English under #30 option A), making the cached
+#     values language-independent again. Bump flushes any pickle built
+#     from a non-English loc before this fix.
 _LOOKUP_VERSIONS: dict[str, str] = {
-    "blueprint_pools": "v10",
-    "scitem_lookups": "v6",
+    "blueprint_pools": "v11",
+    "scitem_lookups": "v7",
+    "standings": "v2",
 }
 
 
@@ -646,28 +656,8 @@ def _component_name_tag(desc_value: str, root: ET.Element | None = None,
     Returns ``None`` when Size: itself is missing OR when the fallback's
     minimum-information bar isn't met. Those items pass through bare.
     """
-    # Optional leading 'S' on the size value covers mining heads (Size: S0,
-    # Size: S00) without breaking the bare-digit form ship components use
-    # (Size: 0, Size: 1). The capture is the digits only; "S0" → "0",
-    # "S00" → "00", "2" → "2", so the tag normalises to f"S{captured}".
-    size_m = re.search(r"Size:\s*S?(\d+)", desc_value)
-    if size_m:
-        size = size_m.group(1)
-    elif root is not None:
-        # Fall back to XML: extract size from entity class name in root tag
-        root_tag = root.tag.split(".")[-1] if "." in root.tag else root.tag
-        xml_size = _extract_item_size(root_tag)
-        if not xml_size:
-            return None
-        size = xml_size.lstrip("S")
-    else:
-        return None
-
-    grade_m = re.search(r"Grade:\s*([A-D])", desc_value)
-    class_m = re.search(r"Class:\s*(\w+)", desc_value)
-
-    # AttachDef fallback (bomb racks, other ordnance containers): these
-    # entities have no ItemComponentParams and their Grade is numeric (1→A).
+    # AttachDef is shared by the size fallback chain below and the
+    # grade/class fallbacks further down, so resolve it first.
     attach_def = None
     attach_grade_letter = None
     attach_class_name = None
@@ -675,6 +665,42 @@ def _component_name_tag(desc_value: str, root: ET.Element | None = None,
         attach_el = _find(root, "SAttachableComponentParams")
         if attach_el is not None:
             attach_def = attach_el.find("AttachDef")
+
+    # Optional leading 'S' on the size value covers mining heads (Size: S0,
+    # Size: S00) without breaking the bare-digit form ship components use
+    # (Size: 0, Size: 1). The capture is the digits only; "S0" → "0",
+    # "S00" → "00", "2" → "2", so the tag normalises to f"S{captured}".
+    # Fallback chain when the loc text doesn't match (translated base.ini,
+    # e.g. French "Taille : 3" — #30): entity class name (_S03_ → S3), then
+    # the loc-name key's size token, then the AttachDef Size attribute.
+    # The loc-key fallback outranks AttachDef because several entities can
+    # share one loc key (the Spirit A1 and Starlancer racks both point at
+    # item_NameMRCK_S03_…) while authoring different AttachDef sizes —
+    # like the desc text, the key token is the same whichever entity is
+    # scanned last, so the emitted tag stays deterministic and matches the
+    # English output.
+    size_m = re.search(r"Size:\s*S?(\d+)", desc_value)
+    size = size_m.group(1) if size_m else None
+    if size is None and root is not None:
+        root_tag = root.tag.split(".")[-1] if "." in root.tag else root.tag
+        xml_size = _extract_item_size(root_tag)
+        if xml_size:
+            size = xml_size.lstrip("S")
+    if size is None and root is not None:
+        name_key = _loc_name_key(root)
+        if name_key:
+            key_size = _extract_item_size(name_key)
+            if key_size:
+                size = key_size.lstrip("S")
+    if size is None and attach_def is not None:
+        raw_size = attach_def.get("Size", "")
+        if raw_size.isdigit():
+            size = raw_size
+    if size is None:
+        return None
+
+    grade_m = re.search(r"Grade:\s*([A-D])", desc_value)
+    class_m = re.search(r"Class:\s*(\w+)", desc_value)
 
     if not grade_m and attach_def is not None:
         num_grade = attach_def.get("Grade", "")
@@ -759,14 +785,16 @@ def _missile_name_tag(desc_value: str, root: ET.Element | None = None,
 
     Prefers the XML's ``trackingSignalType`` attribute (on
     ``<targetingParams>``) over the loc-text "Tracking Signal: …" line so we
-    stay correct even if a description is edited or translated. Bombs (no
-    guidance) yield an empty ordinance value — render_tag's empty-drop then
-    falls through to the size element alone (e.g. ``[S2]``).
+    stay correct even if a description is edited or translated. Size gets the
+    same treatment: the loc-text "Size: N" line is tried first, with the
+    ``AttachDef Size`` attribute as the XML fallback — without it, translated
+    base.ini files (e.g. French "Taille : 3") produced no missile name tags
+    at all (#30). Bombs (no guidance) yield an empty ordinance value —
+    render_tag's empty-drop then falls through to the size element alone
+    (e.g. ``[S2]``).
     """
     size_m = re.search(r"Size:\s*(\d+)", desc_value)
-    if not size_m:
-        return None
-    size = size_m.group(1)
+    size = size_m.group(1) if size_m else None
 
     seeker_raw = None
     is_bomb = False
@@ -778,8 +806,12 @@ def _missile_name_tag(desc_value: str, root: ET.Element | None = None,
             # the ordinance element resolves to "Bomb" → "B" through
             # DEFAULT_MISSILE_ORDINANCE_MAPPING and the rendered tag is
             # [B-S3] rather than the pre-fix bare-size [S3].
-            if not is_bomb and el.tag.endswith("AttachDef"):
-                if el.get("Type") == "Bomb":
+            if el.tag.endswith("AttachDef"):
+                if size is None:
+                    raw_size = el.get("Size", "")
+                    if raw_size.isdigit():
+                        size = raw_size
+                if not is_bomb and el.get("Type") == "Bomb":
                     is_bomb = True
             if not is_bomb and (el.tag.endswith("SCItemBombParams")
                                 or el.tag == "SCItemBombParams"):
@@ -789,8 +821,10 @@ def _missile_name_tag(desc_value: str, root: ET.Element | None = None,
                 raw = el.get("trackingSignalType")
                 if raw in _MISSILE_TRACKING_RAW:
                     seeker_raw = raw
-            if is_bomb and seeker_raw is not None:
+            if is_bomb and seeker_raw is not None and size is not None:
                 break
+    if size is None:
+        return None
     if seeker_raw is None and not is_bomb:
         m = re.search(r"Tracking Signal:\s*([A-Za-z ]+?)(?:\\n|\n|$)", desc_value)
         if m:
@@ -4393,6 +4427,7 @@ def scan_entity_dir(
     capture_all: bool = False,
     xml_path_index: dict | None = None,
     records_dir: Path | None = None,
+    tag_loc: dict | None = None,
 ) -> dict[str, str]:
     """
     Scan all XML files in entity_dir, extract localization key + enhancements,
@@ -4406,6 +4441,10 @@ def scan_entity_dir(
     generate_name_tags: if True, also generate item_Name* entries with [CLASS-SIZE-GRADE] tags
         derived from the component description text.
     capture_all: if True, emit entries even when enhancement_fn returns empty (for missions).
+    tag_loc: optional loc dict the name taggers parse instead of `loc` —
+        the English base.ini when generating against a translated one (#30),
+        since the structured "Size:/Grade:/Class:" fields the taggers read
+        only exist in the English text. Falls back to `loc` per-key.
     """
     if loc_key_fn is None:
         loc_key_fn = _loc_key
@@ -4471,7 +4510,10 @@ def scan_entity_dir(
                     name_value = _humanize_key(xml_file.stem)
                 if name_value:
                     tagger = name_tag_fn or _component_name_tag
-                    tag = tagger(base_value, root)
+                    # Tags parse English structured fields; prefer the
+                    # English desc when a tag_loc is supplied (#30).
+                    tag_source = (tag_loc or {}).get(key) or base_value
+                    tag = tagger(tag_source, root)
                     if tag:
                         # `placement` is the user-configurable choice on the
                         # Tag Builder; default "prepend" puts the tag in
@@ -4526,14 +4568,16 @@ def _run_gen_components(ctx: dict) -> dict[str, str]:
         out.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc, generate_name_tags=True,
                                    name_tag_fn=tagger,
                                    name_tag_placement=comp_placement,
-                                   xml_path_index=xml_path_index, records_dir=records))
+                                   xml_path_index=xml_path_index, records_dir=records,
+                                   tag_loc=ctx.get("tag_loc")))
     radar_dir = ships_scitem / "radar"
     if radar_dir.exists():
         tagger = _make_comp_tagger(_SUBDIR_TO_TYPE.get("radar", ""))
         out.update(scan_entity_dir(radar_dir, enhancements_radar, loc=loc, generate_name_tags=True,
                                    name_tag_fn=tagger,
                                    name_tag_placement=comp_placement,
-                                   xml_path_index=xml_path_index, records_dir=records))
+                                   xml_path_index=xml_path_index, records_dir=records,
+                                   tag_loc=ctx.get("tag_loc")))
 
     comp_types = ("COOL", "SHLD", "POWR", "QDRV", "RADR")
     sibling_count = 0
@@ -4648,6 +4692,7 @@ def _run_gen_missiles(ctx: dict) -> dict[str, str]:
                 loc=loc, generate_name_tags=True, name_tag_fn=_missile_tagger,
                 name_tag_placement=missile_placement,
                 xml_path_index=xml_path_index, records_dir=records,
+                tag_loc=ctx.get("tag_loc"),
             ))
     return out
 
@@ -4708,6 +4753,7 @@ def _run_gen_ship_weapons(ctx: dict) -> dict[str, str]:
             generate_name_tags=True, name_tag_fn=ship_weapon_tagger,
             name_tag_placement=ship_weapon_placement,
             xml_path_index=xml_path_index, records_dir=records,
+            tag_loc=ctx.get("tag_loc"),
         )
     logger.info(f"Finished ship weapons ({len(out)} entries)")
     return out
@@ -5260,7 +5306,8 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
          rep_xp_label: str = _DEFAULT_REP_XP_LABEL,
          mission_headers: dict[str, str] | None = None,
          mission_header_em_tag: str = _DEFAULT_MISSION_HEADER_EM_TAG,
-         mission_detail_fields: dict | None = None) -> None:
+         mission_detail_fields: dict | None = None,
+         english_base_ini_path: Path | None = None) -> None:
     import sys as sys_mod
     # Deferred import — the script is loaded by both the app worker (where
     # src.utils is on the path) and as a standalone CLI, so we swallow an
@@ -5311,6 +5358,21 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
     loc = parse_ini(base_ini_path)
     logger.info(f"Loaded {len(loc):,} localization keys")
     _flush()
+
+    # English loc for annotation-side consumers (#30, option A). Tags,
+    # entity names, standings, and blueprint lists deliberately stay
+    # English whatever language *base_ini_path* holds — both because the
+    # structured fields they parse ("Size:", "Class:") only exist in the
+    # English text, and because several of those consumers are pickle-
+    # cached without a language key, so they must be language-independent.
+    # When no English path is supplied (CLI runs) the input loc is assumed
+    # English, preserving pre-#30 behaviour.
+    en_loc = loc
+    if english_base_ini_path is not None:
+        english_base_ini_path = Path(english_base_ini_path)
+        if english_base_ini_path != base_ini_path and english_base_ini_path.exists():
+            en_loc = parse_ini(english_base_ini_path)
+            logger.info(f"Loaded {len(en_loc):,} English keys for annotation lookups")
 
     # ── Check DataForge cache ─────────────────────────────────────────────────
     records = forge_dir / "raw" / "libs" / "foundry" / "records"
@@ -5384,7 +5446,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         return _cached_lookup(
             forge_dir, "scitem_lookups",
             lambda: build_scitem_lookups(
-                records / "entities" / "scitem", loc,
+                records / "entities" / "scitem", en_loc,
                 xml_path_index=xml_path_index, records_dir=records,
                 tag_config=_components_cfg,
             ),
@@ -5439,7 +5501,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                     display_name = root.get("displayName", "")
                     if uuid and display_name.startswith("@"):
                         loc_key = display_name.lstrip("@")
-                        resolved = (loc or {}).get(loc_key, "")
+                        resolved = (en_loc or {}).get(loc_key, "")
                         if resolved:
                             out[uuid] = resolved
                 except ET.ParseError:
@@ -5501,6 +5563,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         "scitem_dir":        scitem_dir,
         "ships_scitem":      ships_scitem,
         "loc":               loc,
+        "tag_loc":           en_loc,
         "entity_names":      entity_names,
         "entity_names_by_filename": entity_names_by_filename,
         "entity_name_tags":  entity_name_tags,

@@ -1849,6 +1849,46 @@ class AppSettings:
         return lang_dir / "base.ini"
 
     @staticmethod
+    def get_enhancements_dir(language: "str | None" = None) -> Path:
+        r"""Directory holding *language*'s generated ``*_enhancements.ini`` files.
+
+        Enhancements always live next to the base.ini they were generated
+        from, so this is just ``get_base_ini_path(language).parent``: the
+        channel cache root for English (``…\{channel}\cache\``), and the
+        per-language subdir for everything else (``…\cache\lang\{language}\``).
+        Routing every enhancement read/write through here is what makes a
+        non-English language show its own prose with the English stat blocks
+        (#30, Approach 1) instead of the English enhancements bleeding through.
+        """
+        return AppSettings.get_base_ini_path(language).parent
+
+    # Marker file stamped into a language's enhancement dir recording which
+    # DataForge build its enhancements were generated against. Regeneration is
+    # forced when this is missing or stale (see get_/set_enhancements_stamp).
+    ENHANCEMENTS_STAMP_NAME = ".dataforge_stamp"
+
+    @staticmethod
+    def get_enhancements_stamp(language: "str | None" = None) -> str:
+        """Return the DataForge build key recorded for *language*'s enhancements,
+        or '' when no stamp has been written yet."""
+        stamp = AppSettings.get_enhancements_dir(language) / AppSettings.ENHANCEMENTS_STAMP_NAME
+        try:
+            return stamp.read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
+
+    @staticmethod
+    def set_enhancements_stamp(key: str, language: "str | None" = None) -> None:
+        """Record *key* (a DataForge build fingerprint) for *language*'s
+        enhancements, so a later switch can tell fresh from stale."""
+        stamp = AppSettings.get_enhancements_dir(language) / AppSettings.ENHANCEMENTS_STAMP_NAME
+        try:
+            stamp.parent.mkdir(parents=True, exist_ok=True)
+            stamp.write_text(key, encoding="utf-8")
+        except OSError as e:
+            logger.warning(f"Could not write enhancements stamp for {language!r}: {e}")
+
+    @staticmethod
     def get_language_source_override(language: str) -> str:
         """User-set override URL for *language*'s base.ini, or '' if unset."""
         raw = AppSettings.settings().value(
@@ -2100,6 +2140,33 @@ class AppSettings:
         )
         cache_dir.mkdir(parents=True, exist_ok=True)
         return cache_dir
+
+    @staticmethod
+    def get_dataforge_build_key() -> str:
+        r"""Return a fingerprint for the current DataForge extraction.
+
+        Reads the ``.p4k_mtime`` stamp pak_extractor writes, falling back to
+        the records-dir mtime. Mirrors ``_dataforge_cache_key`` in
+        ``scripts/generate_enhancements_ini.py`` so a per-language enhancement
+        stamp can be compared against the build its files were generated from
+        (see :meth:`get_enhancements_stamp`). Returns 'unknown' when no
+        DataForge cache exists yet.
+        """
+        forge_dir = AppSettings.get_dataforge_cache_dir()
+        stamp = forge_dir / ".p4k_mtime"
+        try:
+            text = stamp.read_text(encoding="utf-8").strip()
+            if text:
+                return text
+        except OSError:
+            pass
+        records = forge_dir / "raw" / "libs" / "foundry" / "records"
+        try:
+            if records.exists():
+                return f"mtime:{int(records.stat().st_mtime)}"
+        except OSError:
+            pass
+        return "unknown"
 
     @staticmethod
     def get_p4k_path() -> Path:

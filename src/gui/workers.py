@@ -241,7 +241,8 @@ class EnhancementsGeneratorWorker(QThread):
                  rep_xp_label: str = AppSettings.DEFAULT_REP_XP_LABEL,
                  mission_headers: dict[str, str] | None = None,
                  mission_header_em_tag: str = AppSettings.DEFAULT_MISSION_HEADER_EM_TAG,
-                 mission_detail_fields: dict | None = None):
+                 mission_detail_fields: dict | None = None,
+                 language: str | None = None):
         super().__init__()
         self.categories = categories
         self.tag_configs = tag_configs
@@ -250,6 +251,11 @@ class EnhancementsGeneratorWorker(QThread):
         self.mission_headers = mission_headers
         self.mission_header_em_tag = mission_header_em_tag
         self.mission_detail_fields = mission_detail_fields
+        # Which language's base.ini to generate against. None resolves to the
+        # selected language at run time. English uses the P4K base.ini in the
+        # channel cache root; other languages use the downloaded per-language
+        # base.ini, so output lands beside it in the language dir (#30).
+        self.language = language
 
     def run(self):
         import importlib.util
@@ -264,7 +270,8 @@ class EnhancementsGeneratorWorker(QThread):
             if not script_path.exists():
                 raise FileNotFoundError(f"Enhancements generator script not found: {script_path}")
 
-            base_ini  = AppSettings.get_cache_dir() / 'base.ini'
+            base_ini  = AppSettings.get_base_ini_path(self.language)
+            enh_dir   = AppSettings.get_enhancements_dir(self.language)
             forge_dir = AppSettings.get_dataforge_cache_dir()
             # ── Diff-cache check ──────────────────────────────────────────────
             # Compare the current DataForge XMLs against the last-run manifest.
@@ -277,10 +284,9 @@ class EnhancementsGeneratorWorker(QThread):
             # manifest says nothing changed — the manifest may have been written
             # before enhancements were ever successfully generated.
             if diff is not None and not diff:
-                cache_dir = AppSettings.get_cache_dir()
                 missing = [
                     name for name in AppSettings.ENHANCEMENTS_FILES.values()
-                    if not (cache_dir / name).exists()
+                    if not (enh_dir / name).exists()
                 ]
                 if missing:
                     logger.info(
@@ -338,8 +344,17 @@ class EnhancementsGeneratorWorker(QThread):
                      rep_xp_label=self.rep_xp_label,
                      mission_headers=self.mission_headers,
                      mission_header_em_tag=self.mission_header_em_tag,
-                     mission_detail_fields=self.mission_detail_fields)
+                     mission_detail_fields=self.mission_detail_fields,
+                     english_base_ini_path=AppSettings.get_base_ini_path(
+                         AppSettings.DEFAULT_LANGUAGE))
             logger.info("Enhancements generation worker: mod.main() completed successfully")
+
+            # Record which DataForge build these (per-language) enhancements
+            # were generated against, so a later language switch can tell fresh
+            # from stale and skip a redundant regen (#30, Approach 1).
+            AppSettings.set_enhancements_stamp(
+                AppSettings.get_dataforge_build_key(), self.language
+            )
 
             self.finished.emit(True)
         except Exception as e:
