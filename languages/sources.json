@@ -1,0 +1,6 @@
+{
+  "_comment": "Maps a UI language (as named in the app) to a URL for that language's global.ini. On switching to a non-English language, Smart Citizen downloads this file and uses it as the base.ini for that language instead of the English Data.p4k extraction. English is intentionally absent (it uses the local P4K extraction). A blank value means no URL is mapped yet; set one here or via the Config tab's 'Map Language File' button (which stores a per-user override that wins over this file).",
+  "french": "",
+  "spanish": "",
+  "portuguese_br": ""
+}

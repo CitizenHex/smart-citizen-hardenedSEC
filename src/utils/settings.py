@@ -1,5 +1,6 @@
 """Settings management using QSettings."""
 import base64
+import json
 import logging
 import os
 from pathlib import Path
@@ -8,6 +9,31 @@ from PyQt6.QtCore import QSettings
 import winreg
 
 logger = logging.getLogger(__name__)
+
+_LANG_SOURCES_CACHE: "dict | None" = None
+
+
+def _bundled_language_sources() -> dict:
+    """Load the bundled ``languages/sources.json`` map (language → base.ini URL).
+
+    Cached after the first read. Returns {} if the file is missing or unreadable
+    so a packaging hiccup degrades to "no mapped URL" rather than crashing.
+    """
+    global _LANG_SOURCES_CACHE
+    if _LANG_SOURCES_CACHE is None:
+        try:
+            from src.utils.resource_path import get_resource_path
+            path = Path(get_resource_path("languages/sources.json"))
+            if path.exists():
+                data = json.loads(path.read_text(encoding="utf-8"))
+                _LANG_SOURCES_CACHE = data if isinstance(data, dict) else {}
+            else:
+                _LANG_SOURCES_CACHE = {}
+        except (OSError, ValueError) as exc:
+            logger.warning("Could not load languages/sources.json: %s", exc)
+            _LANG_SOURCES_CACHE = {}
+    return _LANG_SOURCES_CACHE
+
 
 # Maps our internal language folder name → Star Citizen's language identifier
 # used in Localization directory paths and g_language in user.cfg.
@@ -155,6 +181,10 @@ class AppSettings:
     # Settings key - Language selection
     SELECTED_LANGUAGE = "selected_language"
     DEFAULT_LANGUAGE = "english"
+    # Per-language override URL for the base.ini (global.ini) download. Set via
+    # the Config tab's "Map Language File" dialog; wins over the bundled
+    # languages/sources.json map. Keyed LANG_SOURCE_OVERRIDE_PREFIX/<language>.
+    LANG_SOURCE_OVERRIDE_PREFIX = "language_source_url"
 
     # Enhancements cache filenames (written by generate_enhancements_ini.py into cache dir)
     ENHANCEMENTS_FILES = {
@@ -1783,6 +1813,57 @@ class AppSettings:
         cache_dir = AppSettings.get_channel_data_dir() / "cache"
         cache_dir.mkdir(parents=True, exist_ok=True)
         return cache_dir
+
+    @staticmethod
+    def get_base_ini_path(language: "str | None" = None) -> Path:
+        r"""Path to the base.ini for *language* (default: the selected language).
+
+        English uses the P4K-extracted base.ini at the channel cache root
+        (``…\{channel}\cache\base.ini``). Other languages use a downloaded
+        global.ini cached per-language at ``…\{channel}\cache\lang\{language}\
+        base.ini`` so switching back to a previously-used language reuses the
+        cached copy instead of re-downloading. The parent directory is created
+        on demand for non-English languages.
+        """
+        if language is None:
+            language = AppSettings.get_selected_language()
+        cache_dir = AppSettings.get_cache_dir()
+        if language == AppSettings.DEFAULT_LANGUAGE:
+            return cache_dir / "base.ini"
+        lang_dir = cache_dir / "lang" / language
+        lang_dir.mkdir(parents=True, exist_ok=True)
+        return lang_dir / "base.ini"
+
+    @staticmethod
+    def get_language_source_override(language: str) -> str:
+        """User-set override URL for *language*'s base.ini, or '' if unset."""
+        raw = AppSettings.settings().value(
+            f"{AppSettings.LANG_SOURCE_OVERRIDE_PREFIX}/{language}", "", type=str
+        )
+        return str(raw or "")
+
+    @staticmethod
+    def set_language_source_override(language: str, url: str) -> None:
+        """Persist (or clear, when *url* is empty) the override URL for *language*."""
+        key = f"{AppSettings.LANG_SOURCE_OVERRIDE_PREFIX}/{language}"
+        if url:
+            AppSettings.settings().setValue(key, url)
+        else:
+            AppSettings.settings().remove(key)
+
+    @staticmethod
+    def get_language_base_url(language: str) -> str:
+        """Resolve the global.ini download URL for *language*.
+
+        User override (Map Language File dialog) wins over the bundled
+        ``languages/sources.json`` map. Returns '' when nothing is mapped
+        (e.g. English, which uses the local P4K extraction, or a language
+        with no URL yet).
+        """
+        override = AppSettings.get_language_source_override(language)
+        if override:
+            return override
+        return _bundled_language_sources().get(language, "")
 
     @staticmethod
     def get_user_ini_path() -> Path:
