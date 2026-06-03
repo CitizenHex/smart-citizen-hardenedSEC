@@ -160,8 +160,13 @@ def _make_main_thread_hook(logs_dir: Path, original):
         try:
             from src.utils.crash_logger import _show_crash_dialog
             _show_crash_dialog(exc_type, exc_value, crash_path)
-        except Exception:
-            pass
+        except Exception as dlg_err:
+            # The dump is already written; don't let a broken crash-dialog
+            # module hide that from the user entirely.
+            try:
+                logger.error(f"crash_logger unavailable, crash dialog suppressed: {dlg_err}")
+            except Exception:
+                pass
         if original is not None:
             original(exc_type, exc_value, exc_tb)
     return hook
