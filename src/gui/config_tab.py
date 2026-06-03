@@ -879,6 +879,12 @@ class ConfigTab(QWidget):
                 self.language_combo.addItem(lang.replace("_", " ").title(), userData=lang)
             current = AppSettings.get_selected_language()
             idx = self.language_combo.findData(current)
+            if idx < 0:
+                # The persisted language is no longer offered (e.g. an
+                # untranslated stub that is now hidden). Fall back to the
+                # default so the combo and the stored setting stay in sync.
+                AppSettings.set_selected_language(AppSettings.DEFAULT_LANGUAGE)
+                idx = self.language_combo.findData(AppSettings.DEFAULT_LANGUAGE)
             if idx >= 0:
                 self.language_combo.setCurrentIndex(idx)
         finally:

@@ -327,12 +327,50 @@ class AppSettings:
 
     @staticmethod
     def get_available_languages() -> list:
-        """Return sorted list of language names found in the bundled languages/ dir."""
+        """Return sorted language names that are usable in the UI.
+
+        A folder under languages/ is offered only if it ships a non-empty
+        ui.json (at least one translated string); DEFAULT_LANGUAGE (English,
+        the base) is always included. This hides stub languages whose ui.json
+        exists but carries no translations: selecting one would render the
+        whole UI in English and read as broken. The untranslated Spanish
+        placeholder is the motivating case.
+        """
         lang_dir = AppSettings.get_languages_dir()
         if not lang_dir.exists():
             return [AppSettings.DEFAULT_LANGUAGE]
-        names = sorted(d.name for d in lang_dir.iterdir() if d.is_dir())
-        return names if names else [AppSettings.DEFAULT_LANGUAGE]
+        names = []
+        for d in sorted(lang_dir.iterdir()):
+            if not d.is_dir():
+                continue
+            if (d.name == AppSettings.DEFAULT_LANGUAGE
+                    or AppSettings._ui_json_has_translations(d / "ui.json")):
+                names.append(d.name)
+        if AppSettings.DEFAULT_LANGUAGE not in names:
+            names.append(AppSettings.DEFAULT_LANGUAGE)
+        return sorted(names) if names else [AppSettings.DEFAULT_LANGUAGE]
+
+    @staticmethod
+    def _ui_json_has_translations(ui_json_path) -> bool:
+        """True if *ui_json_path* exists and holds at least one translation
+        string. The ``_comment`` metadata field is ignored at every level, so
+        a stub file carrying only a comment counts as empty. Used to keep
+        untranslated languages out of the selector."""
+        import json
+        try:
+            if not ui_json_path.exists():
+                return False
+            with ui_json_path.open(encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, ValueError):
+            return False
+
+        def _leaf_count(node) -> int:
+            if isinstance(node, dict):
+                return sum(_leaf_count(v) for k, v in node.items() if k != "_comment")
+            return 1
+
+        return isinstance(data, dict) and _leaf_count(data) > 0
 
     @staticmethod
     def get_language_global_ini_path(language: str | None = None) -> "Path | None":
