@@ -101,6 +101,64 @@ begin
   Result := ExpandConstant('{%USERPROFILE}\Documents\Smart Citizen');
 end;
 
+function HasVersionedAppSegment(const Path: String): Boolean;
+var
+  Remaining, Seg, Low, Rest: String;
+  P: Integer;
+begin
+  { True if any path segment is the app name followed by a version-like
+    token, e.g. 'SmartCitizen-v1.4.1' or 'Smart Citizen 1.4.1'. The data and
+    cache defaults have always been the unversioned 'Smart Citizen', so a
+    version suffix only ever comes from an old install layout, never a real
+    folder choice. Case-insensitive; checks every segment so a versioned
+    segment mid-path is caught too. Issue #120. }
+  Result := False;
+  Remaining := Path;
+  while Remaining <> '' do
+  begin
+    P := Pos('\', Remaining);
+    if P = 0 then
+    begin
+      Seg := Remaining;
+      Remaining := '';
+    end
+    else
+    begin
+      Seg := Copy(Remaining, 1, P - 1);
+      Remaining := Copy(Remaining, P + 1, MaxInt);
+    end;
+    Low := LowerCase(Seg);
+    if Pos('smartcitizen', Low) = 1 then
+      Rest := Copy(Low, Length('smartcitizen') + 1, MaxInt)
+    else if Pos('smart citizen', Low) = 1 then
+      Rest := Copy(Low, Length('smart citizen') + 1, MaxInt)
+    else
+      Continue;
+    { Strip a leading separator / 'v' so '-v1.4.1', ' 1.4.1', '_v2.0' match,
+      while 'Smart Citizen' (no suffix) and 'SmartCitizenVault' do not. }
+    while (Rest <> '') and ((Rest[1] = ' ') or (Rest[1] = '-') or
+          (Rest[1] = '_') or (Rest[1] = 'v')) do
+      Rest := Copy(Rest, 2, MaxInt);
+    if (Rest <> '') and (Rest[1] >= '0') and (Rest[1] <= '9') then
+    begin
+      Result := True;
+      Exit;
+    end;
+  end;
+end;
+
+function IsStalePrefill(const Path: String): Boolean;
+begin
+  { A saved data/cache path should NOT be used as the wizard prefill when it
+    no longer exists on disk, or it points at a versioned app folder left
+    over from an old install. Either way the page falls back to the default.
+    Defensive guard for issue #120: the reported stale 'SmartCitizen 1.4.1'
+    value was confirmed to live in the SC-install-path keys (fixed in #119),
+    but the data/cache pages read separate keys with no equivalent check, so
+    this hardens them against any stale versioned value reaching the prefill. }
+  Result := (not DirExists(Path)) or HasVersionedAppSegment(Path);
+end;
+
 function GetUninstallString(): String;
 var
   sUnInstPath: String;
@@ -776,9 +834,11 @@ begin
   );
   DataDirPage.Add('');
 
-  { Pre-fill: existing override > OneDrive suggestion > Documents default. }
+  { Pre-fill: existing override > OneDrive suggestion > Documents default.
+    A stale value (missing folder or versioned leftover) falls through to
+    the default rather than prefilling a bad path. Issue #120. }
   if RegQueryStringValue(HKCU, NewRegPath, 'user_data_dir', SavedDataDir) and
-     (SavedDataDir <> '') then
+     (SavedDataDir <> '') and not IsStalePrefill(SavedDataDir) then
     DataDirPage.Values[0] := SavedDataDir
   else if IsDocsOnOneDrive() then
     DataDirPage.Values[0] := SuggestLocalDataDir()
@@ -819,7 +879,7 @@ begin
     branch because LOCALAPPDATA is the OneDrive-safe location by
     definition (it's machine-local, never roamed). }
   if RegQueryStringValue(HKCU, NewRegPath, 'cache_dir', SavedDataDir) and
-     (SavedDataDir <> '') then
+     (SavedDataDir <> '') and not IsStalePrefill(SavedDataDir) then
     CacheDirPage.Values[0] := SavedDataDir
   else
     CacheDirPage.Values[0] := GetLocalCacheDefault();
