@@ -218,9 +218,17 @@ def write_ini(path: Path, entries: dict[str, str]) -> None:
 #     cache key now folds in a hash of the components config (via
 #     _cached_lookup's extra_key); both caches invalidate when the user
 #     edits their config so the next run rebuilds with the new style.
+#   scitem_lookups v6 / blueprint_pools v10 (2.0.0) — FPS weapons no longer
+#     get a [CLASS-Sx-grade] tag: _component_name_tag was matching their
+#     size/grade data by accident, surfacing nonsense tags like "[S30-A]
+#     Rifle" in blueprint lists. build_scitem_lookups now skips anything
+#     under fps_weapons. Separately, the CIG size-prefix strip is bounded
+#     (<= _MAX_CIG_SIZE) so a real product name like "S71 Rifle" keeps its
+#     "S71" instead of being mangled to "Rifle". Both lookups carry the
+#     affected names, so both bump to force a rebuild.
 _LOOKUP_VERSIONS: dict[str, str] = {
-    "blueprint_pools": "v9",
-    "scitem_lookups": "v5",
+    "blueprint_pools": "v10",
+    "scitem_lookups": "v6",
 }
 
 
@@ -2432,12 +2440,21 @@ def enhancements_mission(root: ET.Element, reputation_lookup: dict[str, int] | N
 # tagger couldn't classify, "name [CLASS-Sx-grade]" for items it could.
 # Anchor on word boundary so legitimate names starting with "S" + letters
 # (Sasquatch, Slicer) aren't touched — the regex requires digits after S.
-_CIG_SIZE_PREFIX_RE = re.compile(r"^S\d+\s+")
+_CIG_SIZE_PREFIX_RE = re.compile(r"^S(\d+)\s+")
+# Hardpoint sizes top out well under this. A larger leading "S<n> " is part of
+# a product name (e.g. Gemini's "S71 Rifle"), not a size prefix, so it must not
+# be stripped — doing so turned "S71 Rifle" into "Rifle" in blueprint lists.
+_MAX_CIG_SIZE = 20
 
 
 def _strip_cig_size_prefix(name: str) -> str:
-    """Remove a leading 'S0 ' / 'S00 ' / 'S1 ' size prefix from a display name."""
-    return _CIG_SIZE_PREFIX_RE.sub("", name, count=1)
+    """Remove a leading CIG size prefix ('S0 ' / 'S00 ' / 'S1 ') from a display
+    name. Only strips a plausible hardpoint size (<= _MAX_CIG_SIZE); a larger
+    number is treated as part of the name (e.g. "S71 Rifle" is left intact)."""
+    m = _CIG_SIZE_PREFIX_RE.match(name)
+    if m and int(m.group(1)) <= _MAX_CIG_SIZE:
+        return name[m.end():]
+    return name
 
 
 # Rank-tier markers in blueprint pool filenames. CIG names progression-
@@ -4331,13 +4348,18 @@ def build_scitem_lookups(
         # description loc-key — the rendering side looks up by ref.
         if ref and desc_loc_key:
             desc_value = loc.get(desc_loc_key, "")
-            if desc_value:
+            _parts = {p.lower() for p in xml_file.parts}
+            # FPS weapons must never carry a component-style name tag.
+            # _component_name_tag keys off Size:/Grade:/Class: data that FPS
+            # weapons also expose, so without this guard they pick up nonsense
+            # tags like "[S30-A] Rifle" in blueprint lists. FPS weapons are
+            # meant to pass through bare (per request + the docstring above).
+            if desc_value and "fps_weapons" not in _parts:
                 # Derive the component type from the entity's subdir so the
                 # blueprint-list tag carries the same Type element the
                 # standalone component path emits (#101). Non-component
                 # entities won't be under these subdirs (comp_type stays "")
                 # and _component_name_tag returns None for them regardless.
-                _parts = {p.lower() for p in xml_file.parts}
                 comp_type = next(
                     (t for sd, t in _SUBDIR_TO_TYPE.items() if sd in _parts), ""
                 )
