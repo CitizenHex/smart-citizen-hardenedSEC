@@ -180,11 +180,11 @@ class ConfigTab(QWidget):
         appearance_layout.addStretch()
         layout.addWidget(self._appearance_group)
 
-        # ── Star Citizen Installation + Base Localization (side by side) ────
+        # ── Star Citizen Installation (path, channel, language) ────────────
         self._loc_group = QGroupBox(tr("config.star_citizen_group"))
         loc_outer = QHBoxLayout(self._loc_group)
 
-        # Left pane — game install path, channel, language
+        # Game install path, channel, language
         game_layout = QVBoxLayout()
 
         self._install_label = QLabel(tr("config.installation_label"))
@@ -267,50 +267,12 @@ class ConfigTab(QWidget):
         self.language_combo.currentIndexChanged.connect(self._on_language_changed)
 
         game_layout.addStretch()
-        loc_outer.addLayout(game_layout, stretch=3)
+        loc_outer.addLayout(game_layout)
 
-        # Vertical divider
-        divider = QLabel()
-        divider.setFixedWidth(1)
-        divider.setStyleSheet("background-color: palette(mid);")
-        loc_outer.addWidget(divider)
-
-        # Right pane — base localization / P4K extraction
-        p4k_layout = QVBoxLayout()
-
-        self._base_loc_label = QLabel(tr("config.base_localization_label"))
-        self._base_loc_label.setStyleSheet("font-weight: bold; font-size: 11px;")
-        p4k_layout.addWidget(self._base_loc_label)
-
-        self._base_loc_desc_label = QLabel(tr("config.base_localization_desc"))
-        self._base_loc_desc_label.setProperty("role", "secondary")
-        self._base_loc_desc_label.setStyleSheet("font-size: 11px;")
-        self._base_loc_desc_label.setWordWrap(True)
-        p4k_layout.addWidget(self._base_loc_desc_label)
-
-        p4k_status_row = QHBoxLayout()
-        self._p4k_status_dot = QLabel("●")
-        self._p4k_status_dot.setStyleSheet("font-size: 14px;")
-        p4k_status_row.addWidget(self._p4k_status_dot)
-
-        self._p4k_status_label = QLabel()
-        self._p4k_status_label.setProperty("role", "secondary")
-        self._p4k_status_label.setStyleSheet("font-size: 11px;")
-        p4k_status_row.addWidget(self._p4k_status_label)
-        p4k_status_row.addStretch()
-        p4k_layout.addLayout(p4k_status_row)
-
-        self._extract_btn = QPushButton(tr("config.extract_btn"))
-        self._extract_btn.setMaximumWidth(180)
-        self._extract_btn.clicked.connect(self.p4k_extract_requested.emit)
-        p4k_layout.addWidget(self._extract_btn)
-
-        p4k_layout.addStretch()
-        loc_outer.addLayout(p4k_layout, stretch=2)
-
+        # Base localization / P4K extraction lives in its own standalone
+        # group below (self._p4k_group), not here — this group is just the
+        # install path, channel, and language.
         layout.addWidget(self._loc_group)
-
-        self._refresh_p4k_status()
 
         # ── Smart Citizen Data ───────────────────────────────────────────────
         self._data_group = QGroupBox(tr("config.data_group"))
@@ -476,8 +438,6 @@ class ConfigTab(QWidget):
         self._game_browse_btn.setText(tr("config.browse_btn"))
         self._channel_label.setText(tr("config.channel_label"))
         self._language_label.setText(tr("config.language_label"))
-        self._base_loc_label.setText(tr("config.base_localization_label"))
-        self._base_loc_desc_label.setText(tr("config.base_localization_desc"))
         self._extract_btn.setText(tr("config.extract_btn"))
         self._data_group.setTitle(tr("config.data_group"))
         self._data_desc_label.setText(tr("config.data_desc"))
