@@ -852,13 +852,13 @@ class MainWindow(QMainWindow):
     def _on_update_available(self, latest: str, url: str, body: str) -> None:
         current = get_version()
         self._latest_release_url = url
-        self._app_version_indicator.setText(tr("status_bar.update_indicator_available", current=current))
+        self._update_check_state = ("available", latest)
         self._app_version_indicator.setStyleSheet(
             "font-size: 11px; padding: 0 8px; color: #c9a961; font-weight: bold;"
         )
         self._app_version_indicator.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._app_version_indicator.setToolTip(f"Open release page for v{latest}")
-        self.config_tab.set_update_status(tr("status_bar.update_available", version=latest))
+        self._refresh_update_indicator_texts()
 
         # Truncate long release bodies for the dialog so the modal doesn't
         # stretch off-screen. Users get the full notes on the release page.
@@ -883,11 +883,11 @@ class MainWindow(QMainWindow):
     @pyqtSlot(str)
     def _on_update_up_to_date(self, current: str) -> None:
         self._latest_release_url = None
-        self._app_version_indicator.setText(tr("status_bar.update_indicator_up_to_date", current=current))
+        self._update_check_state = ("up_to_date", current)
         self._app_version_indicator.setStyleSheet("font-size: 11px; padding: 0 8px;")
         self._app_version_indicator.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
         self._app_version_indicator.setToolTip("")
-        self.config_tab.set_update_status(tr("status_bar.update_up_to_date", version=current))
+        self._refresh_update_indicator_texts()
         if getattr(self, "_force_update_dialog", False):
             QMessageBox.information(
                 self,
@@ -898,12 +898,11 @@ class MainWindow(QMainWindow):
     @pyqtSlot(str)
     def _on_update_check_error(self, message: str) -> None:
         self._latest_release_url = None
-        current = get_version()
-        self._app_version_indicator.setText(tr("status_bar.update_indicator_failed", current=current))
+        self._update_check_state = ("failed", None)
         self._app_version_indicator.setStyleSheet("font-size: 11px; padding: 0 8px;")
         self._app_version_indicator.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
         self._app_version_indicator.setToolTip(message)
-        self.config_tab.set_update_status(tr("status_bar.update_check_failed"))
+        self._refresh_update_indicator_texts()
         logger.warning(f"App update check error: {message}")
         if getattr(self, "_force_update_dialog", False):
             QMessageBox.warning(
@@ -2684,6 +2683,32 @@ class MainWindow(QMainWindow):
         self._app_version_indicator.mousePressEvent = self._on_version_label_clicked
         self.statusBar().addPermanentWidget(self._app_version_indicator)
 
+    def _refresh_update_indicator_texts(self) -> None:
+        """Render the version indicator + Config-tab update status in the
+        current UI language from the last update-check state.
+
+        The check slots set ``_update_check_state`` and delegate text here so
+        a language switch can re-render via retranslate_ui() — pre-fix the
+        labels kept whatever language was active when the check ran (#30).
+        """
+        label = getattr(self, "_app_version_indicator", None)
+        if label is None:
+            return
+        current = get_version()
+        state, version = getattr(self, "_update_check_state", (None, None))
+        if state == "available":
+            label.setText(tr("status_bar.update_indicator_available", current=current))
+            self.config_tab.set_update_status(tr("status_bar.update_available", version=version))
+        elif state == "up_to_date":
+            label.setText(tr("status_bar.update_indicator_up_to_date", current=current))
+            self.config_tab.set_update_status(tr("status_bar.update_up_to_date", version=version))
+        elif state == "failed":
+            label.setText(tr("status_bar.update_indicator_failed", current=current))
+            self.config_tab.set_update_status(tr("status_bar.update_check_failed"))
+        else:
+            # No check has completed yet — plain version, no status text.
+            label.setText(f"v{current}")
+
     def _refresh_channel_indicator(self) -> None:
         """Update the status-bar channel label to reflect AppSettings.get_active_channel()."""
         if getattr(self, "_channel_indicator", None) is None:
@@ -2845,6 +2870,11 @@ class MainWindow(QMainWindow):
         # Cascade to child tabs
         self.config_tab.retranslate_ui()
         self.enhancements_tab.retranslate_ui()
+
+        # Status-bar version indicator + Config-tab update status hold the
+        # last update-check result; re-render them in the new language
+        # (after the cascade so this write wins).
+        self._refresh_update_indicator_texts()
         self.log_tab.retranslate_ui()
 
     @pyqtSlot(str)
