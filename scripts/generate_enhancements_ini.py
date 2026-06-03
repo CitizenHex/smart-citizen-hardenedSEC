@@ -4916,10 +4916,11 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             has_blueprints and _any_variant_has_bp and not _has_dominant_no_bp_bucket
         )
         augmented_title = base_title
-        if _all_have_bp and not _surviving_no_bp_cargo:
-            augmented_title += " <EM4>[BP]</EM4>"
-        elif _bp_partial or (_all_have_bp and _surviving_no_bp_cargo):
-            augmented_title += " <EM4>[BP?]</EM4>"
+        if _show("blueprint_tag"):
+            if _all_have_bp and not _surviving_no_bp_cargo:
+                augmented_title += " <EM4>[BP]</EM4>"
+            elif _bp_partial or (_all_have_bp and _surviving_no_bp_cargo):
+                augmented_title += " <EM4>[BP?]</EM4>"
         nonzero_xp = [x for x in unique_xp if x > 0]
         if len(nonzero_xp) == 1:
             augmented_title += f" <EM4>[{nonzero_xp[0]:,} {rep_xp_label}]</EM4>"

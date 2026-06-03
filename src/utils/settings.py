@@ -84,13 +84,17 @@ class AppSettings:
     # DETAILS body. All default on (the pre-#121 behaviour). Baked at
     # generation time, so a change takes effect on the next Generate
     # Enhancements run.
-    MISSION_FIELD_KEYS = ("mission_type", "difficulty", "spawns", "reputation", "blueprints")
+    MISSION_FIELD_KEYS = (
+        "mission_type", "difficulty", "spawns", "reputation",
+        "blueprints", "blueprint_tag",
+    )
     _MISSION_FIELD_SETTING = {
-        "mission_type": "mission_field/mission_type",
-        "difficulty":   "mission_field/difficulty",
-        "spawns":       "mission_field/spawns",
-        "reputation":   "mission_field/reputation",
-        "blueprints":   "mission_field/blueprints",
+        "mission_type":  "mission_field/mission_type",
+        "difficulty":    "mission_field/difficulty",
+        "spawns":        "mission_field/spawns",
+        "reputation":    "mission_field/reputation",
+        "blueprints":    "mission_field/blueprints",
+        "blueprint_tag": "mission_field/blueprint_tag",
     }
     MISSION_HEADER_DEFAULTS = {
         "details": "MISSION DETAILS",

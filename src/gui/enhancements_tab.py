@@ -161,12 +161,24 @@ class EnhancementsTab(QWidget):
         gl.addWidget(mf_heading)
 
         _MISSION_FIELD_LABELS = [
-            ("mission_type", "Mission Type"),
-            ("difficulty",   "Difficulty"),
-            ("spawns",       "Spawns"),
-            ("reputation",   "Reputation"),
-            ("blueprints",   "Blueprints"),
+            ("mission_type",  "Mission Type"),
+            ("difficulty",    "Difficulty"),
+            ("spawns",        "Spawns"),
+            ("reputation",    "Reputation"),
+            ("blueprints",    "Blueprints"),
+            ("blueprint_tag", "Blueprint Tag"),
         ]
+        # The blueprint_tag field controls the [BP]/[BP?] marker on the mission
+        # TITLE, not a body line — it gets its own tooltip. Turning the body
+        # section off while leaving the title tag on is intentional (compact
+        # at-a-glance signal); the two are independent so the user picks.
+        _MISSION_FIELD_TOOLTIPS = {
+            "blueprint_tag": (
+                "Show the [BP] / [BP?] marker on the mission title. "
+                "Independent of the Blueprints body section. "
+                "Takes effect on the next Generate Enhancements."
+            ),
+        }
         self._mission_field_checkboxes: dict = {}
         _mf_saved = AppSettings.get_mission_detail_fields()
         mf_row = QHBoxLayout()
@@ -176,8 +188,11 @@ class EnhancementsTab(QWidget):
             cb.setChecked(_mf_saved.get(_field, True))
             cb.setStyleSheet("font-size: 11px;")
             cb.setToolTip(
-                f"Show the {_label} line in generated mission bodies. "
-                "Takes effect on the next Generate Enhancements."
+                _MISSION_FIELD_TOOLTIPS.get(
+                    _field,
+                    f"Show the {_label} line in generated mission bodies. "
+                    "Takes effect on the next Generate Enhancements.",
+                )
             )
             cb.toggled.connect(
                 lambda checked, f=_field: self._on_mission_field_toggled(f, checked)
