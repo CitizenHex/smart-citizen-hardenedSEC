@@ -66,6 +66,49 @@ def test_noop_when_old_missing(tmp_path):
     assert migrate_user_data_dir(tmp_path / "does_not_exist", tmp_path / "new") == 0
 
 
+def test_moves_all_files_to_new_location(tmp_path):
+    old = tmp_path / "old"
+    new = tmp_path / "new"
+    _seed(old)
+
+    moved = migrate_user_data_dir(old, new, move=True)
+
+    assert moved == 2
+    assert (new / "LIVE" / "user.ini").read_text(encoding="utf-8") == "vehicle_NameX= My Ship\n"
+    assert (new / "LIVE" / "backups" / "global.ini.bak").exists()
+    # originals removed after move
+    assert not (old / "LIVE" / "user.ini").exists()
+    assert not (old / "LIVE" / "backups" / "global.ini.bak").exists()
+
+
+def test_move_prunes_empty_source_dirs(tmp_path):
+    old = tmp_path / "old"
+    new = tmp_path / "new"
+    _seed(old)
+
+    migrate_user_data_dir(old, new, move=True)
+
+    # All source files gone → entire old tree should be removed.
+    assert not old.exists()
+
+
+def test_move_leaves_conflicting_files_in_place(tmp_path):
+    """A file skipped because the destination already exists must NOT be deleted."""
+    old = tmp_path / "old"
+    new = tmp_path / "new"
+    _seed(old)
+    (new / "LIVE").mkdir(parents=True)
+    (new / "LIVE" / "user.ini").write_text("KEEP ME", encoding="utf-8")
+
+    moved = migrate_user_data_dir(old, new, move=True)
+
+    assert moved == 1  # only the backup was moved
+    # The conflicting source file must survive because we couldn't place it.
+    assert (old / "LIVE" / "user.ini").exists()
+    # The backup was moved.
+    assert not (old / "LIVE" / "backups" / "global.ini.bak").exists()
+
+
 def test_new_nested_inside_old_terminates_without_recursion(tmp_path):
     """If the new folder is a subdirectory of the old one, the migration must
     copy the old data once and not recursively re-copy into ever-deeper

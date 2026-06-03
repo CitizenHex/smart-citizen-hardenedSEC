@@ -12,18 +12,27 @@ from src.utils.perf import timed
 logger = logging.getLogger(__name__)
 
 
-def migrate_user_data_dir(old_root: "str | Path", new_root: "str | Path") -> int:
-    """Copy user data from ``old_root`` into ``new_root`` after the user moves
-    the Smart Citizen data folder (issue #103).
+def migrate_user_data_dir(
+    old_root: "str | Path", new_root: "str | Path", *, move: bool = False
+) -> int:
+    """Copy (or move) user data from ``old_root`` into ``new_root`` after the
+    user changes the Smart Citizen data folder (issue #103).
 
-    Copies every file under ``old_root`` to the matching path under
+    Copies/moves every file under ``old_root`` to the matching path under
     ``new_root``, **merging** rather than overwriting: any file that already
     exists at the destination is left untouched, so data already in the new
-    location always wins. The originals are left in place (copy, not move),
-    so a mistaken move is recoverable.
+    location always wins.
 
-    Returns the number of files copied. A no-op (returns 0) when the old root
-    is missing or resolves to the same directory as the new root.
+    When ``move=True``, each successfully copied file is deleted from
+    ``old_root``, and empty directories are pruned from the source tree
+    afterwards (deepest first).  Files that were skipped because the
+    destination already existed are left in place, so no data is lost.
+
+    When ``move=False`` (default), the originals are left untouched — copy
+    semantics, safe to re-run.
+
+    Returns the number of files transferred. A no-op (returns 0) when the old
+    root is missing or resolves to the same directory as the new root.
 
     Handles the case where the new folder is nested inside the old one: the
     file list is snapshotted before any copy (so freshly-written files can't
@@ -41,7 +50,7 @@ def migrate_user_data_dir(old_root: "str | Path", new_root: "str | Path") -> int
     if not old_root.exists() or old_resolved == new_resolved:
         return 0
 
-    copied = 0
+    transferred = 0
     # Snapshot up front — if new_root is nested in old_root, copying into it
     # mid-walk would otherwise let a lazy rglob re-yield the new files.
     for src in list(old_root.rglob("*")):
@@ -61,11 +70,31 @@ def migrate_user_data_dir(old_root: "str | Path", new_root: "str | Path") -> int
         try:
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dest)
-            copied += 1
+            if move:
+                src.unlink()
+            transferred += 1
         except OSError as e:
             logger.warning(f"Could not migrate {src} -> {dest}: {e}")
-    logger.info(f"Migrated {copied} file(s) from {old_root} to {new_root}")
-    return copied
+
+    if move:
+        # Prune now-empty directories from old_root (deepest-path first so
+        # parents are removed after their children).
+        for d in sorted(old_root.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+            if d.is_dir() and not any(d.iterdir()):
+                try:
+                    d.rmdir()
+                except OSError:
+                    pass
+        # Remove old_root itself if it is now empty.
+        try:
+            if old_root.exists() and not any(old_root.iterdir()):
+                old_root.rmdir()
+        except OSError:
+            pass
+
+    verb = "Moved" if move else "Migrated"
+    logger.info(f"{verb} {transferred} file(s) from {old_root} to {new_root}")
+    return transferred
 
 
 def reset_user_ini(user_ini_path: Path, backup: bool = True) -> Optional[Path]:

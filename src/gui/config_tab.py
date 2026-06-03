@@ -582,7 +582,7 @@ class ConfigTab(QWidget):
         if reply != QMessageBox.StandardButton.Yes:
             return
         try:
-            count = migrate_user_data_dir(old_dir, new_dir)
+            count = migrate_user_data_dir(old_dir, new_dir, move=True)
             QMessageBox.information(
                 self, tr("config.migrate_data_done_title"),
                 tr("config.migrate_data_done_body", count=count),
