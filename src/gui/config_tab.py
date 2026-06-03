@@ -1029,13 +1029,14 @@ class LanguageSourceDialog(QDialog):
         info.setProperty("role", "secondary")
         layout.addWidget(info)
 
-        # Languages: bundled-map keys + any with an existing override, minus
-        # English and the JSON comment field.
+        # Only languages the user can actually switch to — the same filter the
+        # language selector uses (excludes untranslated stubs like Spanish).
+        # Mapping a base.ini URL for a language you can't select is pointless.
         bundled = _bundled_language_sources()
-        langs = {
-            k for k in bundled
-            if k not in ("_comment", AppSettings.DEFAULT_LANGUAGE)
-        }
+        langs = [
+            lang for lang in AppSettings.get_available_languages()
+            if lang != AppSettings.DEFAULT_LANGUAGE
+        ]
 
         self._inputs: dict[str, QLineEdit] = {}
         grid = QGridLayout()
