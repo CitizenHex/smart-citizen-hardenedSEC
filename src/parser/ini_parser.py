@@ -351,16 +351,13 @@ def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str], 
             )
 
     # ── Enhancements ────────────────────────────────────────────────────────
-    # Map enhancements file labels to the category their keys should be assigned to
+    # Derived from AppSettings so adding a new enhancement type in ENHANCEMENT_CATEGORY_FILES
+    # automatically produces a correct category here — no manual sync required.
     _ENHANCEMENTS_LABEL_CATEGORY = {
-        "ship_descs":        "Ships",
-        "component_descs":   "Ship Items",
-        "ship_weapon_descs": "Ship Items",
-        "fps_weapon_descs":  "Gear",
-        "mission_rewards":   "Missions",
-        "commodity_crafting": "Commodities",
-        "journal":           "Journal",
-        "missile_enhancements": "Ship Items",
+        file_label: AppSettings.ENHANCEMENT_LABELS[cat_key]
+        for cat_key, file_labels in AppSettings.ENHANCEMENT_CATEGORY_FILES.items()
+        for file_label in file_labels
+        if cat_key in AppSettings.ENHANCEMENT_LABELS
     }
     enhancements_key_categories: Dict[str, str] = {}
     enabled_categories = AppSettings.get_enabled_enhancement_categories()
@@ -376,6 +373,11 @@ def load_sources_from_settings() -> tuple[Dict[str, Dict[str, str]], List[str], 
                 if category:
                     for key in data:
                         enhancements_key_categories[key] = category
+                else:
+                    logger.warning(
+                        f"Enhancement label {label!r} has no category mapping — "
+                        "add it to AppSettings.ENHANCEMENT_CATEGORY_FILES"
+                    )
                 enhancements_combined.update(data)
                 logger.info(f"Loaded {len(data)} enhancement entries from {filename}")
             else:

@@ -1691,13 +1691,20 @@ class AppSettings:
 
     @staticmethod
     def set_active_channel(channel: str) -> None:
-        """Persist the active channel name. Must be a member of AVAILABLE_CHANNELS."""
+        """Persist the active channel name. Must be a member of AVAILABLE_CHANNELS.
+
+        Also syncs the legacy GAME_INSTALL_PATH key so any pre-migration
+        caller still reads the correct channel-specific path without needing
+        a manual sync at every call site.
+        """
         if channel not in AppSettings.AVAILABLE_CHANNELS:
             raise ValueError(
                 f"Unknown channel {channel!r}; expected one of {AppSettings.AVAILABLE_CHANNELS}"
             )
         AppSettings.settings().setValue(AppSettings.ACTIVE_CHANNEL, channel)
         AppSettings.settings().sync()
+        # Sync legacy key so all callers stay current with no extra bookkeeping.
+        AppSettings.set_game_install_path(AppSettings.get_channel_install_path())
 
     @staticmethod
     def get_sc_install_root() -> str:
@@ -1756,8 +1763,15 @@ class AppSettings:
     @staticmethod
     def set_sc_install_root(path: str) -> None:
         """Persist the SC install root. Callers should pass the directory
-        that contains ``LIVE\\``, ``PTU\\``, etc., not a specific channel."""
+        that contains ``LIVE\\``, ``PTU\\``, etc., not a specific channel.
+
+        Also syncs the legacy GAME_INSTALL_PATH key so all callers stay
+        consistent without manual bookkeeping at each call site.
+        """
         AppSettings.settings().setValue(AppSettings.SC_INSTALL_ROOT, path)
+        AppSettings.set_game_install_path(
+            AppSettings.get_channel_install_path() if path else ""
+        )
 
     @staticmethod
     def get_available_channels() -> list[str]:

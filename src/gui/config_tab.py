@@ -506,12 +506,7 @@ class ConfigTab(QWidget):
         if game_path and not Path(game_path).exists():
             logger.warning(f"SC install root does not exist: {game_path}")
             return
-        AppSettings.set_sc_install_root(game_path)
-        # Keep the legacy GAME_INSTALL_PATH in sync for any caller that still
-        # reads it — e.g. unsynchronized callers during an in-progress upgrade.
-        AppSettings.set_game_install_path(
-            AppSettings.get_channel_install_path() if game_path else ""
-        )
+        AppSettings.set_sc_install_root(game_path)  # also syncs legacy GAME_INSTALL_PATH
         self._populate_channel_combo()
         self._refresh_p4k_status()
 
@@ -579,26 +574,24 @@ class ConfigTab(QWidget):
             return
         reply = QMessageBox.question(
             self,
-            "Move Your Data?",
-            "Copy your existing Smart Citizen data (overrides, backups, cached "
-            f"strings) from\n\n{old_dir}\n\nto the new folder\n\n{new_dir}?\n\n"
-            "Files already in the new folder are kept, and the originals are "
-            "left in place.",
+            tr("config.migrate_data_title"),
+            tr("config.migrate_data_body", old_dir=old_dir, new_dir=new_dir),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
         try:
-            count = migrate_user_data_dir(old_dir, new_dir)
+            count = migrate_user_data_dir(old_dir, new_dir, move=True)
             QMessageBox.information(
-                self, "Data Migrated",
-                f"Copied {count} file(s) into the new data folder.",
+                self, tr("config.migrate_data_done_title"),
+                tr("config.migrate_data_done_body", count=count),
             )
         except Exception as e:  # pragma: no cover - defensive UI guard
             logger.exception(f"Data migration failed: {e}")
             QMessageBox.warning(
-                self, "Migration Failed", f"Could not migrate your data:\n{e}"
+                self, tr("config.migrate_data_failed_title"),
+                tr("config.migrate_data_failed_body", error=e),
             )
 
     def _browse_data_dir(self):
@@ -837,9 +830,7 @@ class ConfigTab(QWidget):
                 self._populate_channel_combo()
                 return
         logger.info(f"Active channel switching: {AppSettings.get_active_channel()} → {channel}")
-        AppSettings.set_active_channel(channel)
-        # Keep the legacy key in sync for any pre-migration caller.
-        AppSettings.set_game_install_path(AppSettings.get_channel_install_path())
+        AppSettings.set_active_channel(channel)  # also syncs legacy GAME_INSTALL_PATH
         self._refresh_p4k_status()
         self.channel_changed.emit(channel)
 

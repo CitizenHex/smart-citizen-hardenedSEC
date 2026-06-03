@@ -1962,9 +1962,10 @@ class MainWindow(QMainWindow):
                     f"All keys were excluded.")
                 return
 
-            # Step 5: Load current user.ini
+            # Step 5: Load current user.ini (strip_values=False so leading-space
+            # favourite prefixes round-trip verbatim — see issue #100).
             user_ini_path = AppSettings.get_user_ini_path()
-            current_user = parse_ini_file(user_ini_path) if user_ini_path.exists() else {}
+            current_user = parse_ini_file(user_ini_path, strip_values=False) if user_ini_path.exists() else {}
 
             # Step 6: Categorize keys
             auto_add = {}
@@ -2882,7 +2883,7 @@ class MainWindow(QMainWindow):
 
         if language == AppSettings.DEFAULT_LANGUAGE:
             AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, str(english_base))
-            self.perform_merge_and_reload()
+            self._show_loading_progress(tr("dialogs.merging_sources"))
             return
 
         dest = AppSettings.get_base_ini_path(language)
@@ -2899,7 +2900,7 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(
                     tr("dialogs.language_no_url", language=language)
                 )
-            self.perform_merge_and_reload()
+            self._show_loading_progress(tr("dialogs.merging_sources"))
             return
 
         # Have a URL — download (freshness-checked) on a worker, then repoint.
@@ -2937,7 +2938,7 @@ class MainWindow(QMainWindow):
                 self, "Smart Citizen",
                 tr("dialogs.language_download_failed", language=language),
             )
-        self.perform_merge_and_reload()
+        self._show_loading_progress(tr("dialogs.merging_sources"))
 
     @pyqtSlot(str)
     def _on_data_dir_changed(self, data_dir: str) -> None:
@@ -3460,6 +3461,15 @@ class MainWindow(QMainWindow):
 
         self.default_values = default_values
         self.entries = entries
+        if not entries and default_values is not None:
+            # Sources were configured but produced no entries — most likely the
+            # base.ini hasn't been extracted yet (fresh install) or source files
+            # are missing on disk. Surface this so the user isn't left with a
+            # silently blank table and no indication of why.
+            logger.warning("Load completed with 0 entries — source files may be missing; try extracting from Data.p4k")
+            self.statusBar().showMessage(
+                "No strings loaded — extract from Data.p4k on the Config tab first"
+            )
         self.update_category_combo()
 
         # Push data into the model — the view renders only visible rows, so this is instant
