@@ -2426,16 +2426,16 @@ class MainWindow(QMainWindow):
             "apply":                 {"target": lambda: self.apply_btn,                                        "pre_action": None},
             "enhancements":          {"target": lambda: self.enhancements_tab._generate_enhancements_btn,      "pre_action": _switch_to(enh_tab)},
             # Enhancements tab section deep-dive
-            "enh_categories":        {"target": lambda: self.enhancements_tab.localization_enhancements_group, "pre_action": _switch_to(enh_tab)},
-            "enh_favorites":         {"target": lambda: self.enhancements_tab.favorites_group,                 "pre_action": _switch_to(enh_tab)},
+            "enh_categories":        {"target": lambda: self.enhancements_tab._enhancements_group,             "pre_action": _switch_to(enh_tab)},
+            "enh_favorites":         {"target": lambda: self.enhancements_tab._favorites_group,                "pre_action": _switch_to(enh_tab)},
             "enh_mission_labels":    {"target": lambda: self.enhancements_tab.mission_labels_group,            "pre_action": _switch_to(enh_tab)},
-            "enh_tag_builder":       {"target": lambda: self.enhancements_tab.tag_builder_group,               "pre_action": _switch_to(enh_tab)},
+            "enh_tag_builder":       {"target": lambda: self.enhancements_tab._tag_builder_group,              "pre_action": _switch_to(enh_tab)},
             # Config tab section deep-dive
-            "cfg_appearance":        {"target": lambda: self.config_tab.appearance_group,                      "pre_action": _switch_to(config_tab)},
-            "cfg_sc_install":        {"target": lambda: self.config_tab.game_group,                            "pre_action": _switch_to(config_tab)},
-            "cfg_data_folder":       {"target": lambda: self.config_tab.data_group,                            "pre_action": _switch_to(config_tab)},
-            "cfg_p4k_extraction":    {"target": lambda: self.config_tab.p4k_group,                             "pre_action": _switch_to(config_tab)},
-            "cfg_tools":             {"target": lambda: self.config_tab.tools_group,                           "pre_action": _switch_to(config_tab)},
+            "cfg_appearance":        {"target": lambda: self.config_tab._appearance_group,                     "pre_action": _switch_to(config_tab)},
+            "cfg_sc_install":        {"target": lambda: self.config_tab._loc_group,                            "pre_action": _switch_to(config_tab)},
+            "cfg_data_folder":       {"target": lambda: self.config_tab._data_group,                           "pre_action": _switch_to(config_tab)},
+            "cfg_p4k_extraction":    {"target": lambda: self.config_tab._p4k_group,                            "pre_action": _switch_to(config_tab)},
+            "cfg_tools":             {"target": lambda: self.config_tab._tools_group,                          "pre_action": _switch_to(config_tab)},
             "help":                  {"target": lambda: self.help_btn,                                         "pre_action": _switch_to(strings_tab)},
         }
 

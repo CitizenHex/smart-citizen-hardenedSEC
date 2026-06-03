@@ -215,7 +215,12 @@ class CoachMarkOverlay(QWidget):
         try:
             w = resolver()
         except Exception:
-            logger.exception("Coach-mark target resolver raised")
+            # A resolver that raises (e.g. a renamed/missing target attribute)
+            # is treated like a missing target: the step still shows with a
+            # centered callout. Log at WARNING, not ERROR — ERROR would trip
+            # the error-dialog modal on every affected step, turning a cosmetic
+            # tour glitch into a wall of popups (issue #138).
+            logger.warning("Coach-mark target resolver raised; showing step without spotlight", exc_info=True)
             return None
         if w is None:
             return None
