@@ -463,47 +463,13 @@ class MainWindow(QMainWindow):
         self.apply_btn.clicked.connect(self.apply_to_game)
         button_layout.addWidget(self.apply_btn)
 
-        # Red-orange — rollback
-        self.restore_backup_btn = QPushButton(tr("toolbar.restore_backup_btn"))
-        self.restore_backup_btn.setStyleSheet(f"background-color: {get_button_color('restore')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
-        self.restore_backup_btn.setToolTip("Restore a previous global.ini from Documents\\Smart Citizen\\backups\\. Up to 5 timestamped backups are kept; the oldest is pruned when a new one is created.")
-        self.restore_backup_btn.clicked.connect(self.restore_backup)
-        button_layout.addWidget(self.restore_backup_btn)
-
-        # Gray group — cleanup
-        clear_menu = QMenu(self)
-        self._action_clear_loc = clear_menu.addAction(tr("toolbar.menu_clear_localization"), self.clear_localization)
-        self._action_clear_cache = clear_menu.addAction(tr("toolbar.menu_clear_cache"), self.clear_cache)
-
-        self.clear_btn = QPushButton(tr("toolbar.clear_btn"))
-        self.clear_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
-        self.clear_btn.setToolTip("Clear localization or cache")
-        self.clear_btn.setMenu(clear_menu)
-        button_layout.addWidget(self.clear_btn)
-
-        import_export_menu = QMenu(self)
-        self._action_import_ini = import_export_menu.addAction(tr("toolbar.menu_import_ini"), self._handle_import_ini)
-        self._action_export_ini = import_export_menu.addAction(tr("toolbar.menu_export_ini"), self.export_locpack)
-
-        self.import_export_btn = QPushButton(tr("toolbar.import_export_btn"))
-        self.import_export_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
-        self.import_export_btn.setToolTip("Import an external INI or export a shareable loc-pack zip")
-        self.import_export_btn.setMenu(import_export_menu)
-        button_layout.addWidget(self.import_export_btn)
-
-        self.open_loc_dir_btn = QPushButton(tr("toolbar.open_loc_dir_btn"))
-        self.open_loc_dir_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
-        self.open_loc_dir_btn.setToolTip("Open the game's localization directory in Windows Explorer")
-        self.open_loc_dir_btn.clicked.connect(self.open_localization_dir)
-        button_layout.addWidget(self.open_loc_dir_btn)
-
-        # Editor — toggles the side-docked String Editor for editing long
+        # Editor: toggles the side-docked String Editor for editing long
         # values comfortably. Shares the 'open' info-action role so it pairs
         # visually with Help/Tutorial as a panel-toggle.
         self.editor_btn = QPushButton(tr("toolbar.editor_btn"))
         self.editor_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
         self.editor_btn.setCheckable(True)
-        self.editor_btn.setToolTip("Toggle the side-docked String Editor — a larger canvas for editing the selected row's custom value")
+        self.editor_btn.setToolTip("Toggle the side-docked String Editor, a larger canvas for editing the selected row's custom value")
         self.editor_btn.clicked.connect(self.show_editor_dock)
         button_layout.addWidget(self.editor_btn)
 
@@ -516,9 +482,41 @@ class MainWindow(QMainWindow):
 
         self.tutorial_btn = QPushButton(tr("toolbar.tutorial_btn"))
         self.tutorial_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
-        self.tutorial_btn.setToolTip("Start the guided tour of Smart Citizen's workflow — runs automatically on first launch; click here anytime to replay.")
+        self.tutorial_btn.setToolTip("Start the guided tour of Smart Citizen's workflow. Runs automatically on first launch; click here anytime to replay.")
         self.tutorial_btn.clicked.connect(self._start_tutorial)
         button_layout.addWidget(self.tutorial_btn)
+
+        # More: overflow menu for the less-frequent actions (rollback, cleanup,
+        # import/export, open folder). Keeps the row focused on the core
+        # edit-and-commit workflow. Issue #128. The QActions are kept as
+        # attributes so retranslate_ui() can relabel them on a language swap.
+        more_menu = QMenu(self)
+        self._action_restore_backup = more_menu.addAction(
+            tr("toolbar.restore_backup_btn"), self.restore_backup
+        )
+        self._action_restore_backup.setToolTip(
+            "Restore a previous global.ini from the backups folder. Up to 5 "
+            "timestamped backups are kept; the oldest is pruned when a new one is created."
+        )
+        more_menu.addSeparator()
+        self._action_clear_loc = more_menu.addAction(tr("toolbar.menu_clear_localization"), self.clear_localization)
+        self._action_clear_cache = more_menu.addAction(tr("toolbar.menu_clear_cache"), self.clear_cache)
+        more_menu.addSeparator()
+        self._action_import_ini = more_menu.addAction(tr("toolbar.menu_import_ini"), self._handle_import_ini)
+        self._action_export_ini = more_menu.addAction(tr("toolbar.menu_export_ini"), self.export_locpack)
+        more_menu.addSeparator()
+        self._action_open_loc_dir = more_menu.addAction(
+            tr("toolbar.open_loc_dir_btn"), self.open_localization_dir
+        )
+
+        self.more_btn = QPushButton(tr("toolbar.more_btn"))
+        self.more_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
+        self.more_btn.setToolTip(
+            "More actions: restore a backup, clear localization or cache, "
+            "import or export, open the localization folder"
+        )
+        self.more_btn.setMenu(more_menu)
+        button_layout.addWidget(self.more_btn)
 
         button_layout.addStretch()
 
@@ -1164,9 +1162,9 @@ class MainWindow(QMainWindow):
     def _set_toolbar_enabled(self, enabled: bool):
         """Toggle toolbar button enabled states."""
         self.apply_btn.setEnabled(enabled)
-        self.restore_backup_btn.setEnabled(enabled)
-        self.clear_btn.setEnabled(enabled)
-        self.import_export_btn.setEnabled(enabled)
+        # restore/clear/import/export and open-loc-dir now live under More, so
+        # disabling the one button gates all of them during operations.
+        self.more_btn.setEnabled(enabled)
 
     @timed
     def load_default_values(self):
@@ -1776,10 +1774,8 @@ class MainWindow(QMainWindow):
         self._apply_branding_styles()
         base = "font-weight: bold; padding: 6px;"
         text = get_button_text_color()
-        self.open_loc_dir_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {text}; {base}")
         self.apply_btn.setStyleSheet(f"background-color: {get_button_color('apply')}; color: {text}; {base}")
-        self.restore_backup_btn.setStyleSheet(f"background-color: {get_button_color('restore')}; color: {text}; {base}")
-        self.clear_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {text}; {base}")
+        self.more_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {text}; {base}")
         self.editor_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {text}; {base}")
         self.help_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {text}; {base}")
         if hasattr(self, "about_browser"):
@@ -2766,19 +2762,18 @@ class MainWindow(QMainWindow):
 
         # Toolbar buttons
         self.apply_btn.setText(tr("toolbar.apply_btn"))
-        self.restore_backup_btn.setText(tr("toolbar.restore_backup_btn"))
-        self.clear_btn.setText(tr("toolbar.clear_btn"))
-        self.import_export_btn.setText(tr("toolbar.import_export_btn"))
-        self.open_loc_dir_btn.setText(tr("toolbar.open_loc_dir_btn"))
         self.editor_btn.setText(tr("toolbar.editor_btn"))
         self.help_btn.setText(tr("toolbar.help_btn"))
         self.tutorial_btn.setText(tr("toolbar.tutorial_btn"))
+        self.more_btn.setText(tr("toolbar.more_btn"))
 
-        # Menu actions
+        # More-menu actions
+        self._action_restore_backup.setText(tr("toolbar.restore_backup_btn"))
         self._action_clear_loc.setText(tr("toolbar.menu_clear_localization"))
         self._action_clear_cache.setText(tr("toolbar.menu_clear_cache"))
         self._action_import_ini.setText(tr("toolbar.menu_import_ini"))
         self._action_export_ini.setText(tr("toolbar.menu_export_ini"))
+        self._action_open_loc_dir.setText(tr("toolbar.open_loc_dir_btn"))
 
         # Filter row
         self._category_label.setText(tr("filters.category_label"))

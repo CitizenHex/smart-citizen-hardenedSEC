@@ -23,6 +23,7 @@
     "editor_btn": "Editor",
     "help_btn": "Help",
     "tutorial_btn": "Tutorial",
+    "more_btn": "More",
     "menu_clear_localization": "Clear Localization",
     "menu_clear_cache": "Clear Cache",
     "menu_import_ini": "Import INI…",
