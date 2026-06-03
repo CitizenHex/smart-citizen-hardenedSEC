@@ -142,7 +142,9 @@ class ConfigTab(QWidget):
 
         button_layout.addStretch()
         tools_layout.addLayout(button_layout)
-        layout.addWidget(self._tools_group)
+        # _tools_group is added to the layout last (see the bottom of this
+        # method) so Tools stays at the bottom of the Config tab, where it sat
+        # before the scroll-area wrap reordered it to the top.
 
         # ── Appearance ───────────────────────────────────────────────────────
         self._appearance_group = QGroupBox(tr("config.appearance_group"))
@@ -423,6 +425,9 @@ class ConfigTab(QWidget):
         layout.addWidget(self._p4k_group)
 
         self._refresh_p4k_status()
+
+        # Tools last, so it sits at the bottom of the Config tab.
+        layout.addWidget(self._tools_group)
 
         layout.addStretch()
 
