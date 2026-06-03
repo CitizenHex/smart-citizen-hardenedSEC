@@ -207,7 +207,8 @@ class EnhancementsGeneratorWorker(QThread):
                  annotate_mission_descs: bool = True,
                  rep_xp_label: str = AppSettings.DEFAULT_REP_XP_LABEL,
                  mission_headers: dict[str, str] | None = None,
-                 mission_header_em_tag: str = AppSettings.DEFAULT_MISSION_HEADER_EM_TAG):
+                 mission_header_em_tag: str = AppSettings.DEFAULT_MISSION_HEADER_EM_TAG,
+                 mission_detail_fields: dict | None = None):
         super().__init__()
         self.categories = categories
         self.tag_configs = tag_configs
@@ -215,6 +216,7 @@ class EnhancementsGeneratorWorker(QThread):
         self.rep_xp_label = rep_xp_label
         self.mission_headers = mission_headers
         self.mission_header_em_tag = mission_header_em_tag
+        self.mission_detail_fields = mission_detail_fields
 
     def run(self):
         import importlib.util
@@ -302,7 +304,8 @@ class EnhancementsGeneratorWorker(QThread):
                      annotate_mission_descs=self.annotate_mission_descs,
                      rep_xp_label=self.rep_xp_label,
                      mission_headers=self.mission_headers,
-                     mission_header_em_tag=self.mission_header_em_tag)
+                     mission_header_em_tag=self.mission_header_em_tag,
+                     mission_detail_fields=self.mission_detail_fields)
             logger.info("Enhancements generation worker: mod.main() completed successfully")
 
             self.finished.emit(True)

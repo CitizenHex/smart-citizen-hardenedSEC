@@ -3445,6 +3445,7 @@ class MainWindow(QMainWindow):
             rep_xp_label=AppSettings.get_rep_xp_label(),
             mission_headers=AppSettings.get_mission_headers(),
             mission_header_em_tag=AppSettings.get_mission_header_em_tag(),
+            mission_detail_fields=AppSettings.get_mission_detail_fields(),
         )
         self.enhancements_tab.set_operation_running("Generating enhancements…")
         self.statusBar().showMessage("Generating enhancements in background…")

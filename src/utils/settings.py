@@ -79,6 +79,19 @@ class AppSettings:
     # Selectable emphasis tags. EM1/EM2 were removed in 1.5.0 — they never
     # render in-game (only EM3 = underline and EM4 = color do). See issue #99.
     MISSION_HEADER_EM_TAGS = ("EM3", "EM4")
+
+    # Mission detail fields (#121): which generated lines appear in a mission
+    # DETAILS body. All default on (the pre-#121 behaviour). Baked at
+    # generation time, so a change takes effect on the next Generate
+    # Enhancements run.
+    MISSION_FIELD_KEYS = ("mission_type", "difficulty", "spawns", "reputation", "blueprints")
+    _MISSION_FIELD_SETTING = {
+        "mission_type": "mission_field/mission_type",
+        "difficulty":   "mission_field/difficulty",
+        "spawns":       "mission_field/spawns",
+        "reputation":   "mission_field/reputation",
+        "blueprints":   "mission_field/blueprints",
+    }
     MISSION_HEADER_DEFAULTS = {
         "details": "MISSION DETAILS",
         "blueprints": "POTENTIAL BLUEPRINTS",
@@ -416,6 +429,27 @@ class AppSettings:
     @staticmethod
     def set_mission_header_em_tag(tag: str) -> None:
         AppSettings.settings().setValue(AppSettings.MISSION_HEADER_EM_TAG, tag)
+
+    @staticmethod
+    def get_mission_detail_fields() -> dict:
+        """Return {field: enabled} for the mission DETAILS body fields (#121).
+
+        Every field defaults to True, so an unconfigured user gets the full
+        body exactly as before. Consumed by the enhancements generator at
+        generation time (passed through the worker into its ctx).
+        """
+        s = AppSettings.settings()
+        return {
+            field: bool(s.value(reg_key, True, type=bool))
+            for field, reg_key in AppSettings._MISSION_FIELD_SETTING.items()
+        }
+
+    @staticmethod
+    def set_mission_detail_field(field: str, enabled: bool) -> None:
+        """Persist one mission-detail field toggle. Unknown keys are ignored."""
+        reg_key = AppSettings._MISSION_FIELD_SETTING.get(field)
+        if reg_key:
+            AppSettings.settings().setValue(reg_key, enabled)
 
     @staticmethod
     def get_tag_config(category: str):

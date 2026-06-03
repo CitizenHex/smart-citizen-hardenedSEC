@@ -4739,6 +4739,13 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     hdr_blueprints    = mh.get("blueprints", _DEFAULT_MISSION_HEADERS["blueprints"])
     hdr_items         = mh.get("items", _DEFAULT_MISSION_HEADERS["items"])
     xml_path_index    = ctx.get("xml_path_index")
+    # #121: per-field show/hide for the mission DETAILS body. Missing or
+    # unknown keys default to True, so an unconfigured run emits the full
+    # body exactly as before.
+    _mdf = ctx.get("mission_detail_fields") or {}
+
+    def _show(_field: str) -> bool:
+        return bool(_mdf.get(_field, True))
     tag_configs       = ctx.get("tag_configs") or {}
     # User toggle (Enhancements tab) for the inline component annotation
     # in mission descriptions. Default True preserves v1.4.0 behavior. When
@@ -4967,27 +4974,30 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
                     desc_seen_tiers.append(tier)
 
             details_lines = []
-            details_lines.append(f"<EM4>Mission Type:</EM4> {', '.join(all_flags) if all_flags else 'Standard'}")
-            if all_difficulties:
+            if _show("mission_type"):
+                details_lines.append(f"<EM4>Mission Type:</EM4> {', '.join(all_flags) if all_flags else 'Standard'}")
+            if _show("difficulty") and all_difficulties:
                 details_lines.append(f"<EM4>Difficulty (1-7):</EM4> {all_difficulties[0]}")
-            details_lines.extend(_format_spawn_lines(agg_spawns))
+            if _show("spawns"):
+                details_lines.extend(_format_spawn_lines(agg_spawns))
             nonzero_tiers = [(s, f, rn) for s, f, rn in desc_seen_tiers if s > 0]
-            if len(nonzero_tiers) == 1:
-                sxp, fxp, rn = nonzero_tiers[0]
-                details_lines.append(_rep_reward_line(rn, f"+{sxp:,}", rep_xp_label))
-                if fxp < 0:
-                    details_lines.append(
-                        _rep_reward_line("Failure Penalty", f"{fxp:,}", rep_xp_label)
-                    )
-            elif len(nonzero_tiers) > 1:
-                for i, (sxp, fxp, rn) in enumerate(sorted(nonzero_tiers, key=lambda t: t[0]), 1):
-                    line = _rep_reward_line(rn if rn else f"Tier {i}", f"+{sxp:,}", rep_xp_label)
+            if _show("reputation"):
+                if len(nonzero_tiers) == 1:
+                    sxp, fxp, rn = nonzero_tiers[0]
+                    details_lines.append(_rep_reward_line(rn, f"+{sxp:,}", rep_xp_label))
                     if fxp < 0:
-                        line += f" (Failure: {fxp:,})"
-                    details_lines.append(line)
+                        details_lines.append(
+                            _rep_reward_line("Failure Penalty", f"{fxp:,}", rep_xp_label)
+                        )
+                elif len(nonzero_tiers) > 1:
+                    for i, (sxp, fxp, rn) in enumerate(sorted(nonzero_tiers, key=lambda t: t[0]), 1):
+                        line = _rep_reward_line(rn if rn else f"Tier {i}", f"+{sxp:,}", rep_xp_label)
+                        if fxp < 0:
+                            line += f" (Failure: {fxp:,})"
+                        details_lines.append(line)
 
             sections: list[str] = [base_desc]
-            if any_variant_has_bp and has_blueprints:
+            if any_variant_has_bp and has_blueprints and _show("blueprints"):
                 chance_pct = int(variant_bp_chance * 100)
                 if all_variants_have_bp:
                     bp_header = (
@@ -5054,7 +5064,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             if details_block:
                 sections.append(f"<{mh_em}>{hdr_details}</{mh_em}>\\n{details_block}")
 
-            if any_variant_has_bp and has_blueprints and not all_variants_have_bp:
+            if any_variant_has_bp and has_blueprints and not all_variants_have_bp and _show("blueprints"):
                 if bp_variant_names:
                     quoted = ", ".join(bp_variant_names)
                     if len(bp_variant_names) == 1:
@@ -5226,7 +5236,8 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
          annotate_mission_descs: bool = True,
          rep_xp_label: str = _DEFAULT_REP_XP_LABEL,
          mission_headers: dict[str, str] | None = None,
-         mission_header_em_tag: str = _DEFAULT_MISSION_HEADER_EM_TAG) -> None:
+         mission_header_em_tag: str = _DEFAULT_MISSION_HEADER_EM_TAG,
+         mission_detail_fields: dict | None = None) -> None:
     import sys as sys_mod
     # Deferred import — the script is loaded by both the app worker (where
     # src.utils is on the path) and as a standalone CLI, so we swallow an
@@ -5484,6 +5495,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         "rep_xp_label":      rep_xp_label or _DEFAULT_REP_XP_LABEL,
         "mission_headers":   mission_headers or dict(_DEFAULT_MISSION_HEADERS),
         "mission_header_em": mission_header_em_tag or _DEFAULT_MISSION_HEADER_EM_TAG,
+        "mission_detail_fields": mission_detail_fields or {},
     }
 
     gen_jobs: dict[str, Callable] = {}

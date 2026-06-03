@@ -151,6 +151,51 @@ class EnhancementsTab(QWidget):
         categories_layout.setColumnStretch(3, 1)
         gl.addLayout(categories_layout)
 
+        # ── Mission detail fields (#121) ───────────────────────────────────
+        # Granular show/hide for each line the generator adds to a mission
+        # DETAILS body. Persisted on toggle; baked at generation time, so a
+        # change takes effect on the next Generate Enhancements run. Labels are
+        # hardcoded English to match the sibling Mission Labels group.
+        mf_heading = QLabel("Mission detail fields:")
+        mf_heading.setStyleSheet("font-size: 11px; font-weight: bold;")
+        gl.addWidget(mf_heading)
+
+        _MISSION_FIELD_LABELS = [
+            ("mission_type", "Mission Type"),
+            ("difficulty",   "Difficulty"),
+            ("spawns",       "Spawns"),
+            ("reputation",   "Reputation"),
+            ("blueprints",   "Blueprints"),
+        ]
+        self._mission_field_checkboxes: dict = {}
+        _mf_saved = AppSettings.get_mission_detail_fields()
+        mf_row = QHBoxLayout()
+        mf_row.setContentsMargins(0, 0, 0, 0)
+        for _field, _label in _MISSION_FIELD_LABELS:
+            cb = QCheckBox(_label)
+            cb.setChecked(_mf_saved.get(_field, True))
+            cb.setStyleSheet("font-size: 11px;")
+            cb.setToolTip(
+                f"Show the {_label} line in generated mission bodies. "
+                "Takes effect on the next Generate Enhancements."
+            )
+            cb.toggled.connect(
+                lambda checked, f=_field: self._on_mission_field_toggled(f, checked)
+            )
+            mf_row.addWidget(cb)
+            self._mission_field_checkboxes[_field] = cb
+        mf_row.addStretch()
+        gl.addLayout(mf_row)
+
+        mf_note = QLabel(
+            "Unchecked fields are left out of mission descriptions. "
+            "Applies on the next Generate Enhancements."
+        )
+        mf_note.setProperty("role", "secondary")
+        mf_note.setStyleSheet("font-size: 10px;")
+        mf_note.setWordWrap(True)
+        gl.addWidget(mf_note)
+
         btn_row = QHBoxLayout()
 
         self._apply_categories_btn = QPushButton(tr("enhancements.apply_btn"))
@@ -234,6 +279,11 @@ class EnhancementsTab(QWidget):
             cb.setChecked(AppSettings.get_enhancement_category_enabled(key))
             cb.blockSignals(False)
         self._apply_categories_btn.setEnabled(False)
+
+    def _on_mission_field_toggled(self, field: str, checked: bool) -> None:
+        """Persist a mission-detail field toggle (#121). Baked at generation
+        time, so the change shows up after the next Generate Enhancements."""
+        AppSettings.set_mission_detail_field(field, checked)
 
     # ── Favorites ─────────────────────────────────────────────────────────────
 
