@@ -1,10 +1,10 @@
 ---
-description: Pre-release sanity check before merging release/X.Y.Z to main — runs quality checks, security review, and contributor-acknowledgement audit
+description: Pre-release sanity check before merging release/X.Y.Z to main — runs quality checks, security review, and a contributor + tester acknowledgement audit
 ---
 
 # /pre_release
 
-Run before merging the active `release/X.Y.Z` integration branch to `main`. This is the final gate before the release ships — it confirms code quality, doc currency, test coverage, and that every code contributor is acknowledged in the project's in-app About and the README.
+Run before merging the active `release/X.Y.Z` integration branch to `main`. This is the final gate before the release ships — it confirms code quality, doc currency, test coverage, that every code contributor is acknowledged in the project's in-app About and the README, and that frequent issue reporters are recognized as testers.
 
 Work through every step in order. After each step, stop at the **CHECKPOINT** and wait for the user before continuing.
 
@@ -40,11 +40,11 @@ Run `/security-review` on the pending changes. Present findings grouped by sever
 
 **CHECKPOINT — ready for the contributor audit?** Wait for the user.
 
-## 5. Contributor acknowledgement audit
+## 5. Contributor & tester acknowledgement audit
 
-Verify every code contributor is acknowledged in `docs/ABOUT.md` and `README.md`.
+Verify every code contributor is acknowledged in `docs/ABOUT.md` and `README.md`, and surface frequent issue reporters who should be recognized as testers.
 
-### 4a. Build the contributor list
+### 5a. Build the contributor list
 
 Pull every author who has committed code:
 
@@ -66,16 +66,16 @@ gh api "repos/Osiris-DevWorks/smart-citizen/contributors" --paginate --jq '.[] |
 
 Normalize: when a person has committed under multiple display-name/email combinations, merge them into one entry. If unsure, surface the duplicates and let the user decide.
 
-### 4b. Pull the current acknowledgement set
+### 5b. Pull the current acknowledgement set
 
 Read both:
 
-- `docs/ABOUT.md` — the in-app About panel content. Find the **Acknowledgments** section (or equivalent — section names may vary; look for headers containing "Acknowledg", "Credits", "Thanks").
-- `README.md` — the `## Acknowledgments` section (and any `### Supporters` subsection).
+- `docs/ABOUT.md` — the in-app About panel content. Find the **Contributors** section, the **Acknowledgements** section (the tester list lives here — look for headers containing "Acknowledg", "Credits", "Thanks"), and any **Supporters** subsection.
+- `README.md` — the `## Contributors` section, the `## Acknowledgments` section (testers are listed here too), and any `### Supporters` subsection.
 
-Build a normalized set of names. Match against the contributor list using both display name and GitHub login where known.
+Build two normalized sets: **acknowledged contributors** (the Contributors list) and **acknowledged testers** (the names in the Acknowledgements/testers list). Match against the people lists using both display name and GitHub login where known.
 
-### 4c. Categorize each missing contributor
+### 5c. Categorize each missing contributor
 
 For every contributor not currently acknowledged in **both** files (ABOUT.md and README.md):
 
@@ -85,9 +85,33 @@ For every contributor not currently acknowledged in **both** files (ABOUT.md and
   - **Substantial code contributor**: ≥3 commits OR touched non-trivial source files (anything under `src/`, `scripts/`, or `tests/`).
   - **Drive-by fixer**: 1–2 commits, only trivial files (README typo, comment fix, whitespace).
 
-### 4d. Report
+### 5d. Tester candidates from issue reporters
 
-Group missing contributors by significance:
+Frequent issue reporters who aren't developers are the people testing the app in the wild. Surface them so they can be acknowledged as testers (and invited to the tester group).
+
+Count how many issues each person has reported (issues only — `gh issue list` excludes PRs by default):
+
+```bash
+gh issue list --state all --limit 1000 --json number,author --jq '.[].author.login' | sort | uniq -c | sort -rn
+```
+
+**Attribution wrinkle — read before trusting the counts.** Many issues are mirrored from Discord under a single bot author (e.g. `discohub-discord-bot` / an `app/*` login). For those, the real reporter is named in the issue body, not the `author` field (e.g. "**Narull** ([Discord](...))"). Where the author is a sync bot, read the bodies and attribute each report to the human named inside, counting by that human. Pull bodies with:
+
+```bash
+gh issue list --state all --limit 1000 --json number,author,title,body --jq '.[] | select(.author.login | test("bot|^app/")) | "\(.number)\t\(.body[0:120])"'
+```
+
+Flag every person with **3 or more** reported issues as a **candidate tester**, then filter out:
+- The repo owner / maintainer (`Osiris-DevWorks`).
+- Bot accounts themselves (`*[bot]`, `app/*`) — they are the transport, not a reporter.
+- **Anyone who is also a code contributor** (appears in the 5a contributor list, by login or known identity). Developers are credited under **Contributors**, not Testers — never list the same person as both.
+- Anyone already in the tester acknowledgement set from 5b.
+
+If a report can't be confidently attributed to a named human, list it as unattributed rather than guessing a count.
+
+### 5e. Report
+
+Group missing **contributors** by significance:
 
 ```
 **Missing — substantial contributors** (suggest adding):
@@ -103,13 +127,25 @@ Group missing contributors by significance:
 **Already acknowledged in both** (sanity-check): N contributors covered.
 ```
 
-End with a one-line **verdict**:
+Then list **tester candidates** (≥3 issues, not developers, not already credited):
+
+```
+**Tester candidates** (≥3 reported issues, not code contributors):
+  Narull — 5 issues reported (via Discord sync)
+  SomeReporter (@somereporter) — 3 issues reported
+
+**Excluded as developers** (reported 3+ but credited under Contributors): <list if any>
+```
+
+End with a one-line **verdict** (driven by the contributor side; tester candidates are advisory and never block a release):
 
 - **Clean** — every substantial contributor is acknowledged in both files.
 - **Minor issues** — only drive-by fixers missing, or only single-file drift (acknowledged in one but not the other).
 - **Needs attention** — substantial contributors missing.
 
-**CHECKPOINT — pause and ask the user whether to draft acknowledgement additions to `docs/ABOUT.md` and `README.md` (mirrored in both so they stay in sync), or move on.** Do not edit either file without confirmation.
+Add a second line if there are tester candidates: *"Tester candidates to consider: N"* (advisory only).
+
+**CHECKPOINT — pause and ask the user whether to draft additions to `docs/ABOUT.md` and `README.md`** (mirrored in both so they stay in sync): contributor names into the **Contributors** section, and any approved tester candidates into the **Acknowledgements** tester list. Do not edit either file without confirmation.
 
 ## Final summary
 
