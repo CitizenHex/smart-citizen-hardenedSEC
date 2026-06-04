@@ -2502,6 +2502,18 @@ class MainWindow(QMainWindow):
             if not title or not description:
                 logger.warning(f"Tutorial step {step_id!r} missing title/description; skipped")
                 continue
+            # Language overlay (#30): a translation may carry this step's copy
+            # under tutorial.<id>.title / .description in its ui.json. tr()
+            # returns the bare key on a miss, so absent keys keep the English
+            # copy from this file (English ui.json has no tutorial section).
+            t_key = f"tutorial.{step_id}.title"
+            d_key = f"tutorial.{step_id}.description"
+            translated_title = tr(t_key)
+            if translated_title != t_key:
+                title = translated_title
+            translated_desc = tr(d_key)
+            if translated_desc != d_key:
+                description = translated_desc
             steps.append(CoachMarkStep(
                 target=w["target"],
                 title=title,

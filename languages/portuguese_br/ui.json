@@ -26,7 +26,8 @@
     "menu_clear_localization": "Limpar Localização",
     "menu_clear_cache": "Limpar Cache",
     "menu_import_ini": "Importar INI…",
-    "menu_export_ini": "Exportar INI…"
+    "menu_export_ini": "Exportar INI…",
+    "more_btn": "Mais"
   },
   "filters": {
     "category_label": "Categoria:",
@@ -51,7 +52,9 @@
     "col_custom_value": "Valor Personalizado",
     "col_status": "Status",
     "no_data": "Nenhum dado carregado",
-    "preview_placeholder": "Selecione uma linha para visualizar o texto renderizado."
+    "preview_placeholder": "Selecione uma linha para visualizar o texto renderizado.",
+    "context_underline": "Sublinhar",
+    "context_highlight": "Destacar"
   },
   "config": {
     "title": "Configuração",
@@ -102,7 +105,16 @@
     "preview_title": "Aplicar Pré-visualização",
     "preview_header": "Aplicar Pré-visualização\n\nOrdem de Mesclagem (de cima para baixo):\n",
     "preview_total": "\nTotal de Chaves: {count:,}\nDetalhamento por Status:\n",
-    "no_sources_warning": "Não há fontes disponíveis para mesclar."
+    "no_sources_warning": "Não há fontes disponíveis para mesclar.",
+    "map_language_btn": "Mapear Arquivo de Idioma",
+    "map_language_title": "Mapear Arquivo de Idioma",
+    "map_language_desc": "Defina uma URL para o global.ini de cada idioma. Ao trocar para esse idioma, o Smart Citizen o baixa e o usa como strings base, em vez da extração em inglês do Data.p4k. O download fica em cache por idioma e só é baixado novamente quando houver alterações. Deixe um campo em branco para usar o padrão incluído (se houver).",
+    "migrate_data_title": "Mover Seus Dados?",
+    "migrate_data_body": "Mover seus dados existentes do Smart Citizen (personalizações, backups, strings em cache) de\n\n{old_dir}\n\npara a nova pasta\n\n{new_dir}?\n\nOs arquivos que já estão na nova pasta são mantidos. A pasta antiga será limpa após a mudança.",
+    "migrate_data_done_title": "Dados Movidos",
+    "migrate_data_done_body": "{count} arquivo(s) movido(s) para a nova pasta de dados.",
+    "migrate_data_failed_title": "Falha na Migração",
+    "migrate_data_failed_body": "Não foi possível migrar seus dados:\n{error}"
   },
   "enhancements": {
     "title": "Aprimoramentos",
@@ -219,7 +231,20 @@
     "no_sources_body": "Nenhuma fonte de dados configurada. Configure as fontes de dados na aba “Config”.",
     "merge_failed": "Falha na Mesclagem",
     "merging_sources": "Mesclando fontes...",
-    "language_changed_status": "Idioma alterado para {language} — recarregando fontes…"
+    "language_changed_status": "Idioma alterado para {language} — recarregando fontes…",
+    "language_downloading": "Baixando a localização {language}…",
+    "language_no_url": "Nenhuma URL de download definida para {language}; exibindo a base em inglês. Use “Mapear Arquivo de Idioma” para definir uma.",
+    "language_download_failed": "Não foi possível baixar a localização {language}, e nenhuma cópia em cache foi encontrada. Exibindo a base em inglês. Verifique a URL em “Mapear Arquivo de Idioma” e sua conexão, e tente novamente.",
+    "language_generating_enhancements": "Gerando aprimoramentos {language} a partir do DataForge…",
+    "file_not_found_title": "Arquivo Não Encontrado",
+    "file_not_found_body": "O arquivo não existe:\n{path}",
+    "empty_file_title": "Arquivo Vazio",
+    "empty_file_body": "O arquivo importado não contém entradas chave=valor válidas.",
+    "copy_filtered_title": "Copiar Filtrados",
+    "copy_filtered_empty": "Nenhuma linha para copiar.",
+    "copy_filtered_done": "{count} linhas copiadas para a área de transferência.",
+    "copy_error_title": "Erro ao Copiar",
+    "copy_error_body": "Falha ao copiar para a área de transferência: {error}"
   },
   "status_bar": {
     "update_checking": "Verificando",
@@ -229,5 +254,79 @@
     "update_indicator_available": "v{current} · atualização disponível",
     "update_indicator_up_to_date": "v{current} · atualizado",
     "update_indicator_failed": "v{current} · falha na verificação"
+  },
+  "tutorial": {
+    "welcome": {
+      "title": "Bem-vindo ao Smart Citizen",
+      "description": "Este tour rápido apresenta o fluxo principal: personalizar strings e aplicar o resultado de volta ao Star Citizen. Muitas dessas etapas são executadas automaticamente, mas também podem ser feitas manualmente se necessário. Você pode pular a qualquer momento."
+    },
+    "extract": {
+      "title": "1. Extrair do Data.p4k",
+      "description": "Clicar em Extrair descompacta o arquivo de localização original do jogo instalado. O app deve sugerir essa extração quando seu arquivo ficar desatualizado após um patch; se não sugerir, você sempre pode executá-la manualmente. As strings recarregam na tabela automaticamente quando a extração termina."
+    },
+    "enhancements": {
+      "title": "2. Aprimoramentos",
+      "description": "Opcional, mas recomendado: a aba Aprimoramentos ativa sobreposições de estatísticas para naves, componentes, armas, blueprints/recompensas de missão e fabricação de commodities. Gerar Aprimoramentos executa o processo que produz essas sobreposições a partir dos dados extraídos. As próximas etapas percorrem as seções desta aba."
+    },
+    "enh_categories": {
+      "title": "3. Aprimoramentos: Categorias",
+      "description": "Escolha quais categorias de aprimoramento são executadas ao Gerar. Naves, componentes, armas de nave, armas de FPS, missões e fabricação de commodities podem ser ativadas de forma independente."
+    },
+    "enh_favorites": {
+      "title": "4. Aprimoramentos: Favoritos",
+      "description": "Escolha o caractere de prefixo adicionado aos nomes das naves favoritas para que elas apareçam no topo do terminal ASOP no jogo. O padrão é *."
+    },
+    "enh_mission_labels": {
+      "title": "5. Aprimoramentos: Rótulos de Missão",
+      "description": "Personalize os cabeçalhos de seção (MISSION DETAILS / POTENTIAL BLUEPRINTS / ITEM REWARDS / BLUEPRINT DATA), o rótulo de XP exibido em missões sem um rank de reputação específico (padrão Rep) e a tag de ênfase (EM3 = sublinhado, EM4 = cor) dos cabeçalhos."
+    },
+    "enh_tag_builder": {
+      "title": "6. Aprimoramentos: Criador de Tags",
+      "description": "Monte as tags entre colchetes adicionadas aos nomes de componentes, mísseis, armas de nave e commodities. Reordene os elementos com ▲/▼, desmarque para excluir, mude o tamanho das abreviações, escolha o separador e os colchetes, ou coloque a tag depois do nome em vez de antes."
+    },
+    "edit": {
+      "title": "7. Editar strings",
+      "description": "Cada linha é um registro de localização. Dê um duplo clique em uma célula da coluna Valor Personalizado para editar; suas alterações são salvas automaticamente. A coluna ★ marca naves como favoritas para que elas subam ao topo do ASOP."
+    },
+    "filter_row": {
+      "title": "8. Filtrar por coluna",
+      "description": "A fileira de caixas de busca sob os cabeçalhos filtra a tabela enquanto você digita. Cada caixa atua na própria coluna (Chave, Valor Padrão, Valor Atual, Valor Personalizado); filtros de colunas diferentes se combinam com E. Clique no × dentro de uma caixa para limpá-la."
+    },
+    "editor": {
+      "title": "9. Painel do Editor",
+      "description": "Para strings mais longas, clique em Editor para abrir uma área de edição acoplada na lateral, com mais espaço. O painel acompanha a linha selecionada; clique com o botão direito no texto selecionado para aplicar Sublinhar / Destacar. Arraste a barra de título para desacoplá-lo em uma janela flutuante."
+    },
+    "preview": {
+      "title": "10. Painel de Pré-visualização",
+      "description": "Sempre que você seleciona uma linha, este painel à direita mostra o texto renderizado do valor atual."
+    },
+    "apply": {
+      "title": "11. Aplicar ao Jogo",
+      "description": "Aplicar grava o resultado mesclado no global.ini do jogo. Um backup com data e hora do global.ini atual é criado antes (até 5 são mantidos, restauráveis em Restaurar Backup)."
+    },
+    "cfg_appearance": {
+      "title": "12. Config: Aparência",
+      "description": "Escolha o tema do app (Padrão / Claro / Escuro / ODW) e, se quiser, desative o tour automático a cada nova versão."
+    },
+    "cfg_sc_install": {
+      "title": "13. Config: Instalação do Star Citizen",
+      "description": "Caminho para a raiz da instalação do Star Citizen (o diretório que contém LIVE, PTU, EPTU, etc.). Detectado automaticamente na instalação; edite aqui se o jogo estiver em outro lugar. O menu Canal escolhe qual canal o app lê e grava, e o menu Idioma troca tanto a interface do app quanto as strings do jogo."
+    },
+    "cfg_data_folder": {
+      "title": "14. Config: Dados do Smart Citizen",
+      "description": "Onde ficam o user.ini, os caches, a extração do DataForge, os INI de aprimoramento gerados e os backups. O padrão é Documents\\Smart Citizen; mova para fora do OneDrive se a extração ou a limpeza do cache estiver lenta."
+    },
+    "cfg_p4k_extraction": {
+      "title": "15. Config: Localização Base",
+      "description": "O botão Extrair do Data.p4k fica aqui. Esta é a única fonte das strings base e dos dados de aprimoramento; execute novamente após cada patch do jogo para atualizar."
+    },
+    "cfg_tools": {
+      "title": "16. Config: Ferramentas",
+      "description": "Importe um INI externo para suas personalizações pela caixa de resolução de conflitos, ou redefina seu user.ini do canal ativo (com backup automático antes de limpar)."
+    },
+    "help": {
+      "title": "17. Ajuda e feedback",
+      "description": "O botão Ajuda abre um painel lateral com o guia completo, a lista de Problemas Conhecidos e um link para o canal do Smart Citizen no Discord. Isso é tudo o que você precisa para começar: boa sorte, cidadão."
+    }
   }
 }

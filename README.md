@@ -10,7 +10,8 @@ A Windows desktop app for customizing Star Citizen's localization strings. Layer
 ## Features
 
 - **Multi-Channel Star Citizen Support**: LIVE / PTU / EPTU / HOTFIX / TECH-PREVIEW each get their own isolated workspace — independent `user.ini`, cache, backups, DataForge extraction, and enhancement INIs. Switch channels from the Config tab without restarting.
-- **Multi-Source Merge System**: Configurable sources (stock, contracts, components, ships, commodities, gear, user) merge in a drag-and-drop priority order, with user overrides always applied last so your edits never get overwritten.
+- **Multi-Language Support**: Switch the app and game strings between English, French, and Brazilian Portuguese from the Config tab. Non-English languages layer a community-translated `global.ini` (from [Dymerz/StarCitizen-Localization](https://github.com/Dymerz/StarCitizen-Localization)) over the English base, with English fallback for anything untranslated.
+- **Multi-Source Merge System**: Sources (stock base, language overlay, enhancements, user) merge in a drag-and-drop priority order, with user overrides always applied last so your edits never get overwritten.
 - **Sourced from Data.p4k**: All stock localization and DataForge entity data is extracted directly from your installed game — no community mirrors, no version drift, no network required after install.
 - **Inline Editing & Live Preview**: Double-click any cell in the *Custom Value* column to edit. A preview pane next to the toolbar renders the selected string with the game's loc-tokens (line breaks, EM3/EM4 emphasis, mission placeholders) translated to styled HTML so you see roughly how it will appear in-game.
 - **Persistent Edits**: Your customizations are saved to `user.ini` per channel and automatically re-applied across game updates.
@@ -99,6 +100,7 @@ All settings are stored in Windows Registry under:
 The Config tab lets you set:
 - **Star Citizen install path** (the SC root folder containing `LIVE/`, `PTU/`, etc. — auto-detected at install time)
 - **Active channel** (LIVE / PTU / EPTU / HOTFIX / TECH-PREVIEW)
+- **Language** (English, French, Brazilian Portuguese; switches the app UI and the game strings)
 - **Smart Citizen data folder** (where `user.ini`, cache, DataForge extraction, enhancement INIs, and backups live)
 - **Theme**
 - **Data sources**: enable/disable, drag-drop merge priority
@@ -176,8 +178,8 @@ StarCitizen/
     ├── user.cfg
     └── data/
         └── Localization/
-            └── english/
-                └── global.ini
+            └── english/     (or the selected language's folder,
+                └── global.ini   e.g. french_(france)/)
 ```
 
 ## Legal
@@ -204,6 +206,7 @@ Thanks to those who've contributed code to Smart Citizen:
 
 - **Boogie Man, Tichro, Perseus, Flat Earth, Lord Valium** — testers who helped shape Smart Citizen across the 0.x cycle
 - [**dolkensp/unp4k**](https://github.com/dolkensp/unp4k) — Bundled `unp4k.exe` / `unforge.exe` used to unpack `Data.p4k` and convert DataForge to XML
+- [**Dymerz/StarCitizen-Localization**](https://github.com/Dymerz/StarCitizen-Localization) — Community-maintained `global.ini` translations that power the non-English language options
 - [**ExoAE**](https://github.com/ExoAE/ScCompLangPack) — Original ScCompLangPack concept and merge logic that inspired Smart Citizen's foundation
 - [**MrKraken**](https://github.com/MrKraken/StarStrings) — ASOP terminal enhancements, workflow improvements, and mission contract localization work
 - The **Star Citizen community** — for endless feedback, testing, and ideas

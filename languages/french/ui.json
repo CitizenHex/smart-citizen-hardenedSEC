@@ -26,7 +26,8 @@
     "menu_clear_localization": "Effacer la localisation",
     "menu_clear_cache": "Vider le cache",
     "menu_import_ini": "Importer un INI…",
-    "menu_export_ini": "Exporter un INI…"
+    "menu_export_ini": "Exporter un INI…",
+    "more_btn": "Plus"
   },
   "filters": {
     "category_label": "Catégorie :",
@@ -51,7 +52,9 @@
     "col_custom_value": "Valeur personnalisée",
     "col_status": "Statut",
     "no_data": "Aucune donnée chargée",
-    "preview_placeholder": "Sélectionnez une ligne pour prévisualiser son texte."
+    "preview_placeholder": "Sélectionnez une ligne pour prévisualiser son texte.",
+    "context_underline": "Souligner",
+    "context_highlight": "Surligner"
   },
   "config": {
     "title": "Paramètres",
@@ -102,7 +105,16 @@
     "preview_title": "Aperçu de l'application",
     "preview_header": "Aperçu de l'application\n\nOrdre de fusion (de haut en bas) :\n",
     "preview_total": "\nNombre total de clés : {count:,}\nRépartition par statut :\n",
-    "no_sources_warning": "Aucune source disponible pour la fusion."
+    "no_sources_warning": "Aucune source disponible pour la fusion.",
+    "map_language_btn": "Associer un fichier de langue",
+    "map_language_title": "Associer un fichier de langue",
+    "map_language_desc": "Définissez une URL vers le fichier global.ini de chaque langue. Lorsque vous passez à cette langue, Smart Citizen le télécharge et l'utilise comme textes de base, à la place de l'extraction anglaise du Data.p4k. Le téléchargement est mis en cache par langue et n'est retéléchargé que s'il a changé. Laissez un champ vide pour utiliser la valeur par défaut intégrée (le cas échéant).",
+    "migrate_data_title": "Déplacer vos données ?",
+    "migrate_data_body": "Déplacer vos données Smart Citizen existantes (modifications, sauvegardes, textes en cache) de\n\n{old_dir}\n\nvers le nouveau dossier\n\n{new_dir} ?\n\nLes fichiers déjà présents dans le nouveau dossier sont conservés. L'ancien dossier sera nettoyé après le déplacement.",
+    "migrate_data_done_title": "Données déplacées",
+    "migrate_data_done_body": "{count} fichier(s) déplacé(s) vers le nouveau dossier de données.",
+    "migrate_data_failed_title": "Échec de la migration",
+    "migrate_data_failed_body": "Impossible de migrer vos données :\n{error}"
   },
   "enhancements": {
     "title": "Enrichissements",
@@ -219,7 +231,20 @@
     "no_sources_body": "Aucune source configurée. Veuillez configurer les sources de données dans l'onglet Paramètres.",
     "merge_failed": "Échec de la fusion",
     "merging_sources": "Fusion des sources...",
-    "language_changed_status": "Langue changée en {language} — rechargement des sources…"
+    "language_changed_status": "Langue changée en {language} — rechargement des sources…",
+    "language_downloading": "Téléchargement de la localisation {language}…",
+    "language_no_url": "Aucune URL de téléchargement définie pour {language} ; les textes anglais de base sont affichés. Utilisez « Associer un fichier de langue » pour en définir une.",
+    "language_download_failed": "Impossible de télécharger la localisation {language}, et aucune copie en cache n'a été trouvée. Les textes anglais de base sont affichés à la place. Vérifiez l'URL dans « Associer un fichier de langue » ainsi que votre connexion, puis réessayez.",
+    "language_generating_enhancements": "Génération des enrichissements {language} depuis DataForge…",
+    "file_not_found_title": "Fichier introuvable",
+    "file_not_found_body": "Le fichier n'existe pas :\n{path}",
+    "empty_file_title": "Fichier vide",
+    "empty_file_body": "Le fichier importé ne contient aucune entrée clé=valeur valide.",
+    "copy_filtered_title": "Copier les résultats filtrés",
+    "copy_filtered_empty": "Aucune ligne à copier.",
+    "copy_filtered_done": "{count} lignes copiées dans le presse-papiers.",
+    "copy_error_title": "Erreur de copie",
+    "copy_error_body": "Échec de la copie vers le presse-papiers : {error}"
   },
   "status_bar": {
     "update_checking": "Vérification…",
@@ -229,6 +254,80 @@
     "update_indicator_available": "v{current} · mise à jour disponible",
     "update_indicator_up_to_date": "v{current} · à jour",
     "update_indicator_failed": "v{current} · vérification échouée"
+  },
+  "tutorial": {
+    "welcome": {
+      "title": "Bienvenue dans Smart Citizen",
+      "description": "Cette visite rapide présente le déroulement type : personnaliser les textes puis appliquer le résultat à Star Citizen. La plupart de ces étapes s'exécutent automatiquement, mais elles peuvent aussi être lancées manuellement si besoin. Vous pouvez passer la visite à tout moment."
+    },
+    "extract": {
+      "title": "1. Extraire depuis Data.p4k",
+      "description": "Cliquer sur Extraire décompresse le fichier de localisation d'origine de votre jeu installé. L'application vous proposera de relancer l'extraction si votre fichier devient obsolète après un patch ; sinon, vous pouvez toujours la lancer manuellement. Les textes se rechargent automatiquement dans le tableau une fois l'extraction terminée."
+    },
+    "enhancements": {
+      "title": "2. Enrichissements",
+      "description": "Optionnel mais recommandé : l'onglet Enrichissements active des surcouches de statistiques pour les vaisseaux, composants, armes, plans et récompenses de mission, et la fabrication de marchandises. Générer les enrichissements lance le pipeline qui produit ces surcouches à partir de vos données extraites. Les étapes suivantes parcourent les différentes sections de cet onglet."
+    },
+    "enh_categories": {
+      "title": "3. Enrichissements : Catégories",
+      "description": "Choisissez les catégories d'enrichissements exécutées lors de la génération. Vaisseaux, composants, armes de vaisseau, armes FPS, missions et fabrication de marchandises peuvent être activés indépendamment."
+    },
+    "enh_favorites": {
+      "title": "4. Enrichissements : Favoris",
+      "description": "Choisissez le caractère ajouté en préfixe aux noms des vaisseaux favoris afin qu'ils apparaissent en tête du terminal ASOP en jeu. Par défaut : *."
+    },
+    "enh_mission_labels": {
+      "title": "5. Enrichissements : Étiquettes de mission",
+      "description": "Personnalisez les en-têtes de section (MISSION DETAILS / POTENTIAL BLUEPRINTS / ITEM REWARDS / BLUEPRINT DATA), le libellé d'XP affiché sur les missions sans rang de réputation spécifique (par défaut Rep), et la balise d'emphase (EM3 = souligné, EM4 = couleur) des en-têtes."
+    },
+    "enh_tag_builder": {
+      "title": "6. Enrichissements : Générateur d'étiquettes",
+      "description": "Composez les balises entre crochets ajoutées aux noms des composants, missiles, armes de vaisseau et marchandises. Réordonnez les éléments avec ▲/▼, décochez pour exclure, changez la longueur des abréviations, choisissez le séparateur et les crochets, ou placez la balise après le nom plutôt qu'avant."
+    },
+    "edit": {
+      "title": "7. Modifier les textes",
+      "description": "Chaque ligne correspond à un enregistrement de localisation. Double-cliquez sur une cellule de la colonne Valeur personnalisée pour la modifier : vos changements sont enregistrés automatiquement. La colonne ★ marque les vaisseaux favoris afin qu'ils remontent en tête de l'ASOP."
+    },
+    "filter_row": {
+      "title": "8. Filtrer par colonne",
+      "description": "La rangée de champs de recherche sous les en-têtes de colonnes filtre le tableau au fil de la saisie. Chaque champ porte sur sa propre colonne (Clé, Valeur par défaut, Valeur actuelle, Valeur personnalisée) ; les filtres de plusieurs colonnes se combinent en ET. Cliquez sur le × dans un champ pour l'effacer."
+    },
+    "editor": {
+      "title": "9. Panneau d'édition",
+      "description": "Pour les textes longs, cliquez sur Éditeur pour ouvrir un canevas d'édition ancré sur le côté, avec plus d'espace. Le panneau suit la ligne sélectionnée ; faites un clic droit sur le texte sélectionné pour appliquer Souligner / Surligner. Faites glisser la barre de titre pour le détacher dans une fenêtre flottante."
+    },
+    "preview": {
+      "title": "10. Panneau d'aperçu",
+      "description": "Lorsque vous sélectionnez une ligne, ce panneau à droite affiche le rendu du texte de sa valeur actuelle."
+    },
+    "apply": {
+      "title": "11. Appliquer au jeu",
+      "description": "Appliquer écrit le résultat fusionné dans le fichier global.ini du jeu. Une sauvegarde horodatée du global.ini actuel est d'abord créée (jusqu'à 5 sont conservées, restaurables via Restaurer une sauvegarde)."
+    },
+    "cfg_appearance": {
+      "title": "12. Paramètres : Apparence",
+      "description": "Choisissez le thème de l'application (Défaut / Clair / Sombre / ODW) et désactivez si vous le souhaitez la visite automatique à chaque nouvelle version."
+    },
+    "cfg_sc_install": {
+      "title": "13. Paramètres : Installation de Star Citizen",
+      "description": "Chemin vers le dossier racine de votre installation Star Citizen (le dossier contenant LIVE, PTU, EPTU, etc.). Détecté automatiquement à l'installation ; modifiez-le ici si votre jeu se trouve ailleurs. Le menu Canal choisit le canal que l'application lit et écrit, et le menu Langue change à la fois l'interface de l'application et les textes du jeu."
+    },
+    "cfg_data_folder": {
+      "title": "14. Paramètres : Données Smart Citizen",
+      "description": "Emplacement de user.ini, des caches, de l'extraction DataForge, des INI d'enrichissements générés et des sauvegardes. Par défaut : Documents\\Smart Citizen ; déplacez-le hors de OneDrive si l'extraction ou le nettoyage du cache est lent."
+    },
+    "cfg_p4k_extraction": {
+      "title": "15. Paramètres : Localisation de base",
+      "description": "Le bouton Extraire depuis Data.p4k se trouve ici. C'est l'unique source des textes de base et des données d'enrichissements ; relancez-le après chaque patch du jeu pour actualiser."
+    },
+    "cfg_tools": {
+      "title": "16. Paramètres : Outils",
+      "description": "Importez un INI externe dans vos modifications via la boîte de dialogue de résolution de conflits, ou réinitialisez votre user.ini pour le canal actif (sauvegardé automatiquement avant l'effacement)."
+    },
+    "help": {
+      "title": "17. Aide et retours",
+      "description": "Le bouton Aide ouvre un panneau latéral avec le guide complet, la liste des problèmes connus et un lien vers le canal Discord de Smart Citizen pour vos retours. Vous avez tout ce qu'il faut pour démarrer : bonne chance, citoyen."
+    }
   },
   "_comment": "Traductions de l'interface utilisateur en français. N'inclue que les clés qui diffèrent de celles de la version anglaise. Les clés manquantes sont automatiquement remplacées par celles du fichier ui.json anglais."
 }

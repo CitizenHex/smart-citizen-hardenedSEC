@@ -48,11 +48,16 @@ Smart Citizen also bundles upstream tooling from:
 
 - [**Osiris-DevWorks/odw-fast-unp4k**](https://github.com/Osiris-DevWorks/odw-fast-unp4k) — `unp4k.exe` and `unforge.exe`, used to unpack `Data.p4k` and convert DataForge to XML. This is our fork of the original [**dolkensp/unp4k**](https://github.com/dolkensp/unp4k) with parallel extraction and other performance improvements.
 
+The non-English game strings are community translations:
+
+- [**Dymerz/StarCitizen-Localization**](https://github.com/Dymerz/StarCitizen-Localization) — the community-maintained `global.ini` translations that power the French, Spanish, and Brazilian Portuguese language options. Their translators do the real work here; we just deliver it.
+
 ## Key Features
 
 ### 🎯 Core Features
 - **Load & Edit**: Load `global.ini` from your Star Citizen installation and customize strings in an intuitive table view
 - **Multi-Channel Support**: LIVE / PTU / EPTU / HOTFIX / TECH-PREVIEW each get their own isolated `user.ini`, cache, backups, and DataForge extraction — switch channels from the Config tab without restarting
+- **Multi-Language Support**: Switch the app and game strings between English, French, and Brazilian Portuguese from the Config tab. Non-English languages layer a community-translated `global.ini` over the English base, with English fallback for anything untranslated. More languages will be exposed as community translations land (see `languages/TRANSLATIONS.md`)
 - **Mission Contracts**: Edit mission contract and briefing text from the dedicated Missions category
 - **Smart Filtering**: Search strings, filter by category (Ships, Ship Items, Missions, Gear, Commodities, Journal, Other), or modification status
 - **Per-Column Filters**: Type directly into filter boxes below each column header for fine-grained searching
