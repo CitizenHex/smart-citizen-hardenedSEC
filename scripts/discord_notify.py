@@ -38,19 +38,20 @@ def create_embed(version: str, release_notes: str = "") -> dict:
     """Create a Discord embed for the release announcement."""
     release_url = f"https://github.com/{GITHUB_REPO}/releases/tag/{version}"
 
-    description_parts = [
-        "🎉 **Smart Citizen Release**\n",
-    ]
+    header = "🎉 **Smart Citizen Release**\n"
+    footer_link = f"\n📥 **[View Release]({release_url})**"
+    body = release_notes.strip() or "Check the release page for more details."
 
-    if release_notes.strip():
-        description_parts.append(release_notes.strip())
-    else:
-        description_parts.append("Check the release page for more details.")
+    # Discord caps embed descriptions at 4096 chars. Truncate the NOTES,
+    # not the assembled description, so the View Release link always
+    # survives — the 1.4.0 announcement cut off mid-sentence with no link
+    # because the old code trimmed after appending it.
+    budget = 4000 - len(header) - len(footer_link) - 2  # 2 joining newlines
+    if len(body) > budget:
+        body = body[: budget - 3] + "..."
 
-    description_parts.append(f"\n📥 **[View Release]({release_url})**")
-
-    description = "\n".join(description_parts)
-    # Discord embed descriptions have a 4096 character limit
+    description = "\n".join([header, body, footer_link])
+    # Safety net only; the budget above should already guarantee this.
     if len(description) > 4000:
         description = description[:3997] + "..."
 

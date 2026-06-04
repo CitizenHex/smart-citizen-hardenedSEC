@@ -29,7 +29,7 @@ Human-translated by **Akwa**, with the process led by **Ishikudeska**, except th
 
 ## portuguese_br
 
-Human-translated by community translators, with the process led by **Ishikudeska**, except the AI-backfilled keys below (Claude Opus 4.8, 2026-06-04, styled on the existing human strings: você register, smart quotes for UI references):
+Human-translated by **Nxzzin**, with the process led by **Ishikudeska**, except the AI-backfilled keys below (Claude Opus 4.8, 2026-06-04, styled on the existing human strings: você register, smart quotes for UI references):
 
 - Same key list as french: `toolbar.more_btn`, `strings_tab.context_underline`, `strings_tab.context_highlight`, the `config.map_language_*` and `config.migrate_data_*` groups, the `dialogs.language_*` group, `dialogs.file_not_found_*`, `dialogs.empty_file_*`, the `dialogs.copy_*` group, `tutorial.*` (all 18 steps), `progress.*` (all 16 strings), and the `HELP.md` / `ABOUT.md` / `LEGAL.md` documents in this folder.
 

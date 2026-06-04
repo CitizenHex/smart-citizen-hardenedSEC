@@ -32,6 +32,7 @@ Thanks to those who've contributed code to Smart Citizen:
 Thanks to those who've translated Smart Citizen's interface:
 
 - **Akwa** (Français)
+- **Nxzzin** (Português brasileiro)
 
 ## Acknowledgements
 
