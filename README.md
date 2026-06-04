@@ -201,10 +201,12 @@ Thanks to those who've contributed code to Smart Citizen:
 - **jonigirl**
 - [**Coerwyn**](https://github.com/Coerwyn)
 - [**denis-coach**](https://github.com/denis-coach)
+- [**h0use**](https://github.com/h0useRus)
+- [**scubamount**](https://github.com/scubamount)
 
 ## Acknowledgments
 
-- **Boogie Man, Tichro, Perseus, Flat Earth, Lord Valium** — testers who helped shape Smart Citizen across the 0.x cycle
+- **Boogie Man, Perseuscz, Flat Earth, Lord Valium, Zero, Apolleon Phoibos, Epiq** — testers who helped shape Smart Citizen with their feedback
 - [**dolkensp/unp4k**](https://github.com/dolkensp/unp4k) — Bundled `unp4k.exe` / `unforge.exe` used to unpack `Data.p4k` and convert DataForge to XML
 - [**Dymerz/StarCitizen-Localization**](https://github.com/Dymerz/StarCitizen-Localization) — Community-maintained `global.ini` translations that power the non-English language options
 - [**ExoAE**](https://github.com/ExoAE/ScCompLangPack) — Original ScCompLangPack concept and merge logic that inspired Smart Citizen's foundation

@@ -27,6 +27,8 @@ Merci à celles et ceux qui ont contribué au code de Smart Citizen :
 - **jonigirl**
 - **Coerwyn**
 - **denis-coach**
+- **h0use**
+- **scubamount**
 
 ## Remerciements
 
