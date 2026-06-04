@@ -14,7 +14,7 @@ Source language. All strings authored by the maintainer.
 
 ## french
 
-Human-translated by community translators, with the process led by **Ishikudeska**, except the AI-backfilled keys below (Claude Opus 4.8, 2026-06-04, styled on the existing human strings: vous register, French spacing before `:` `;` `?`, guillemets):
+Human-translated by **Akwa**, with the process led by **Ishikudeska**, except the AI-backfilled keys below (Claude Opus 4.8, 2026-06-04, styled on the existing human strings: vous register, French spacing before `:` `;` `?`, guillemets):
 
 - `toolbar.more_btn`
 - `strings_tab.context_underline`, `strings_tab.context_highlight`
