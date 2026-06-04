@@ -39,6 +39,7 @@ Thanks to the testers who helped shape Smart Citizen with their feedback:
 - **Zero**
 - **Apolleon Phoibos**
 - **Epiq**
+- **Narull**
 
 ### Supporters
 

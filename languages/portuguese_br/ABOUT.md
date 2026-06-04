@@ -41,6 +41,7 @@ Obrigado aos testadores que ajudaram a moldar o Smart Citizen com seu feedback:
 - **Zero**
 - **Apolleon Phoibos**
 - **Epiq**
+- **Narull**
 
 ### Apoiadores
 
