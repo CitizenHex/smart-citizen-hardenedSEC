@@ -429,6 +429,23 @@ class AppSettings:
         return path if path.exists() else None
 
     @staticmethod
+    def get_localized_doc_path(filename: str, language: "str | None" = None) -> "Path":
+        """Resolve an in-app document (HELP.md / ABOUT.md / LEGAL.md) for *language*.
+
+        Non-English languages may ship a translated copy at
+        ``languages/<lang>/<filename>``; English (and any language without a
+        translated copy) falls back to the bundled ``docs/<filename>``.
+        """
+        from src.utils.resource_path import get_resource_path
+        if language is None:
+            language = AppSettings.get_selected_language()
+        if language != AppSettings.DEFAULT_LANGUAGE:
+            candidate = AppSettings.get_languages_dir() / language / filename
+            if candidate.exists():
+                return candidate
+        return Path(get_resource_path(f"docs/{filename}"))
+
+    @staticmethod
     def get_language_languages_ini_path(language: str | None = None) -> "Path | None":
         """Return path to languages/<lang>/languages.ini, or None if absent."""
         if language is None:

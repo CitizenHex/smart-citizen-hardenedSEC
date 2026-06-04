@@ -1020,7 +1020,7 @@ class MainWindow(QMainWindow):
         from PyQt6.QtWidgets import QApplication
         self.about_browser.setPalette(QApplication.palette())
         try:
-            about_path = get_resource_path("docs/ABOUT.md")
+            about_path = AppSettings.get_localized_doc_path("ABOUT.md")
             with open(about_path, 'r', encoding='utf-8') as f:
                 about_content = f.read()
             about_content = about_content.replace(
@@ -1134,7 +1134,7 @@ class MainWindow(QMainWindow):
         from PyQt6.QtWidgets import QApplication
         self.legal_browser.setPalette(QApplication.palette())
         try:
-            legal_path = get_resource_path("docs/LEGAL.md")
+            legal_path = AppSettings.get_localized_doc_path("LEGAL.md")
             with open(legal_path, 'r', encoding='utf-8') as f:
                 legal_content = f.read()
             html = self.markdown_to_html(legal_content)
@@ -2178,7 +2178,7 @@ class MainWindow(QMainWindow):
         from PyQt6.QtWidgets import QApplication
         self.help_browser.setPalette(QApplication.palette())
         try:
-            help_path = get_resource_path("docs/HELP.md")
+            help_path = AppSettings.get_localized_doc_path("HELP.md")
             with open(help_path, "r", encoding="utf-8") as f:
                 help_markdown = f.read()
             self.help_browser.setHtml(self.markdown_to_html(help_markdown))

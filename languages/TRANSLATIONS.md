@@ -24,12 +24,14 @@ Human-translated except the AI-backfilled keys below (Claude Opus 4.8, 2026-06-0
 - `dialogs.file_not_found_title`, `dialogs.file_not_found_body`, `dialogs.empty_file_title`, `dialogs.empty_file_body`
 - `dialogs.copy_filtered_title`, `dialogs.copy_filtered_empty`, `dialogs.copy_filtered_done`, `dialogs.copy_error_title`, `dialogs.copy_error_body`
 - `tutorial.*` (all 18 guided-tour steps; the tour was never human-translated)
+- `progress.*` (all 16 progress-bar strings shown during loading, extraction, and enhancement generation)
+- `HELP.md`, `ABOUT.md`, `LEGAL.md` in this folder (full-document AI translations of the in-app docs; each carries a note that the English version governs)
 
 ## portuguese_br
 
 Human-translated except the AI-backfilled keys below (Claude Opus 4.8, 2026-06-04, styled on the existing human strings: você register, smart quotes for UI references):
 
-- Same key list as french: `toolbar.more_btn`, `strings_tab.context_underline`, `strings_tab.context_highlight`, the `config.map_language_*` and `config.migrate_data_*` groups, the `dialogs.language_*` group, `dialogs.file_not_found_*`, `dialogs.empty_file_*`, the `dialogs.copy_*` group, and `tutorial.*` (all 18 steps).
+- Same key list as french: `toolbar.more_btn`, `strings_tab.context_underline`, `strings_tab.context_highlight`, the `config.map_language_*` and `config.migrate_data_*` groups, the `dialogs.language_*` group, `dialogs.file_not_found_*`, `dialogs.empty_file_*`, the `dialogs.copy_*` group, `tutorial.*` (all 18 steps), `progress.*` (all 16 strings), and the `HELP.md` / `ABOUT.md` / `LEGAL.md` documents in this folder.
 
 ## spanish
 

@@ -246,6 +246,24 @@
     "copy_error_title": "Copy Error",
     "copy_error_body": "Failed to copy to clipboard: {error}"
   },
+  "progress": {
+    "reading_sources": "Reading source files...",
+    "creating_entries": "Creating StringEntry objects...",
+    "computing_sort_keys": "Computing sort keys...",
+    "ready": "Ready",
+    "applying_patches": "Applying DataForge patches…",
+    "loading_generator": "Loading enhancements generator...",
+    "generating_enhancements": "Generating enhancements (may take a few minutes on first run)...",
+    "unp4k_launch": "Launching unp4k — this may take a minute...",
+    "unp4k_launch_short": "Launching unp4k…",
+    "copy_global": "Copying extracted global.ini to cache...",
+    "copy_global_short": "Copying extracted global.ini…",
+    "extract_dcb": "Extracting Game2.dcb from Data.p4k…",
+    "unforge": "Converting DataForge database — this takes several minutes…",
+    "unforge_short": "Converting DataForge database…",
+    "caching_entities": "Caching entity files…",
+    "snapshot_diff": "Snapshotting cache for diff…"
+  },
   "status_bar": {
     "update_checking": "Checking…",
     "update_available": "v{version} available",

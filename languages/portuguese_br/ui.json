@@ -328,5 +328,23 @@
       "title": "17. Ajuda e feedback",
       "description": "O botão Ajuda abre um painel lateral com o guia completo, a lista de Problemas Conhecidos e um link para o canal do Smart Citizen no Discord. Isso é tudo o que você precisa para começar: boa sorte, cidadão."
     }
+  },
+  "progress": {
+    "reading_sources": "Lendo arquivos de origem...",
+    "creating_entries": "Criando entradas de strings...",
+    "computing_sort_keys": "Calculando chaves de ordenação...",
+    "ready": "Pronto",
+    "applying_patches": "Aplicando patches do DataForge…",
+    "loading_generator": "Carregando o gerador de aprimoramentos...",
+    "generating_enhancements": "Gerando aprimoramentos (pode levar alguns minutos na primeira execução)...",
+    "unp4k_launch": "Iniciando o unp4k, isso pode levar um minuto...",
+    "unp4k_launch_short": "Iniciando o unp4k…",
+    "copy_global": "Copiando o global.ini extraído para o cache...",
+    "copy_global_short": "Copiando o global.ini extraído…",
+    "extract_dcb": "Extraindo Game2.dcb do Data.p4k…",
+    "unforge": "Convertendo o banco de dados do DataForge, isso leva vários minutos…",
+    "unforge_short": "Convertendo o banco DataForge…",
+    "caching_entities": "Armazenando arquivos de entidades em cache…",
+    "snapshot_diff": "Capturando o cache para o diff…"
   }
 }

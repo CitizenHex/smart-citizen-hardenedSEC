@@ -121,8 +121,8 @@ class FileLoaderWorker(QThread):
         from src.gui.string_table_model import _group_sort_key
         try:
             logger.info("FileLoaderWorker starting...")
-            self.progress_pct.emit(0, self._PHASE_TOTAL, "Reading source files...")
-            self.progress.emit("Reading source files...")
+            self.progress_pct.emit(0, self._PHASE_TOTAL, tr("progress.reading_sources"))
+            self.progress.emit(tr("progress.reading_sources"))
 
             sources_dict, hierarchy, enhancements_key_categories = load_sources_from_settings()
             logger.info(f"Loaded from settings: sources={list(sources_dict.keys())}, hierarchy={hierarchy}")
@@ -130,18 +130,18 @@ class FileLoaderWorker(QThread):
             if not (sources_dict and hierarchy):
                 raise ValueError("No sources configured")
 
-            self.progress_pct.emit(1, self._PHASE_TOTAL, "Creating StringEntry objects...")
-            self.progress.emit("Creating StringEntry objects...")
+            self.progress_pct.emit(1, self._PHASE_TOTAL, tr("progress.creating_entries"))
+            self.progress.emit(tr("progress.creating_entries"))
             entries = load_source_files(sources_dict, hierarchy, enhancements_key_categories=enhancements_key_categories)
             logger.info(f"load_source_files returned {len(entries)} entries")
 
             default_values = dict(sources_dict.get("global", {}))
 
-            self.progress_pct.emit(2, self._PHASE_TOTAL, "Computing sort keys...")
-            self.progress.emit("Computing sort keys...")
+            self.progress_pct.emit(2, self._PHASE_TOTAL, tr("progress.computing_sort_keys"))
+            self.progress.emit(tr("progress.computing_sort_keys"))
             sort_keys = [_group_sort_key(e.key) for e in entries]
 
-            self.progress_pct.emit(3, self._PHASE_TOTAL, "Ready")
+            self.progress_pct.emit(3, self._PHASE_TOTAL, tr("progress.ready"))
             logger.info("FileLoaderWorker finished successfully")
             self.finished.emit(entries, default_values, sort_keys)
         except Exception as e:
@@ -301,8 +301,8 @@ class EnhancementsGeneratorWorker(QThread):
             # the user through a full re-extract. Bar stays indeterminate
             # here — ``mod.main()`` below takes over with determinate ticks
             # once its ProgressSink is wired up.
-            self.progress_pct.emit(0, 0, "Applying DataForge patches…")
-            self.progress.emit("Applying DataForge patches…")
+            self.progress_pct.emit(0, 0, tr("progress.applying_patches"))
+            self.progress.emit(tr("progress.applying_patches"))
             patch_report = apply_patches(
                 resolve_patches_dir(), forge_dir,
                 progress_callback=self.progress.emit,
@@ -312,7 +312,7 @@ class EnhancementsGeneratorWorker(QThread):
                 for err in patch_report.errors:
                     logger.warning(f"  patch error: {err}")
 
-            self.progress.emit("Loading enhancements generator...")
+            self.progress.emit(tr("progress.loading_generator"))
 
             module_name = "generate_enhancements_ini_worker"
             if module_name in sys_module.modules:
@@ -323,7 +323,7 @@ class EnhancementsGeneratorWorker(QThread):
             sys_module.modules[module_name] = mod
             spec.loader.exec_module(mod)
 
-            self.progress.emit("Generating enhancements (may take a few minutes on first run)...")
+            self.progress.emit(tr("progress.generating_enhancements"))
             logger.info("Enhancements generation worker: calling mod.main()")
 
             cat_desc = ", ".join(sorted(self.categories)) if self.categories else "all"
@@ -430,8 +430,8 @@ class DataForgeExtractWorker(QThread):
             # "Done" determinate state, which would look like the dialog is
             # about to close. The patches phase has no useful per-file
             # progress, so indeterminate is the honest signal.
-            self.progress_pct.emit(0, 0, "Applying DataForge patches…")
-            self.progress.emit("Applying DataForge patches…")
+            self.progress_pct.emit(0, 0, tr("progress.applying_patches"))
+            self.progress.emit(tr("progress.applying_patches"))
             patch_root = resolve_patches_dir()
             report = apply_patches(patch_root, self._cache_dir,
                                    progress_callback=self.progress.emit)

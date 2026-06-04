@@ -329,5 +329,23 @@
       "description": "Le bouton Aide ouvre un panneau latéral avec le guide complet, la liste des problèmes connus et un lien vers le canal Discord de Smart Citizen pour vos retours. Vous avez tout ce qu'il faut pour démarrer : bonne chance, citoyen."
     }
   },
+  "progress": {
+    "reading_sources": "Lecture des fichiers sources...",
+    "creating_entries": "Création des entrées de textes...",
+    "computing_sort_keys": "Calcul des clés de tri...",
+    "ready": "Prêt",
+    "applying_patches": "Application des correctifs DataForge…",
+    "loading_generator": "Chargement du générateur d'enrichissements...",
+    "generating_enhancements": "Génération des enrichissements (peut prendre quelques minutes à la première exécution)...",
+    "unp4k_launch": "Lancement d'unp4k, cela peut prendre une minute...",
+    "unp4k_launch_short": "Lancement d'unp4k…",
+    "copy_global": "Copie du global.ini extrait vers le cache...",
+    "copy_global_short": "Copie du global.ini extrait…",
+    "extract_dcb": "Extraction de Game2.dcb depuis Data.p4k…",
+    "unforge": "Conversion de la base de données DataForge, cela prend plusieurs minutes…",
+    "unforge_short": "Conversion de la base DataForge…",
+    "caching_entities": "Mise en cache des fichiers d'entités…",
+    "snapshot_diff": "Capture du cache pour le diff…"
+  },
   "_comment": "Traductions de l'interface utilisateur en français. N'inclue que les clés qui diffèrent de celles de la version anglaise. Les clés manquantes sont automatiquement remplacées par celles du fichier ui.json anglais."
 }

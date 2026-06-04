@@ -148,6 +148,37 @@ class TestLanguageBaseUrl:
         assert AppSettings.get_language_base_url("portuguese_br") == ""
 
 
+class TestLocalizedDocPath:
+    @pytest.fixture
+    def docs_env(self, tmp_path, monkeypatch):
+        """Fake languages/ tree with a translated HELP.md for french only."""
+        langs = tmp_path / "languages"
+        (langs / "french").mkdir(parents=True)
+        (langs / "french" / "HELP.md").write_text("# Aide", encoding="utf-8")
+        monkeypatch.setattr(AppSettings, "get_languages_dir", staticmethod(lambda: langs))
+        return langs
+
+    def test_translated_doc_wins_for_non_english(self, docs_env):
+        path = AppSettings.get_localized_doc_path("HELP.md", "french")
+        assert path == docs_env / "french" / "HELP.md"
+
+    def test_english_always_uses_bundled_docs(self, docs_env):
+        path = AppSettings.get_localized_doc_path("HELP.md", "english")
+        assert path.parts[-2:] == ("docs", "HELP.md")
+
+    def test_missing_translation_falls_back_to_bundled_docs(self, docs_env):
+        # french ships no LEGAL.md in this fixture → bundled English copy.
+        path = AppSettings.get_localized_doc_path("LEGAL.md", "french")
+        assert path.parts[-2:] == ("docs", "LEGAL.md")
+
+    def test_default_argument_uses_selected_language(self, docs_env, monkeypatch):
+        monkeypatch.setattr(
+            AppSettings, "get_selected_language", staticmethod(lambda: "french")
+        )
+        path = AppSettings.get_localized_doc_path("HELP.md")
+        assert path == docs_env / "french" / "HELP.md"
+
+
 class TestScLanguageId:
     def test_known_mapping(self):
         assert AppSettings.get_sc_language_id("portuguese_br") == "portuguese_(brazil)"

@@ -117,6 +117,16 @@ class TestSetLanguage:
         assert i18n.tr("toolbar.apply_btn") == "Apply to Game"
 
 
+class TestLazyDefault:
+    def test_tr_before_set_language_loads_english(self, lang_root):
+        # Helpers outside the app's startup path (workers' progress strings,
+        # tests) must get English text, not bare keys, when set_language was
+        # never called.
+        i18n._strings = {}
+        i18n._current_lang = "english"
+        assert i18n.tr("toolbar.apply_btn") == "Apply to Game"
+
+
 class TestDeepMerge:
     def test_nested_merge_keeps_sibling_keys(self):
         base = {"a": {"x": "1", "y": "2"}, "b": "3"}

@@ -78,6 +78,11 @@ def tr(key: str, **kwargs) -> str:
     ``tr("config.p4k_status_found_with_base", date="2025-01-01")``.
     Returns the bare *key* if not found anywhere so callers never crash.
     """
+    global _strings
+    if not _strings:
+        # Lazy default: callers outside the app's startup path (helpers used
+        # by tests, CLI-adjacent utils) get English instead of bare keys.
+        set_language(_current_lang)
     node = _strings
     for part in key.split("."):
         if not isinstance(node, dict):

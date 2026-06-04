@@ -41,9 +41,10 @@ Everything. Your localization edits, backups, application settings, and DataForg
 
 ### What goes over the network
 
-Smart Citizen makes outbound network requests in only two circumstances:
+Smart Citizen makes outbound network requests in only three circumstances:
 
 - **Update check** — A small unauthenticated request to `api.github.com/repos/Osiris-DevWorks/smart-citizen/releases/latest` approximately once every 6 hours to compare the installed version against the latest GitHub release. Returns release metadata only (tag name, release URL); no Smart Citizen state is sent.
+- **Language downloads** — When you switch to a non-English language, Smart Citizen downloads that language's community-translated `global.ini` from the configured URL (by default the [Dymerz/StarCitizen-Localization](https://github.com/Dymerz/StarCitizen-Localization) GitHub repository). The download is cached locally; nothing from your machine is sent.
 - **User-configured remote sources** — If you have configured a data source pointing at an `http(s)://` URL in the Config tab, Smart Citizen fetches that URL when refreshing source files. Out of the box this only applies to the `global` source's GitHub-raw URL form; the standard configuration since v1.0 reads `base.ini` from your local Data.p4k extraction instead.
 
 ### What Smart Citizen does **not** do
@@ -64,6 +65,7 @@ Specifically:
 
 - AI assistance accelerates development of generators, classifiers, refactors, and tests; commits authored with AI help carry a `Co-Authored-By: Claude` trailer in their commit message so the history is auditable.
 - All Star Citizen game-data parsing logic, mission classification, and string-handling rules are designed by the human maintainers and validated against real DataForge cache samples.
+- Some of Smart Citizen's interface and documentation translations are AI-generated as placeholders until human translations arrive. They are tracked, per language and per string, in `languages/TRANSLATIONS.md`, and are replaced as human translations land. Existing human translations are never modified by AI.
 - **The application itself contains no AI or machine-learning features.** Smart Citizen does not bundle any model, does not call any AI service at runtime, and does not transmit your edits or Star Citizen game data to an AI provider.
 
 ## Reporting Legal Concerns
