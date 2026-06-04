@@ -204,6 +204,64 @@ class TestInstallCrashHandler:
         assert called[0][0] is exc_type
 
 
+class TestCrashDialogWiring:
+    """2.0: the main-thread hook shows crash_logger.show_crash_dialog after
+    writing the dump. The dialog is best-effort — a broken dialog module must
+    never eat the dump or the original-hook chain."""
+
+    def test_dialog_receives_exception_and_dump_path(
+        self, fresh_crash_module, tmp_path, monkeypatch
+    ):
+        from src.utils import crash_logger
+
+        seen: list[tuple] = []
+        monkeypatch.setattr(
+            crash_logger, "show_crash_dialog", lambda *a: seen.append(a)
+        )
+        logs_dir = tmp_path / "logs"
+        crash_handler.install_crash_handler(logs_dir)
+
+        try:
+            raise RuntimeError("dialog wiring test")
+        except RuntimeError:
+            exc_type, exc_value, exc_tb = sys.exc_info()
+        sys.excepthook(exc_type, exc_value, exc_tb)
+
+        assert len(seen) == 1, "Dialog must be shown exactly once per crash"
+        dlg_type, dlg_value, dlg_path = seen[0]
+        assert dlg_type is exc_type and dlg_value is exc_value
+        dumps = list(logs_dir.glob("crash_*.log"))
+        assert len(dumps) == 1 and dlg_path == dumps[0], (
+            "Dialog must point at the dump that was just written"
+        )
+
+    def test_broken_dialog_still_writes_dump_and_chains(
+        self, fresh_crash_module, tmp_path, monkeypatch
+    ):
+        from src.utils import crash_logger
+
+        def explode(*_a):
+            raise RuntimeError("dialog module is broken")
+
+        monkeypatch.setattr(crash_logger, "show_crash_dialog", explode)
+
+        called: list[tuple] = []
+        sys.excepthook = lambda *a: called.append(a)
+        crash_handler._installed = False
+        logs_dir = tmp_path / "logs"
+        crash_handler.install_crash_handler(logs_dir)
+
+        try:
+            raise ValueError("crash with broken dialog")
+        except ValueError:
+            exc_type, exc_value, exc_tb = sys.exc_info()
+        sys.excepthook(exc_type, exc_value, exc_tb)  # must not raise
+
+        dumps = list(logs_dir.glob("crash_*.log"))
+        assert len(dumps) == 1, "Dump must be written even when the dialog raises"
+        assert len(called) == 1, "Original hook must still chain after dialog failure"
+
+
 class TestGetLogsDir:
     """``AppSettings.get_logs_dir`` returns ``{user_data_dir}/logs`` and creates
     the directory lazily. NOT per-channel — crashes can fire before the channel

@@ -40,7 +40,7 @@ Split by domain:
 - `test_mining_salvage_stats.py` — 1.4.0 `enhancements_mining_laser` / `enhancements_salvage_tool` extractors. Per-mode beam stats for mining heads and handheld salvage tools, fabricated XML.
 - `test_ship_weapon_tag.py` — 1.4.0 guard for `_ship_weapon_name_tag_factory`: EMP devices with size but no damage and tractor beams must NOT emit a damage tag; real combat weapons must.
 - `test_user_ini_reset.py` — `reset_user_ini(path, *, backup=True)` contract for the Config tab's **Reset user.ini** button. Returns `None` when source absent, `backup=True` renames to a timestamped sibling, `backup=False` deletes outright, same-second double-call doesn't clobber the first backup.
-- `test_crash_handler.py` — `sys.excepthook` + `threading.excepthook` install plus the ring-buffer log dump to `{logs_dir}/crash_*.log`.
+- `test_crash_handler.py` — `sys.excepthook` + `threading.excepthook` install plus the ring-buffer log dump to `{logs_dir}/crash_*.log`. Also the 2.0 crash-dialog wiring: the main-thread hook hands `crash_logger.show_crash_dialog` the dump path, and a dialog that raises must neither eat the dump nor break the original-hook chain.
 - `test_error_dialog.py` — `logging.ERROR`/`CRITICAL` → modal-dialog handler plus the main-thread signal hop.
 - `test_available_languages.py`: 2.0 language selector gate. `get_available_languages()` hides languages whose `ui.json` is a stub (only `_comment`); English is always offered.
 - `test_i18n.py`: 2.0 UI translation contract. `tr()` dot-path resolution, English fallback for untranslated keys, bare-key fallback when missing everywhere, kwargs interpolation degradation, `_deep_merge` scalar-over-dict tolerance, lazy English load when `set_language` was never called (workers' progress strings).
