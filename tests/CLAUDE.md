@@ -43,6 +43,9 @@ Split by domain:
 - `test_crash_handler.py` — `sys.excepthook` + `threading.excepthook` install plus the ring-buffer log dump to `{logs_dir}/crash_*.log`.
 - `test_error_dialog.py` — `logging.ERROR`/`CRITICAL` → modal-dialog handler plus the main-thread signal hop.
 - `test_available_languages.py`: 2.0 language selector gate. `get_available_languages()` hides languages whose `ui.json` is a stub (only `_comment`); English is always offered.
+- `test_i18n.py`: 2.0 UI translation contract. `tr()` dot-path resolution, English fallback for untranslated keys, bare-key fallback when missing everywhere, kwargs interpolation degradation, `_deep_merge` scalar-over-dict tolerance.
+- `test_language_paths.py`: 2.0 per-language cache layout. English base.ini at the cache root vs `cache/lang/{language}/` for others, enhancements dir = base.ini parent, per-language `.dataforge_stamp` isolation, base.ini URL resolution (override > bundled sources.json > ''), `SC_LANGUAGE_IDS` mapping fallback.
+- `test_language_overlay.py`: 2.0 merge overlay. `load_sources_from_settings()` inserts the bundled `languages/<lang>/global.ini` as a `language` source just before `user` (appended without user); missing or empty overlay degrades to English-only without touching the hierarchy.
 - `test_user_data_dir_migration.py`: `migrate_user_data_dir` (#103). Merge-never-overwrite copy when the user changes the data folder; `move=True` deletes transferred originals and prunes emptied dirs; the new-folder-nested-inside-old case can't recurse.
 - `test_mission_detail_fields.py`: per-field mission-detail toggles (#121). AppSettings contract (all fields default on, round-trip, unknown keys ignored) plus a line-for-line replica of the generator's `if _show(field)` gating.
 - `test_window_state_portable.py`: #141 regression. Window geometry/state is base64-encoded so the portable `JsonSettings` backend can store the `QByteArray` without crashing on close.

@@ -1,0 +1,131 @@
+"""UI string localization (src/utils/i18n.py, 2.0 #30).
+
+Locks the translation contract the whole GUI leans on:
+
+  * ``tr()`` resolves dot-separated paths into the loaded JSON tree.
+  * ``set_language()`` always rebuilds from the English base with the target
+    language overlaid, so a key missing from a translation falls back to
+    English, and a key missing everywhere returns the bare key string
+    (``tr()`` never raises; an incomplete ui.json must not crash the app).
+  * kwargs interpolate via str.format; bad placeholders degrade to the raw
+    string instead of raising.
+  * ``_deep_merge`` merges nested sections and lets a scalar overlay replace
+    a dict (with a warning) rather than blowing up on malformed files.
+"""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+from src.utils import i18n  # noqa: E402
+
+pytestmark = pytest.mark.unit
+
+
+def _write_lang(root: Path, name: str, data: dict) -> None:
+    d = root / "languages" / name
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "ui.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+@pytest.fixture
+def lang_root(tmp_path, monkeypatch):
+    """Point i18n's resource lookup at a tmp languages/ tree and restore the
+    module's language state afterwards so other tests see a clean slate."""
+    import src.utils.resource_path as resource_path
+
+    monkeypatch.setattr(
+        resource_path, "get_resource_path", lambda rel: str(tmp_path / rel)
+    )
+    saved_lang, saved_strings = i18n._current_lang, i18n._strings
+    _write_lang(tmp_path, "english", {
+        "toolbar": {"apply_btn": "Apply to Game", "more_btn": "More"},
+        "dialogs": {"export_complete": "Exported to {path} ({size} bytes)"},
+        "status": {"ready": "Ready"},
+    })
+    _write_lang(tmp_path, "french", {
+        "toolbar": {"apply_btn": "Appliquer au jeu"},
+        # dialogs/status sections intentionally absent — must fall back.
+    })
+    yield tmp_path
+    i18n._current_lang, i18n._strings = saved_lang, saved_strings
+
+
+class TestTr:
+    def test_english_dot_path_resolution(self, lang_root):
+        i18n.set_language("english")
+        assert i18n.tr("toolbar.apply_btn") == "Apply to Game"
+
+    def test_missing_key_returns_bare_key(self, lang_root):
+        i18n.set_language("english")
+        assert i18n.tr("toolbar.nope") == "toolbar.nope"
+
+    def test_path_through_scalar_returns_bare_key(self, lang_root):
+        # "toolbar.apply_btn" is a string; descending further must not raise.
+        i18n.set_language("english")
+        assert i18n.tr("toolbar.apply_btn.deeper") == "toolbar.apply_btn.deeper"
+
+    def test_kwargs_interpolation(self, lang_root):
+        i18n.set_language("english")
+        assert (
+            i18n.tr("dialogs.export_complete", path="C:/out.zip", size=42)
+            == "Exported to C:/out.zip (42 bytes)"
+        )
+
+    def test_bad_format_kwargs_degrade_to_raw_string(self, lang_root):
+        # Missing placeholder name: return the raw template, never raise.
+        i18n.set_language("english")
+        assert (
+            i18n.tr("dialogs.export_complete", wrong_kwarg=1)
+            == "Exported to {path} ({size} bytes)"
+        )
+
+
+class TestSetLanguage:
+    def test_overlay_wins_for_translated_keys(self, lang_root):
+        i18n.set_language("french")
+        assert i18n.tr("toolbar.apply_btn") == "Appliquer au jeu"
+
+    def test_untranslated_key_falls_back_to_english(self, lang_root):
+        # french ui.json has toolbar.apply_btn but not toolbar.more_btn or
+        # the dialogs/status sections; all must resolve to English.
+        i18n.set_language("french")
+        assert i18n.tr("toolbar.more_btn") == "More"
+        assert i18n.tr("status.ready") == "Ready"
+
+    def test_unknown_language_behaves_as_english(self, lang_root):
+        # No german/ui.json: overlay loads {}, English base remains intact.
+        i18n.set_language("german")
+        assert i18n.tr("toolbar.apply_btn") == "Apply to Game"
+
+    def test_switch_back_to_english_drops_overlay(self, lang_root):
+        i18n.set_language("french")
+        i18n.set_language("english")
+        assert i18n.tr("toolbar.apply_btn") == "Apply to Game"
+
+    def test_corrupt_overlay_degrades_to_english(self, lang_root):
+        bad = lang_root / "languages" / "italian"
+        bad.mkdir(parents=True)
+        (bad / "ui.json").write_text("{not json", encoding="utf-8")
+        i18n.set_language("italian")
+        assert i18n.tr("toolbar.apply_btn") == "Apply to Game"
+
+
+class TestDeepMerge:
+    def test_nested_merge_keeps_sibling_keys(self):
+        base = {"a": {"x": "1", "y": "2"}, "b": "3"}
+        i18n._deep_merge(base, {"a": {"x": "10"}})
+        assert base == {"a": {"x": "10", "y": "2"}, "b": "3"}
+
+    def test_scalar_overlay_replaces_dict_without_raising(self):
+        # Malformed translation (scalar where base has a section): replace,
+        # warn, keep going — i18n must never take the app down.
+        base = {"a": {"x": "1"}}
+        i18n._deep_merge(base, {"a": "flat"})
+        assert base == {"a": "flat"}
