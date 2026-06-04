@@ -206,6 +206,7 @@ Thanks to those who've contributed code to Smart Citizen:
 ## Acknowledgments
 
 - **Boogie Man, Perseuscz, Flat Earth, Lord Valium, Zero, Apolleon Phoibos, Epiq, Narull** — testers who helped shape Smart Citizen with their feedback
+- **Akwa** — French interface translation
 - [**dolkensp/unp4k**](https://github.com/dolkensp/unp4k) — Bundled `unp4k.exe` / `unforge.exe` used to unpack `Data.p4k` and convert DataForge to XML
 - [**Dymerz/StarCitizen-Localization**](https://github.com/Dymerz/StarCitizen-Localization) — Community-maintained `global.ini` translations that power the non-English language options
 - [**ExoAE**](https://github.com/ExoAE/ScCompLangPack) — Original ScCompLangPack concept and merge logic that inspired Smart Citizen's foundation

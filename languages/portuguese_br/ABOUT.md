@@ -29,6 +29,12 @@ Obrigado a quem contribuiu com código para o Smart Citizen:
 - **denis-coach** (h0use)
 - **scubamount**
 
+## Tradutores
+
+Obrigado a quem traduziu a interface do Smart Citizen:
+
+- **Akwa** (Francês)
+
 ## Agradecimentos
 
 Obrigado aos testadores que ajudaram a moldar o Smart Citizen com seu feedback:
