@@ -28,7 +28,7 @@ Split by domain:
 - `test_markdown_renderer.py` — About/Help markdown→HTML.
 - `test_resource_path.py` — PyInstaller `_MEIPASS`-aware paths.
 - `test_status_classification.py` — post-1.3.0 `_determine_status_from_source` (Enhanced vs Modified).
-- `test_user_cfg.py` — `g_language = english` in user.cfg.
+- `test_user_cfg.py` — `g_language` in user.cfg follows the selected language (mapped through `SC_LANGUAGE_IDS`; updates in place, no duplicate lines).
 - `test_user_ini_autosave_guard.py` — v1.3.0 regression guard: `should_autosave_user_ini` refuses a close-time autosave that would truncate a populated `user.ini` to 0 bytes after a load mismatch.
 - `test_frontend_version_stamp.py` — `Frontend_PU_Version` watermark applied at apply-to-game time.
 - `test_portable_mode.py` — portable flag flips `AppSettings._backend` to `JsonSettings` and routes `get_user_data_dir()` next to the exe.
@@ -42,6 +42,20 @@ Split by domain:
 - `test_user_ini_reset.py` — `reset_user_ini(path, *, backup=True)` contract for the Config tab's **Reset user.ini** button. Returns `None` when source absent, `backup=True` renames to a timestamped sibling, `backup=False` deletes outright, same-second double-call doesn't clobber the first backup.
 - `test_crash_handler.py` — `sys.excepthook` + `threading.excepthook` install plus the ring-buffer log dump to `{logs_dir}/crash_*.log`.
 - `test_error_dialog.py` — `logging.ERROR`/`CRITICAL` → modal-dialog handler plus the main-thread signal hop.
+- `test_available_languages.py`: 2.0 language selector gate. `get_available_languages()` hides languages whose `ui.json` is a stub (only `_comment`); English is always offered.
+- `test_user_data_dir_migration.py`: `migrate_user_data_dir` (#103). Merge-never-overwrite copy when the user changes the data folder; `move=True` deletes transferred originals and prunes emptied dirs; the new-folder-nested-inside-old case can't recurse.
+- `test_mission_detail_fields.py`: per-field mission-detail toggles (#121). AppSettings contract (all fields default on, round-trip, unknown keys ignored) plus a line-for-line replica of the generator's `if _show(field)` gating.
+- `test_window_state_portable.py`: #141 regression. Window geometry/state is base64-encoded so the portable `JsonSettings` backend can store the `QByteArray` without crashing on close.
+- `test_backfill_new_elements.py`: `AppSettings._backfill_new_elements` upgrade path. Saved tag configs from older versions gain newly added element kinds disabled, so existing output is unchanged.
+- `test_discovered_items.py`: XML-based item discovery. Items whose loc key is absent from base.ini get synthesized descriptions and appear with status "New".
+- `test_not_for_release.py`: contracts/handlers with `notForRelease="1"` are skipped entirely by `scan_contract_generators` (the 1.4.2 dev-contract leak fix).
+- `test_blueprint_list_type_tag.py`: #101 regression. The component Type element renders on component entries inside mission blueprint lists, not just standalone component names.
+- `test_commodity_tagging.py`: #97 commodity tagging. Crafting (CF) and Collection flags share one `<EM4>[...]</EM4>` wrapper; single-flag items drop the empty flag; crafting-only output matches pre-1.5.0.
+- `test_favorite_prefix_whitespace.py`: #100 regression. A single-space favourite prefix survives the user.ini round-trip (`parse_ini_file` gained a `strip_values` flag, False for user.ini).
+- `test_mission_header_em_tag.py`: #99. Mission-header emphasis options are exactly EM3/EM4 (EM1/EM2 never render in-game); stored legacy values coerce back to the default.
+- `test_mission_rep_label.py`: #102. `_rep_reward_line` uses the configurable `rep_xp_label` as field name or trailing unit, never both ("Rep: +500 Rep" is locked out).
+- `test_sc_install_root.py`: `get_sc_install_root` cross-check. `GAME_INSTALL_PATH` wins over a stale pre-1.4.2 `SC_INSTALL_ROOT`; `os.path.normcase` comparison absorbs drive-letter casing.
+- `test_string_table_model_bounds.py`: #110 regression. `entry_for_row` tolerates out-of-range rows after a failed/empty load; uses `__new__` to stay Qt-free.
 
 QThread workers in `src/gui/workers.py` have no automated tests — they need `pytest-qt` (not a dev dep). Manual smoke testing is the only path.
 
