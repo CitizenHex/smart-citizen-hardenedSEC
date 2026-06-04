@@ -200,8 +200,7 @@ Thanks to those who've contributed code to Smart Citizen:
 - [**Ishikudeska**](https://github.com/Ishikudeska)
 - **jonigirl**
 - [**Coerwyn**](https://github.com/Coerwyn)
-- [**denis-coach**](https://github.com/denis-coach)
-- [**h0use**](https://github.com/h0useRus)
+- [**denis-coach**](https://github.com/denis-coach) (also [h0use](https://github.com/h0useRus))
 - [**scubamount**](https://github.com/scubamount)
 
 ## Acknowledgments
