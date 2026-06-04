@@ -115,10 +115,13 @@ def _resolve_release_notes(version: str, explicit_notes: str | None) -> str:
 
     1. Explicit positional argument (legacy callers, tests).
     2. ``RELEASE_BODY`` env var (CI patterns that pre-load via env).
-    3. ``{VERSION}-RELEASE-NOTES.md`` next to scripts/ at the repo root —
-       matches the existing convention used by the build / release
-       workflow and means the script is self-sufficient when given just
-       the version.
+    3. ``{VERSION}-RELEASE-NOTES.md`` on disk — ``docs/`` first (their
+       home since the 1.4.1 cleanup), repo root as the legacy fallback.
+       This mirrors release.yml's "Resolve release notes" step; the two
+       must agree or the GitHub release gets full notes while the
+       Discord post degrades to the bare fallback line (the 1.4.1 and
+       1.4.2 announcements shipped that way — only this tier had not
+       learned the docs/ move).
 
     Returns ``""`` when nothing's available; the embed falls back to its
     "Check the release page for more details." default in that case.
@@ -130,12 +133,15 @@ def _resolve_release_notes(version: str, explicit_notes: str | None) -> str:
         return env_notes
     # Strip leading "v" from the tag so v1.3.0 → 1.3.0-RELEASE-NOTES.md
     version_bare = version.lstrip("v")
-    notes_file = project_root / f"{version_bare}-RELEASE-NOTES.md"
-    if notes_file.exists():
-        try:
-            return notes_file.read_text(encoding="utf-8")
-        except OSError as e:
-            print(f"[WARNING] Could not read {notes_file}: {e}")
+    for notes_file in (
+        project_root / "docs" / f"{version_bare}-RELEASE-NOTES.md",
+        project_root / f"{version_bare}-RELEASE-NOTES.md",
+    ):
+        if notes_file.exists():
+            try:
+                return notes_file.read_text(encoding="utf-8")
+            except OSError as e:
+                print(f"[WARNING] Could not read {notes_file}: {e}")
     return ""
 
 
