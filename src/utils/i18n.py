@@ -26,7 +26,12 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_current_lang: str = "english"
+# The fallback base for every other language. i18n is deliberately a leaf
+# module (no AppSettings import), so it carries its own constant instead of
+# AppSettings.DEFAULT_LANGUAGE; the two must agree.
+_DEFAULT_LANG = "english"
+
+_current_lang: str = _DEFAULT_LANG
 _strings: dict = {}
 
 
@@ -62,8 +67,8 @@ def set_language(lang: str) -> None:
     back to English rather than returning the bare key string.
     """
     global _current_lang, _strings
-    new_strings = _load_file("english")
-    if lang != "english":
+    new_strings = _load_file(_DEFAULT_LANG)
+    if lang != _DEFAULT_LANG:
         _deep_merge(new_strings, _load_file(lang))
     _current_lang = lang
     _strings = new_strings

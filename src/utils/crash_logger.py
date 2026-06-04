@@ -1,81 +1,19 @@
-"""Crash logger — catches unhandled exceptions, writes a report, and shows a dialog."""
-import logging
-import os
-import platform
-import sys
-import traceback
-from datetime import datetime
+"""Crash dialog shown by the crash handler (src/utils/crash_handler.py).
+
+This module used to carry a second, parallel crash-capture system (its own
+excepthook, report writer, and log dir). That was dead code — crash_handler.py
+owns capture and dump-writing — so only the user-facing dialog survives.
+"""
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
 
-_MAX_CRASH_LOGS = 10
+def show_crash_dialog(exc_type, exc_value, crash_path: "Path | None") -> None:
+    """Show a modal "Smart Citizen crashed" dialog pointing at *crash_path*.
 
-_original_excepthook = sys.excepthook
-
-
-def get_crash_log_dir() -> Path:
-    """Return the crash log directory, creating it if needed.
-
-    Mirrors the DataForge cache convention: AppData\\Local\\Osiris DevWorks\\Smart Citizen\\logs\\
-    so crash files stay out of OneDrive / Documents.
+    Safe to call from any state: degrades to a silent no-op when Qt or
+    pyperclip is unavailable or no QApplication exists (e.g. an import-time
+    crash before the GUI is constructed).
     """
-    local_appdata = Path(
-        os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))
-    )
-    crash_dir = local_appdata / "Osiris DevWorks" / "Smart Citizen" / "logs"
-    crash_dir.mkdir(parents=True, exist_ok=True)
-    return crash_dir
-
-
-def _prune_old_logs(crash_dir: Path) -> None:
-    logs = sorted(crash_dir.glob("crash_*.log"), key=lambda p: p.stat().st_mtime)
-    for old in logs[:-_MAX_CRASH_LOGS]:
-        try:
-            old.unlink()
-        except OSError as exc:
-            logger.warning(f"Could not prune old crash log {old}: {exc}")
-
-
-def _write_crash_report(exc_type, exc_value, exc_tb) -> Path | None:
-    try:
-        from src.utils.version import get_version
-        version = get_version()
-    except Exception:
-        version = "unknown"
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    crash_dir = get_crash_log_dir()
-    crash_path = crash_dir / f"crash_{timestamp}.log"
-
-    lines = [
-        "=" * 72,
-        f"Smart Citizen v{version} — Crash Report",
-        f"Time       : {datetime.now().isoformat(sep=' ', timespec='seconds')}",
-        f"OS         : {platform.platform()}",
-        f"Python     : {sys.version}",
-        f"Executable : {sys.executable}",
-        "=" * 72,
-        "",
-        "Traceback (most recent call last):",
-    ]
-    lines += traceback.format_tb(exc_tb)
-    lines += [
-        f"{exc_type.__name__}: {exc_value}",
-        "",
-        "=" * 72,
-    ]
-
-    report = "\n".join(lines)
-    try:
-        crash_path.write_text(report, encoding="utf-8")
-        _prune_old_logs(crash_dir)
-        return crash_path
-    except Exception:
-        return None
-
-
-def _show_crash_dialog(exc_type, exc_value, crash_path: Path | None) -> None:
     try:
         from PyQt6.QtWidgets import QApplication, QDialog, QVBoxLayout, QLabel, QTextEdit, QPushButton, QHBoxLayout
         from PyQt6.QtCore import Qt
@@ -127,29 +65,3 @@ def _show_crash_dialog(exc_type, exc_value, crash_path: Path | None) -> None:
 
     layout.addLayout(btn_row)
     dlg.exec()
-
-
-def _excepthook(exc_type, exc_value, exc_tb):
-    if issubclass(exc_type, KeyboardInterrupt):
-        _original_excepthook(exc_type, exc_value, exc_tb)
-        return
-
-    logger.critical(
-        "Unhandled exception",
-        exc_info=(exc_type, exc_value, exc_tb),
-    )
-
-    crash_path = _write_crash_report(exc_type, exc_value, exc_tb)
-    if crash_path:
-        print(f"\nCrash log written to: {crash_path}", file=sys.stderr)
-    else:
-        print("\nCould not write crash log.", file=sys.stderr)
-
-    _show_crash_dialog(exc_type, exc_value, crash_path)
-    _original_excepthook(exc_type, exc_value, exc_tb)
-
-
-def install() -> None:
-    """Install the crash logger. Call once, early in main(), before Qt starts."""
-    sys.excepthook = _excepthook
-    logger.debug("Crash logger installed")

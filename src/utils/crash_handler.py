@@ -158,8 +158,8 @@ def _make_main_thread_hook(logs_dir: Path, original):
             return
         crash_path = _write_crash_dump(logs_dir, exc_type, exc_value, exc_tb, "MainThread")
         try:
-            from src.utils.crash_logger import _show_crash_dialog
-            _show_crash_dialog(exc_type, exc_value, crash_path)
+            from src.utils.crash_logger import show_crash_dialog
+            show_crash_dialog(exc_type, exc_value, crash_path)
         except Exception as dlg_err:
             # The dump is already written; don't let a broken crash-dialog
             # module hide that from the user entirely.
