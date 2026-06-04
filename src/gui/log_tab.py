@@ -10,6 +10,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QObject
 from PyQt6.QtGui import QTextCharFormat, QColor, QFont, QTextCursor
 
+from src.utils.i18n import tr
+
 # Maximum lines kept in the viewer before oldest lines are dropped
 _MAX_LINES = 2000
 
@@ -81,7 +83,8 @@ class LogTab(QWidget):
         # Toolbar row
         toolbar = QHBoxLayout()
 
-        toolbar.addWidget(QLabel("Min level:"))
+        self._min_level_label = QLabel(tr("log.min_level_label"))
+        toolbar.addWidget(self._min_level_label)
         self._level_combo = QComboBox()
         self._level_combo.setToolTip("Minimum severity to display. Entries below the selected level are hidden (DEBUG < INFO < WARNING < ERROR).")
         for level, name in [
@@ -97,24 +100,24 @@ class LogTab(QWidget):
 
         toolbar.addSpacing(16)
 
-        self._autoscroll_cb = QCheckBox("Auto-scroll")
+        self._autoscroll_cb = QCheckBox(tr("log.auto_scroll_check"))
         self._autoscroll_cb.setToolTip("Automatically scroll to the newest log entry as it arrives. Turn off to pin the view while inspecting older lines.")
         self._autoscroll_cb.setChecked(True)
         toolbar.addWidget(self._autoscroll_cb)
 
         toolbar.addStretch()
 
-        clear_btn = QPushButton("Clear")
-        clear_btn.setMaximumWidth(70)
-        clear_btn.setToolTip("Clear the on-screen log buffer. The session log file on disk is unaffected.")
-        clear_btn.clicked.connect(self._clear)
-        toolbar.addWidget(clear_btn)
+        self._clear_btn = QPushButton(tr("log.clear_btn"))
+        self._clear_btn.setMaximumWidth(70)
+        self._clear_btn.setToolTip("Clear the on-screen log buffer. The session log file on disk is unaffected.")
+        self._clear_btn.clicked.connect(self._clear)
+        toolbar.addWidget(self._clear_btn)
 
-        export_btn = QPushButton("Export to file…")
-        export_btn.setMaximumWidth(130)
-        export_btn.setToolTip("Save the current log buffer to a .log file — useful when filing a bug report.")
-        export_btn.clicked.connect(self._export)
-        toolbar.addWidget(export_btn)
+        self._export_btn = QPushButton(tr("log.export_btn"))
+        self._export_btn.setMaximumWidth(130)
+        self._export_btn.setToolTip("Save the current log buffer to a .log file — useful when filing a bug report.")
+        self._export_btn.clicked.connect(self._export)
+        toolbar.addWidget(self._export_btn)
 
         layout.addLayout(toolbar)
 
@@ -131,10 +134,19 @@ class LogTab(QWidget):
         layout.addWidget(self._view)
 
         # Status bar
-        self._status_label = QLabel("0 lines")
+        self._status_label = QLabel(tr("log.lines_label", count=0))
         self._status_label.setProperty("role", "secondary")
         self._status_label.setStyleSheet("font-size: 10px;")
         layout.addWidget(self._status_label)
+
+    # ── Retranslation ─────────────────────────────────────────────────────────
+
+    def retranslate_ui(self) -> None:
+        """Re-apply tr() to every text-bearing widget after a language switch."""
+        self._min_level_label.setText(tr("log.min_level_label"))
+        self._autoscroll_cb.setText(tr("log.auto_scroll_check"))
+        self._clear_btn.setText(tr("log.clear_btn"))
+        self._export_btn.setText(tr("log.export_btn"))
 
     # ── Handler lifecycle ─────────────────────────────────────────────────────
 
@@ -168,7 +180,7 @@ class LogTab(QWidget):
         cursor.insertText(msg + "\n", fmt)
 
         self._line_count = self._view.document().blockCount()
-        self._status_label.setText(f"{self._line_count} lines")
+        self._status_label.setText(tr("log.lines_label", count=self._line_count))
 
         if self._autoscroll_cb.isChecked():
             self._view.setTextCursor(cursor)
@@ -177,7 +189,7 @@ class LogTab(QWidget):
     def _clear(self):
         self._view.clear()
         self._line_count = 0
-        self._status_label.setText("0 lines")
+        self._status_label.setText(tr("log.lines_label", count=0))
 
     def _export(self):
         # Default to the canonical logs/ directory under user data so manual
@@ -189,7 +201,7 @@ class LogTab(QWidget):
         default_name = f"smart_citizen_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
         default_path = str(AppSettings.get_logs_dir() / default_name)
         path, _ = QFileDialog.getSaveFileName(
-            self, "Export log", default_path,
+            self, tr("log.export_title"), default_path,
             "Log files (*.log);;Text files (*.txt);;All files (*)"
         )
         if not path:
@@ -198,4 +210,4 @@ class LogTab(QWidget):
             Path(path).write_text(self._view.toPlainText(), encoding="utf-8")
         except Exception as e:
             from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.critical(self, "Export failed", str(e))
+            QMessageBox.critical(self, tr("log.export_failed_title"), str(e))

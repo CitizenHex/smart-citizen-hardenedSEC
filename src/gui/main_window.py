@@ -39,6 +39,7 @@ from src.gui.workers import (
     DataForgeExtractWorker,
     EnhancementsGeneratorWorker,
     FileLoaderWorker,
+    LanguageBaseDownloadWorker,
     P4kExtractWorker,
     SelectAllDelegate,
     StartupSyncWorker,
@@ -52,6 +53,7 @@ from src.utils.entry_filter import filter_entry_indices as _filter_entry_indices
 from src.utils.perf import timed
 from src.utils.resource_path import get_resource_path
 from src.utils.settings import AppSettings
+from src.utils.i18n import tr
 from src.utils.version import get_version
 
 logger = logging.getLogger(__name__)
@@ -247,7 +249,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"Smart Citizen v{get_version()}")
+        self.setWindowTitle(tr("window.title", version=get_version()))
         self.setGeometry(100, 100, 1400, 800)
 
         # Set window icon (taskbar + window title bar + favicon)
@@ -265,6 +267,9 @@ class MainWindow(QMainWindow):
 
         # Startup sync worker
         self._startup_sync_worker: Optional[StartupSyncWorker] = None
+
+        # Per-language base.ini download worker (#30)
+        self._lang_dl_worker: Optional[LanguageBaseDownloadWorker] = None
 
         # P4K extraction worker and progress dialog
         self._p4k_worker: Optional[P4kExtractWorker] = None
@@ -322,13 +327,13 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(8)
 
         # Title bar — branded font (Hyperspace Race Expanded Bold)
-        self.title_label = QLabel("SMART CITIZEN")
+        self.title_label = QLabel(tr("branding.title"))
         title_font = QFont(BRAND_FONT_FAMILY)
         title_font.setPointSize(22)
         self.title_label.setFont(title_font)
         main_layout.addWidget(self.title_label)
 
-        self.tagline_label = QLabel("SMARTER STRINGS FOR STAR CITIZEN")
+        self.tagline_label = QLabel(tr("branding.tagline"))
         main_layout.addWidget(self.tagline_label)
         self._apply_branding_styles()
 
@@ -344,9 +349,7 @@ class MainWindow(QMainWindow):
         self.preview_pane = QTextBrowser()
         self.preview_pane.setReadOnly(True)
         self.preview_pane.setOpenExternalLinks(False)
-        self.preview_pane.setPlaceholderText(
-            "Select a row to preview its rendered text."
-        )
+        self.preview_pane.setPlaceholderText(tr("strings_tab.preview_placeholder"))
         self.preview_pane.setMinimumWidth(420)
         # Capped to keep the toolbar QHBoxLayout from inflating when the
         # active tab has slack vertical space to redistribute (the
@@ -370,7 +373,7 @@ class MainWindow(QMainWindow):
         main_layout.addLayout(toolbar_row)
 
         self.tabs = QTabWidget()
-        self._strings_tab_index = self.tabs.addTab(self.create_strings_tab(), "String Editor")
+        self._strings_tab_index = self.tabs.addTab(self.create_strings_tab(), tr("tabs.string_editor"))
 
         # Config tab
         self.config_tab = ConfigTab()
@@ -379,22 +382,24 @@ class MainWindow(QMainWindow):
         self.config_tab.import_ini_requested.connect(self._handle_import_ini)
         self.config_tab.reset_user_ini_requested.connect(self._handle_reset_user_ini)
         self.config_tab.channel_changed.connect(self._on_channel_changed)
+        self.config_tab.language_changed.connect(self._on_language_changed)
         self.config_tab.check_updates_requested.connect(self._on_check_updates_clicked)
         self.config_tab.data_dir_changed.connect(self._on_data_dir_changed)
         self.config_tab.cache_dir_changed.connect(self._on_cache_dir_changed)
-        self._config_tab_index = self.tabs.addTab(self.config_tab, "Config")
+        self._config_tab_index = self.tabs.addTab(self.config_tab, tr("tabs.config"))
 
         # Enhancements tab
         self.enhancements_tab = EnhancementsTab()
         self.enhancements_tab.merge_requested.connect(self.perform_merge_and_reload)
         self.enhancements_tab.enhancements_pipeline_requested.connect(self._run_enhancements_pipeline)
-        self._enhancements_tab_index = self.tabs.addTab(self.enhancements_tab, "Enhancements")
+        self.enhancements_tab.favorite_prefix_changed.connect(self._on_favorite_prefix_changed)
+        self._enhancements_tab_index = self.tabs.addTab(self.enhancements_tab, tr("tabs.enhancements"))
 
         self.log_tab = LogTab()
-        self.tabs.addTab(self.log_tab, "Log")
+        self._log_tab_index = self.tabs.addTab(self.log_tab, tr("tabs.log"))
 
-        self.tabs.addTab(self.create_about_tab(), "About")
-        self.tabs.addTab(self.create_legal_tab(), "Legal")
+        self._about_tab_index = self.tabs.addTab(self.create_about_tab(), tr("tabs.about"))
+        self._legal_tab_index = self.tabs.addTab(self.create_legal_tab(), tr("tabs.legal"))
 
         # Error-dialog handler: surfaces ERROR/CRITICAL log records as a
         # modal QMessageBox so users see failures without having to open
@@ -420,16 +425,11 @@ class MainWindow(QMainWindow):
         footer_layout = self.create_footer()
         main_layout.addLayout(footer_layout)
 
-        # Help side-panel. Created eagerly (before restore_window_state runs)
-        # so Qt's native saveState/restoreState can persist its open/closed
-        # width across sessions — a dock only gets remembered if it exists
-        # with a stable objectName at restoreState() time. Start hidden so
-        # first-launch users aren't surprised by a panel they didn't ask for;
-        # restoreState will reopen it if the user had it open last session.
+        # Help side-panel. Created eagerly so restoreState can persist its state.
         self._ensure_help_dock()
         self.help_dock.hide()
 
-        # Editor side-panel — same eager-create rationale as the Help dock:
+        # Editor side-panel — same eager-create rationale as the help dock:
         # restoreState only remembers docks that exist with a stable
         # objectName at restore time. Hidden by default so first-launch
         # users aren't surprised.
@@ -461,83 +461,67 @@ class MainWindow(QMainWindow):
         # Button row
         button_layout = QHBoxLayout()
 
-        # Blue group — read / navigate
-        self.open_loc_dir_btn = QPushButton("Open Localization Dir")
-        self.open_loc_dir_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
-        self.open_loc_dir_btn.setToolTip("Open the game's localization directory in Windows Explorer")
-        self.open_loc_dir_btn.clicked.connect(self.open_localization_dir)
-        button_layout.addWidget(self.open_loc_dir_btn)
-
         # Green — commit
-        self.apply_btn = QPushButton("Apply to Game")
+        self.apply_btn = QPushButton(tr("toolbar.apply_btn"))
         self.apply_btn.setStyleSheet(f"background-color: {get_button_color('apply')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
         self.apply_btn.setToolTip("Write the merged table contents to the game's global.ini. A timestamped backup of the current global.ini is created first.")
         self.apply_btn.clicked.connect(self.apply_to_game)
         button_layout.addWidget(self.apply_btn)
 
-        # Red-orange — rollback
-        self.restore_backup_btn = QPushButton("Restore Backup")
-        self.restore_backup_btn.setStyleSheet(f"background-color: {get_button_color('restore')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
-        self.restore_backup_btn.setToolTip("Restore a previous global.ini from Documents\\Smart Citizen\\backups\\. Up to 5 timestamped backups are kept; the oldest is pruned when a new one is created.")
-        self.restore_backup_btn.clicked.connect(self.restore_backup)
-        button_layout.addWidget(self.restore_backup_btn)
-
-        # Gray group — cleanup
-        self.clear_loc_btn = QPushButton("Clear Localization")
-        self.clear_loc_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
-        self.clear_loc_btn.setToolTip("Delete the applied global.ini from the game's localization directory, reverting to vanilla game text")
-        self.clear_loc_btn.clicked.connect(self.clear_localization)
-        button_layout.addWidget(self.clear_loc_btn)
-
-        self.clear_cache_btn = QPushButton("Clear Cache")
-        self.clear_cache_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
-        self.clear_cache_btn.setToolTip("Delete all cached source files (base.ini, contracts.ini, etc.) from the local cache directory")
-        self.clear_cache_btn.clicked.connect(self.clear_cache)
-        button_layout.addWidget(self.clear_cache_btn)
-
-        # Export Loc-Pack — packages the currently-applied global.ini into a
-        # zip for sharing (org-wide loc-packs, Discord drops, etc.). Reads
-        # the already-written game file rather than re-merging in memory,
-        # which keeps the export aligned with what the user has actually
-        # validated in-game. Blue 'open' info-action role since it produces
-        # output without modifying game state.
-        self.export_locpack_btn = QPushButton("Export")
-        self.export_locpack_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
-        self.export_locpack_btn.setToolTip(
-            "Package the currently-applied global.ini into a zip for sharing. "
-            "Click Apply to Game first if you haven't already — Export reads the "
-            "applied file, not the in-memory edits."
-        )
-        self.export_locpack_btn.clicked.connect(self.export_locpack)
-        button_layout.addWidget(self.export_locpack_btn)
-
-        # Editor — toggles the side-docked String Editor for editing long
+        # Editor: toggles the side-docked String Editor for editing long
         # values comfortably. Shares the 'open' info-action role so it pairs
         # visually with Help/Tutorial as a panel-toggle.
-        self.editor_btn = QPushButton("Editor")
+        self.editor_btn = QPushButton(tr("toolbar.editor_btn"))
         self.editor_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
         self.editor_btn.setCheckable(True)
-        self.editor_btn.setToolTip("Toggle the side-docked String Editor — a larger canvas for editing the selected row's custom value")
+        self.editor_btn.setToolTip("Toggle the side-docked String Editor, a larger canvas for editing the selected row's custom value")
         self.editor_btn.clicked.connect(self.show_editor_dock)
         button_layout.addWidget(self.editor_btn)
 
-        # Help — sits with the other toolbar buttons rather than floating
-        # right; uses the 'open' role so it shares the blue/cyan/gold
-        # information-action palette with Open Localization Dir.
-        self.help_btn = QPushButton("Help")
+        self.help_btn = QPushButton(tr("toolbar.help_btn"))
         self.help_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
         self.help_btn.setCheckable(True)
         self.help_btn.setToolTip("Toggle the Help side-panel")
         self.help_btn.clicked.connect(self.show_help)
         button_layout.addWidget(self.help_btn)
 
-        # Tutorial — shares the 'open' blue/cyan/gold info-action role with
-        # Help so the two read as a pair. Always restartable on demand.
-        self.tutorial_btn = QPushButton("Tutorial")
+        self.tutorial_btn = QPushButton(tr("toolbar.tutorial_btn"))
         self.tutorial_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
-        self.tutorial_btn.setToolTip("Start the guided tour of Smart Citizen's workflow — runs automatically on first launch; click here anytime to replay.")
+        self.tutorial_btn.setToolTip("Start the guided tour of Smart Citizen's workflow. Runs automatically on first launch; click here anytime to replay.")
         self.tutorial_btn.clicked.connect(self._start_tutorial)
         button_layout.addWidget(self.tutorial_btn)
+
+        # More: overflow menu for the less-frequent actions (rollback, cleanup,
+        # import/export, open folder). Keeps the row focused on the core
+        # edit-and-commit workflow. Issue #128. The QActions are kept as
+        # attributes so retranslate_ui() can relabel them on a language swap.
+        more_menu = QMenu(self)
+        self._action_restore_backup = more_menu.addAction(
+            tr("toolbar.restore_backup_btn"), self.restore_backup
+        )
+        self._action_restore_backup.setToolTip(
+            "Restore a previous global.ini from the backups folder. Up to 5 "
+            "timestamped backups are kept; the oldest is pruned when a new one is created."
+        )
+        more_menu.addSeparator()
+        self._action_clear_loc = more_menu.addAction(tr("toolbar.menu_clear_localization"), self.clear_localization)
+        self._action_clear_cache = more_menu.addAction(tr("toolbar.menu_clear_cache"), self.clear_cache)
+        more_menu.addSeparator()
+        self._action_import_ini = more_menu.addAction(tr("toolbar.menu_import_ini"), self._handle_import_ini)
+        self._action_export_ini = more_menu.addAction(tr("toolbar.menu_export_ini"), self.export_locpack)
+        more_menu.addSeparator()
+        self._action_open_loc_dir = more_menu.addAction(
+            tr("toolbar.open_loc_dir_btn"), self.open_localization_dir
+        )
+
+        self.more_btn = QPushButton(tr("toolbar.more_btn"))
+        self.more_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
+        self.more_btn.setToolTip(
+            "More actions: restore a backup, clear localization or cache, "
+            "import or export, open the localization folder"
+        )
+        self.more_btn.setMenu(more_menu)
+        button_layout.addWidget(self.more_btn)
 
         button_layout.addStretch()
 
@@ -546,16 +530,27 @@ class MainWindow(QMainWindow):
         # Filter row
         filter_layout = QHBoxLayout()
 
-        filter_layout.addWidget(QLabel("Category:"))
+        self._category_label = QLabel(tr("filters.category_label"))
+        filter_layout.addWidget(self._category_label)
         self.category_combo = QComboBox()
         self.category_combo.setMinimumWidth(200)
         self.category_combo.setToolTip("Filter rows by domain (Ships, Ship Items, Missions, Gear, Commodities, Journal, Other). Categories are derived from the loc-key prefix.")
         self.category_combo.currentTextChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.category_combo)
 
-        filter_layout.addWidget(QLabel("Status:"))
+        self._status_label = QLabel(tr("filters.status_label"))
+        filter_layout.addWidget(self._status_label)
         self.status_combo = QComboBox()
-        self.status_combo.addItems(["All", "Modified", "Enhanced", "Unmodified", "New"])
+        # userData stores the English internal value used by the filter engine;
+        # display text is translated so the label localizes without breaking comparisons.
+        for _internal, _key in [
+            ("All",        "filters.status_all"),
+            ("Modified",   "filters.status_modified"),
+            ("Enhanced",   "filters.status_enhanced"),
+            ("Unmodified", "filters.status_unmodified"),
+            ("New",        "filters.status_new"),
+        ]:
+            self.status_combo.addItem(tr(_key), userData=_internal)
         self.status_combo.setMaximumWidth(120)
         self.status_combo.setToolTip(
             "Filter by status. "
@@ -567,29 +562,29 @@ class MainWindow(QMainWindow):
         self.status_combo.currentTextChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.status_combo)
 
-        self.hide_unmodified_check = QCheckBox("Hide Unmodified")
+        self.hide_unmodified_check = QCheckBox(tr("filters.hide_unmodified"))
         self.hide_unmodified_check.setToolTip("Show only rows where you've set a Custom Value. Same as the Status filter's Modified option but togglable on its own.")
         self.hide_unmodified_check.stateChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.hide_unmodified_check)
 
-        self.favorites_only_check = QCheckBox("★ Favorites Only")
+        self.favorites_only_check = QCheckBox(tr("filters.favorites_only"))
         self.favorites_only_check.setToolTip("Show only rows you've starred as favorites. Favorites get a configurable prefix prepended to their name so they sort to the top of the in-game list.")
         self.favorites_only_check.stateChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.favorites_only_check)
 
-        self.grouped_sort_btn = QPushButton("Group Sort")
+        self.grouped_sort_btn = QPushButton(tr("filters.group_sort_btn"))
         self.grouped_sort_btn.setToolTip("Sort titles and descriptions together for the same entity")
         self.grouped_sort_btn.setMaximumWidth(100)
         self.grouped_sort_btn.clicked.connect(self._on_grouped_sort)
         filter_layout.addWidget(self.grouped_sort_btn)
 
-        self.clear_filters_btn = QPushButton("Clear Filters")
+        self.clear_filters_btn = QPushButton(tr("filters.clear_filters_btn"))
         self.clear_filters_btn.setMaximumWidth(100)
         self.clear_filters_btn.setToolTip("Reset every filter (category, status, search, per-column boxes, checkboxes) so the full table is shown.")
         self.clear_filters_btn.clicked.connect(self.clear_filters)
         filter_layout.addWidget(self.clear_filters_btn)
 
-        self.copy_filtered_btn = QPushButton("Copy Filtered")
+        self.copy_filtered_btn = QPushButton(tr("filters.copy_filtered_btn"))
         self.copy_filtered_btn.setMaximumWidth(100)
         self.copy_filtered_btn.setToolTip("Copy all visible filtered rows to clipboard (tab-separated)")
         self.copy_filtered_btn.clicked.connect(self.copy_filtered_to_clipboard)
@@ -850,20 +845,20 @@ class MainWindow(QMainWindow):
         worker.finished.connect(self._on_update_check_finished)
 
         self.config_tab.set_check_updates_enabled(False)
-        self.config_tab.set_update_status("Checking…")
+        self.config_tab.set_update_status(tr("status_bar.update_checking"))
         worker.start()
 
     @pyqtSlot(str, str, str)
     def _on_update_available(self, latest: str, url: str, body: str) -> None:
         current = get_version()
         self._latest_release_url = url
-        self._app_version_indicator.setText(f"v{current} · update available")
+        self._update_check_state = ("available", latest)
         self._app_version_indicator.setStyleSheet(
             "font-size: 11px; padding: 0 8px; color: #c9a961; font-weight: bold;"
         )
         self._app_version_indicator.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._app_version_indicator.setToolTip(f"Open release page for v{latest}")
-        self.config_tab.set_update_status(f"v{latest} available")
+        self._refresh_update_indicator_texts()
 
         # Truncate long release bodies for the dialog so the modal doesn't
         # stretch off-screen. Users get the full notes on the release page.
@@ -873,13 +868,13 @@ class MainWindow(QMainWindow):
 
         msg = QMessageBox(self)
         msg.setIcon(QMessageBox.Icon.Information)
-        msg.setWindowTitle("Smart Citizen — Update Available")
-        text = f"A new version is available: v{latest}\nYou are on v{current}."
+        msg.setWindowTitle(tr("dialogs.update_available_title"))
+        text = tr("dialogs.update_available_body", latest=latest, current=current)
         if excerpt:
             text += f"\n\n—\n{excerpt}"
         msg.setText(text)
-        open_btn = msg.addButton("Open Release Page", QMessageBox.ButtonRole.AcceptRole)
-        msg.addButton("Later", QMessageBox.ButtonRole.RejectRole)
+        open_btn = msg.addButton(tr("dialogs.update_open_release"), QMessageBox.ButtonRole.AcceptRole)
+        msg.addButton(tr("dialogs.update_later"), QMessageBox.ButtonRole.RejectRole)
         msg.setDefaultButton(open_btn)
         msg.exec()
         if msg.clickedButton() is open_btn:
@@ -888,33 +883,32 @@ class MainWindow(QMainWindow):
     @pyqtSlot(str)
     def _on_update_up_to_date(self, current: str) -> None:
         self._latest_release_url = None
-        self._app_version_indicator.setText(f"v{current} · up to date")
+        self._update_check_state = ("up_to_date", current)
         self._app_version_indicator.setStyleSheet("font-size: 11px; padding: 0 8px;")
         self._app_version_indicator.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
         self._app_version_indicator.setToolTip("")
-        self.config_tab.set_update_status(f"Up to date (v{current})")
+        self._refresh_update_indicator_texts()
         if getattr(self, "_force_update_dialog", False):
             QMessageBox.information(
                 self,
-                "Smart Citizen — Up to Date",
-                f"You are on the latest version (v{current}).",
+                tr("dialogs.up_to_date_title"),
+                tr("dialogs.up_to_date_body", current=current),
             )
 
     @pyqtSlot(str)
     def _on_update_check_error(self, message: str) -> None:
         self._latest_release_url = None
-        current = get_version()
-        self._app_version_indicator.setText(f"v{current} · check failed")
+        self._update_check_state = ("failed", None)
         self._app_version_indicator.setStyleSheet("font-size: 11px; padding: 0 8px;")
         self._app_version_indicator.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
         self._app_version_indicator.setToolTip(message)
-        self.config_tab.set_update_status("Check failed")
+        self._refresh_update_indicator_texts()
         logger.warning(f"App update check error: {message}")
         if getattr(self, "_force_update_dialog", False):
             QMessageBox.warning(
                 self,
-                "Smart Citizen — Update Check Failed",
-                f"Could not check for updates:\n\n{message}",
+                tr("dialogs.update_check_failed_title"),
+                tr("dialogs.update_check_failed_body", message=message),
             )
 
     @pyqtSlot()
@@ -955,7 +949,15 @@ class MainWindow(QMainWindow):
         self.table.setModel(self._model)
 
         # Per-column filter header
-        column_names = ["Category", "Key", "Default Value", "Current Value", "★", "Custom Value", "Status"]
+        column_names = [
+            tr("strings_tab.col_category"),
+            tr("strings_tab.col_key"),
+            tr("strings_tab.col_default_value"),
+            tr("strings_tab.col_current_value"),
+            tr("strings_tab.col_star"),
+            tr("strings_tab.col_custom_value"),
+            tr("strings_tab.col_status"),
+        ]
         self.filter_header = FilterHeaderView(column_names, self.table, skip_columns={0, 4, 6})
         self.table.setHorizontalHeader(self.filter_header)
         self.filter_header.filter_changed.connect(self.apply_filters)
@@ -994,7 +996,7 @@ class MainWindow(QMainWindow):
         )
 
         # Status label
-        self.table_status_label = QLabel("No data loaded")
+        self.table_status_label = QLabel(tr("strings_tab.no_data"))
         layout.addWidget(self.table_status_label)
 
         return widget
@@ -1018,7 +1020,7 @@ class MainWindow(QMainWindow):
         from PyQt6.QtWidgets import QApplication
         self.about_browser.setPalette(QApplication.palette())
         try:
-            about_path = get_resource_path("docs/ABOUT.md")
+            about_path = AppSettings.get_localized_doc_path("ABOUT.md")
             with open(about_path, 'r', encoding='utf-8') as f:
                 about_content = f.read()
             about_content = about_content.replace(
@@ -1132,7 +1134,7 @@ class MainWindow(QMainWindow):
         from PyQt6.QtWidgets import QApplication
         self.legal_browser.setPalette(QApplication.palette())
         try:
-            legal_path = get_resource_path("docs/LEGAL.md")
+            legal_path = AppSettings.get_localized_doc_path("LEGAL.md")
             with open(legal_path, 'r', encoding='utf-8') as f:
                 legal_content = f.read()
             html = self.markdown_to_html(legal_content)
@@ -1164,8 +1166,9 @@ class MainWindow(QMainWindow):
     def _set_toolbar_enabled(self, enabled: bool):
         """Toggle toolbar button enabled states."""
         self.apply_btn.setEnabled(enabled)
-        self.restore_backup_btn.setEnabled(enabled)
-        self.clear_loc_btn.setEnabled(enabled)
+        # restore/clear/import/export and open-loc-dir now live under More, so
+        # disabling the one button gates all of them during operations.
+        self.more_btn.setEnabled(enabled)
 
     @timed
     def load_default_values(self):
@@ -1190,11 +1193,11 @@ class MainWindow(QMainWindow):
     def apply_to_game(self):
         """Apply merged sources + user edits to game installation and backup existing file."""
         if not self.entries:
-            QMessageBox.warning(self, "Warning", "Please load a file first")
+            QMessageBox.warning(self, tr("dialogs.warning_title"), tr("dialogs.no_file_loaded"))
             return
 
         if not AppSettings.get_game_install_path():
-            QMessageBox.warning(self, "Warning", "Please configure game install path in Config tab")
+            QMessageBox.warning(self, tr("dialogs.warning_title"), tr("dialogs.no_game_path"))
             return
 
         # Save user.ini FIRST, before touching the game file. Pre-1.4.1 the
@@ -1274,10 +1277,8 @@ class MainWindow(QMainWindow):
             if missing_sources:
                 names = ", ".join(missing_sources)
                 reply = QMessageBox.warning(
-                    self, "Missing Sources",
-                    f"The following enabled sources could not be loaded:\n\n  {names}\n\n"
-                    "Their customizations will NOT be included in the applied file.\n\n"
-                    "Apply anyway?",
+                    self, tr("dialogs.missing_sources_title"),
+                    tr("dialogs.missing_sources_body", names=names),
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.No,
                 )
@@ -1382,12 +1383,10 @@ class MainWindow(QMainWindow):
                 else:
                     restore_note = "\n\nNo backup was available to restore."
 
-                self.statusBar().showMessage("Apply failed — validation error")
+                self.statusBar().showMessage(tr("dialogs.apply_failed_status"))
                 QMessageBox.critical(
-                    self, "Validation Failed",
-                    f"The written file failed validation and has been deleted.\n\n"
-                    f"{validation_msg}"
-                    f"{restore_note}"
+                    self, tr("dialogs.validation_failed_title"),
+                    tr("dialogs.validation_failed_body", msg=validation_msg, restore_note=restore_note),
                 )
                 return
 
@@ -1407,13 +1406,27 @@ class MainWindow(QMainWindow):
             )
             enhancement_count = sum(enhancement_categories.values())
 
-            # Ensure user.cfg has language setting
+            # Copy languages.ini to {channel}/data/languages.ini if available
+            import shutil as _shutil
+            lang_ini_src = AppSettings.get_language_languages_ini_path()
+            if lang_ini_src is not None:
+                lang_ini_dest = AppSettings.get_languages_ini_dest_path()
+                lang_ini_dest.parent.mkdir(parents=True, exist_ok=True)
+                _shutil.copy2(lang_ini_src, lang_ini_dest)
+                logger.info(f"Copied languages.ini to {lang_ini_dest}")
+            else:
+                logger.debug(
+                    f"No languages.ini found for language "
+                    f"'{AppSettings.get_selected_language()}'; skipping copy"
+                )
+
+            # Ensure user.cfg has the selected language
             from src.utils.user_cfg import ensure_user_cfg_language
             ensure_user_cfg_language()
 
             logger.info(f"Applied to game: {target_path}")
             self.statusBar().showMessage(
-                f"Applied to game | {user_count} user edits | {enhancement_count} enhancements"
+                tr("dialogs.apply_status", user_count=user_count, enhancement_count=enhancement_count)
             )
             if enhancement_categories:
                 breakdown = "\n".join(
@@ -1427,13 +1440,13 @@ class MainWindow(QMainWindow):
             else:
                 enhancement_block = f"  Smart Citizen enhancements: 0"
             QMessageBox.information(
-                self, "Success",
+                self, tr("dialogs.success_title"),
                 f"Applied to {target_path}\n\n"
                 f"  User edits: {user_count:,}\n\n"
                 f"{enhancement_block}"
             )
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to apply to game: {e}")
+            QMessageBox.critical(self, tr("dialogs.error_title"), f"Failed to apply to game: {e}")
             logger.error(f"Error applying to game: {e}")
 
     def _validate_applied_file(
@@ -1457,24 +1470,20 @@ class MainWindow(QMainWindow):
     def clear_localization(self):
         """Delete global.ini from the active channel's localization directory, reverting to vanilla text."""
         if not AppSettings.get_game_install_path():
-            QMessageBox.warning(self, "Warning", "Please configure game install path in Config tab")
+            QMessageBox.warning(self, tr("dialogs.warning_title"), tr("dialogs.no_game_path"))
             return
 
         global_ini = AppSettings.get_global_ini_path()
         loc_dir = global_ini.parent
 
         if not global_ini.exists():
-            QMessageBox.information(self, "Nothing to Clear",
-                "No custom global.ini found in the game's localization directory.\n"
-                "The game is already using vanilla text.")
+            QMessageBox.information(self, tr("dialogs.nothing_to_clear_title"),
+                tr("dialogs.nothing_to_clear_body"))
             return
 
         reply = QMessageBox.question(
-            self, "Clear Localization",
-            f"This will delete the custom global.ini from:\n{loc_dir}\n\n"
-            "The game will revert to its default (vanilla) localization text.\n\n"
-            "Your overrides are preserved in the app and can be re-applied at any time.\n\n"
-            "Continue?",
+            self, tr("dialogs.clear_localization_title"),
+            tr("dialogs.clear_localization_body", loc_dir=loc_dir),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -1484,13 +1493,11 @@ class MainWindow(QMainWindow):
         try:
             global_ini.unlink()
             logger.info(f"Deleted {global_ini}")
-            self.statusBar().showMessage("Localization cleared — game reverted to vanilla text")
-            QMessageBox.information(self, "Done",
-                "Custom localization removed.\n"
-                "The game will now use its default text.\n\n"
-                "To re-apply your overrides and stat descriptions, click Apply to Game.")
+            self.statusBar().showMessage(tr("dialogs.clear_localization_status"))
+            QMessageBox.information(self, tr("dialogs.clear_localization_done_title"),
+                tr("dialogs.clear_localization_done_body"))
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to delete global.ini: {e}")
+            QMessageBox.critical(self, tr("dialogs.error_title"), f"Failed to delete global.ini: {e}")
             logger.error(f"Error clearing localization: {e}")
 
     @pyqtSlot()
@@ -1506,7 +1513,7 @@ class MainWindow(QMainWindow):
         has_dataforge = dataforge_dir.exists()
 
         if not cached_files and not has_dataforge:
-            QMessageBox.information(self, "Cache Empty", "The cache directory is already empty.")
+            QMessageBox.information(self, tr("dialogs.cache_empty_title"), tr("dialogs.cache_empty_body"))
             return
 
         # First dialog: clear regular cache files
@@ -1515,7 +1522,7 @@ class MainWindow(QMainWindow):
         msg += "base.ini will need to be re-extracted from Data.p4k before strings can be loaded."
 
         reply = QMessageBox.question(
-            self, "Clear Cache", msg,
+            self, tr("dialogs.clear_cache_title"), msg,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -1543,7 +1550,7 @@ class MainWindow(QMainWindow):
         if has_dataforge:
             progress.close()  # Close progress dialog while asking user
             reply = QMessageBox.question(
-                self, "Clear DataForge Cache?",
+                self, tr("dialogs.dataforge_cache_title"),
                 "Also clear the DataForge entity cache?\n\n"
                 "⚠️  Warning: Recreating the DataForge cache takes a few minutes on first run.\n\n"
                 "The DataForge cache contains extracted entity data used for generating\n"
@@ -1585,7 +1592,7 @@ class MainWindow(QMainWindow):
         msg = f"Deleted {len(deleted)} item(s) from cache."
         if failed:
             msg += f"\n\nFailed to delete:\n" + "\n".join(failed)
-        QMessageBox.information(self, "Cache Cleared", msg)
+        QMessageBox.information(self, tr("dialogs.cache_cleared_title"), msg)
 
         # Re-sync all remote sources so they're available for the next Apply.
         # The sync completion will also prompt for p4k extraction if base.ini is missing.
@@ -1596,14 +1603,14 @@ class MainWindow(QMainWindow):
     def open_localization_dir(self):
         """Open the active channel's localization directory in Windows Explorer."""
         if not AppSettings.get_game_install_path():
-            QMessageBox.warning(self, "Warning", "Please configure game install path in Config tab")
+            QMessageBox.warning(self, tr("dialogs.warning_title"), tr("dialogs.no_game_path"))
             return
 
         loc_dir = AppSettings.get_global_ini_path().parent
 
         if not loc_dir.exists():
             QMessageBox.warning(
-                self, "Directory Not Found",
+                self, tr("dialogs.dir_not_found_title"),
                 f"Localization directory not found:\n{loc_dir}\n\n"
                 "Check your game install path in the Config tab."
             )
@@ -1623,16 +1630,14 @@ class MainWindow(QMainWindow):
         from src.utils.locpack_exporter import default_locpack_filename, write_locpack_zip
 
         if not AppSettings.get_game_install_path():
-            QMessageBox.warning(self, "Warning", "Please configure game install path in Config tab")
+            QMessageBox.warning(self, tr("dialogs.warning_title"), tr("dialogs.no_game_path"))
             return
 
         global_ini = AppSettings.get_global_ini_path()
         if not global_ini.exists():
             QMessageBox.information(
-                self, "Nothing to Export",
-                "No applied global.ini was found in the game's localization directory.\n\n"
-                "Click 'Apply to Game' first to write your customizations, then "
-                "Export to package them for sharing."
+                self, tr("dialogs.nothing_to_export_title"),
+                tr("dialogs.nothing_to_export_body"),
             )
             return
 
@@ -1647,7 +1652,7 @@ class MainWindow(QMainWindow):
 
         out_path_str, _ = QFileDialog.getSaveFileName(
             self,
-            "Export Loc-Pack",
+            tr("dialogs.export_loc_pack_title"),
             default_path,
             "Zip files (*.zip);;All files (*)",
         )
@@ -1660,18 +1665,17 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.exception("Loc-pack export failed")
             QMessageBox.critical(
-                self, "Export Failed",
-                f"Could not write the loc-pack zip:\n{e}"
+                self, tr("dialogs.export_failed_title"),
+                tr("dialogs.export_failed_body", error=e),
             )
             return
 
         zip_size = out_path.stat().st_size
         QMessageBox.information(
-            self, "Export Complete",
-            f"Loc-pack written to:\n{out_path}\n\n"
-            f"Channel: {channel}\n"
-            f"Source size: {source_size:,} bytes\n"
-            f"Zip size: {zip_size:,} bytes"
+            self, tr("dialogs.export_complete_title"),
+            tr("dialogs.export_complete_body",
+               out_path=out_path, channel=channel,
+               source_size=source_size, zip_size=zip_size),
         )
 
     @pyqtSlot()
@@ -1710,6 +1714,24 @@ class MainWindow(QMainWindow):
             restored += 1
         return restored
 
+    @pyqtSlot(str, str)
+    def _on_favorite_prefix_changed(self, old_prefix: str, new_prefix: str):
+        """Re-prefix in-memory favourites after the sort prefix changed (#140).
+
+        ``_apply_favorite_prefix`` already migrated ``user.ini`` on disk, but
+        ``perform_merge_and_reload`` snapshots the current in-memory
+        ``custom_value``s and restores them over the freshly-loaded entries.
+        Without re-prefixing memory here, that snapshot still holds the old
+        prefix and clobbers the migrated value straight back. Re-prefix in
+        memory first so the snapshot carries the new prefix and the restore is
+        a no-op. Mirrors the user.ini migration's ``startswith`` rule.
+        """
+        if old_prefix and old_prefix != new_prefix:
+            for e in self.entries:
+                if e.custom_value.startswith(old_prefix):
+                    e.custom_value = new_prefix + e.custom_value[len(old_prefix):]
+        self.perform_merge_and_reload()
+
     def perform_merge_and_reload(self):
         """Perform merge of configured sources and reload table.
 
@@ -1722,10 +1744,10 @@ class MainWindow(QMainWindow):
             sources_dict, hierarchy, enhancements_key_categories = load_sources_from_settings()
 
             if not sources_dict or not hierarchy:
-                QMessageBox.warning(self, "Warning", "No sources configured. Please configure data sources in Config tab.")
+                QMessageBox.warning(self, tr("dialogs.warning_title"), tr("dialogs.no_sources_body"))
                 return
 
-            self.statusBar().showMessage("Merging sources...")
+            self.statusBar().showMessage(tr("dialogs.merging_sources"))
 
             try:
                 # Load synchronously in main thread
@@ -1749,8 +1771,8 @@ class MainWindow(QMainWindow):
                 self._update_status_bar()
             except Exception as e:
                 logger.exception(f"Error during merge: {e}")
-                QMessageBox.critical(self, "Error", f"Failed to merge sources: {e}")
-                self.statusBar().showMessage("Merge failed")
+                QMessageBox.critical(self, tr("dialogs.error_title"), f"Failed to merge sources: {e}")
+                self.statusBar().showMessage(tr("dialogs.merge_failed"))
 
         except Exception as e:
             logger.exception(f"Error in perform_merge_and_reload: {e}")
@@ -1774,11 +1796,8 @@ class MainWindow(QMainWindow):
         self._apply_branding_styles()
         base = "font-weight: bold; padding: 6px;"
         text = get_button_text_color()
-        self.open_loc_dir_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {text}; {base}")
         self.apply_btn.setStyleSheet(f"background-color: {get_button_color('apply')}; color: {text}; {base}")
-        self.restore_backup_btn.setStyleSheet(f"background-color: {get_button_color('restore')}; color: {text}; {base}")
-        self.clear_loc_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {text}; {base}")
-        self.clear_cache_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {text}; {base}")
+        self.more_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {text}; {base}")
         self.editor_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {text}; {base}")
         self.help_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {text}; {base}")
         if hasattr(self, "about_browser"):
@@ -1819,9 +1838,8 @@ class MainWindow(QMainWindow):
         if not user_ini_path.exists():
             QMessageBox.information(
                 self,
-                "Nothing to Reset",
-                f"There is no user.ini for the {channel} channel — already at "
-                f"stock values.\n\nPath checked:\n{user_ini_path}",
+                tr("dialogs.nothing_to_reset_title"),
+                tr("dialogs.nothing_to_reset_body", channel=channel, path=user_ini_path),
             )
             return
 
@@ -1833,7 +1851,7 @@ class MainWindow(QMainWindow):
 
         reply = QMessageBox.warning(
             self,
-            "Reset user.ini?",
+            tr("dialogs.reset_user_ini_title"),
             f"This will remove every custom string override for the "
             f"{channel} channel.\n\n"
             f"File: {user_ini_path}\n"
@@ -1857,10 +1875,8 @@ class MainWindow(QMainWindow):
             logger.exception(f"Failed to reset user.ini at {user_ini_path}")
             QMessageBox.critical(
                 self,
-                "Reset Failed",
-                f"Could not reset user.ini:\n\n{e}\n\n"
-                f"The file is still in place. Close any other application that "
-                f"might have it open (text editor, sync client) and try again.",
+                tr("dialogs.reset_failed_title"),
+                tr("dialogs.reset_failed_body", error=e),
             )
             return
 
@@ -1921,13 +1937,13 @@ class MainWindow(QMainWindow):
             else:
                 resolved_path = source
                 if not Path(resolved_path).exists():
-                    QMessageBox.warning(self, "File Not Found", f"File does not exist:\n{resolved_path}")
+                    QMessageBox.warning(self, tr("dialogs.file_not_found_title"), tr("dialogs.file_not_found_body", path=resolved_path))
                     return
 
             # Step 3: Parse imported file
             imported = parse_ini_file(resolved_path)
             if not imported:
-                QMessageBox.warning(self, "Empty File", "The imported file contains no valid key=value entries.")
+                QMessageBox.warning(self, tr("dialogs.empty_file_title"), tr("dialogs.empty_file_body"))
                 return
 
             # Step 4: Validate against base.ini keys
@@ -1945,9 +1961,10 @@ class MainWindow(QMainWindow):
                     f"All keys were excluded.")
                 return
 
-            # Step 5: Load current user.ini
+            # Step 5: Load current user.ini (strip_values=False so leading-space
+            # favourite prefixes round-trip verbatim — see issue #100).
             user_ini_path = AppSettings.get_user_ini_path()
-            current_user = parse_ini_file(user_ini_path) if user_ini_path.exists() else {}
+            current_user = parse_ini_file(user_ini_path, strip_values=False) if user_ini_path.exists() else {}
 
             # Step 6: Categorize keys
             auto_add = {}
@@ -2055,7 +2072,7 @@ class MainWindow(QMainWindow):
         """Restore a backup file as the current global.ini."""
         game_path = AppSettings.get_game_install_path()
         if not game_path:
-            QMessageBox.warning(self, "Warning", "Please configure game install path in Config tab")
+            QMessageBox.warning(self, tr("dialogs.warning_title"), tr("dialogs.no_game_path"))
             return
 
         backup_dir = AppSettings.get_backups_dir()
@@ -2102,20 +2119,12 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _ensure_help_dock(self) -> QDockWidget:
-        """Create the side-docked Help panel on first use and return it.
-
-        The panel is a QDockWidget docked to the right edge so users can keep
-        the guide open as a reference while editing. Users can drag it to the
-        left, undock it into a floating window, or close it via the title-bar
-        X. Qt restores its last state (position, width, visibility) on the
-        next launch because saveState/restoreState are already wired into
-        restore_window_state. An objectName is required for that mapping.
-        """
+        """Create the side-docked Help panel on first use and return it."""
         if getattr(self, "help_dock", None) is not None:
             return self.help_dock
 
         dock = QDockWidget("Help", self)
-        dock.setObjectName("helpDock")  # needed by restoreState
+        dock.setObjectName("helpDock")
         dock.setAllowedAreas(
             Qt.DockWidgetArea.RightDockWidgetArea
             | Qt.DockWidgetArea.LeftDockWidgetArea
@@ -2133,12 +2142,27 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
         self.help_dock = dock
 
-        # Keep the Help button's checked state in sync if the user closes the
-        # dock via its title-bar X instead of the toolbar button.
         dock.visibilityChanged.connect(self._on_help_dock_visibility_changed)
-
         self._render_help_html()
         return dock
+
+    def _on_help_dock_visibility_changed(self, visible: bool):
+        """Keep the toolbar Help button's checked state in sync with the dock."""
+        if hasattr(self, "help_btn"):
+            was_blocked = self.help_btn.blockSignals(True)
+            try:
+                self.help_btn.setChecked(visible)
+            finally:
+                self.help_btn.blockSignals(was_blocked)
+
+    def show_help(self):
+        """Toggle the Help side-panel."""
+        dock = self._ensure_help_dock()
+        if dock.isVisible():
+            dock.hide()
+        else:
+            dock.show()
+            dock.raise_()
 
     def _render_help_html(self):
         """(Re)render the Help panel's HTML using the current palette.
@@ -2154,7 +2178,7 @@ class MainWindow(QMainWindow):
         from PyQt6.QtWidgets import QApplication
         self.help_browser.setPalette(QApplication.palette())
         try:
-            help_path = get_resource_path("docs/HELP.md")
+            help_path = AppSettings.get_localized_doc_path("HELP.md")
             with open(help_path, "r", encoding="utf-8") as f:
                 help_markdown = f.read()
             self.help_browser.setHtml(self.markdown_to_html(help_markdown))
@@ -2164,33 +2188,6 @@ class MainWindow(QMainWindow):
                 "<h1>Help</h1><p>Help content could not be loaded. "
                 "See the About tab or the project README for usage details.</p>"
             )
-
-    def _on_help_dock_visibility_changed(self, visible: bool):
-        """Keep the toolbar Help button's checked state in sync with the dock."""
-        if hasattr(self, "help_btn"):
-            # blockSignals so toggling the button here doesn't loop back into
-            # show_help and flip the dock visibility again.
-            was_blocked = self.help_btn.blockSignals(True)
-            try:
-                self.help_btn.setChecked(visible)
-            finally:
-                self.help_btn.blockSignals(was_blocked)
-
-    def show_help(self):
-        """Toggle the Help side-panel.
-
-        Help content lives in docs/HELP.md (bundled into the PyInstaller
-        onedir via SmartCitizen.spec). The first call creates the
-        dock lazily; subsequent calls flip visibility so users can keep the
-        guide open as a reference while editing without juggling a modal
-        dialog.
-        """
-        dock = self._ensure_help_dock()
-        if dock.isVisible():
-            dock.hide()
-        else:
-            dock.show()
-            dock.raise_()
 
     # ── Side-docked String Editor ────────────────────────────────────────────
 
@@ -2397,10 +2394,10 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         cursor = self.editor_dock_text.textCursor()
         has_sel = cursor.hasSelection()
-        em3 = menu.addAction("Underline")
+        em3 = menu.addAction(tr("strings_tab.context_underline"))
         em3.setEnabled(has_sel)
         em3.triggered.connect(lambda: self._editor_dock_wrap("EM3"))
-        em4 = menu.addAction("Highlight")
+        em4 = menu.addAction(tr("strings_tab.context_highlight"))
         em4.setEnabled(has_sel)
         em4.triggered.connect(lambda: self._editor_dock_wrap("EM4"))
         menu.exec(self.editor_dock_text.mapToGlobal(pos))
@@ -2452,16 +2449,16 @@ class MainWindow(QMainWindow):
             "apply":                 {"target": lambda: self.apply_btn,                                        "pre_action": None},
             "enhancements":          {"target": lambda: self.enhancements_tab._generate_enhancements_btn,      "pre_action": _switch_to(enh_tab)},
             # Enhancements tab section deep-dive
-            "enh_categories":        {"target": lambda: self.enhancements_tab.localization_enhancements_group, "pre_action": _switch_to(enh_tab)},
-            "enh_favorites":         {"target": lambda: self.enhancements_tab.favorites_group,                 "pre_action": _switch_to(enh_tab)},
+            "enh_categories":        {"target": lambda: self.enhancements_tab._enhancements_group,             "pre_action": _switch_to(enh_tab)},
+            "enh_favorites":         {"target": lambda: self.enhancements_tab._favorites_group,                "pre_action": _switch_to(enh_tab)},
             "enh_mission_labels":    {"target": lambda: self.enhancements_tab.mission_labels_group,            "pre_action": _switch_to(enh_tab)},
-            "enh_tag_builder":       {"target": lambda: self.enhancements_tab.tag_builder_group,               "pre_action": _switch_to(enh_tab)},
+            "enh_tag_builder":       {"target": lambda: self.enhancements_tab._tag_builder_group,              "pre_action": _switch_to(enh_tab)},
             # Config tab section deep-dive
-            "cfg_appearance":        {"target": lambda: self.config_tab.appearance_group,                      "pre_action": _switch_to(config_tab)},
-            "cfg_sc_install":        {"target": lambda: self.config_tab.game_group,                            "pre_action": _switch_to(config_tab)},
-            "cfg_data_folder":       {"target": lambda: self.config_tab.data_group,                            "pre_action": _switch_to(config_tab)},
-            "cfg_p4k_extraction":    {"target": lambda: self.config_tab.p4k_group,                             "pre_action": _switch_to(config_tab)},
-            "cfg_tools":             {"target": lambda: self.config_tab.tools_group,                           "pre_action": _switch_to(config_tab)},
+            "cfg_appearance":        {"target": lambda: self.config_tab._appearance_group,                     "pre_action": _switch_to(config_tab)},
+            "cfg_sc_install":        {"target": lambda: self.config_tab._loc_group,                            "pre_action": _switch_to(config_tab)},
+            "cfg_data_folder":       {"target": lambda: self.config_tab._data_group,                           "pre_action": _switch_to(config_tab)},
+            "cfg_p4k_extraction":    {"target": lambda: self.config_tab._p4k_group,                            "pre_action": _switch_to(config_tab)},
+            "cfg_tools":             {"target": lambda: self.config_tab._tools_group,                          "pre_action": _switch_to(config_tab)},
             "help":                  {"target": lambda: self.help_btn,                                         "pre_action": _switch_to(strings_tab)},
         }
 
@@ -2505,6 +2502,18 @@ class MainWindow(QMainWindow):
             if not title or not description:
                 logger.warning(f"Tutorial step {step_id!r} missing title/description; skipped")
                 continue
+            # Language overlay (#30): a translation may carry this step's copy
+            # under tutorial.<id>.title / .description in its ui.json. tr()
+            # returns the bare key on a miss, so absent keys keep the English
+            # copy from this file (English ui.json has no tutorial section).
+            t_key = f"tutorial.{step_id}.title"
+            d_key = f"tutorial.{step_id}.description"
+            translated_title = tr(t_key)
+            if translated_title != t_key:
+                title = translated_title
+            translated_desc = tr(d_key)
+            if translated_desc != d_key:
+                description = translated_desc
             steps.append(CoachMarkStep(
                 target=w["target"],
                 title=title,
@@ -2686,6 +2695,32 @@ class MainWindow(QMainWindow):
         self._app_version_indicator.mousePressEvent = self._on_version_label_clicked
         self.statusBar().addPermanentWidget(self._app_version_indicator)
 
+    def _refresh_update_indicator_texts(self) -> None:
+        """Render the version indicator + Config-tab update status in the
+        current UI language from the last update-check state.
+
+        The check slots set ``_update_check_state`` and delegate text here so
+        a language switch can re-render via retranslate_ui() — pre-fix the
+        labels kept whatever language was active when the check ran (#30).
+        """
+        label = getattr(self, "_app_version_indicator", None)
+        if label is None:
+            return
+        current = get_version()
+        state, version = getattr(self, "_update_check_state", (None, None))
+        if state == "available":
+            label.setText(tr("status_bar.update_indicator_available", current=current))
+            self.config_tab.set_update_status(tr("status_bar.update_available", version=version))
+        elif state == "up_to_date":
+            label.setText(tr("status_bar.update_indicator_up_to_date", current=current))
+            self.config_tab.set_update_status(tr("status_bar.update_up_to_date", version=version))
+        elif state == "failed":
+            label.setText(tr("status_bar.update_indicator_failed", current=current))
+            self.config_tab.set_update_status(tr("status_bar.update_check_failed"))
+        else:
+            # No check has completed yet — plain version, no status text.
+            label.setText(f"v{current}")
+
     def _refresh_channel_indicator(self) -> None:
         """Update the status-bar channel label to reflect AppSettings.get_active_channel()."""
         if getattr(self, "_channel_indicator", None) is None:
@@ -2771,6 +2806,237 @@ class MainWindow(QMainWindow):
 
         self.statusBar().showMessage(f"Switched to {channel} — reloading sources…")
         self.perform_merge_and_reload()
+
+    def retranslate_ui(self) -> None:
+        """Re-apply tr() to every text-bearing widget after a language switch."""
+        self.setWindowTitle(tr("window.title", version=get_version()))
+        self.title_label.setText(tr("branding.title"))
+        self.tagline_label.setText(tr("branding.tagline"))
+
+        # Tab bar
+        self.tabs.setTabText(self._strings_tab_index, tr("tabs.string_editor"))
+        self.tabs.setTabText(self._config_tab_index, tr("tabs.config"))
+        self.tabs.setTabText(self._enhancements_tab_index, tr("tabs.enhancements"))
+        self.tabs.setTabText(self._log_tab_index, tr("tabs.log"))
+        self.tabs.setTabText(self._about_tab_index, tr("tabs.about"))
+        self.tabs.setTabText(self._legal_tab_index, tr("tabs.legal"))
+
+        # Toolbar buttons
+        self.apply_btn.setText(tr("toolbar.apply_btn"))
+        self.editor_btn.setText(tr("toolbar.editor_btn"))
+        self.help_btn.setText(tr("toolbar.help_btn"))
+        self.tutorial_btn.setText(tr("toolbar.tutorial_btn"))
+        self.more_btn.setText(tr("toolbar.more_btn"))
+
+        # More-menu actions
+        self._action_restore_backup.setText(tr("toolbar.restore_backup_btn"))
+        self._action_clear_loc.setText(tr("toolbar.menu_clear_localization"))
+        self._action_clear_cache.setText(tr("toolbar.menu_clear_cache"))
+        self._action_import_ini.setText(tr("toolbar.menu_import_ini"))
+        self._action_export_ini.setText(tr("toolbar.menu_export_ini"))
+        self._action_open_loc_dir.setText(tr("toolbar.open_loc_dir_btn"))
+
+        # Filter row
+        self._category_label.setText(tr("filters.category_label"))
+        self._status_label.setText(tr("filters.status_label"))
+        self.hide_unmodified_check.setText(tr("filters.hide_unmodified"))
+        self.favorites_only_check.setText(tr("filters.favorites_only"))
+        self.grouped_sort_btn.setText(tr("filters.group_sort_btn"))
+        self.clear_filters_btn.setText(tr("filters.clear_filters_btn"))
+        self.copy_filtered_btn.setText(tr("filters.copy_filtered_btn"))
+
+        # Status combo display text (userData internal values are preserved)
+        self.status_combo.blockSignals(True)
+        try:
+            for i, (_internal, _key) in enumerate([
+                ("All",        "filters.status_all"),
+                ("Modified",   "filters.status_modified"),
+                ("Enhanced",   "filters.status_enhanced"),
+                ("Unmodified", "filters.status_unmodified"),
+                ("New",        "filters.status_new"),
+            ]):
+                self.status_combo.setItemText(i, tr(_key))
+        finally:
+            self.status_combo.blockSignals(False)
+
+        # Table column headers and filter placeholder text
+        new_column_names = [
+            tr("strings_tab.col_category"),
+            tr("strings_tab.col_key"),
+            tr("strings_tab.col_default_value"),
+            tr("strings_tab.col_current_value"),
+            tr("strings_tab.col_star"),
+            tr("strings_tab.col_custom_value"),
+            tr("strings_tab.col_status"),
+        ]
+        self.filter_header.update_column_names(new_column_names)
+        self._model.retranslate()
+
+        # Preview pane placeholder
+        self.preview_pane.setPlaceholderText(tr("strings_tab.preview_placeholder"))
+
+        # Status label (only update if no data is loaded — otherwise it shows row count)
+        if not self.entries:
+            self.table_status_label.setText(tr("strings_tab.no_data"))
+
+        # Cascade to child tabs
+        self.config_tab.retranslate_ui()
+        self.enhancements_tab.retranslate_ui()
+
+        # Status-bar version indicator + Config-tab update status hold the
+        # last update-check result; re-render them in the new language
+        # (after the cascade so this write wins).
+        self._refresh_update_indicator_texts()
+        self.log_tab.retranslate_ui()
+
+    @pyqtSlot(str)
+    def _on_language_changed(self, language: str) -> None:
+        """Handle a language switch from the Config tab."""
+        if self._loader_worker is not None and self._loader_worker.isRunning():
+            logger.info("Language switch: cancelling in-flight FileLoaderWorker")
+            try:
+                self._loader_worker.finished.disconnect(self._on_loading_finished)
+                self._loader_worker.error.disconnect(self._on_loading_error)
+            except (TypeError, RuntimeError):
+                pass
+            self._loader_worker.quit()
+            self._loader_worker.wait(5000)
+            self._loader_worker = None
+            if self._loading_progress is not None:
+                self._loading_progress.close()
+                self._loading_progress = None
+        from src.utils import i18n
+        i18n.set_language(language)
+        logger.info(f"MainWindow reacting to language change → {language}")
+        self.retranslate_ui()
+        self.statusBar().showMessage(tr("dialogs.language_changed_status", language=language))
+        # Point the `global` base source at this language's base.ini (English
+        # = the P4K extraction; other languages = a downloaded global.ini),
+        # downloading it first if needed, then reload. See #30.
+        self._apply_language_base_source(language)
+
+    def _apply_language_base_source(self, language: str) -> None:
+        """Repoint the `global` merge source at *language*'s base.ini, then
+        reload. English uses the local P4K base.ini. Other languages use a
+        per-language download; if a mapped URL exists we fetch it (freshness-
+        checked), otherwise we fall back to any cached copy or to English.
+        """
+        english_base = AppSettings.get_base_ini_path(AppSettings.DEFAULT_LANGUAGE)
+
+        if language == AppSettings.DEFAULT_LANGUAGE:
+            AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, str(english_base))
+            self._show_loading_progress(tr("dialogs.merging_sources"))
+            return
+
+        dest = AppSettings.get_base_ini_path(language)
+        url = AppSettings.get_language_base_url(language)
+
+        if not url:
+            # No URL mapped for this language. Use a cached copy if we have one,
+            # otherwise fall back to the English base so the table still loads.
+            if dest.exists():
+                AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, str(dest))
+                self._reload_with_language_enhancements(language)
+            else:
+                logger.warning(f"No base.ini URL mapped for {language!r}; using English base.")
+                AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, str(english_base))
+                self.statusBar().showMessage(
+                    tr("dialogs.language_no_url", language=language)
+                )
+                self._show_loading_progress(tr("dialogs.merging_sources"))
+            return
+
+        # Have a URL — download (freshness-checked) on a worker, then repoint.
+        dialog = AnimatedProgressDialog(
+            tr("dialogs.language_downloading", language=language),
+            parent=self, title="Smart Citizen",
+        )
+        self._lang_dl_worker = LanguageBaseDownloadWorker(url, dest)
+        self._lang_dl_worker.finished.connect(
+            lambda ok, lang=language, d=dest, dlg=dialog: self._on_language_base_ready(lang, d, dlg, ok)
+        )
+        self._lang_dl_worker.start()
+
+    def _on_language_base_ready(self, language: str, dest, dialog, ok: bool) -> None:
+        """Finish a language switch once its base.ini download settled."""
+        if dialog is not None:
+            dialog.close()
+        if self._lang_dl_worker is not None:
+            self._lang_dl_worker.quit()
+            self._lang_dl_worker.wait()
+            self._lang_dl_worker = None
+
+        if dest.exists():
+            # Downloaded fresh, or a usable cached copy is already present.
+            AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, str(dest))
+            self._reload_with_language_enhancements(language)
+        else:
+            # Download failed and nothing cached — fall back to English so the
+            # app stays usable, and tell the user.
+            logger.warning(f"{language!r} base.ini unavailable; falling back to English base.")
+            AppSettings.set_source_path(
+                AppSettings.SOURCE_GLOBAL,
+                str(AppSettings.get_base_ini_path(AppSettings.DEFAULT_LANGUAGE)),
+            )
+            QMessageBox.warning(
+                self, "Smart Citizen",
+                tr("dialogs.language_download_failed", language=language),
+            )
+            self._show_loading_progress(tr("dialogs.merging_sources"))
+
+    def _language_enhancements_fresh(self, language: str) -> bool:
+        """True if *language*'s enhancement files are present and were built
+        against the current DataForge extraction.
+
+        Stale (or absent) means the generator must re-run before the reload so
+        the table shows this language's prose with up-to-date English stat
+        blocks. With no enhancement categories enabled there is nothing to
+        generate, so the answer is trivially fresh.
+        """
+        enabled = AppSettings.get_enabled_enhancement_categories()
+        if not enabled:
+            return True
+        stamp = AppSettings.get_enhancements_stamp(language)
+        if not stamp or stamp != AppSettings.get_dataforge_build_key():
+            return False
+        enh_dir = AppSettings.get_enhancements_dir(language)
+        for label in enabled:
+            filename = AppSettings.ENHANCEMENTS_FILES.get(label)
+            if filename and not (enh_dir / filename).exists():
+                return False
+        return True
+
+    def _reload_with_language_enhancements(self, language: str) -> None:
+        """Reload after a language switch, regenerating that language's
+        enhancements first when they are missing or stale.
+
+        Fresh (or nothing to generate) → reload straight away. Stale and a
+        DataForge cache is present → run the generator for this language; its
+        finished handler triggers the reload. Stale but no DataForge cache →
+        reload the language prose alone (degraded, no stat blocks) since stats
+        can't be generated without an extraction.
+        """
+        if self._language_enhancements_fresh(language):
+            self._show_loading_progress(tr("dialogs.merging_sources"))
+            return
+
+        records = (
+            AppSettings.get_dataforge_cache_dir()
+            / "raw" / "libs" / "foundry" / "records"
+        )
+        if not records.exists():
+            logger.warning(
+                f"{language!r} enhancements are stale/missing but no DataForge "
+                "cache is present; loading language prose without stat overlays."
+            )
+            self._show_loading_progress(tr("dialogs.merging_sources"))
+            return
+
+        logger.info(f"Regenerating enhancements for {language!r} against its base.ini")
+        self.statusBar().showMessage(
+            tr("dialogs.language_generating_enhancements", language=language)
+        )
+        self._run_enhancements_generation(language=language)
 
     @pyqtSlot(str)
     def _on_data_dir_changed(self, data_dir: str) -> None:
@@ -3293,6 +3559,15 @@ class MainWindow(QMainWindow):
 
         self.default_values = default_values
         self.entries = entries
+        if not entries and default_values is not None:
+            # Sources were configured but produced no entries — most likely the
+            # base.ini hasn't been extracted yet (fresh install) or source files
+            # are missing on disk. Surface this so the user isn't left with a
+            # silently blank table and no indication of why.
+            logger.warning("Load completed with 0 entries — source files may be missing; try extracting from Data.p4k")
+            self.statusBar().showMessage(
+                "No strings loaded — extract from Data.p4k on the Config tab first"
+            )
         self.update_category_combo()
 
         # Push data into the model — the view renders only visible rows, so this is instant
@@ -3338,8 +3613,15 @@ class MainWindow(QMainWindow):
         else:
             self._run_dataforge_extraction()
 
-    def _run_enhancements_generation(self, categories: set[str] | None = None):
-        """Launch EnhancementsGeneratorWorker in the background with animated progress dialog."""
+    def _run_enhancements_generation(self, categories: set[str] | None = None,
+                                     language: str | None = None):
+        """Launch EnhancementsGeneratorWorker in the background with animated progress dialog.
+
+        *language* selects which language's base.ini to generate against
+        (None = the currently selected language). Resolved here on the main
+        thread and handed to the worker as a concrete value so a mid-run
+        language switch can't change what the worker is generating.
+        """
         if self._enhancements_worker is not None:
             # Defensive: if extraction handed off but a stale enhancements
             # worker is somehow still around, don't orphan the forge dialog.
@@ -3352,6 +3634,8 @@ class MainWindow(QMainWindow):
         # Use enabled categories from settings if none specified
         if categories is None:
             categories = AppSettings.get_enabled_enhancement_categories()
+        if language is None:
+            language = AppSettings.get_selected_language()
 
         # Tag-builder config (issue #31): read once here on the main thread
         # and hand the worker a plain dict, so the generator's worker
@@ -3366,6 +3650,8 @@ class MainWindow(QMainWindow):
             rep_xp_label=AppSettings.get_rep_xp_label(),
             mission_headers=AppSettings.get_mission_headers(),
             mission_header_em_tag=AppSettings.get_mission_header_em_tag(),
+            mission_detail_fields=AppSettings.get_mission_detail_fields(),
+            language=language,
         )
         self.enhancements_tab.set_operation_running("Generating enhancements…")
         self.statusBar().showMessage("Generating enhancements in background…")
@@ -3574,8 +3860,8 @@ class MainWindow(QMainWindow):
             self.entries,
             self.default_values,
             self.filter_header.get_filter_texts(),
-            self.category_combo.currentText(),
-            self.status_combo.currentText(),
+            self.category_combo.currentData() or self.category_combo.currentText(),
+            self.status_combo.currentData() or "All",
             self.hide_unmodified_check.isChecked(),
             self.favorites_only_check.isChecked(),
             AppSettings.get_favorite_prefix(),
@@ -3597,7 +3883,7 @@ class MainWindow(QMainWindow):
 
         self.category_combo.blockSignals(True)
         self.category_combo.clear()
-        self.category_combo.addItem("All")
+        self.category_combo.addItem(tr("filters.status_all"), userData="All")
         self.category_combo.addItems(categories)
         self.category_combo.blockSignals(False)
 
@@ -3727,16 +4013,16 @@ class MainWindow(QMainWindow):
             lines.append(line)
 
         if len(lines) <= 1:
-            QMessageBox.information(self, "Copy Filtered", "No rows to copy.")
+            QMessageBox.information(self, tr("dialogs.copy_filtered_title"), tr("dialogs.copy_filtered_empty"))
             return
 
         text_to_copy = "\n".join(lines)
         try:
             import pyperclip
             pyperclip.copy(text_to_copy)
-            QMessageBox.information(self, "Copy Filtered", f"Copied {len(lines) - 1} rows to clipboard.")
+            QMessageBox.information(self, tr("dialogs.copy_filtered_title"), tr("dialogs.copy_filtered_done", count=len(lines) - 1))
         except Exception as e:
-            QMessageBox.warning(self, "Copy Error", f"Failed to copy to clipboard: {e}")
+            QMessageBox.warning(self, tr("dialogs.copy_error_title"), tr("dialogs.copy_error_body", error=e))
 
     def show_context_menu(self, position):
         """Show right-click context menu."""

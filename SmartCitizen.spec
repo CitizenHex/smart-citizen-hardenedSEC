@@ -12,6 +12,7 @@ a = Analysis(
         ('docs/LEGAL.md', 'docs'),
         ('assets', 'assets'),
         ('patches', 'patches'),
+        ('languages', 'languages'),
         ('scripts/generate_enhancements_ini.py', 'scripts'),
     ],
     # `scripts/generate_enhancements_ini.py` is bundled as a data file (not

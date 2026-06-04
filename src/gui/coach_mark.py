@@ -34,6 +34,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.utils.i18n import tr
+
 logger = logging.getLogger(__name__)
 
 
@@ -133,17 +135,17 @@ class CoachMarkOverlay(QWidget):
         footer.addWidget(self._counter_label)
         footer.addStretch()
 
-        self._skip_btn = QPushButton("Skip", frame)
+        self._skip_btn = QPushButton(tr("coach.skip_btn"), frame)
         self._skip_btn.setFlat(True)
         self._skip_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._skip_btn.clicked.connect(self.skip_clicked)
         footer.addWidget(self._skip_btn)
 
-        self._back_btn = QPushButton("Back", frame)
+        self._back_btn = QPushButton(tr("coach.back_btn"), frame)
         self._back_btn.clicked.connect(self.back_clicked)
         footer.addWidget(self._back_btn)
 
-        self._next_btn = QPushButton("Next", frame)
+        self._next_btn = QPushButton(tr("coach.next_btn"), frame)
         self._next_btn.setDefault(True)
         self._next_btn.clicked.connect(self.next_clicked)
         footer.addWidget(self._next_btn)
@@ -185,9 +187,9 @@ class CoachMarkOverlay(QWidget):
 
         self._title_label.setText(step.title)
         self._desc_label.setText(step.description)
-        self._counter_label.setText(f"Step {current_idx + 1} of {total}")
+        self._counter_label.setText(tr("coach.step_counter", current=current_idx + 1, total=total))
         self._back_btn.setEnabled(has_back)
-        self._next_btn.setText("Finish" if is_last else "Next")
+        self._next_btn.setText(tr("coach.finish_btn") if is_last else tr("coach.next_btn"))
 
         # Force wrapped labels to honor heightForWidth at the callout's fixed
         # width — without this, adjustSize() on the frame can return a height
@@ -213,7 +215,12 @@ class CoachMarkOverlay(QWidget):
         try:
             w = resolver()
         except Exception:
-            logger.exception("Coach-mark target resolver raised")
+            # A resolver that raises (e.g. a renamed/missing target attribute)
+            # is treated like a missing target: the step still shows with a
+            # centered callout. Log at WARNING, not ERROR — ERROR would trip
+            # the error-dialog modal on every affected step, turning a cosmetic
+            # tour glitch into a wall of popups (issue #138).
+            logger.warning("Coach-mark target resolver raised; showing step without spotlight", exc_info=True)
             return None
         if w is None:
             return None

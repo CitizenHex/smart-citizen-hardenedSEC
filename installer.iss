@@ -44,15 +44,15 @@ SCDirectoryDefaultPath=C:\Program Files\Roberts Space Industries\StarCitizen\LIV
 Type: filesandordirs; Name: "{app}\*"
 
 [Files]
-Source: "dist\SmartCitizen-v{#AppVer}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\SmartCitizen\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\Smart Citizen"; Filename: "{app}\SmartCitizen-v{#AppVer}.exe"
+Name: "{group}\Smart Citizen"; Filename: "{app}\SmartCitizen.exe"
 Name: "{group}\{cm:UninstallProgram,Smart Citizen}"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\Smart Citizen"; Filename: "{app}\SmartCitizen-v{#AppVer}.exe"
+Name: "{commondesktop}\Smart Citizen"; Filename: "{app}\SmartCitizen.exe"
 
 [Run]
-Filename: "{app}\SmartCitizen-v{#AppVer}.exe"; Description: "{cm:LaunchProgram,Smart Citizen}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\SmartCitizen.exe"; Description: "{cm:LaunchProgram,Smart Citizen}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 var
@@ -101,6 +101,64 @@ begin
   Result := ExpandConstant('{%USERPROFILE}\Documents\Smart Citizen');
 end;
 
+function HasVersionedAppSegment(const Path: String): Boolean;
+var
+  Remaining, Seg, Low, Rest: String;
+  P: Integer;
+begin
+  { True if any path segment is the app name followed by a version-like
+    token, e.g. 'SmartCitizen-v1.4.1' or 'Smart Citizen 1.4.1'. The data and
+    cache defaults have always been the unversioned 'Smart Citizen', so a
+    version suffix only ever comes from an old install layout, never a real
+    folder choice. Case-insensitive; checks every segment so a versioned
+    segment mid-path is caught too. Issue #120. }
+  Result := False;
+  Remaining := Path;
+  while Remaining <> '' do
+  begin
+    P := Pos('\', Remaining);
+    if P = 0 then
+    begin
+      Seg := Remaining;
+      Remaining := '';
+    end
+    else
+    begin
+      Seg := Copy(Remaining, 1, P - 1);
+      Remaining := Copy(Remaining, P + 1, MaxInt);
+    end;
+    Low := LowerCase(Seg);
+    if Pos('smartcitizen', Low) = 1 then
+      Rest := Copy(Low, Length('smartcitizen') + 1, MaxInt)
+    else if Pos('smart citizen', Low) = 1 then
+      Rest := Copy(Low, Length('smart citizen') + 1, MaxInt)
+    else
+      Continue;
+    { Strip a leading separator / 'v' so '-v1.4.1', ' 1.4.1', '_v2.0' match,
+      while 'Smart Citizen' (no suffix) and 'SmartCitizenVault' do not. }
+    while (Rest <> '') and ((Rest[1] = ' ') or (Rest[1] = '-') or
+          (Rest[1] = '_') or (Rest[1] = 'v')) do
+      Rest := Copy(Rest, 2, MaxInt);
+    if (Rest <> '') and (Rest[1] >= '0') and (Rest[1] <= '9') then
+    begin
+      Result := True;
+      Exit;
+    end;
+  end;
+end;
+
+function IsStalePrefill(const Path: String): Boolean;
+begin
+  { A saved data/cache path should NOT be used as the wizard prefill when it
+    no longer exists on disk, or it points at a versioned app folder left
+    over from an old install. Either way the page falls back to the default.
+    Defensive guard for issue #120: the reported stale 'SmartCitizen 1.4.1'
+    value was confirmed to live in the SC-install-path keys (fixed in #119),
+    but the data/cache pages read separate keys with no equivalent check, so
+    this hardens them against any stale versioned value reaching the prefill. }
+  Result := (not DirExists(Path)) or HasVersionedAppSegment(Path);
+end;
+
 function GetUninstallString(): String;
 var
   sUnInstPath: String;
@@ -137,25 +195,36 @@ begin
   Log('Cleared stale uninstall registry entry (unins000.exe was missing)');
 end;
 
-function WaitForUninstallToFinish(MaxSeconds: Integer): Boolean;
+function WaitForUninstallerCleanup(const UninstallerExe: String; MaxSeconds: Integer): Boolean;
 var
-  RegPath: String;
-  Dummy: String;
   Elapsed: Integer;
 begin
   { Inno Setup's silent uninstaller copies itself to %TEMP%\_iu*.tmp and the
     original exits immediately — so the Exec() that launched it returns long
-    before the temp copy has finished its work. The temp copy's very last
-    act is to delete the AppId_is1 entry under Uninstall, so we use that
-    disappearance as the "fully done" signal. Polling the registry rather
-    than the on-disk unins000.exe avoids racing with our own InstallDelete. }
-  RegPath := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#emit SetupSetting("AppId")}_is1';
+    before the temp copy has finished its work.
+
+    Signal choice matters here, and the obvious one is WRONG: the AppId_is1
+    registry key is NOT the uninstaller's last act. Inno undoes the install
+    log in reverse order, and the key — written last at install time — is
+    removed within the first moments of the uninstall. A previous version of
+    this wait polled that key and routinely returned in under half a second
+    while file cleanup ran on for seconds more, letting the old uninstaller
+    delete the NEW unins000.exe the install had just written (2.0 test-build
+    log: key gone <0.5 s after Exec; new unins000.exe written at +0.4 s,
+    gone by +6 s).
+
+    The on-disk uninstaller exe is the right signal: deleting itself is part
+    of the temp copy's FINAL self-cleanup, after all file deletion. A short
+    settle after it disappears covers the trailing app-dir removal and
+    registry deletion. Only called for old installs in a DIFFERENT directory
+    (see UnInstallOldVersion), so polling the old exe can't race our own
+    InstallDelete. }
   Elapsed := 0;
   while Elapsed < MaxSeconds * 4 do
   begin
-    if (not RegQueryStringValue(HKLM, RegPath, 'UninstallString', Dummy)) and
-       (not RegQueryStringValue(HKCU, RegPath, 'UninstallString', Dummy)) then
+    if not FileExists(UninstallerExe) then
     begin
+      Sleep(1000);  { settle: trailing dir-removal + registry cleanup }
       Result := True;
       Exit;
     end;
@@ -168,6 +237,8 @@ end;
 function UnInstallOldVersion(): Integer;
 var
   sUnInstallString: String;
+  OldAppDir: String;
+  NewAppDir: String;
   iResultCode: Integer;
   SavedStatus: String;
   SavedStyle: TNewProgressBarStyle;
@@ -178,7 +249,8 @@ begin
     3 - successfully executed the UnInstallString
     4 - uninstall string found but the unins000.exe doesn't exist (zombie
         entry from a manual folder deletion) — cleared the registry entry
-        so the new install can register fresh. }
+        so the new install can register fresh.
+    5 - same-directory upgrade: old uninstaller deliberately NOT run. }
 
   Result := 0;
 
@@ -205,6 +277,35 @@ begin
     Exit;
   end;
 
+  // Same-directory upgrade: SKIP the old uninstaller entirely. Running it
+  // is what created the recurring "uninstaller is missing" failure: the
+  // silent uninstaller detaches a temp copy whose file cleanup runs
+  // concurrently with our [InstallDelete] + [Files] phases, deleting old
+  // files by ABSOLUTE PATH — the same paths the new install is writing.
+  // Its final self-cleanup then removes the app dir's unins000.exe, which
+  // by that point is the NEW uninstaller (2.0 test-build log: new
+  // unins000.exe written at 20:32:19.355, install succeeded 20:32:25.186,
+  // file gone 4 ms later).
+  //
+  // The old uninstaller adds nothing in the same-dir case:
+  //   - old files     -> the InstallDelete filesandordirs entry wipes them
+  //   - uninstall key -> same AppId; the new install overwrites it
+  //   - icons         -> same group/desktop names; recreated by [Icons]
+  //   - cache cleanup -> CleanCachedData() runs install-side at ssInstall
+  // Only an old install at a DIFFERENT directory needs its uninstaller
+  // run, because InstallDelete can't reach files outside the new app dir.
+  // (Line comments here on purpose — the install-dir constant's curly
+  // syntax closes Pascal block comments early.)
+  OldAppDir := RemoveBackslash(ExtractFileDir(sUnInstallString));
+  NewAppDir := RemoveBackslash(ExpandConstant('{app}'));
+  if CompareText(OldAppDir, NewAppDir) = 0 then begin
+    Log('Same-directory upgrade (' + NewAppDir + '): skipping old uninstaller; InstallDelete clears the directory and the new install rewrites the uninstall key.');
+    Result := 5;
+    Exit;
+  end;
+
+  Log('Old install found at different directory (' + OldAppDir + '); running its uninstaller: ' + sUnInstallString);
+
   { Distinct upgrade-uninstall step: flip the wizard's status label to
     "Uninstalling previous version..." and run the progress bar in marquee
     mode while the old uninstaller does its work. Without this UX cue,
@@ -218,21 +319,18 @@ begin
 
   if Exec(sUnInstallString, '/VERYSILENT /NORESTART /SUPPRESSMSGBOXES','', SW_HIDE, ewWaitUntilTerminated, iResultCode) then
   begin
-    { Race fix: without WaitForUninstallToFinish(), the detached temp copy
-      of the old uninstaller would still be running when InstallDelete and
-      Files execute. Its final-act registry+file cleanup would then delete
-      the *new* unins000.exe in the app dir and clear the freshly-written
-      AppId_is1 entry under Uninstall — leaving users with an installed
-      app and no way to uninstall it. Reported upgrading 1.1.0 -> 1.2.0.
-
-      Timeout bumped 90 -> 180 s to cover slow-disk + actively-syncing-
-      OneDrive + Defender-on-access environments where the old uninstaller
-      temp copy's final cleanup pass routinely runs 60–120 s. When the
-      timeout *does* fire, surface a wizard error dialog instead of only
-      logging — the original log-only warning meant users discovered the
-      broken state days later when they tried to uninstall and found
-      nothing in Apps & Features. }
-    if not WaitForUninstallToFinish(180) then
+    Log('Old uninstaller launcher exited (code ' + IntToStr(iResultCode) + '); waiting for its temp copy to finish cleanup.');
+    { Wait for the detached temp copy to finish before install proceeds.
+      Watches the old unins000.exe disappear (its deletion is part of the
+      temp copy's FINAL self-cleanup) — see WaitForUninstallerCleanup for
+      why the registry key is the wrong signal. 180 s covers slow-disk +
+      actively-syncing-OneDrive + Defender-on-access environments. When
+      the timeout *does* fire, surface a wizard error dialog instead of
+      only logging — a log-only warning meant users discovered the broken
+      state days later when Apps & Features had no entry. }
+    if WaitForUninstallerCleanup(sUnInstallString, 180) then
+      Log('Old uninstaller cleanup finished.')
+    else
     begin
       Log('WARNING: timed out waiting for old uninstaller to finish (180s). The new install may produce a broken uninstaller; user should uninstall + reinstall manually if the Apps & Features entry is missing.');
       MsgBox('The previous version''s uninstaller did not finish within 3 minutes.' + #13#10 + #13#10 +
@@ -244,7 +342,10 @@ begin
     Result := 3;
   end
   else
+  begin
+    Log('WARNING: failed to execute old uninstaller (' + sUnInstallString + ').');
     Result := 2;
+  end;
 
   { Restore the wizard for the install phase. }
   WizardForm.StatusLabel.Caption := SavedStatus;
@@ -615,6 +716,27 @@ begin
   end;
 end;
 
+function IsValidSCPath(const Path: String): Boolean;
+var
+  BasePath: String;
+  LastName: String;
+begin
+  { Returns True if Path looks like a valid Star Citizen install path.
+    Accepts either:
+      - a root containing channel subdirectories (LIVE, PTU, etc.), or
+      - a channel path (last component is a channel name like LIVE).
+    Guards against stale registry values like 'SmartCitizen 1.4.1'. }
+  BasePath := RemoveBackslash(Path) + '\';
+  LastName := LowerCase(ExtractFileName(BasePath));
+  if (LastName = 'live') or (LastName = 'ptu') or (LastName = 'eptu') or
+     (LastName = 'hotfix') or (LastName = 'tech-preview') then
+    Result := True
+  else
+    Result := DirExists(BasePath + 'LIVE') or DirExists(BasePath + 'PTU') or
+              DirExists(BasePath + 'EPTU') or DirExists(BasePath + 'HOTFIX') or
+              DirExists(BasePath + 'TECH-PREVIEW');
+end;
+
 procedure InitializeWizard();
 var
   NewRegPath: String;
@@ -650,23 +772,26 @@ begin
     channel the app is currently pointed at. The active_channel value is
     ignored here on purpose; the app-side channel switcher handles
     per-channel paths at runtime. }
-  if RegQueryStringValue(HKCU, NewRegPath, 'sc_install_root', SCRoot) and (SCRoot <> '') then
+  if RegQueryStringValue(HKCU, NewRegPath, 'sc_install_root', SCRoot) and (SCRoot <> '') and IsValidSCPath(SCRoot) then
   begin
     ActiveChannel := 'LIVE';
     DefaultPath := SCRoot + '\' + ActiveChannel;
   end;
 
   { Fall back to previously saved sc_directory / game_install_path in the
-    NEW node, then the LEGACY node. }
+    NEW node, then the LEGACY node.  Each value is validated to ensure it
+    actually looks like a valid SC install path (either ends with a channel
+    name, or contains channel subdirectories).  Validation is folded into
+    the condition so a stale value causes fallthrough to the next option. }
   if DefaultPath = '' then
   begin
-    if RegQueryStringValue(HKCU, NewRegPath, 'sc_directory', SavedPath) and (SavedPath <> '') then
+    if RegQueryStringValue(HKCU, NewRegPath, 'sc_directory', SavedPath) and (SavedPath <> '') and IsValidSCPath(SavedPath) then
       DefaultPath := SavedPath
-    else if RegQueryStringValue(HKCU, NewRegPath, 'game_install_path', SavedPath) and (SavedPath <> '') then
+    else if RegQueryStringValue(HKCU, NewRegPath, 'game_install_path', SavedPath) and (SavedPath <> '') and IsValidSCPath(SavedPath) then
       DefaultPath := SavedPath
-    else if RegQueryStringValue(HKCU, LegacyRegPath, 'sc_directory', SavedPath) and (SavedPath <> '') then
+    else if RegQueryStringValue(HKCU, LegacyRegPath, 'sc_directory', SavedPath) and (SavedPath <> '') and IsValidSCPath(SavedPath) then
       DefaultPath := SavedPath
-    else if RegQueryStringValue(HKCU, LegacyRegPath, 'game_install_path', SavedPath) and (SavedPath <> '') then
+    else if RegQueryStringValue(HKCU, LegacyRegPath, 'game_install_path', SavedPath) and (SavedPath <> '') and IsValidSCPath(SavedPath) then
       DefaultPath := SavedPath
     else if DirExists('C:\Program Files\Roberts Space Industries\StarCitizen\LIVE') then
       DefaultPath := 'C:\Program Files\Roberts Space Industries\StarCitizen\LIVE'
@@ -752,9 +877,11 @@ begin
   );
   DataDirPage.Add('');
 
-  { Pre-fill: existing override > OneDrive suggestion > Documents default. }
+  { Pre-fill: existing override > OneDrive suggestion > Documents default.
+    A stale value (missing folder or versioned leftover) falls through to
+    the default rather than prefilling a bad path. Issue #120. }
   if RegQueryStringValue(HKCU, NewRegPath, 'user_data_dir', SavedDataDir) and
-     (SavedDataDir <> '') then
+     (SavedDataDir <> '') and not IsStalePrefill(SavedDataDir) then
     DataDirPage.Values[0] := SavedDataDir
   else if IsDocsOnOneDrive() then
     DataDirPage.Values[0] := SuggestLocalDataDir()
@@ -795,7 +922,7 @@ begin
     branch because LOCALAPPDATA is the OneDrive-safe location by
     definition (it's machine-local, never roamed). }
   if RegQueryStringValue(HKCU, NewRegPath, 'cache_dir', SavedDataDir) and
-     (SavedDataDir <> '') then
+     (SavedDataDir <> '') and not IsStalePrefill(SavedDataDir) then
     CacheDirPage.Values[0] := SavedDataDir
   else
     CacheDirPage.Values[0] := GetLocalCacheDefault();

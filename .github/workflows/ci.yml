@@ -76,13 +76,13 @@ jobs:
         run: python scripts/build/build_exe.py
 
       - name: Verify build output
-        # Sanity check the onedir layout — catches regressions where
+        # Sanity check the onedir layout: catches regressions where
         # build_exe.py "succeeds" but doesn't write the expected
-        # SmartCitizen-v{VERSION}/SmartCitizen-v{VERSION}.exe pair.
+        # dist/SmartCitizen/SmartCitizen.exe. The exe name is stable (not
+        # versioned) so installed shortcuts survive version updates (#104).
         shell: pwsh
         run: |
-          $version = (Get-Content VERSION.TXT).Trim()
-          $exe = "dist/SmartCitizen-v${version}/SmartCitizen-v${version}.exe"
+          $exe = "dist/SmartCitizen/SmartCitizen.exe"
           if (-not (Test-Path $exe)) {
             Write-Error "Expected build artifact not found: $exe"
             Get-ChildItem dist -Recurse -Depth 2 | ForEach-Object { Write-Host $_.FullName }
@@ -99,6 +99,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: smartcitizen-onedir-${{ github.sha }}
-          path: dist/SmartCitizen-v*/
+          path: dist/SmartCitizen/
           retention-days: 7
           if-no-files-found: error

@@ -22,6 +22,7 @@ from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QProgressBar, QProgressDialog, QStyledItemDelegate
 
 from src.parser.ini_parser import load_source_files, load_sources_from_settings
+from src.utils.i18n import tr
 from src.utils.resource_path import resolve_patches_dir
 from src.utils.settings import AppSettings
 from src.utils.dataforge_diff import dirty_categories
@@ -120,8 +121,8 @@ class FileLoaderWorker(QThread):
         from src.gui.string_table_model import _group_sort_key
         try:
             logger.info("FileLoaderWorker starting...")
-            self.progress_pct.emit(0, self._PHASE_TOTAL, "Reading source files...")
-            self.progress.emit("Reading source files...")
+            self.progress_pct.emit(0, self._PHASE_TOTAL, tr("progress.reading_sources"))
+            self.progress.emit(tr("progress.reading_sources"))
 
             sources_dict, hierarchy, enhancements_key_categories = load_sources_from_settings()
             logger.info(f"Loaded from settings: sources={list(sources_dict.keys())}, hierarchy={hierarchy}")
@@ -129,18 +130,18 @@ class FileLoaderWorker(QThread):
             if not (sources_dict and hierarchy):
                 raise ValueError("No sources configured")
 
-            self.progress_pct.emit(1, self._PHASE_TOTAL, "Creating StringEntry objects...")
-            self.progress.emit("Creating StringEntry objects...")
+            self.progress_pct.emit(1, self._PHASE_TOTAL, tr("progress.creating_entries"))
+            self.progress.emit(tr("progress.creating_entries"))
             entries = load_source_files(sources_dict, hierarchy, enhancements_key_categories=enhancements_key_categories)
             logger.info(f"load_source_files returned {len(entries)} entries")
 
             default_values = dict(sources_dict.get("global", {}))
 
-            self.progress_pct.emit(2, self._PHASE_TOTAL, "Computing sort keys...")
-            self.progress.emit("Computing sort keys...")
+            self.progress_pct.emit(2, self._PHASE_TOTAL, tr("progress.computing_sort_keys"))
+            self.progress.emit(tr("progress.computing_sort_keys"))
             sort_keys = [_group_sort_key(e.key) for e in entries]
 
-            self.progress_pct.emit(3, self._PHASE_TOTAL, "Ready")
+            self.progress_pct.emit(3, self._PHASE_TOTAL, tr("progress.ready"))
             logger.info("FileLoaderWorker finished successfully")
             self.finished.emit(entries, default_values, sort_keys)
         except Exception as e:
@@ -193,6 +194,39 @@ class StartupSyncWorker(QThread):
         self.finished.emit()
 
 
+class LanguageBaseDownloadWorker(QThread):
+    """Download a language's global.ini to its per-language base.ini path.
+
+    Uses ``download_file_if_changed`` so an unchanged remote (matched via
+    ETag / Last-Modified) is a fast no-op: switching back to a language whose
+    base.ini we already cached doesn't re-download the ~10 MB file.
+    """
+
+    finished = pyqtSignal(bool)  # True = a base.ini is present and usable
+    error = pyqtSignal(str)
+
+    def __init__(self, url: str, dest_path):
+        super().__init__()
+        self._url = url
+        self._dest = dest_path
+
+    def run(self):
+        from src.utils.updater import download_file_if_changed
+        try:
+            changed = download_file_if_changed(self._url, self._dest)
+            logger.info(
+                f"Language base.ini ready: {self._dest} "
+                f"({'downloaded' if changed else 'unchanged, used cache'})"
+            )
+            self.finished.emit(True)
+        except Exception as e:
+            logger.exception(f"Language base.ini download failed: {e}")
+            self.error.emit(str(e))
+            # finished(False): a download failure isn't fatal — the caller
+            # falls back to any cached copy, or to English.
+            self.finished.emit(False)
+
+
 class EnhancementsGeneratorWorker(QThread):
     """Worker thread for generating enhancements INI files via generate_enhancements_ini.py."""
 
@@ -206,7 +240,9 @@ class EnhancementsGeneratorWorker(QThread):
                  annotate_mission_descs: bool = True,
                  rep_xp_label: str = AppSettings.DEFAULT_REP_XP_LABEL,
                  mission_headers: dict[str, str] | None = None,
-                 mission_header_em_tag: str = AppSettings.DEFAULT_MISSION_HEADER_EM_TAG):
+                 mission_header_em_tag: str = AppSettings.DEFAULT_MISSION_HEADER_EM_TAG,
+                 mission_detail_fields: dict | None = None,
+                 language: str | None = None):
         super().__init__()
         self.categories = categories
         self.tag_configs = tag_configs
@@ -214,6 +250,12 @@ class EnhancementsGeneratorWorker(QThread):
         self.rep_xp_label = rep_xp_label
         self.mission_headers = mission_headers
         self.mission_header_em_tag = mission_header_em_tag
+        self.mission_detail_fields = mission_detail_fields
+        # Which language's base.ini to generate against. None resolves to the
+        # selected language at run time. English uses the P4K base.ini in the
+        # channel cache root; other languages use the downloaded per-language
+        # base.ini, so output lands beside it in the language dir (#30).
+        self.language = language
 
     def run(self):
         import importlib.util
@@ -228,7 +270,8 @@ class EnhancementsGeneratorWorker(QThread):
             if not script_path.exists():
                 raise FileNotFoundError(f"Enhancements generator script not found: {script_path}")
 
-            base_ini  = AppSettings.get_cache_dir() / 'base.ini'
+            base_ini  = AppSettings.get_base_ini_path(self.language)
+            enh_dir   = AppSettings.get_enhancements_dir(self.language)
             forge_dir = AppSettings.get_dataforge_cache_dir()
             # ── Diff-cache check ──────────────────────────────────────────────
             # Compare the current DataForge XMLs against the last-run manifest.
@@ -241,10 +284,9 @@ class EnhancementsGeneratorWorker(QThread):
             # manifest says nothing changed — the manifest may have been written
             # before enhancements were ever successfully generated.
             if diff is not None and not diff:
-                cache_dir = AppSettings.get_cache_dir()
                 missing = [
                     name for name in AppSettings.ENHANCEMENTS_FILES.values()
-                    if not (cache_dir / name).exists()
+                    if not (enh_dir / name).exists()
                 ]
                 if missing:
                     logger.info(
@@ -259,8 +301,8 @@ class EnhancementsGeneratorWorker(QThread):
             # the user through a full re-extract. Bar stays indeterminate
             # here — ``mod.main()`` below takes over with determinate ticks
             # once its ProgressSink is wired up.
-            self.progress_pct.emit(0, 0, "Applying DataForge patches…")
-            self.progress.emit("Applying DataForge patches…")
+            self.progress_pct.emit(0, 0, tr("progress.applying_patches"))
+            self.progress.emit(tr("progress.applying_patches"))
             patch_report = apply_patches(
                 resolve_patches_dir(), forge_dir,
                 progress_callback=self.progress.emit,
@@ -270,7 +312,7 @@ class EnhancementsGeneratorWorker(QThread):
                 for err in patch_report.errors:
                     logger.warning(f"  patch error: {err}")
 
-            self.progress.emit("Loading enhancements generator...")
+            self.progress.emit(tr("progress.loading_generator"))
 
             module_name = "generate_enhancements_ini_worker"
             if module_name in sys_module.modules:
@@ -281,7 +323,7 @@ class EnhancementsGeneratorWorker(QThread):
             sys_module.modules[module_name] = mod
             spec.loader.exec_module(mod)
 
-            self.progress.emit("Generating enhancements (may take a few minutes on first run)...")
+            self.progress.emit(tr("progress.generating_enhancements"))
             logger.info("Enhancements generation worker: calling mod.main()")
 
             cat_desc = ", ".join(sorted(self.categories)) if self.categories else "all"
@@ -301,8 +343,18 @@ class EnhancementsGeneratorWorker(QThread):
                      annotate_mission_descs=self.annotate_mission_descs,
                      rep_xp_label=self.rep_xp_label,
                      mission_headers=self.mission_headers,
-                     mission_header_em_tag=self.mission_header_em_tag)
+                     mission_header_em_tag=self.mission_header_em_tag,
+                     mission_detail_fields=self.mission_detail_fields,
+                     english_base_ini_path=AppSettings.get_base_ini_path(
+                         AppSettings.DEFAULT_LANGUAGE))
             logger.info("Enhancements generation worker: mod.main() completed successfully")
+
+            # Record which DataForge build these (per-language) enhancements
+            # were generated against, so a later language switch can tell fresh
+            # from stale and skip a redundant regen (#30, Approach 1).
+            AppSettings.set_enhancements_stamp(
+                AppSettings.get_dataforge_build_key(), self.language
+            )
 
             self.finished.emit(True)
         except Exception as e:
@@ -378,8 +430,8 @@ class DataForgeExtractWorker(QThread):
             # "Done" determinate state, which would look like the dialog is
             # about to close. The patches phase has no useful per-file
             # progress, so indeterminate is the honest signal.
-            self.progress_pct.emit(0, 0, "Applying DataForge patches…")
-            self.progress.emit("Applying DataForge patches…")
+            self.progress_pct.emit(0, 0, tr("progress.applying_patches"))
+            self.progress.emit(tr("progress.applying_patches"))
             patch_root = resolve_patches_dir()
             report = apply_patches(patch_root, self._cache_dir,
                                    progress_callback=self.progress.emit)
@@ -419,10 +471,10 @@ class SelectAllDelegate(QStyledItemDelegate):
         menu = editor.createStandardContextMenu()
         menu.addSeparator()
         has_sel = editor.hasSelectedText()
-        em3 = menu.addAction("Underline")
+        em3 = menu.addAction(tr("strings_tab.context_underline"))
         em3.setEnabled(has_sel)
         em3.triggered.connect(lambda: SelectAllDelegate._wrap_selection(editor, "EM3"))
-        em4 = menu.addAction("Highlight")
+        em4 = menu.addAction(tr("strings_tab.context_highlight"))
         em4.setEnabled(has_sel)
         em4.triggered.connect(lambda: SelectAllDelegate._wrap_selection(editor, "EM4"))
         menu.exec(editor.mapToGlobal(pos))

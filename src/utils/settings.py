@@ -1,4 +1,6 @@
 """Settings management using QSettings."""
+import base64
+import json
 import logging
 import os
 from pathlib import Path
@@ -7,6 +9,73 @@ from PyQt6.QtCore import QSettings
 import winreg
 
 logger = logging.getLogger(__name__)
+
+_LANG_SOURCES_CACHE: "dict | None" = None
+
+
+def _bundled_language_sources() -> dict:
+    """Load the bundled ``languages/sources.json`` map (language → base.ini URL).
+
+    Cached after the first read. Returns {} if the file is missing or unreadable
+    so a packaging hiccup degrades to "no mapped URL" rather than crashing.
+    """
+    global _LANG_SOURCES_CACHE
+    if _LANG_SOURCES_CACHE is None:
+        try:
+            from src.utils.resource_path import get_resource_path
+            path = Path(get_resource_path("languages/sources.json"))
+            if path.exists():
+                data = json.loads(path.read_text(encoding="utf-8"))
+                _LANG_SOURCES_CACHE = data if isinstance(data, dict) else {}
+            else:
+                _LANG_SOURCES_CACHE = {}
+        except (OSError, ValueError) as exc:
+            logger.warning("Could not load languages/sources.json: %s", exc)
+            _LANG_SOURCES_CACHE = {}
+    return _LANG_SOURCES_CACHE
+
+
+# Maps our internal language folder name → Star Citizen's language identifier
+# used in Localization directory paths and g_language in user.cfg.
+SC_LANGUAGE_IDS: dict[str, str] = {
+    "english":       "english",
+    "french":        "french_(france)",
+    "spanish":       "spanish_(latin_america)",
+    "portuguese_br": "portuguese_(brazil)",
+}
+
+
+def _is_valid_sc_root(path: str) -> bool:
+    """Return True if *path* looks like a valid Star Citizen install root.
+
+    Checks whether the directory contains at least one channel subfolder
+    (LIVE, PTU, EPTU, HOTFIX, TECH-PREVIEW).  This guards against stale
+    registry values like ``SmartCitizen 1.4.1`` being returned as the
+    install root.
+    """
+    try:
+        p = Path(path)
+        if not p.is_dir():
+            return False
+        return any((p / ch).is_dir() for ch in (
+            "LIVE", "PTU", "EPTU", "HOTFIX", "TECH-PREVIEW"
+        ))
+    except (OSError, ValueError):
+        return False
+
+
+def _path_ends_in_channel(path: str) -> bool:
+    """Return True if *path*'s last component is a recognised channel name.
+
+    Used to distinguish per-channel paths (``...\\LIVE``) from install roots
+    (``...\\StarCitizen``).  Case-insensitive match against
+    :data:`AppSettings.AVAILABLE_CHANNELS`.
+    """
+    try:
+        name = Path(path).name.upper()
+    except (OSError, ValueError):
+        return False
+    return name in {c.upper() for c in AppSettings.AVAILABLE_CHANNELS}
 
 
 class AppSettings:
@@ -34,6 +103,26 @@ class AppSettings:
     # Mission label defaults — source of truth for fallback values
     DEFAULT_REP_XP_LABEL = "Rep"
     DEFAULT_MISSION_HEADER_EM_TAG = "EM3"
+    # Selectable emphasis tags. EM1/EM2 were removed in 1.5.0 — they never
+    # render in-game (only EM3 = underline and EM4 = color do). See issue #99.
+    MISSION_HEADER_EM_TAGS = ("EM3", "EM4")
+
+    # Mission detail fields (#121): which generated lines appear in a mission
+    # DETAILS body. All default on (the pre-#121 behaviour). Baked at
+    # generation time, so a change takes effect on the next Generate
+    # Enhancements run.
+    MISSION_FIELD_KEYS = (
+        "mission_type", "difficulty", "spawns", "reputation",
+        "blueprints", "blueprint_tag",
+    )
+    _MISSION_FIELD_SETTING = {
+        "mission_type":  "mission_field/mission_type",
+        "difficulty":    "mission_field/difficulty",
+        "spawns":        "mission_field/spawns",
+        "reputation":    "mission_field/reputation",
+        "blueprints":    "mission_field/blueprints",
+        "blueprint_tag": "mission_field/blueprint_tag",
+    }
     MISSION_HEADER_DEFAULTS = {
         "details": "MISSION DETAILS",
         "blueprints": "POTENTIAL BLUEPRINTS",
@@ -88,6 +177,14 @@ class AppSettings:
         CHANNEL_TECH_PREVIEW,
     )
     DEFAULT_CHANNEL = CHANNEL_LIVE
+
+    # Settings key - Language selection
+    SELECTED_LANGUAGE = "selected_language"
+    DEFAULT_LANGUAGE = "english"
+    # Per-language override URL for the base.ini (global.ini) download. Set via
+    # the Config tab's "Map Language File" dialog; wins over the bundled
+    # languages/sources.json map. Keyed LANG_SOURCE_OVERRIDE_PREFIX/<language>.
+    LANG_SOURCE_OVERRIDE_PREFIX = "language_source_url"
 
     # Enhancements cache filenames (written by generate_enhancements_ini.py into cache dir)
     ENHANCEMENTS_FILES = {
@@ -244,7 +341,128 @@ class AppSettings:
     def set_theme(theme: str) -> None:
         """Persist UI theme name."""
         AppSettings.settings().setValue(AppSettings.THEME, theme)
-        AppSettings.settings().sync()
+
+    @staticmethod
+    def get_selected_language() -> str:
+        """Return the active language name (default: 'english')."""
+        return AppSettings.settings().value(
+            AppSettings.SELECTED_LANGUAGE, AppSettings.DEFAULT_LANGUAGE
+        )
+
+    @staticmethod
+    def set_selected_language(language: str) -> None:
+        """Persist the active language name."""
+        AppSettings.settings().setValue(AppSettings.SELECTED_LANGUAGE, language)
+
+    @staticmethod
+    def get_sc_language_id(language: str | None = None) -> str:
+        """Map our internal language folder name to the SC language identifier.
+
+        Star Citizen uses identifiers like ``portuguese_(brazil)`` in both its
+        Localization directory paths and ``g_language`` in user.cfg.  Our folder
+        names (e.g. ``portuguese_br``) are shorter for filesystem convenience.
+        Falls back to the raw name if no mapping entry exists.
+        """
+        if language is None:
+            language = AppSettings.get_selected_language()
+        return SC_LANGUAGE_IDS.get(language, language)
+
+    @staticmethod
+    def get_languages_dir() -> "Path":
+        """Return the bundled languages/ directory (dev or PyInstaller-frozen)."""
+        from src.utils.resource_path import get_resource_path
+        return Path(get_resource_path("languages"))
+
+    @staticmethod
+    def get_available_languages() -> list:
+        """Return sorted language names that are usable in the UI.
+
+        A folder under languages/ is offered only if it ships a non-empty
+        ui.json (at least one translated string); DEFAULT_LANGUAGE (English,
+        the base) is always included. This hides stub languages whose ui.json
+        exists but carries no translations: selecting one would render the
+        whole UI in English and read as broken. The untranslated Spanish
+        placeholder is the motivating case.
+        """
+        lang_dir = AppSettings.get_languages_dir()
+        if not lang_dir.exists():
+            return [AppSettings.DEFAULT_LANGUAGE]
+        names = []
+        for d in sorted(lang_dir.iterdir()):
+            if not d.is_dir():
+                continue
+            if (d.name == AppSettings.DEFAULT_LANGUAGE
+                    or AppSettings._ui_json_has_translations(d / "ui.json")):
+                names.append(d.name)
+        if AppSettings.DEFAULT_LANGUAGE not in names:
+            names.append(AppSettings.DEFAULT_LANGUAGE)
+        return sorted(names) if names else [AppSettings.DEFAULT_LANGUAGE]
+
+    @staticmethod
+    def _ui_json_has_translations(ui_json_path) -> bool:
+        """True if *ui_json_path* exists and holds at least one translation
+        string. The ``_comment`` metadata field is ignored at every level, so
+        a stub file carrying only a comment counts as empty. Used to keep
+        untranslated languages out of the selector."""
+        import json
+        try:
+            if not ui_json_path.exists():
+                return False
+            with ui_json_path.open(encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, ValueError):
+            return False
+
+        def _leaf_count(node) -> int:
+            if isinstance(node, dict):
+                return sum(_leaf_count(v) for k, v in node.items() if k != "_comment")
+            return 1
+
+        return isinstance(data, dict) and _leaf_count(data) > 0
+
+    @staticmethod
+    def get_language_global_ini_path(language: str | None = None) -> "Path | None":
+        """Return path to languages/<lang>/global.ini, or None if absent."""
+        if language is None:
+            language = AppSettings.get_selected_language()
+        path = AppSettings.get_languages_dir() / language / "global.ini"
+        return path if path.exists() else None
+
+    @staticmethod
+    def get_localized_doc_path(filename: str, language: "str | None" = None) -> "Path":
+        """Resolve an in-app document (HELP.md / ABOUT.md / LEGAL.md) for *language*.
+
+        Non-English languages may ship a translated copy at
+        ``languages/<lang>/<filename>``; English (and any language without a
+        translated copy) falls back to the bundled ``docs/<filename>``.
+        """
+        from src.utils.resource_path import get_resource_path
+        if language is None:
+            language = AppSettings.get_selected_language()
+        if language != AppSettings.DEFAULT_LANGUAGE:
+            candidate = AppSettings.get_languages_dir() / language / filename
+            if candidate.exists():
+                return candidate
+        return Path(get_resource_path(f"docs/{filename}"))
+
+    @staticmethod
+    def get_language_languages_ini_path(language: str | None = None) -> "Path | None":
+        """Return path to languages/<lang>/languages.ini, or None if absent."""
+        if language is None:
+            language = AppSettings.get_selected_language()
+        path = AppSettings.get_languages_dir() / language / "languages.ini"
+        return path if path.exists() else None
+
+    @staticmethod
+    def get_languages_ini_dest_path() -> "Path":
+        """Return the game-side destination for languages.ini: {channel}/data/languages.ini."""
+        channel_path = AppSettings.get_channel_install_path()
+        if channel_path:
+            return Path(channel_path) / "data" / "languages.ini"
+        game_path = Path(AppSettings.get_game_install_path())
+        if game_path.name.upper() in {c.upper() for c in AppSettings.AVAILABLE_CHANNELS}:
+            return game_path / "data" / "languages.ini"
+        return game_path / AppSettings.get_active_channel() / "data" / "languages.ini"
 
     @staticmethod
     def get_favorite_prefix() -> str:
@@ -289,11 +507,39 @@ class AppSettings:
 
     @staticmethod
     def get_mission_header_em_tag() -> str:
-        return AppSettings.settings().value(AppSettings.MISSION_HEADER_EM_TAG, AppSettings.DEFAULT_MISSION_HEADER_EM_TAG)
+        tag = AppSettings.settings().value(
+            AppSettings.MISSION_HEADER_EM_TAG, AppSettings.DEFAULT_MISSION_HEADER_EM_TAG
+        )
+        # Coerce a stored EM1/EM2 (removed in 1.5.0; never rendered in-game)
+        # back to the default so generated output never carries a dead tag.
+        if tag not in AppSettings.MISSION_HEADER_EM_TAGS:
+            return AppSettings.DEFAULT_MISSION_HEADER_EM_TAG
+        return tag
 
     @staticmethod
     def set_mission_header_em_tag(tag: str) -> None:
         AppSettings.settings().setValue(AppSettings.MISSION_HEADER_EM_TAG, tag)
+
+    @staticmethod
+    def get_mission_detail_fields() -> dict:
+        """Return {field: enabled} for the mission DETAILS body fields (#121).
+
+        Every field defaults to True, so an unconfigured user gets the full
+        body exactly as before. Consumed by the enhancements generator at
+        generation time (passed through the worker into its ctx).
+        """
+        s = AppSettings.settings()
+        return {
+            field: bool(s.value(reg_key, True, type=bool))
+            for field, reg_key in AppSettings._MISSION_FIELD_SETTING.items()
+        }
+
+    @staticmethod
+    def set_mission_detail_field(field: str, enabled: bool) -> None:
+        """Persist one mission-detail field toggle. Unknown keys are ignored."""
+        reg_key = AppSettings._MISSION_FIELD_SETTING.get(field)
+        if reg_key:
+            AppSettings.settings().setValue(reg_key, enabled)
 
     @staticmethod
     def get_tag_config(category: str):
@@ -320,6 +566,13 @@ class AppSettings:
             return default_config(category)
         AppSettings._migrate_tag_config_mapping(category, cfg)
         AppSettings._backfill_new_elements(category, cfg)
+        # 1.5.0: commodities gained a second flag (Collection). A stored
+        # single-element config used separator "none", which would mash the
+        # two flags together as "[CFCollection]". Pipe is the intended joiner,
+        # and the separator was meaningless for the old single-element tag, so
+        # upgrading it is safe (#97).
+        if category == "commodities" and cfg.separator == "none":
+            cfg.separator = "pipe"
         return cfg
 
     @staticmethod
@@ -512,7 +765,14 @@ class AppSettings:
         # Legacy path stored under the old key.
         saved = AppSettings.settings().value(AppSettings.GAME_INSTALL_PATH, "")
         if saved:
-            return saved
+            saved_path = Path(saved)
+            if _path_ends_in_channel(saved):
+                # Ends with a channel name — trust it.
+                return saved
+            # Doesn't end with a channel name — might be a stale root.
+            # Only trust it if it actually contains channel subdirs.
+            if _is_valid_sc_root(saved):
+                return saved
 
         # Installer-written registry key (older flow).
         try:
@@ -521,8 +781,13 @@ class AppSettings:
             sc_directory, _ = winreg.QueryValueEx(registry_key, 'sc_directory')
             winreg.CloseKey(registry_key)
             if sc_directory:
-                AppSettings.settings().setValue(AppSettings.GAME_INSTALL_PATH, sc_directory)
-                return sc_directory
+                sc_path = Path(sc_directory)
+                if _path_ends_in_channel(sc_directory):
+                    AppSettings.settings().setValue(AppSettings.GAME_INSTALL_PATH, sc_directory)
+                    return sc_directory
+                if _is_valid_sc_root(sc_directory):
+                    AppSettings.settings().setValue(AppSettings.GAME_INSTALL_PATH, sc_directory)
+                    return sc_directory
         except (WindowsError, OSError):
             pass
 
@@ -576,24 +841,66 @@ class AppSettings:
         AppSettings.settings().setValue(AppSettings.AUTO_WRITE_ENABLED, enabled)
 
     @staticmethod
-    def get_window_geometry() -> bytes:
-        """Get saved window geometry."""
-        return AppSettings.settings().value(AppSettings.WINDOW_GEOMETRY, b"")
+    def _encode_qbytes(value) -> str:
+        """Encode a QByteArray / bytes as a base64 ASCII string.
+
+        Window geometry/state come from QWidget.saveGeometry()/saveState() as
+        QByteArray. QSettings stores those natively, but the portable backend
+        (JsonSettings) json.dumps its store, and a QByteArray isn't
+        JSON-serialisable — storing it raw crashed portable-mode close (#141).
+        Base64 text round-trips through both backends.
+        """
+        if not value:
+            return ""
+        try:
+            return base64.b64encode(bytes(value)).decode("ascii")
+        except (TypeError, ValueError):
+            return ""
 
     @staticmethod
-    def set_window_geometry(geometry: bytes) -> None:
-        """Save window geometry."""
-        AppSettings.settings().setValue(AppSettings.WINDOW_GEOMETRY, geometry)
+    def _decode_qbytes(value) -> bytes:
+        """Inverse of _encode_qbytes. Tolerates a legacy raw QByteArray / bytes
+        value stored in the registry by builds before the base64 change, so
+        existing registry installs keep their saved geometry on upgrade."""
+        if not value:
+            return b""
+        if isinstance(value, str):
+            try:
+                return base64.b64decode(value.encode("ascii"))
+            except (ValueError, TypeError):
+                return b""
+        try:
+            return bytes(value)  # legacy QByteArray / bytes from the registry
+        except (TypeError, ValueError):
+            return b""
+
+    @staticmethod
+    def get_window_geometry() -> bytes:
+        """Get saved window geometry."""
+        return AppSettings._decode_qbytes(
+            AppSettings.settings().value(AppSettings.WINDOW_GEOMETRY, "")
+        )
+
+    @staticmethod
+    def set_window_geometry(geometry) -> None:
+        """Save window geometry (stored as base64 text; see _encode_qbytes)."""
+        AppSettings.settings().setValue(
+            AppSettings.WINDOW_GEOMETRY, AppSettings._encode_qbytes(geometry)
+        )
 
     @staticmethod
     def get_window_state() -> bytes:
         """Get saved window state."""
-        return AppSettings.settings().value(AppSettings.WINDOW_STATE, b"")
+        return AppSettings._decode_qbytes(
+            AppSettings.settings().value(AppSettings.WINDOW_STATE, "")
+        )
 
     @staticmethod
-    def set_window_state(state: bytes) -> None:
-        """Save window state."""
-        AppSettings.settings().setValue(AppSettings.WINDOW_STATE, state)
+    def set_window_state(state) -> None:
+        """Save window state (stored as base64 text; see _encode_qbytes)."""
+        AppSettings.settings().setValue(
+            AppSettings.WINDOW_STATE, AppSettings._encode_qbytes(state)
+        )
 
     @staticmethod
     def get_source_path(source_name: str) -> str:
@@ -1401,13 +1708,20 @@ class AppSettings:
 
     @staticmethod
     def set_active_channel(channel: str) -> None:
-        """Persist the active channel name. Must be a member of AVAILABLE_CHANNELS."""
+        """Persist the active channel name. Must be a member of AVAILABLE_CHANNELS.
+
+        Also syncs the legacy GAME_INSTALL_PATH key so any pre-migration
+        caller still reads the correct channel-specific path without needing
+        a manual sync at every call site.
+        """
         if channel not in AppSettings.AVAILABLE_CHANNELS:
             raise ValueError(
                 f"Unknown channel {channel!r}; expected one of {AppSettings.AVAILABLE_CHANNELS}"
             )
         AppSettings.settings().setValue(AppSettings.ACTIVE_CHANNEL, channel)
         AppSettings.settings().sync()
+        # Sync legacy key so all callers stay current with no extra bookkeeping.
+        AppSettings.set_game_install_path(AppSettings.get_channel_install_path())
 
     @staticmethod
     def get_sc_install_root() -> str:
@@ -1434,7 +1748,7 @@ class AppSettings:
         legacy = AppSettings.settings().value(AppSettings.GAME_INSTALL_PATH, "")
         if saved and legacy:
             legacy_path = Path(legacy)
-            if legacy_path.name.upper() in (c.upper() for c in AppSettings.AVAILABLE_CHANNELS):
+            if _path_ends_in_channel(legacy):
                 derived_root = str(legacy_path.parent)
                 if os.path.normcase(derived_root) != os.path.normcase(saved):
                     logger.info(
@@ -1444,15 +1758,16 @@ class AppSettings:
                     AppSettings.settings().setValue(AppSettings.SC_INSTALL_ROOT, derived_root)
                     return derived_root
 
-        if saved:
+        if saved and _is_valid_sc_root(saved):
             return saved
 
         # Derive from the legacy per-channel path if it's set.
         if legacy:
             legacy_path = Path(legacy)
-            if legacy_path.name.upper() in (c.upper() for c in AppSettings.AVAILABLE_CHANNELS):
+            if _path_ends_in_channel(legacy):
                 return str(legacy_path.parent)
-            return legacy  # assume it was already a root
+            if _is_valid_sc_root(legacy):
+                return legacy
 
         for candidate in [
             r"C:\Program Files\Roberts Space Industries\StarCitizen",
@@ -1465,8 +1780,15 @@ class AppSettings:
     @staticmethod
     def set_sc_install_root(path: str) -> None:
         """Persist the SC install root. Callers should pass the directory
-        that contains ``LIVE\\``, ``PTU\\``, etc., not a specific channel."""
+        that contains ``LIVE\\``, ``PTU\\``, etc., not a specific channel.
+
+        Also syncs the legacy GAME_INSTALL_PATH key so all callers stay
+        consistent without manual bookkeeping at each call site.
+        """
         AppSettings.settings().setValue(AppSettings.SC_INSTALL_ROOT, path)
+        AppSettings.set_game_install_path(
+            AppSettings.get_channel_install_path() if path else ""
+        )
 
     @staticmethod
     def get_available_channels() -> list[str]:
@@ -1522,6 +1844,97 @@ class AppSettings:
         cache_dir = AppSettings.get_channel_data_dir() / "cache"
         cache_dir.mkdir(parents=True, exist_ok=True)
         return cache_dir
+
+    @staticmethod
+    def get_base_ini_path(language: "str | None" = None) -> Path:
+        r"""Path to the base.ini for *language* (default: the selected language).
+
+        English uses the P4K-extracted base.ini at the channel cache root
+        (``…\{channel}\cache\base.ini``). Other languages use a downloaded
+        global.ini cached per-language at ``…\{channel}\cache\lang\{language}\
+        base.ini`` so switching back to a previously-used language reuses the
+        cached copy instead of re-downloading. The parent directory is created
+        on demand for non-English languages.
+        """
+        if language is None:
+            language = AppSettings.get_selected_language()
+        cache_dir = AppSettings.get_cache_dir()
+        if language == AppSettings.DEFAULT_LANGUAGE:
+            return cache_dir / "base.ini"
+        lang_dir = cache_dir / "lang" / language
+        lang_dir.mkdir(parents=True, exist_ok=True)
+        return lang_dir / "base.ini"
+
+    @staticmethod
+    def get_enhancements_dir(language: "str | None" = None) -> Path:
+        r"""Directory holding *language*'s generated ``*_enhancements.ini`` files.
+
+        Enhancements always live next to the base.ini they were generated
+        from, so this is just ``get_base_ini_path(language).parent``: the
+        channel cache root for English (``…\{channel}\cache\``), and the
+        per-language subdir for everything else (``…\cache\lang\{language}\``).
+        Routing every enhancement read/write through here is what makes a
+        non-English language show its own prose with the English stat blocks
+        (#30, Approach 1) instead of the English enhancements bleeding through.
+        """
+        return AppSettings.get_base_ini_path(language).parent
+
+    # Marker file stamped into a language's enhancement dir recording which
+    # DataForge build its enhancements were generated against. Regeneration is
+    # forced when this is missing or stale (see get_/set_enhancements_stamp).
+    ENHANCEMENTS_STAMP_NAME = ".dataforge_stamp"
+
+    @staticmethod
+    def get_enhancements_stamp(language: "str | None" = None) -> str:
+        """Return the DataForge build key recorded for *language*'s enhancements,
+        or '' when no stamp has been written yet."""
+        stamp = AppSettings.get_enhancements_dir(language) / AppSettings.ENHANCEMENTS_STAMP_NAME
+        try:
+            return stamp.read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
+
+    @staticmethod
+    def set_enhancements_stamp(key: str, language: "str | None" = None) -> None:
+        """Record *key* (a DataForge build fingerprint) for *language*'s
+        enhancements, so a later switch can tell fresh from stale."""
+        stamp = AppSettings.get_enhancements_dir(language) / AppSettings.ENHANCEMENTS_STAMP_NAME
+        try:
+            stamp.parent.mkdir(parents=True, exist_ok=True)
+            stamp.write_text(key, encoding="utf-8")
+        except OSError as e:
+            logger.warning(f"Could not write enhancements stamp for {language!r}: {e}")
+
+    @staticmethod
+    def get_language_source_override(language: str) -> str:
+        """User-set override URL for *language*'s base.ini, or '' if unset."""
+        raw = AppSettings.settings().value(
+            f"{AppSettings.LANG_SOURCE_OVERRIDE_PREFIX}/{language}", "", type=str
+        )
+        return str(raw or "")
+
+    @staticmethod
+    def set_language_source_override(language: str, url: str) -> None:
+        """Persist (or clear, when *url* is empty) the override URL for *language*."""
+        key = f"{AppSettings.LANG_SOURCE_OVERRIDE_PREFIX}/{language}"
+        if url:
+            AppSettings.settings().setValue(key, url)
+        else:
+            AppSettings.settings().remove(key)
+
+    @staticmethod
+    def get_language_base_url(language: str) -> str:
+        """Resolve the global.ini download URL for *language*.
+
+        User override (Map Language File dialog) wins over the bundled
+        ``languages/sources.json`` map. Returns '' when nothing is mapped
+        (e.g. English, which uses the local P4K extraction, or a language
+        with no URL yet).
+        """
+        override = AppSettings.get_language_source_override(language)
+        if override:
+            return override
+        return _bundled_language_sources().get(language, "")
 
     @staticmethod
     def get_user_ini_path() -> Path:
@@ -1746,6 +2159,33 @@ class AppSettings:
         return cache_dir
 
     @staticmethod
+    def get_dataforge_build_key() -> str:
+        r"""Return a fingerprint for the current DataForge extraction.
+
+        Reads the ``.p4k_mtime`` stamp pak_extractor writes, falling back to
+        the records-dir mtime. Mirrors ``_dataforge_cache_key`` in
+        ``scripts/generate_enhancements_ini.py`` so a per-language enhancement
+        stamp can be compared against the build its files were generated from
+        (see :meth:`get_enhancements_stamp`). Returns 'unknown' when no
+        DataForge cache exists yet.
+        """
+        forge_dir = AppSettings.get_dataforge_cache_dir()
+        stamp = forge_dir / ".p4k_mtime"
+        try:
+            text = stamp.read_text(encoding="utf-8").strip()
+            if text:
+                return text
+        except OSError:
+            pass
+        records = forge_dir / "raw" / "libs" / "foundry" / "records"
+        try:
+            if records.exists():
+                return f"mtime:{int(records.stat().st_mtime)}"
+        except OSError:
+            pass
+        return "unknown"
+
+    @staticmethod
     def get_p4k_path() -> Path:
         """Return path to Data.p4k for the active channel.
 
@@ -1769,23 +2209,25 @@ class AppSettings:
     def get_global_ini_path() -> Path:
         r"""Return the active channel's applied ``global.ini`` location.
 
-        Equivalent to ``{sc_install_root}\{active_channel}\data\Localization\english\global.ini``
+        Equivalent to ``{sc_install_root}\{active_channel}\data\Localization\{language}\global.ini``
         — the file "Apply to Game" writes and "Clear Localization" deletes.
+        The language directory reflects :meth:`get_selected_language`.
         Callers should use this instead of reconstructing the path from
         :meth:`get_game_install_path`, which the pre-0.9.3 code did with
         scattered ``if name == "LIVE"`` branches that don't cover the new
         channels.
         """
+        sc_lang = AppSettings.get_sc_language_id()
         channel_path = AppSettings.get_channel_install_path()
         if channel_path:
-            return Path(channel_path) / "data" / "Localization" / "english" / "global.ini"
+            return Path(channel_path) / "data" / "Localization" / sc_lang / "global.ini"
 
         game_path = Path(AppSettings.get_game_install_path())
         if game_path.name.upper() in {c.upper() for c in AppSettings.AVAILABLE_CHANNELS}:
-            return game_path / "data" / "Localization" / "english" / "global.ini"
+            return game_path / "data" / "Localization" / sc_lang / "global.ini"
         return (
             game_path / AppSettings.get_active_channel()
-            / "data" / "Localization" / "english" / "global.ini"
+            / "data" / "Localization" / sc_lang / "global.ini"
         )
 
     @staticmethod

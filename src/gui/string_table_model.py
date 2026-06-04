@@ -10,10 +10,12 @@ virtual method calls across the Python/C++ boundary.
 import re as _re
 from typing import Optional
 
-from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt, pyqtSlot
 from PyQt6.QtGui import QColor
+from PyQt6.QtWidgets import QApplication
 
 from src.models.string_model import StringEntry
+from src.utils.i18n import tr
 
 # ---------------------------------------------------------------------------
 # Column constants
@@ -27,7 +29,15 @@ COL_CUSTOM = 5
 COL_STATUS = 6
 NUM_COLUMNS = 7
 
-HEADER_LABELS = ["Category", "Key", "Default Value", "Current Value", "\u2605", "Custom Value", "Status"]
+_HEADER_KEYS = [
+    "strings_tab.col_category",
+    "strings_tab.col_key",
+    "strings_tab.col_default_value",
+    "strings_tab.col_current_value",
+    "strings_tab.col_star",
+    "strings_tab.col_custom_value",
+    "strings_tab.col_status",
+]
 
 # ---------------------------------------------------------------------------
 # Status colours
@@ -46,8 +56,7 @@ _FAV_BG_DARK = QColor("#3a3000")   # deep gold-brown for dark theme
 _FAV_BG_LIGHT = QColor("#FFF4C4")  # soft pale gold for light theme
 
 
-def _fav_row_bg() -> QColor:
-    """Return the favorite-row highlight appropriate for the current theme."""
+def _compute_fav_bg() -> QColor:
     from src.utils.settings import AppSettings
     from src.gui.theme import THEME_LIGHT
     return _FAV_BG_LIGHT if AppSettings.get_theme() == THEME_LIGHT else _FAV_BG_DARK
@@ -164,6 +173,12 @@ class StringTableModel(QAbstractTableModel):
         self._grouped_sort: bool = False
         self._sort_column: int = COL_KEY
         self._sort_order: Qt.SortOrder = Qt.SortOrder.AscendingOrder
+        # Cached values recomputed only on theme/language change, not per-paint.
+        self._header_labels: list[str] = [tr(k) for k in _HEADER_KEYS]
+        self._fav_bg: QColor = _compute_fav_bg()
+        app = QApplication.instance()
+        if app is not None:
+            app.paletteChanged.connect(self._on_palette_changed)
 
     # -- bulk setters -------------------------------------------------------
 
@@ -192,10 +207,12 @@ class StringTableModel(QAbstractTableModel):
     def set_filtered_indices(self, indices: list[int]) -> None:
         """Apply a new filter result, re-sorting to maintain current sort order."""
         self.layoutAboutToBeChanged.emit()
-        self._filtered_indices = indices
-        self._apply_sort()
-        self._rebuild_reverse_index()
-        self.layoutChanged.emit()
+        try:
+            self._filtered_indices = indices
+            self._apply_sort()
+            self._rebuild_reverse_index()
+        finally:
+            self.layoutChanged.emit()
 
     def refresh_favorite_prefix(self, prefix: str) -> None:
         self.beginResetModel()
@@ -211,8 +228,15 @@ class StringTableModel(QAbstractTableModel):
         """Map a model row to an index into self._entries."""
         return self._filtered_indices[row]
 
-    def entry_for_row(self, row: int) -> StringEntry:
-        return self._entries[self._filtered_indices[row]]
+    def entry_for_row(self, row: int) -> Optional[StringEntry]:
+        """Return the entry for a model row, or None if the row is out of
+        range. The view can briefly query stale rows after a failed/empty
+        load (first run before extraction, when the loader raises "No
+        sources configured"); an unguarded index there crashed with
+        IndexError (issue #110)."""
+        if 0 <= row < len(self._filtered_indices):
+            return self._entries[self._filtered_indices[row]]
+        return None
 
     def source_row_for_entry_index(self, entry_idx: int) -> Optional[int]:
         """Reverse lookup: entry index -> model row. O(1) via dict."""
@@ -231,8 +255,19 @@ class StringTableModel(QAbstractTableModel):
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
         if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
-            return HEADER_LABELS[section]
+            if 0 <= section < len(self._header_labels):
+                return self._header_labels[section]
         return None
+
+    def retranslate(self) -> None:
+        """Recompute cached header labels and notify the view."""
+        self._header_labels = [tr(k) for k in _HEADER_KEYS]
+        self.headerDataChanged.emit(Qt.Orientation.Horizontal, 0, NUM_COLUMNS - 1)
+
+    @pyqtSlot()
+    def _on_palette_changed(self) -> None:
+        """Recompute fav-row background when the app theme changes."""
+        self._fav_bg = _compute_fav_bg()
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlag:
         base = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
@@ -241,7 +276,7 @@ class StringTableModel(QAbstractTableModel):
             return base | Qt.ItemFlag.ItemIsEditable
         if col == COL_STAR:
             entry = self.entry_for_row(index.row())
-            if entry.category != "Ships":
+            if entry is not None and entry.category != "Ships":
                 return Qt.ItemFlag.ItemIsEnabled  # not selectable
         return base
 
@@ -252,6 +287,8 @@ class StringTableModel(QAbstractTableModel):
         row = index.row()
         col = index.column()
         entry = self.entry_for_row(row)
+        if entry is None:
+            return None
         prefix = self._favorite_prefix
 
         # -- display text ---------------------------------------------------
@@ -305,7 +342,7 @@ class StringTableModel(QAbstractTableModel):
         # -- background colour (favorite rows) ------------------------------
         if role == Qt.ItemDataRole.BackgroundRole:
             if entry.category == "Ships" and entry.custom_value.startswith(prefix):
-                return _fav_row_bg()
+                return self._fav_bg
             return None
 
         # -- alignment ------------------------------------------------------
@@ -324,6 +361,8 @@ class StringTableModel(QAbstractTableModel):
             return False
 
         entry = self.entry_for_row(index.row())
+        if entry is None:
+            return False
         new_text = str(value)
         if new_text == entry.custom_value:
             return False
@@ -348,9 +387,11 @@ class StringTableModel(QAbstractTableModel):
         self._sort_column = column
         self._sort_order = order
         self.layoutAboutToBeChanged.emit()
-        self._apply_sort()
-        self._rebuild_reverse_index()
-        self.layoutChanged.emit()
+        try:
+            self._apply_sort()
+            self._rebuild_reverse_index()
+        finally:
+            self.layoutChanged.emit()
         # Reset after applying so subsequent header clicks use normal sort
         self._grouped_sort = False
 

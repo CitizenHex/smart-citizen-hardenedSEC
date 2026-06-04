@@ -16,7 +16,7 @@ Smart Citizen (formerly SC Localization Editor) is a Windows-only PyQt6 GUI for 
 
 **Branding**: User-facing strings, registry path (`Osiris DevWorks\Smart Citizen`), and the default data root (`Documents\Smart Citizen\`) use the new name. `AppSettings` keeps one-shot migrators for the legacy `Osiris DevWorks\SC Localization Editor` registry tree and `Documents\SC Localization Editor\` folder (rebrand was 0.9.0); keep them while pre-0.9 users may upgrade.
 
-**Version**: `VERSION.TXT` is the sole source of truth. Now 1.4.2.
+**Version**: `VERSION.TXT` is the sole source of truth. Now 2.0.0.
 
 Build modes are covered in `src/utils/CLAUDE.md` under *Portable vs registry build mode*.
 
@@ -94,6 +94,16 @@ The progress dialog stays continuous across steps 1–3 so users see one bar fro
 ### Merge hierarchy
 Sources merge in user-defined order. Later sources overwrite earlier ones; user overrides apply last and survive source updates. As of 1.0 the seeded default is just `[global, user]` — the URL sources (contracts/components/ships/commodities) and `gear` retired in 0.7.0 when extraction moved to local Data.p4k, and `migrate_remove_retired_url_sources()` removes them from upgrader registries. `load_sources_from_settings()` also injects a synthetic `enhancements` source at runtime when any enhancement category is enabled on the Enhancements tab — it is *not* a registry entry; don't add it to the hierarchy by hand.
 
+### Language system (2.0, #30)
+Two independent layers share one selected language (`AppSettings.get_selected_language()`, set from the Config tab):
+
+1. **UI chrome** is translated via `src/utils/i18n.py`: `tr("dot.path.key", **kwargs)` reads `languages/{lang}/ui.json`, overlaid on English so missing keys fall back (then to the bare key). A runtime switch re-merges strings but already-built widgets keep the old text; full chrome refresh needs a restart. Languages whose `ui.json` is a stub (only `_comment`) are hidden from the selector by `get_available_languages()`.
+2. **Game strings**: English `base.ini` comes from local P4K extraction; every other language downloads a community `global.ini` per `languages/sources.json` (per-user URL override via the Config tab's *Map Language File* dialog). Caches are per-language: English at `{channel}\cache\base.ini`, others at `{channel}\cache\lang\{language}\base.ini` (`get_base_ini_path(language)`).
+
+Enhancements are language-aware: generated INIs live next to that language's `base.ini` (`get_enhancements_dir()`), and a `.dataforge_stamp` marker per language triggers regeneration on switch when stale. Generator annotation paths always parse the *English* base.ini, so stat blocks stay English by design; mixed values (e.g. `Role: Cannoniere`) are intentional. The apply side is language-aware too: `get_global_ini_path()` writes `Localization\{sc_id}\global.ini` and `ensure_user_cfg_language()` sets `g_language` to match, both via `SC_LANGUAGE_IDS` (app folder name `portuguese_br` → game id `portuguese_(brazil)`).
+
+`languages/` must be bundled in **both** build lists (`SmartCitizen.spec` and `scripts/build/build_exe.py`), or the frozen app shows raw `tr()` keys.
+
 ### Favorites use value prefix
 Favorites prepend a configurable prefix (default `*`) to `custom_value`. Stored via `AppSettings.FAVORITE_PREFIX`.
 
@@ -125,11 +135,13 @@ Anchor examples already in-tree: `COL_*` constants in `src/gui/string_table_mode
 | User data root (portable build) | `<exe-dir>/data/` when frozen; `<repo-root>/portable_data/` unfrozen |
 | **Per-channel data** | `{user_data_root}\{LIVE\|PTU\|EPTU\|HOTFIX\|TECH-PREVIEW}\` — 0.9.3+ nests user.ini / cache / backups / dataforge under the active channel so each SC channel is isolated. Migrator: `AppSettings.migrate_game_path_to_channel_layout()`. |
 | User overrides | `{user_data_root}\{active_channel}\user.ini` (legacy `overrides.ini` auto-migrated) |
-| Cached sources | `{user_data_root}\{active_channel}\cache\` — only `base.ini` post-1.0 (four legacy URL sources retired in 0.7.0); enhancement INIs live here too |
-| DataForge cache | `%LOCALAPPDATA%\Osiris DevWorks\Smart Citizen\{active_channel}\dataforge\` (entity XMLs from Data.p4k). Moved out of `Documents\` in 1.x — `migrate_dataforge_cache_to_local()` relocates the legacy `…\cache\dataforge\` tree on first launch. Resolved via `AppSettings.get_dataforge_cache_dir()`. |
-| Enhancement INIs | `{user_data_root}\{active_channel}\cache\` (`ships_desc_enhancements.ini`, `components_desc_enhancements.ini`, `ship_weapons_desc_enhancements.ini`, `fps_weapons_desc_enhancements.ini`, `mission_rewards_enhancements.ini`, `commodity_crafting_enhancements.ini`) |
+| Cached sources | `{user_data_root}\{active_channel}\cache\` — only `base.ini` post-1.0 (four legacy URL sources retired in 0.7.0); enhancement INIs live here too. Non-English languages cache their downloaded base.ini at `cache\lang\{language}\base.ini` (2.0); resolved via `AppSettings.get_base_ini_path(language)` |
+| DataForge cache | `%LOCALAPPDATA%\Smart Citizen\{active_channel}\cache\dataforge\` by default (entity XMLs from Data.p4k); overrideable independently of the user-data root via the `CACHE_DIR` registry key (1.4.1+ — `AppSettings.get_cache_dir_override()` / `set_cache_dir()`, wired to the Config tab's *DataForge Cache Folder*; the cache override does *not* fall back to the user-data override). Moved out of `Documents\` in 1.x — `migrate_dataforge_cache_to_local()` relocates the legacy `…\cache\dataforge\` tree on first launch. Resolved via `AppSettings.get_dataforge_cache_dir()`. |
+| Crash dumps + log exports | `{user_data_root}\logs\` (NOT per-channel — a crash can fire before the channel context is established, e.g. during startup migrators). Resolved via `AppSettings.get_logs_dir()`; created lazily on first crash or export. |
+| Enhancement INIs | next to the active language's base.ini via `AppSettings.get_enhancements_dir(language)`: `{user_data_root}\{active_channel}\cache\` for English, `cache\lang\{language}\` otherwise (`ships_desc_enhancements.ini`, `components_desc_enhancements.ini`, `ship_weapons_desc_enhancements.ini`, `fps_weapons_desc_enhancements.ini`, `mission_rewards_enhancements.ini`, `commodity_crafting_enhancements.ini`; plus a `.dataforge_stamp` freshness marker) |
 | Backups | `{user_data_root}\{active_channel}\backups\` (max 5, oldest auto-deleted) |
-| Game file | `{sc_install_root}\{active_channel}\data\Localization\english\global.ini` — `AppSettings.get_global_ini_path()` |
+| Game file | `{sc_install_root}\{active_channel}\data\Localization\{sc_language_id}\global.ini` — `AppSettings.get_global_ini_path()` (language dir follows the selected language via `SC_LANGUAGE_IDS`) |
+| UI translations + language source map | `languages/{language}/ui.json` (UI strings) and `languages/sources.json` (per-language base.ini download URLs). Bundled via both `SmartCitizen.spec` and `scripts/build/build_exe.py` |
 | P4K tools | `assets/unp4k/` (`unp4k.exe`, `unforge.exe`) |
 | DataForge patches | `patches/` (JSON files mirroring DataForge layout; applied post-extraction) |
 | Help/About | `docs/HELP.md`, `docs/ABOUT.md` — bundled under `docs/` via `SmartCitizen.spec` (and `scripts/build/build_exe.py` for the CLI path); rendered in-app via `get_resource_path("docs/HELP.md")` so dev and frozen resolve symmetrically |
@@ -182,6 +194,16 @@ Anchor examples already in-tree: `COL_*` constants in `src/gui/string_table_mode
 | Change Tag Builder UI / live preview | `src/gui/enhancements_tab.py`, `src/gui/tag_mapping_dialog.py` | `_PREVIEW_VALUES`, `TagMappingDialog` |
 | Persist/load tag configs | `src/utils/settings.py` | `AppSettings.get_tag_config()`, `set_tag_config()`, `get_all_tag_configs()` |
 | Add a new stats-enhancement generator (e.g. mining/salvage analogue) | `scripts/generate_enhancements_ini.py` | `enhancements_mining_laser`, `enhancements_salvage_tool` (reference pattern); register in `CATEGORY_SUBTREES` + `DATAFORGE_KEEP_SUBPATHS` |
+| Change crash-dump behavior | `src/utils/crash_handler.py`, `src/main.py` | `install_crash_handler()`; install site is the early `main()` setup, before the QApplication is constructed |
+| Change error-dialog cooldown / coalescing | `src/gui/main_window.py`, `src/gui/error_dialog.py` | `MainWindow._show_error_dialog()` (cooldown / spam protection lives on the slot, not the `ErrorDialogHandler`) |
+| Move the DataForge cache off the default path | `src/utils/settings.py`, `src/gui/config_tab.py` | `AppSettings.get_cache_dir_override()` / `set_cache_dir()` (1.4.1+; independent of the user-data override) |
+| Add or fix a translated UI string | `languages/{language}/ui.json`, `src/utils/i18n.py` | `tr()`, `set_language()` (dot-path keys; English is the fallback base) |
+| Change the language-switch flow | `src/gui/config_tab.py`, `src/gui/main_window.py` | `language_changed` signal, `MainWindow._on_language_changed()` (retranslate chrome, repoint the `global` source, download base.ini when a URL is mapped, regen stale enhancements, reload) |
+| Change per-language base.ini download / URL mapping | `src/gui/workers.py`, `src/utils/settings.py`, `languages/sources.json` | `LanguageBaseDownloadWorker`, `get_language_base_url()`, `LanguageSourceDialog` (Config tab's *Map Language File*) |
+| Change per-language cache or enhancements layout | `src/utils/settings.py` | `get_base_ini_path(language)`, `get_enhancements_dir(language)`, `get_/set_enhancements_stamp()` |
+| Toggle mission-detail fields per user | `src/gui/enhancements_tab.py`, `src/utils/settings.py` | `_MISSION_FIELD_SETTING` (per-field show/hide for mission bodies, #121) |
+| Change data-folder move behavior | `src/utils/user_ini_manager.py`, `src/gui/config_tab.py` | `migrate_user_data_dir(old, new, move=...)` (merge-never-overwrite; `move=True` deletes migrated originals and prunes empty dirs) |
+| Change the toolbar More overflow menu | `src/gui/main_window.py` | `more_menu` block in toolbar setup (restore backup, clear loc/cache, import/export, open loc dir) |
 
 ## Version & Release
 
@@ -208,7 +230,11 @@ Don't propose tagging, drafting release notes, or merging to `main` mid-integrat
 
 Discord notification fires via GitHub Actions (`scripts/discord_notify.py`) when `DISCORD_RELEASE_WEBHOOK_URL` secret is set.
 
-**Tester pre-release installers**: `.github/workflows/installer-preview.yml` builds a downloadable `SmartCitizen-{VERSION}-Setup.exe` artifact outside the standard release flow. Triggers: (1) `workflow_dispatch` from the Actions tab against any branch, (2) adding the `build-installer` label to a PR (later pushes to the labeled PR rebuild via `synchronize`; remove the label to stop rebuilds). In the integration-branch model this is the *primary* signal that a release is near test sign-off — when the user adds the label, treat the active release branch as approaching ship. Artifact: `smartcitizen-installer-{SHA}`, 30-day retention (testers need lead time vs. CI's 7). `installer-preview-cleanup.yml` deletes the artifacts on PR merge so storage doesn't accumulate stale builds. The `concurrency` group cancels in-flight builds when a newer commit lands on the same PR / branch.
+**Tester pre-release installers**: `.github/workflows/installer-preview.yml` builds a downloadable `SmartCitizen-{VERSION}-Setup.exe` artifact outside the standard release flow. Triggers: (1) `workflow_dispatch` from the Actions tab against any branch, (2) adding the `build-installer` label to a PR (later pushes to the labeled PR rebuild via `synchronize`; remove the label to stop rebuilds). In the integration-branch model this is the *primary* signal that a release is near test sign-off — when the user adds the label, treat the active release branch as approaching ship. Artifact: `smartcitizen-installer-{SHA}`, 30-day retention (testers need lead time vs. CI's 7). The `concurrency` group cancels in-flight builds when a newer commit lands on the same PR / branch.
+
+**Tester pre-release portable builds**: `.github/workflows/portable-preview.yml` is the sibling of installer-preview for the portable variant. Same triggers and gate, but keyed off the `build-portable` label and `workflow_dispatch`; it runs `build_exe.py --portable` and uploads the `SmartCitizen-Portable-v{VERSION}.zip` (a no-install onedir: unzip, run the `.exe`, portable mode writes `data/` next to it). Artifact: `smartcitizen-portable-{SHA}`, 30-day retention, same concurrency cancel behavior. Use it when a tester wants to run without installing or to smoke-test portable-mode behavior (no registry) before a release.
+
+**Preview artifact cleanup**: `installer-preview-cleanup.yml` (workflow name "Preview Artifact Cleanup") deletes the tester-build artifacts on PR merge so storage doesn't accumulate stale builds. It cleans *both* preview workflows (installer + portable). Its `WORKFLOWS` list must stay in sync with any new `*-preview.yml` that uploads per-PR artifacts.
 
 ## Debugging
 

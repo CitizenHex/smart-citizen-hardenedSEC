@@ -32,6 +32,7 @@ from src.gui.main_window import MainWindow
 from src.gui.theme import apply_theme, load_application_fonts
 from src.utils.version import get_version
 from src.utils.settings import AppSettings
+from src.utils import i18n
 
 # Setup logging — use --debug flag or LOG_LEVEL env var for perf timing output
 _log_level = logging.DEBUG if ('--debug' in sys.argv or os.environ.get('LOG_LEVEL', '').upper() == 'DEBUG') else logging.INFO
@@ -133,7 +134,17 @@ def main():
     # source.
     _global_stored = AppSettings.get_source_path(AppSettings.SOURCE_GLOBAL)
     if not (_global_stored.startswith("http://") or _global_stored.startswith("https://")):
-        _canonical_global = str(AppSettings.get_cache_dir() / "base.ini")
+        # Point at the selected language's base.ini (#30). English uses the
+        # P4K extraction; other languages use a downloaded global.ini. If a
+        # non-English language hasn't been downloaded yet, fall back to the
+        # English base so the table still loads — switching language in the
+        # Config tab fetches the language file and repoints the source.
+        _lang = AppSettings.get_selected_language()
+        _lang_base = AppSettings.get_base_ini_path(_lang)
+        if _lang != AppSettings.DEFAULT_LANGUAGE and not _lang_base.exists():
+            _canonical_global = str(AppSettings.get_base_ini_path(AppSettings.DEFAULT_LANGUAGE))
+        else:
+            _canonical_global = str(_lang_base)
         if _global_stored != _canonical_global:
             AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, _canonical_global)
             logger.info(
@@ -150,6 +161,10 @@ def main():
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
             'OsirisDevWorks.SmartCitizen'
         )
+
+    # Load UI strings for the selected language before any window is built.
+    # Widgets read tr() at construction time, so this must run before MainWindow().
+    i18n.set_language(AppSettings.get_selected_language())
 
     app = QApplication(sys.argv)
     load_application_fonts()

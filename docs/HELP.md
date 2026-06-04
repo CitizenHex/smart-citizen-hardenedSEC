@@ -67,19 +67,19 @@ Smart Citizen also stamps a small watermark onto the launcher version string (`F
 
 ## 8. Restore a Backup
 
-Click **Restore Backup** to revert to a previous version. Smart Citizen keeps up to **5 automatic backups** — the oldest is pruned as new ones are created.
+Open the **More** menu on the toolbar and choose **Restore Backup** to revert to a previous version. Smart Citizen keeps up to **5 automatic backups** — the oldest is pruned as new ones are created.
 
 ## 9. Clear Localization
 
-Click **Clear Localization** to delete the custom `global.ini` from the game directory, reverting the game to its default (vanilla) text. Your saved overrides in `<data folder>\<channel>\user.ini` are untouched and can be re-applied anytime.
+Open the **More** menu and choose **Clear Localization** to delete the custom `global.ini` from the game directory, reverting the game to its default (vanilla) text. Your saved overrides in `<data folder>\<channel>\user.ini` are untouched and can be re-applied anytime.
 
 ## 10. Import INI
 
-Use **Import INI** in the **Config** tab to fold an existing INI file into your overrides. A conflict-resolution dialog lets you decide, per key, whether to **keep current**, **use imported**, **append**, **prepend**, or provide a **custom** value.
+Use **Import INI** in the **Config** tab (also available under the toolbar's **More** menu) to fold an existing INI file into your overrides. A conflict-resolution dialog lets you decide, per key, whether to **keep current**, **use imported**, **append**, **prepend**, or provide a **custom** value.
 
 ## 11. Export Loc-Pack
 
-Use **Export Loc-Pack** on the toolbar to bundle the currently applied `global.ini` into a single zip — `SmartCitizen-LocPack-{channel}-{YYYYMMDD}.zip` — that anyone else can drop into their `StarCitizen\<channel>\data\Localization\english\` to run the same loc-pack without installing Smart Citizen. Useful for sharing presets with friends or your org.
+Open the **More** menu and choose **Export INI…** to bundle the currently applied `global.ini` into a single zip — `SmartCitizen-LocPack-{channel}-{YYYYMMDD}.zip` — that anyone else can drop into their `StarCitizen\<channel>\data\Localization\english\` to run the same loc-pack without installing Smart Citizen. Useful for sharing presets with friends or your org.
 
 ## 12. Reset user.ini
 
@@ -89,19 +89,34 @@ Use **Reset user.ini** in the **Config** tab to wipe all of your personal edits 
 
 When Star Citizen updates, your edits are preserved in `<data folder>\<channel>\user.ini`. Re-run **Extract from Data.p4k** to pull fresh stock strings from the patched game — the table reloads automatically and your customizations re-apply on top.
 
+## 14. Switch Languages
+
+Pick a language from the **Language** dropdown in the **Config** tab (next to Channel). Switching changes both the app's interface and the game strings in the table:
+
+- **English** (the default) uses the stock strings extracted from your own `Data.p4k`.
+- **Other languages** download that language's community-translated `global.ini` and layer it over the English base, so any string the translation doesn't cover falls back to English instead of going missing. The download is cached per language; switching back later reuses the cache.
+- **Enhancements stay in English.** Stat blocks, tags, and mission details are generated from game data and keep their English form on top of the translated prose. A mixed line (say, a French role name inside an English stat block) is expected, not a bug.
+- **Map Language File** (Config tab) lets you point a language at a different `global.ini` URL, for example your own fork of a community translation. Your URL wins over the bundled default.
+- Some interface text updates only after an app restart. The table strings reload immediately.
+
+Applying writes to the matching language folder in your game install and sets `g_language` in `user.cfg`, so the game loads the right file.
+
+Want to help translate? Translation status per language is tracked in `languages/TRANSLATIONS.md` in the repo, and we would much rather ship your words than a machine's. Reach out on the Discord.
+
 ## Enhancements Tab
 
 - Toggle stat overlays that append numerical stats to descriptions — SCM speed, shield HP, DPS, cargo capacity, mining-laser beam stats (Fracture / Extraction), handheld salvage-tool rates, blueprint pools, mission XP, and more.
 - Enable or disable each enhancement category independently.
 - Configure the ship favorites prefix character.
 - **Tag Builder** — customize the bracketed tags placed on component, missile, ship-weapon, and commodity names. Reorder elements with ▲/▼, toggle individual elements off, change abbreviation length (`M` / `MIL` / `Military`), pick separator (none, hyphen, space, etc.) and brackets (square, round, none, etc.), and choose whether the tag appears before or after the name. Components also have an optional **Type** element (Shield, Cooler, Power Plant, etc.) — disabled by default. Click **Apply Tag Changes** to save and regenerate.
-- **Mission Labels** — customize the section headers used in mission enhancement blocks (MISSION DETAILS, POTENTIAL BLUEPRINTS, ITEM REWARDS, BLUEPRINT DATA), the XP label shown on missions without a specific reputation rank (default "Rep"), and the emphasis tag (EM1–EM4) used for headers.
+- **Mission Labels** — customize the section headers used in mission enhancement blocks (MISSION DETAILS, POTENTIAL BLUEPRINTS, ITEM REWARDS, BLUEPRINT DATA), the XP label shown on missions without a specific reputation rank (default "Rep"), and the emphasis tag (EM3 = underline, EM4 = color) used for headers.
+- **Mission Details fields** — show or hide each line of the MISSION DETAILS block individually (mission type, difficulty, spawns, reputation, blueprints, and the `[BP]` title tag), so your mission descriptions carry only the data you care about.
 - Click **Generate Enhancements** to extract DataForge data from `Data.p4k` and rebuild the enhancement INI files. Declarative patches under `patches/` are re-applied idempotently on every regen so known CIG data bugs stay fixed without waiting for a game patch.
 
 ## Config Tab
 
 - **Appearance** — pick the app theme (see below).
-- **Star Citizen Installation** — path to your LIVE directory; auto-detected at install time, editable here.
+- **Star Citizen Installation** — path to your LIVE directory; auto-detected at install time, editable here. The **Channel** dropdown picks which channel the app reads and writes, and the **Language** dropdown switches the app and game strings (see *Switch Languages* above).
 - **Smart Citizen Data** — folder for `user.ini`, caches, DataForge extraction, generated enhancement INIs, and backups. Defaults to `Documents\Smart Citizen`; move it off OneDrive if extraction or cache cleanup is slow.
 - **Base Localization (P4K Extraction)** — click **Extract from Data.p4k** to unpack stock localization plus DataForge entity data directly from your installed game. This is the sole source for base strings and enhancement data.
 - **Import INI** — fold an existing INI file into your overrides via the conflict-resolution dialog.

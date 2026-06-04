@@ -34,7 +34,7 @@
     {
       "id": "enh_mission_labels",
       "title": "5. Enhancements: Mission Labels",
-      "description": "Customize the section headers (MISSION DETAILS / POTENTIAL BLUEPRINTS / ITEM REWARDS / BLUEPRINT DATA), the XP label shown on missions without a specific reputation rank (default Rep), and the emphasis tag (EM1–EM4) for headers.",
+      "description": "Customize the section headers (MISSION DETAILS / POTENTIAL BLUEPRINTS / ITEM REWARDS / BLUEPRINT DATA), the XP label shown on missions without a specific reputation rank (default Rep), and the emphasis tag (EM3 = underline, EM4 = color) for headers.",
       "preferred_side": "above"
     },
     {
@@ -82,7 +82,7 @@
     {
       "id": "cfg_sc_install",
       "title": "13. Config: Star Citizen Installation",
-      "description": "Path to your Star Citizen install root (the directory containing LIVE, PTU, EPTU, etc.). Auto-detected at install time; edit here if your game lives elsewhere. The Channel dropdown picks which channel the app reads and writes.",
+      "description": "Path to your Star Citizen install root (the directory containing LIVE, PTU, EPTU, etc.). Auto-detected at install time; edit here if your game lives elsewhere. The Channel dropdown picks which channel the app reads and writes, and the Language dropdown switches both the app's UI and the game strings.",
       "preferred_side": "right"
     },
     {

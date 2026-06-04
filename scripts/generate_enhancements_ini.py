@@ -218,9 +218,27 @@ def write_ini(path: Path, entries: dict[str, str]) -> None:
 #     cache key now folds in a hash of the components config (via
 #     _cached_lookup's extra_key); both caches invalidate when the user
 #     edits their config so the next run rebuilds with the new style.
+#   scitem_lookups v6 / blueprint_pools v10 (2.0.0) — FPS weapons no longer
+#     get a [CLASS-Sx-grade] tag: _component_name_tag was matching their
+#     size/grade data by accident, surfacing nonsense tags like "[S30-A]
+#     Rifle" in blueprint lists. build_scitem_lookups now skips anything
+#     under fps_weapons. Separately, the CIG size-prefix strip is bounded
+#     (<= _MAX_CIG_SIZE) so a real product name like "S71 Rifle" keeps its
+#     "S71" instead of being mangled to "Rifle". Both lookups carry the
+#     affected names, so both bump to force a rebuild.
+#   scitem_lookups v7 / blueprint_pools v11 / standings v2 (2.0.0) —
+#     per-language enhancement generation (#30) made the generation loc
+#     language-dependent, but these caches key only on DataForge build:
+#     a French-first build would bake French names/standings into the
+#     pickle and the next English run would silently reuse them. The
+#     builders now always consume the ENGLISH base.ini loc (annotations
+#     deliberately stay English under #30 option A), making the cached
+#     values language-independent again. Bump flushes any pickle built
+#     from a non-English loc before this fix.
 _LOOKUP_VERSIONS: dict[str, str] = {
-    "blueprint_pools": "v9",
-    "scitem_lookups": "v5",
+    "blueprint_pools": "v11",
+    "scitem_lookups": "v7",
+    "standings": "v2",
 }
 
 
@@ -638,28 +656,8 @@ def _component_name_tag(desc_value: str, root: ET.Element | None = None,
     Returns ``None`` when Size: itself is missing OR when the fallback's
     minimum-information bar isn't met. Those items pass through bare.
     """
-    # Optional leading 'S' on the size value covers mining heads (Size: S0,
-    # Size: S00) without breaking the bare-digit form ship components use
-    # (Size: 0, Size: 1). The capture is the digits only; "S0" → "0",
-    # "S00" → "00", "2" → "2", so the tag normalises to f"S{captured}".
-    size_m = re.search(r"Size:\s*S?(\d+)", desc_value)
-    if size_m:
-        size = size_m.group(1)
-    elif root is not None:
-        # Fall back to XML: extract size from entity class name in root tag
-        root_tag = root.tag.split(".")[-1] if "." in root.tag else root.tag
-        xml_size = _extract_item_size(root_tag)
-        if not xml_size:
-            return None
-        size = xml_size.lstrip("S")
-    else:
-        return None
-
-    grade_m = re.search(r"Grade:\s*([A-D])", desc_value)
-    class_m = re.search(r"Class:\s*(\w+)", desc_value)
-
-    # AttachDef fallback (bomb racks, other ordnance containers): these
-    # entities have no ItemComponentParams and their Grade is numeric (1→A).
+    # AttachDef is shared by the size fallback chain below and the
+    # grade/class fallbacks further down, so resolve it first.
     attach_def = None
     attach_grade_letter = None
     attach_class_name = None
@@ -667,6 +665,42 @@ def _component_name_tag(desc_value: str, root: ET.Element | None = None,
         attach_el = _find(root, "SAttachableComponentParams")
         if attach_el is not None:
             attach_def = attach_el.find("AttachDef")
+
+    # Optional leading 'S' on the size value covers mining heads (Size: S0,
+    # Size: S00) without breaking the bare-digit form ship components use
+    # (Size: 0, Size: 1). The capture is the digits only; "S0" → "0",
+    # "S00" → "00", "2" → "2", so the tag normalises to f"S{captured}".
+    # Fallback chain when the loc text doesn't match (translated base.ini,
+    # e.g. French "Taille : 3" — #30): entity class name (_S03_ → S3), then
+    # the loc-name key's size token, then the AttachDef Size attribute.
+    # The loc-key fallback outranks AttachDef because several entities can
+    # share one loc key (the Spirit A1 and Starlancer racks both point at
+    # item_NameMRCK_S03_…) while authoring different AttachDef sizes —
+    # like the desc text, the key token is the same whichever entity is
+    # scanned last, so the emitted tag stays deterministic and matches the
+    # English output.
+    size_m = re.search(r"Size:\s*S?(\d+)", desc_value)
+    size = size_m.group(1) if size_m else None
+    if size is None and root is not None:
+        root_tag = root.tag.split(".")[-1] if "." in root.tag else root.tag
+        xml_size = _extract_item_size(root_tag)
+        if xml_size:
+            size = xml_size.lstrip("S")
+    if size is None and root is not None:
+        name_key = _loc_name_key(root)
+        if name_key:
+            key_size = _extract_item_size(name_key)
+            if key_size:
+                size = key_size.lstrip("S")
+    if size is None and attach_def is not None:
+        raw_size = attach_def.get("Size", "")
+        if raw_size.isdigit():
+            size = raw_size
+    if size is None:
+        return None
+
+    grade_m = re.search(r"Grade:\s*([A-D])", desc_value)
+    class_m = re.search(r"Class:\s*(\w+)", desc_value)
 
     if not grade_m and attach_def is not None:
         num_grade = attach_def.get("Grade", "")
@@ -751,14 +785,16 @@ def _missile_name_tag(desc_value: str, root: ET.Element | None = None,
 
     Prefers the XML's ``trackingSignalType`` attribute (on
     ``<targetingParams>``) over the loc-text "Tracking Signal: …" line so we
-    stay correct even if a description is edited or translated. Bombs (no
-    guidance) yield an empty ordinance value — render_tag's empty-drop then
-    falls through to the size element alone (e.g. ``[S2]``).
+    stay correct even if a description is edited or translated. Size gets the
+    same treatment: the loc-text "Size: N" line is tried first, with the
+    ``AttachDef Size`` attribute as the XML fallback — without it, translated
+    base.ini files (e.g. French "Taille : 3") produced no missile name tags
+    at all (#30). Bombs (no guidance) yield an empty ordinance value —
+    render_tag's empty-drop then falls through to the size element alone
+    (e.g. ``[S2]``).
     """
     size_m = re.search(r"Size:\s*(\d+)", desc_value)
-    if not size_m:
-        return None
-    size = size_m.group(1)
+    size = size_m.group(1) if size_m else None
 
     seeker_raw = None
     is_bomb = False
@@ -770,8 +806,12 @@ def _missile_name_tag(desc_value: str, root: ET.Element | None = None,
             # the ordinance element resolves to "Bomb" → "B" through
             # DEFAULT_MISSILE_ORDINANCE_MAPPING and the rendered tag is
             # [B-S3] rather than the pre-fix bare-size [S3].
-            if not is_bomb and el.tag.endswith("AttachDef"):
-                if el.get("Type") == "Bomb":
+            if el.tag.endswith("AttachDef"):
+                if size is None:
+                    raw_size = el.get("Size", "")
+                    if raw_size.isdigit():
+                        size = raw_size
+                if not is_bomb and el.get("Type") == "Bomb":
                     is_bomb = True
             if not is_bomb and (el.tag.endswith("SCItemBombParams")
                                 or el.tag == "SCItemBombParams"):
@@ -781,8 +821,10 @@ def _missile_name_tag(desc_value: str, root: ET.Element | None = None,
                 raw = el.get("trackingSignalType")
                 if raw in _MISSILE_TRACKING_RAW:
                     seeker_raw = raw
-            if is_bomb and seeker_raw is not None:
+            if is_bomb and seeker_raw is not None and size is not None:
                 break
+    if size is None:
+        return None
     if seeker_raw is None and not is_bomb:
         m = re.search(r"Tracking Signal:\s*([A-Za-z ]+?)(?:\\n|\n|$)", desc_value)
         if m:
@@ -1612,8 +1654,16 @@ def enhancements_quantum_drive(root: ET.Element) -> str:
         return ""
     fuel_req = qd.get("quantumFuelRequirement")
 
-    # SQuantumDriveParams is an inline struct: <params __type="SQuantumDriveParams" driveSpeed=... />
+    # SQuantumDriveParams used to be an inline struct with a __type marker:
+    # <params __type="SQuantumDriveParams" driveSpeed=... />. The 4.x quantum
+    # rework dropped the __type attribute, leaving a bare <params> child on
+    # SCItemQuantumDriveParams (alongside <splineJumpParams>), which made the
+    # type-based lookup miss and silently dropped QT Speed / Spool / Cooldown /
+    # Accel / Calibration from every quantum drive. Try the typed form first
+    # for older data, then the bare child.
     params   = _find_by_type(root, "SQuantumDriveParams")
+    if params is None and qd is not None:
+        params = qd.find("params")
     speed    = params.get("driveSpeed")           if params is not None else None
     spool    = params.get("spoolUpTime")          if params is not None else None
     cooldown = params.get("cooldownTime")         if params is not None else None
@@ -2336,6 +2386,23 @@ def _extract_difficulty(element: ET.Element) -> str:
     return ""
 
 
+def _rep_reward_line(field_name: str, amount_str: str, rep_xp_label: str) -> str:
+    """Render one reputation-reward line for a MISSION DETAILS body.
+
+    *field_name* is the rank / standing name when known (e.g. ``"Neutral"``),
+    otherwise ``""``. *amount_str* is the pre-formatted signed amount, e.g.
+    ``"+500"``, ``"+500–4,000"``, or ``"-100"``. The configured reputation
+    label (``rep_xp_label``, default ``"Rep"``) becomes the field name when no
+    rank is known, and the trailing unit otherwise; it is never doubled. The
+    literal ``"XP"`` is never emitted: the label is the single source of the
+    unit word, so renaming it (Enhancements tab) flows through every mission
+    body (issue #102).
+    """
+    if field_name and field_name != rep_xp_label:
+        return f"<EM4>{field_name}:</EM4> {amount_str} {rep_xp_label}"
+    return f"<EM4>{rep_xp_label}:</EM4> {amount_str}"
+
+
 def _extract_mission_flags(root: ET.Element) -> list[str]:
     """Extract boolean mission flags from a MissionBrokerEntry XML root.
 
@@ -2415,12 +2482,21 @@ def enhancements_mission(root: ET.Element, reputation_lookup: dict[str, int] | N
 # tagger couldn't classify, "name [CLASS-Sx-grade]" for items it could.
 # Anchor on word boundary so legitimate names starting with "S" + letters
 # (Sasquatch, Slicer) aren't touched — the regex requires digits after S.
-_CIG_SIZE_PREFIX_RE = re.compile(r"^S\d+\s+")
+_CIG_SIZE_PREFIX_RE = re.compile(r"^S(\d+)\s+")
+# Hardpoint sizes top out well under this. A larger leading "S<n> " is part of
+# a product name (e.g. Gemini's "S71 Rifle"), not a size prefix, so it must not
+# be stripped — doing so turned "S71 Rifle" into "Rifle" in blueprint lists.
+_MAX_CIG_SIZE = 20
 
 
 def _strip_cig_size_prefix(name: str) -> str:
-    """Remove a leading 'S0 ' / 'S00 ' / 'S1 ' size prefix from a display name."""
-    return _CIG_SIZE_PREFIX_RE.sub("", name, count=1)
+    """Remove a leading CIG size prefix ('S0 ' / 'S00 ' / 'S1 ') from a display
+    name. Only strips a plausible hardpoint size (<= _MAX_CIG_SIZE); a larger
+    number is treated as part of the name (e.g. "S71 Rifle" is left intact)."""
+    m = _CIG_SIZE_PREFIX_RE.match(name)
+    if m and int(m.group(1)) <= _MAX_CIG_SIZE:
+        return name[m.end():]
+    return name
 
 
 # Rank-tier markers in blueprint pool filenames. CIG names progression-
@@ -3324,6 +3400,83 @@ def _condense_crafted_items(items_list: list[tuple[str, str]]) -> list[str]:
     return lines
 
 
+# Loc keys for items that appear as Collection-mission objectives. These get
+# the Collection flag in their commodity tag (#97). Maintained list (the
+# authoritative ground truth lives in tests/fixtures/collection_items_
+# groundtruth.txt); auto-discovery of these from the DataForge mission graph
+# is a planned follow-up so the list stays current as CIG adds items.
+COLLECTION_ITEM_KEYS: frozenset[str] = frozenset({
+    "Mission_Item_0183", "Mission_Item_0184", "Mission_Item_0186",
+    "Mission_Item_0191", "Mission_Item_0192", "Mission_Item_0195",
+    "Mission_Item_0214", "harvestable_Armillaria",
+    "items_commodities_amiantpod", "items_commodities_amioshiplague",
+    "items_commodities_beradom", "items_commodities_carinite",
+    "items_commodities_carinite_pure", "items_commodities_carinite_raw",
+    "items_commodities_compboard", "items_commodities_decaripod",
+    "items_commodities_degnousroot", "items_commodities_dopple",
+    "items_commodities_feynmaline", "items_commodities_flareweedstalk",
+    "items_commodities_fotiascrub", "items_commodities_freeze",
+    "items_commodities_glacosite", "items_commodities_glow",
+    "items_commodities_goldenmedmon", "items_commodities_heartofthewoods",
+    "items_commodities_jaclium", "items_commodities_jaclium_ore",
+    "items_commodities_janalite", "items_commodities_kopionhorn_irradiated",
+    "items_commodities_mala", "items_commodities_marokgem",
+    "items_commodities_pingala", "items_commodities_pitambu",
+    "items_commodities_prota", "items_commodities_rantadung",
+    "items_commodities_revenantpod", "items_commodities_sadaryx",
+    "items_commodities_saldynium", "items_commodities_saldynium_ore",
+    "items_commodities_stonebugshell", "items_commodities_sunsetberry",
+    "items_commodities_valakkaregg_irradiated",
+    "items_commodities_valakkarfang_adult",
+    "items_commodities_valakkarfang_adult_irradiated",
+    "items_commodities_valakkarfang_apex_irradiated",
+    "items_commodities_valakkarfang_juvenile",
+    "items_commodities_valakkarfang_juvenile_irradiated",
+    "items_commodities_valakkarpearl_apex_irradiated",
+    "items_commodities_valakkarpearl_apex_irradiated_tier1",
+    "items_commodities_valakkarpearl_apex_irradiated_tier2",
+    "items_commodities_valakkarpearl_apex_irradiated_tier3",
+    "items_commodities_valakkarpearl_apex_irradiated_tier4",
+    "items_commodities_valakkarpearl_apex_irradiated_tier5",
+    "items_commodities_wuotanseed", "items_commodities_yormandi_eye",
+    "items_commodities_zip",
+})
+
+
+def _commodity_tag(cfg, *, crafting: bool, collection: bool) -> str:
+    """Render the commodity name tag for the applicable flags, wrapped in EM4.
+
+    Builds the values dict from which flags apply and lets render_tag honour
+    the user's config (element enabled-state, order, separator, style). An
+    item that is both crafting and collection yields e.g. ``<EM4>[CF|
+    Collection]</EM4>``; a single-flag item drops the empty flag and stays
+    ``<EM4>[CF]</EM4>`` / ``<EM4>[Collection]</EM4>``. Returns "" when no flag
+    resolves (e.g. the user disabled both elements)."""
+    values: dict[str, str] = {}
+    if crafting:
+        values["label"] = "Crafting"
+    if collection:
+        values["collection"] = "Collection"
+    if not values:
+        return ""
+    if cfg is not None and render_tag is not None:
+        tag_str = render_tag(cfg, values)
+    else:
+        # Defensive fallback when tag_builder isn't importable.
+        parts = (["CF"] if crafting else []) + (["Collection"] if collection else [])
+        tag_str = "[" + "|".join(parts) + "]" if parts else ""
+    return f"<EM4>{tag_str}</EM4>" if tag_str else ""
+
+
+def _place_commodity_tag(base_name: str, tag: str, cfg) -> str:
+    """Combine an item name and its commodity tag per the config's placement
+    (prepend = tag before the name, otherwise after). Shared by the crafting
+    loop and the collection-only pass so the placement rule lives in one spot."""
+    if cfg and getattr(cfg, "placement", "append") == "prepend":
+        return f"{tag} {base_name}"
+    return f"{base_name} {tag}"
+
+
 def scan_crafting_blueprints(
     bp_dir: Path,
     carryables_dir: Path,
@@ -3425,11 +3578,12 @@ def scan_crafting_blueprints(
             base_name = loc.get(name_key, "")
             if base_name and name_key not in out:
                 cfg = tag_config or DEFAULT_TAG_CONFIGS.get("commodities")
-                tag_str = render_tag(cfg, {"label": "Crafting"}) if cfg else "[CF]"
-                if cfg and getattr(cfg, "placement", "append") == "prepend":
-                    out[name_key] = f"<EM4>{tag_str}</EM4> {base_name}"
-                else:
-                    out[name_key] = f"{base_name} <EM4>{tag_str}</EM4>"
+                # Crafting commodity; also flag Collection if it's a
+                # Collection-mission objective → "[CF|Collection]" (#97).
+                tag = _commodity_tag(
+                    cfg, crafting=True, collection=name_key in COLLECTION_ITEM_KEYS,
+                )
+                out[name_key] = _place_commodity_tag(base_name, tag, cfg) if tag else base_name
 
             base_desc = loc.get(desc_key, "")
             if base_desc and desc_key not in out:
@@ -3441,6 +3595,25 @@ def scan_crafting_blueprints(
             f"(first few: {', '.join(skipped_no_loc[:8])})"
         )
     logger.info(f"Crafting: {len(out)} commodity entries augmented from {len(commodity_items)} commodities")
+
+    # Collection-only items: Collection-mission objectives that are NOT
+    # crafting materials (so the loop above never touched them). Tag them with
+    # the Collection flag alone, e.g. "[Collection]" (#97).
+    cfg = tag_config or DEFAULT_TAG_CONFIGS.get("commodities")
+    collection_only = 0
+    for name_key in COLLECTION_ITEM_KEYS:
+        if name_key in out:
+            continue
+        base_name = loc.get(name_key, "")
+        if not base_name:
+            continue
+        tag = _commodity_tag(cfg, crafting=False, collection=True)
+        if not tag:
+            continue
+        out[name_key] = _place_commodity_tag(base_name, tag, cfg)
+        collection_only += 1
+    if collection_only:
+        logger.info(f"Collection: {collection_only} collection-only items tagged")
 
     # Build journal output (separate dict for independent toggling)
     out_journal: dict[str, str] = {}
@@ -4100,6 +4273,21 @@ def build_ammo_lookup(
     return lookup
 
 
+# scitem entity subdir → component-type label (matches the keys in
+# tag_builder.DEFAULT_COMPONENT_TYPE_MAPPING). Shared by the standalone
+# component generator (_run_gen_components) and the entity_name_tags builder
+# (build_scitem_lookups) so the type element renders identically on standalone
+# component names AND on the component entries inside mission blueprint lists
+# (issue #101 — the lookup builder previously omitted it).
+_SUBDIR_TO_TYPE: dict[str, str] = {
+    "shieldgenerator": "Shield Generator",
+    "cooler":          "Cooler",
+    "powerplant":      "Power Plant",
+    "quantumdrive":    "Quantum Drive",
+    "radar":           "Radar",
+}
+
+
 def build_scitem_lookups(
     scitem_dir: Path,
     loc: dict[str, str] | None = None,
@@ -4202,8 +4390,24 @@ def build_scitem_lookups(
         # description loc-key — the rendering side looks up by ref.
         if ref and desc_loc_key:
             desc_value = loc.get(desc_loc_key, "")
-            if desc_value:
-                tag = _component_name_tag(desc_value, root, config=tag_config)
+            _parts = {p.lower() for p in xml_file.parts}
+            # FPS weapons must never carry a component-style name tag.
+            # _component_name_tag keys off Size:/Grade:/Class: data that FPS
+            # weapons also expose, so without this guard they pick up nonsense
+            # tags like "[S30-A] Rifle" in blueprint lists. FPS weapons are
+            # meant to pass through bare (per request + the docstring above).
+            if desc_value and "fps_weapons" not in _parts:
+                # Derive the component type from the entity's subdir so the
+                # blueprint-list tag carries the same Type element the
+                # standalone component path emits (#101). Non-component
+                # entities won't be under these subdirs (comp_type stays "")
+                # and _component_name_tag returns None for them regardless.
+                comp_type = next(
+                    (t for sd, t in _SUBDIR_TO_TYPE.items() if sd in _parts), ""
+                )
+                tag = _component_name_tag(
+                    desc_value, root, config=tag_config, component_type=comp_type
+                )
                 if tag:
                     entity_name_tags[ref] = tag
 
@@ -4231,6 +4435,7 @@ def scan_entity_dir(
     capture_all: bool = False,
     xml_path_index: dict | None = None,
     records_dir: Path | None = None,
+    tag_loc: dict | None = None,
 ) -> dict[str, str]:
     """
     Scan all XML files in entity_dir, extract localization key + enhancements,
@@ -4244,6 +4449,10 @@ def scan_entity_dir(
     generate_name_tags: if True, also generate item_Name* entries with [CLASS-SIZE-GRADE] tags
         derived from the component description text.
     capture_all: if True, emit entries even when enhancement_fn returns empty (for missions).
+    tag_loc: optional loc dict the name taggers parse instead of `loc` —
+        the English base.ini when generating against a translated one (#30),
+        since the structured "Size:/Grade:/Class:" fields the taggers read
+        only exist in the English text. Falls back to `loc` per-key.
     """
     if loc_key_fn is None:
         loc_key_fn = _loc_key
@@ -4309,7 +4518,10 @@ def scan_entity_dir(
                     name_value = _humanize_key(xml_file.stem)
                 if name_value:
                     tagger = name_tag_fn or _component_name_tag
-                    tag = tagger(base_value, root)
+                    # Tags parse English structured fields; prefer the
+                    # English desc when a tag_loc is supplied (#30).
+                    tag_source = (tag_loc or {}).get(key) or base_value
+                    tag = tagger(tag_source, root)
                     if tag:
                         # `placement` is the user-configurable choice on the
                         # Tag Builder; default "prepend" puts the tag in
@@ -4346,13 +4558,6 @@ def _run_gen_components(ctx: dict) -> dict[str, str]:
     tag_configs     = ctx.get("tag_configs") or {}
     comp_cfg        = tag_configs.get("components") or DEFAULT_TAG_CONFIGS.get("components")
     comp_placement  = getattr(comp_cfg, "placement", "prepend") if comp_cfg else "prepend"
-    _SUBDIR_TO_TYPE = {
-        "shieldgenerator": "Shield Generator",
-        "cooler":          "Cooler",
-        "powerplant":      "Power Plant",
-        "quantumdrive":    "Quantum Drive",
-        "radar":           "Radar",
-    }
 
     def _make_comp_tagger(comp_type: str):
         def _tagger(desc_value: str, root: ET.Element | None = None) -> str | None:
@@ -4371,14 +4576,16 @@ def _run_gen_components(ctx: dict) -> dict[str, str]:
         out.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc, generate_name_tags=True,
                                    name_tag_fn=tagger,
                                    name_tag_placement=comp_placement,
-                                   xml_path_index=xml_path_index, records_dir=records))
+                                   xml_path_index=xml_path_index, records_dir=records,
+                                   tag_loc=ctx.get("tag_loc")))
     radar_dir = ships_scitem / "radar"
     if radar_dir.exists():
         tagger = _make_comp_tagger(_SUBDIR_TO_TYPE.get("radar", ""))
         out.update(scan_entity_dir(radar_dir, enhancements_radar, loc=loc, generate_name_tags=True,
                                    name_tag_fn=tagger,
                                    name_tag_placement=comp_placement,
-                                   xml_path_index=xml_path_index, records_dir=records))
+                                   xml_path_index=xml_path_index, records_dir=records,
+                                   tag_loc=ctx.get("tag_loc")))
 
     comp_types = ("COOL", "SHLD", "POWR", "QDRV", "RADR")
     sibling_count = 0
@@ -4493,6 +4700,7 @@ def _run_gen_missiles(ctx: dict) -> dict[str, str]:
                 loc=loc, generate_name_tags=True, name_tag_fn=_missile_tagger,
                 name_tag_placement=missile_placement,
                 xml_path_index=xml_path_index, records_dir=records,
+                tag_loc=ctx.get("tag_loc"),
             ))
     return out
 
@@ -4553,6 +4761,7 @@ def _run_gen_ship_weapons(ctx: dict) -> dict[str, str]:
             generate_name_tags=True, name_tag_fn=ship_weapon_tagger,
             name_tag_placement=ship_weapon_placement,
             xml_path_index=xml_path_index, records_dir=records,
+            tag_loc=ctx.get("tag_loc"),
         )
     logger.info(f"Finished ship weapons ({len(out)} entries)")
     return out
@@ -4606,6 +4815,13 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     hdr_blueprints    = mh.get("blueprints", _DEFAULT_MISSION_HEADERS["blueprints"])
     hdr_items         = mh.get("items", _DEFAULT_MISSION_HEADERS["items"])
     xml_path_index    = ctx.get("xml_path_index")
+    # #121: per-field show/hide for the mission DETAILS body. Missing or
+    # unknown keys default to True, so an unconfigured run emits the full
+    # body exactly as before.
+    _mdf = ctx.get("mission_detail_fields") or {}
+
+    def _show(_field: str) -> bool:
+        return bool(_mdf.get(_field, True))
     tag_configs       = ctx.get("tag_configs") or {}
     # User toggle (Enhancements tab) for the inline component annotation
     # in mission descriptions. Default True preserves v1.4.0 behavior. When
@@ -4699,6 +4915,11 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         else (list(pu_missions_dir.rglob("*.xml")) if pu_missions_dir.exists() else [])
     )
     pu_title_to_descs: dict[str, set[str]] = {}
+    # #102: desc keys belonging to cargo / delivery hauls. These award no
+    # blueprints, so under a [BP]-tagged shared title the orphan-drop below
+    # would otherwise delete their body and the haul would show no mission
+    # info. Tracked here so the orphan-drop can spare them.
+    pu_cargo_delivery_descs: set[str] = set()
     if pu_missions_dir.exists():
         for xml_file in _pu_files:
             try:
@@ -4712,6 +4933,10 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
                 title_key = title_attr.lstrip("@")
                 desc_key  = desc_attr.lstrip("@")
                 pu_title_to_descs.setdefault(title_key, set()).add(desc_key)
+                _parts = xml_file.parts
+                _i = _parts.index("pu_missions") if "pu_missions" in _parts else -1
+                if _i >= 0 and _i + 1 < len(_parts) and _parts[_i + 1] in ("cargo", "delivery"):
+                    pu_cargo_delivery_descs.add(desc_key)
             except (ET.ParseError, Exception):
                 continue
 
@@ -4733,6 +4958,21 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         _bp_variants = [v[7] for v in variants]  # v[7] = contract_has_bp
         _all_have_bp = has_blueprints and all(_bp_variants)
 
+        # #102 / #31: a haul title's contractgenerator variants (CareerContract
+        # blocks) can all carry BlueprintRewards, yet the SAME title is also
+        # fronted by ContractLegacy blocks spawning pu_missions cargo/delivery
+        # hauls that award no blueprints (Covalex: 16 BP-bearing career variants
+        # vs 419 BP-less legacy hauls). Those haul descs survive the orphan-drop
+        # below (kept so the haul still shows mission info), so a flat [BP] title
+        # would sit over blueprint-less haul bodies and read as wrong in-game.
+        # Detect the surviving no-BP cargo/delivery descs and demote [BP] to the
+        # honest [BP?] (the 9-BP career bodies keep their full list either way).
+        _cg_desc_keys = {v[3] for v in variants if v[3]}
+        _surviving_no_bp_cargo = bool(
+            (pu_cargo_delivery_descs & pu_title_to_descs.get(title_key, set()))
+            - _cg_desc_keys
+        )
+
         desc_bucket_has_bp: dict[str, bool] = {}
         desc_bucket_count: dict[str, int] = {}
         for v in variants:
@@ -4752,10 +4992,11 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             has_blueprints and _any_variant_has_bp and not _has_dominant_no_bp_bucket
         )
         augmented_title = base_title
-        if _all_have_bp:
-            augmented_title += " <EM4>[BP]</EM4>"
-        elif _bp_partial:
-            augmented_title += " <EM4>[BP?]</EM4>"
+        if _show("blueprint_tag"):
+            if _all_have_bp and not _surviving_no_bp_cargo:
+                augmented_title += " <EM4>[BP]</EM4>"
+            elif _bp_partial or (_all_have_bp and _surviving_no_bp_cargo):
+                augmented_title += " <EM4>[BP?]</EM4>"
         nonzero_xp = [x for x in unique_xp if x > 0]
         if len(nonzero_xp) == 1:
             augmented_title += f" <EM4>[{nonzero_xp[0]:,} {rep_xp_label}]</EM4>"
@@ -4810,27 +5051,30 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
                     desc_seen_tiers.append(tier)
 
             details_lines = []
-            details_lines.append(f"<EM4>Mission Type:</EM4> {', '.join(all_flags) if all_flags else 'Standard'}")
-            if all_difficulties:
+            if _show("mission_type"):
+                details_lines.append(f"<EM4>Mission Type:</EM4> {', '.join(all_flags) if all_flags else 'Standard'}")
+            if _show("difficulty") and all_difficulties:
                 details_lines.append(f"<EM4>Difficulty (1-7):</EM4> {all_difficulties[0]}")
-            details_lines.extend(_format_spawn_lines(agg_spawns))
+            if _show("spawns"):
+                details_lines.extend(_format_spawn_lines(agg_spawns))
             nonzero_tiers = [(s, f, rn) for s, f, rn in desc_seen_tiers if s > 0]
-            if len(nonzero_tiers) == 1:
-                sxp, fxp, rn = nonzero_tiers[0]
-                label = f"{rn}:" if rn else f"{rep_xp_label}:"
-                details_lines.append(f"<EM4>{label}</EM4> +{sxp:,} XP")
-                if fxp < 0:
-                    details_lines.append(f"<EM4>Failure Penalty:</EM4> {fxp:,} XP")
-            elif len(nonzero_tiers) > 1:
-                for i, (sxp, fxp, rn) in enumerate(sorted(nonzero_tiers, key=lambda t: t[0]), 1):
-                    label = rn if rn else f"Tier {i}"
-                    line = f"<EM4>{label}:</EM4> +{sxp:,} XP"
+            if _show("reputation"):
+                if len(nonzero_tiers) == 1:
+                    sxp, fxp, rn = nonzero_tiers[0]
+                    details_lines.append(_rep_reward_line(rn, f"+{sxp:,}", rep_xp_label))
                     if fxp < 0:
-                        line += f" (Failure: {fxp:,})"
-                    details_lines.append(line)
+                        details_lines.append(
+                            _rep_reward_line("Failure Penalty", f"{fxp:,}", rep_xp_label)
+                        )
+                elif len(nonzero_tiers) > 1:
+                    for i, (sxp, fxp, rn) in enumerate(sorted(nonzero_tiers, key=lambda t: t[0]), 1):
+                        line = _rep_reward_line(rn if rn else f"Tier {i}", f"+{sxp:,}", rep_xp_label)
+                        if fxp < 0:
+                            line += f" (Failure: {fxp:,})"
+                        details_lines.append(line)
 
             sections: list[str] = [base_desc]
-            if any_variant_has_bp and has_blueprints:
+            if any_variant_has_bp and has_blueprints and _show("blueprints"):
                 chance_pct = int(variant_bp_chance * 100)
                 if all_variants_have_bp:
                     bp_header = (
@@ -4897,7 +5141,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             if details_block:
                 sections.append(f"<{mh_em}>{hdr_details}</{mh_em}>\\n{details_block}")
 
-            if any_variant_has_bp and has_blueprints and not all_variants_have_bp:
+            if any_variant_has_bp and has_blueprints and not all_variants_have_bp and _show("blueprints"):
                 if bp_variant_names:
                     quoted = ", ".join(bp_variant_names)
                     if len(bp_variant_names) == 1:
@@ -4946,6 +5190,13 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             continue
         _cg_descs = {v[3] for v in _variants if v[3]}
         for _orphan in pu_title_to_descs.get(_title_key, set()) - _cg_descs:
+            # #102: keep cargo / delivery haul bodies. A haul awards no
+            # blueprints, so under a [BP]-tagged shared title it would be
+            # dropped here (the #31 fix) and show no mission info in-game.
+            # Leaving the body is correct: the haul genuinely has no blueprints
+            # section, and the title's [BP] reflects the sibling career contract.
+            if _orphan in pu_cargo_delivery_descs:
+                continue
             if out.pop(_orphan, None) is not None:
                 orphans_dropped += 1
     if orphans_dropped:
@@ -5062,7 +5313,9 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
          annotate_mission_descs: bool = True,
          rep_xp_label: str = _DEFAULT_REP_XP_LABEL,
          mission_headers: dict[str, str] | None = None,
-         mission_header_em_tag: str = _DEFAULT_MISSION_HEADER_EM_TAG) -> None:
+         mission_header_em_tag: str = _DEFAULT_MISSION_HEADER_EM_TAG,
+         mission_detail_fields: dict | None = None,
+         english_base_ini_path: Path | None = None) -> None:
     import sys as sys_mod
     # Deferred import — the script is loaded by both the app worker (where
     # src.utils is on the path) and as a standalone CLI, so we swallow an
@@ -5113,6 +5366,21 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
     loc = parse_ini(base_ini_path)
     logger.info(f"Loaded {len(loc):,} localization keys")
     _flush()
+
+    # English loc for annotation-side consumers (#30, option A). Tags,
+    # entity names, standings, and blueprint lists deliberately stay
+    # English whatever language *base_ini_path* holds — both because the
+    # structured fields they parse ("Size:", "Class:") only exist in the
+    # English text, and because several of those consumers are pickle-
+    # cached without a language key, so they must be language-independent.
+    # When no English path is supplied (CLI runs) the input loc is assumed
+    # English, preserving pre-#30 behaviour.
+    en_loc = loc
+    if english_base_ini_path is not None:
+        english_base_ini_path = Path(english_base_ini_path)
+        if english_base_ini_path != base_ini_path and english_base_ini_path.exists():
+            en_loc = parse_ini(english_base_ini_path)
+            logger.info(f"Loaded {len(en_loc):,} English keys for annotation lookups")
 
     # ── Check DataForge cache ─────────────────────────────────────────────────
     records = forge_dir / "raw" / "libs" / "foundry" / "records"
@@ -5186,7 +5454,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         return _cached_lookup(
             forge_dir, "scitem_lookups",
             lambda: build_scitem_lookups(
-                records / "entities" / "scitem", loc,
+                records / "entities" / "scitem", en_loc,
                 xml_path_index=xml_path_index, records_dir=records,
                 tag_config=_components_cfg,
             ),
@@ -5241,7 +5509,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                     display_name = root.get("displayName", "")
                     if uuid and display_name.startswith("@"):
                         loc_key = display_name.lstrip("@")
-                        resolved = (loc or {}).get(loc_key, "")
+                        resolved = (en_loc or {}).get(loc_key, "")
                         if resolved:
                             out[uuid] = resolved
                 except ET.ParseError:
@@ -5303,6 +5571,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         "scitem_dir":        scitem_dir,
         "ships_scitem":      ships_scitem,
         "loc":               loc,
+        "tag_loc":           en_loc,
         "entity_names":      entity_names,
         "entity_names_by_filename": entity_names_by_filename,
         "entity_name_tags":  entity_name_tags,
@@ -5320,6 +5589,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         "rep_xp_label":      rep_xp_label or _DEFAULT_REP_XP_LABEL,
         "mission_headers":   mission_headers or dict(_DEFAULT_MISSION_HEADERS),
         "mission_header_em": mission_header_em_tag or _DEFAULT_MISSION_HEADER_EM_TAG,
+        "mission_detail_fields": mission_detail_fields or {},
     }
 
     gen_jobs: dict[str, Callable] = {}

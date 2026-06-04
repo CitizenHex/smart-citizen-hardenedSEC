@@ -4,15 +4,16 @@ from dataclasses import replace as dc_replace
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QGridLayout, QGroupBox, QHBoxLayout,
-    QLabel, QMessageBox, QPushButton, QSizePolicy,
+    QCheckBox, QComboBox, QFrame, QGridLayout, QGroupBox, QHBoxLayout,
+    QLabel, QMessageBox, QPushButton, QScrollArea, QSizePolicy,
     QTabWidget, QVBoxLayout, QWidget,
 )
 
 from src.gui.tag_mapping_dialog import TagMappingDialog
+from src.utils.i18n import tr
 from src.utils.settings import AppSettings
 from src.utils.tag_builder import (
-    CATEGORIES, DEFAULT_MAPPINGS, ELEMENT_LABELS, ENCLOSINGS, MAPPED_KINDS,
+    CATEGORIES, ELEMENT_LABELS, ENCLOSINGS, MAPPED_KIND_NAMES,
     PLACEMENTS, SEPARATORS, STYLES_BY_KIND, TagConfig, default_config,
     render_tag,
 )
@@ -25,7 +26,7 @@ _PREVIEW_VALUES: dict[str, dict[str, str]] = {
     "components":   {"class": "Military", "size": "2", "grade": "A", "type": "Shield Generator"},
     "missiles":     {"ordinance": "Infrared", "size": "1"},
     "ship_weapons": {"damage": "Energy",   "size": "2"},
-    "commodities":  {"label": "Crafting"},
+    "commodities":  {"label": "Crafting", "collection": "Collection"},
 }
 _PREVIEW_NAMES: dict[str, str] = {
     "components":   "FR-76",
@@ -46,6 +47,11 @@ class EnhancementsTab(QWidget):
 
     merge_requested = pyqtSignal()
     enhancements_pipeline_requested = pyqtSignal()   # extract DataForge if needed, then generate enhancements
+    # (old_prefix, new_prefix) — the favourite sort prefix changed. MainWindow
+    # re-prefixes in-memory favourites to match the migrated user.ini before
+    # reloading, so the reload's pending-edit snapshot doesn't clobber the new
+    # prefix back to the old one (#140).
+    favorite_prefix_changed = pyqtSignal(str, str)
 
     def __init__(self):
         super().__init__()
@@ -53,63 +59,74 @@ class EnhancementsTab(QWidget):
         self.setup_ui()
 
     def setup_ui(self):
-        layout = QVBoxLayout(self)
+        content = QWidget()
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        title = QLabel("Enhancements")
-        title.setStyleSheet("font-weight: bold; font-size: 14px;")
-        layout.addWidget(title)
+        self._title_label = QLabel(tr("enhancements.title"))
+        self._title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        layout.addWidget(self._title_label)
 
-        desc = QLabel(
-            "Optional features that extend the base localization data: "
-            "category toggles for the enhancement generator, a favorites "
-            "prefix for the in-game ship list, and a Tag Builder that "
-            "customizes the bracketed name tags on components, missiles, "
-            "ship weapons, and commodities."
-        )
-        desc.setProperty("role", "secondary")
-        desc.setStyleSheet("font-size: 11px;")
-        desc.setWordWrap(True)
-        layout.addWidget(desc)
+        self._desc_label = QLabel(tr("enhancements.desc"))
+        self._desc_label.setProperty("role", "secondary")
+        self._desc_label.setStyleSheet("font-size: 11px;")
+        self._desc_label.setWordWrap(True)
+        layout.addWidget(self._desc_label)
 
-        layout.addWidget(self._build_enhancements_group())
+        self._enhancements_group = self._build_enhancements_group()
+        layout.addWidget(self._enhancements_group)
 
         mid_row = QHBoxLayout()
-        mid_row.addWidget(self._build_favorites_group())
+        self._favorites_group = self._build_favorites_group()
+        mid_row.addWidget(self._favorites_group)
         mid_row.addWidget(self._build_mission_labels_group(), 1)
         layout.addLayout(mid_row)
 
-        layout.addWidget(self._build_tag_builder_group(), 1)
+        self._tag_builder_group = self._build_tag_builder_group()
+        layout.addWidget(self._tag_builder_group, 1)
+        layout.addStretch()
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.viewport().setAutoFillBackground(False)
+        content.setAutoFillBackground(False)
+        scroll.setWidget(content)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scroll)
 
     # ── Enhancements ─────────────────────────────────────────────────────────
 
     def _build_enhancements_group(self) -> QGroupBox:
-        self.localization_enhancements_group = QGroupBox("Localization Enhancements")
-        group = self.localization_enhancements_group
+        group = QGroupBox(tr("enhancements.enhancements_group"))
+        self._enhancements_group_box = group
         gl = QVBoxLayout(group)
 
-        enhancements_desc = QLabel(
-            "Select which enhancement categories to include. "
-            "Click Apply to save changes. Enhancements are generated from your installed Data.p4k."
-        )
-        enhancements_desc.setProperty("role", "secondary")
-        enhancements_desc.setStyleSheet("font-size: 11px;")
-        enhancements_desc.setWordWrap(True)
-        gl.addWidget(enhancements_desc)
+        self._enhancements_desc_label = QLabel(tr("enhancements.enhancements_desc"))
+        self._enhancements_desc_label.setProperty("role", "secondary")
+        self._enhancements_desc_label.setStyleSheet("font-size: 11px;")
+        self._enhancements_desc_label.setWordWrap(True)
+        gl.addWidget(self._enhancements_desc_label)
 
         # Per-category checkbox + description + status dot
         _CATEGORY_DESCRIPTIONS = {
-            "ships":       "Ship performance, loadout, and crew data",
-            "ship_items":  "Component class/size/grade annotations and statistics",
-            "gear":        "Combat stats for FPS weapons",
-            "missions":    "XP rewards and blueprint drops for missions",
-            "commodities": "Crafting recipes and material usage",
-            "journal":     "Mining Compendium with crafting data per mineral",
+            "ships":       tr("enhancements.cat_desc_ships"),
+            "ship_items":  tr("enhancements.cat_desc_ship_items"),
+            "gear":        tr("enhancements.cat_desc_gear"),
+            "missions":    tr("enhancements.cat_desc_missions"),
+            "commodities": tr("enhancements.cat_desc_commodities"),
+            "journal":     tr("enhancements.cat_desc_journal"),
         }
 
         self._enhancements_status_labels: dict = {}
         self._enhancements_checkboxes: dict = {}
+        self._cat_desc_labels: dict = {}
+        # Two-column grid: column-major fill so the first three categories
+        # stack down the left column and the next three down the right —
+        # reads top-to-bottom-then-right rather than left-to-right.
         categories_layout = QGridLayout()
         categories_layout.setHorizontalSpacing(24)
         categories_layout.setVerticalSpacing(4)
@@ -138,6 +155,7 @@ class EnhancementsTab(QWidget):
             desc.setProperty("role", "secondary")
             desc.setStyleSheet("font-size: 10px;")
             row.addWidget(desc)
+            self._cat_desc_labels[key] = desc
 
             cell = QWidget()
             cell.setLayout(row)
@@ -150,9 +168,69 @@ class EnhancementsTab(QWidget):
         categories_layout.setColumnStretch(3, 1)
         gl.addLayout(categories_layout)
 
+        # ── Mission detail fields (#121) ───────────────────────────────────
+        # Granular show/hide for each line the generator adds to a mission
+        # DETAILS body. Persisted on toggle; baked at generation time, so a
+        # change takes effect on the next Generate Enhancements run. Labels are
+        # hardcoded English to match the sibling Mission Labels group.
+        mf_heading = QLabel("Mission detail fields:")
+        mf_heading.setStyleSheet("font-size: 11px; font-weight: bold;")
+        gl.addWidget(mf_heading)
+
+        _MISSION_FIELD_LABELS = [
+            ("mission_type",  "Mission Type"),
+            ("difficulty",    "Difficulty"),
+            ("spawns",        "Spawns"),
+            ("reputation",    "Reputation"),
+            ("blueprints",    "Blueprints"),
+            ("blueprint_tag", "Blueprint Tag"),
+        ]
+        # The blueprint_tag field controls the [BP]/[BP?] marker on the mission
+        # TITLE, not a body line — it gets its own tooltip. Turning the body
+        # section off while leaving the title tag on is intentional (compact
+        # at-a-glance signal); the two are independent so the user picks.
+        _MISSION_FIELD_TOOLTIPS = {
+            "blueprint_tag": (
+                "Show the [BP] / [BP?] marker on the mission title. "
+                "Independent of the Blueprints body section. "
+                "Takes effect on the next Generate Enhancements."
+            ),
+        }
+        self._mission_field_checkboxes: dict = {}
+        _mf_saved = AppSettings.get_mission_detail_fields()
+        mf_row = QHBoxLayout()
+        mf_row.setContentsMargins(0, 0, 0, 0)
+        for _field, _label in _MISSION_FIELD_LABELS:
+            cb = QCheckBox(_label)
+            cb.setChecked(_mf_saved.get(_field, True))
+            cb.setStyleSheet("font-size: 11px;")
+            cb.setToolTip(
+                _MISSION_FIELD_TOOLTIPS.get(
+                    _field,
+                    f"Show the {_label} line in generated mission bodies. "
+                    "Takes effect on the next Generate Enhancements.",
+                )
+            )
+            cb.toggled.connect(
+                lambda checked, f=_field: self._on_mission_field_toggled(f, checked)
+            )
+            mf_row.addWidget(cb)
+            self._mission_field_checkboxes[_field] = cb
+        mf_row.addStretch()
+        gl.addLayout(mf_row)
+
+        mf_note = QLabel(
+            "Unchecked fields are left out of mission descriptions. "
+            "Applies on the next Generate Enhancements."
+        )
+        mf_note.setProperty("role", "secondary")
+        mf_note.setStyleSheet("font-size: 10px;")
+        mf_note.setWordWrap(True)
+        gl.addWidget(mf_note)
+
         btn_row = QHBoxLayout()
 
-        self._apply_categories_btn = QPushButton("Apply")
+        self._apply_categories_btn = QPushButton(tr("enhancements.apply_btn"))
         self._apply_categories_btn.setMaximumWidth(100)
         self._apply_categories_btn.setEnabled(False)
         self._apply_categories_btn.setToolTip(
@@ -161,7 +239,7 @@ class EnhancementsTab(QWidget):
         self._apply_categories_btn.clicked.connect(self._apply_category_changes)
         btn_row.addWidget(self._apply_categories_btn)
 
-        self._generate_enhancements_btn = QPushButton("Generate Enhancements")
+        self._generate_enhancements_btn = QPushButton(tr("enhancements.generate_btn"))
         self._generate_enhancements_btn.setMaximumWidth(160)
         self._generate_enhancements_btn.setToolTip(
             "Generate enhanced localization files from your game's Data.p4k.\n"
@@ -234,15 +312,28 @@ class EnhancementsTab(QWidget):
             cb.blockSignals(False)
         self._apply_categories_btn.setEnabled(False)
 
+    def _on_mission_field_toggled(self, field: str, checked: bool) -> None:
+        """Persist a mission-detail field toggle (#121). Baked at generation
+        time, so the change shows up after the next Generate Enhancements."""
+        AppSettings.set_mission_detail_field(field, checked)
+
     # ── Favorites ─────────────────────────────────────────────────────────────
 
     def _build_favorites_group(self) -> QGroupBox:
-        self.favorites_group = QGroupBox("Favorites")
-        group = self.favorites_group
+        group = QGroupBox(tr("enhancements.favorites_group"))
+        self._favorites_group_box = group
         gl = QVBoxLayout(group)
 
+        self._favorites_desc_label = QLabel(tr("enhancements.favorites_desc"))
+        self._favorites_desc_label.setProperty("role", "secondary")
+        self._favorites_desc_label.setStyleSheet("font-size: 11px;")
+        self._favorites_desc_label.setWordWrap(True)
+        gl.addWidget(self._favorites_desc_label)
+
+
         prefix_row = QHBoxLayout()
-        prefix_row.addWidget(QLabel("Sort prefix:"))
+        self._sort_prefix_label = QLabel(tr("enhancements.sort_prefix_label"))
+        prefix_row.addWidget(self._sort_prefix_label)
 
         self.favorite_prefix_combo = QComboBox()
         self.favorite_prefix_combo.setToolTip("Character prepended to favorited ship names so they sort to the top of the in-game ship list. Click Apply Prefix after changing to update all existing favorites.")
@@ -263,12 +354,12 @@ class EnhancementsTab(QWidget):
         )
         prefix_row.addWidget(self.favorite_prefix_combo)
 
-        apply_prefix_btn = QPushButton("Apply")
-        apply_prefix_btn.setToolTip(
+        self._apply_prefix_btn = QPushButton(tr("enhancements.apply_btn"))
+        self._apply_prefix_btn.setToolTip(
             "Save the selected prefix and update all existing favorites to use it"
         )
-        apply_prefix_btn.clicked.connect(self._apply_favorite_prefix)
-        prefix_row.addWidget(apply_prefix_btn)
+        self._apply_prefix_btn.clicked.connect(self._apply_favorite_prefix)
+        prefix_row.addWidget(self._apply_prefix_btn)
 
         prefix_row.addStretch()
         gl.addLayout(prefix_row)
@@ -319,7 +410,7 @@ class EnhancementsTab(QWidget):
 
         grid.addWidget(QLabel("Header tag:"), 1, 4)
         self._header_em_combo = QComboBox()
-        for tag in ("EM1", "EM2", "EM3", "EM4"):
+        for tag in AppSettings.MISSION_HEADER_EM_TAGS:
             self._header_em_combo.addItem(tag, userData=tag)
         current_em = AppSettings.get_mission_header_em_tag()
         for i in range(self._header_em_combo.count()):
@@ -379,12 +470,15 @@ class EnhancementsTab(QWidget):
                     logger.info(f"Migrated {migrated} favorites from '{old_prefix}' to '{new_prefix}'")
                 except Exception as e:
                     logger.exception(f"Failed to migrate favorites: {e}")
-                    QMessageBox.critical(self, "Error", f"Failed to update favorites: {e}")
+                    QMessageBox.critical(self, tr("dialogs.error_title"), f"Failed to update favorites: {e}")
                     return
 
         AppSettings.set_favorite_prefix(new_prefix)
         self._loaded_prefix = new_prefix
-        self.merge_requested.emit()
+        # Hand the old/new prefix to MainWindow so it can re-prefix in-memory
+        # favourites before the reload (see signal doc). Emitting merge_requested
+        # alone would let the pending-edit snapshot restore the old prefix.
+        self.favorite_prefix_changed.emit(old_prefix, new_prefix)
 
     # ── Operation state ───────────────────────────────────────────────────────
 
@@ -436,16 +530,15 @@ class EnhancementsTab(QWidget):
         dropdowns, and a live preview. The "Apply Tag Builder" button at
         the bottom persists every page's config and re-runs the enhancement
         generator so the new tags take effect immediately."""
-        self.tag_builder_group = QGroupBox("Tag Builder")
-        group = self.tag_builder_group
+        group = QGroupBox(tr("enhancements.tag_builder_group"))
+        self._tag_builder_group_box = group
         gl = QVBoxLayout(group)
 
-        desc = QLabel(
-            "Customize bracketed name tags. Reorder with ▲/▼, untick to exclude, pick a style, then Apply."
-        )
-        desc.setProperty("role", "secondary")
-        desc.setStyleSheet("font-size: 11px;")
-        gl.addWidget(desc)
+        self._tag_builder_desc_label = QLabel(tr("enhancements.tag_builder_desc"))
+        self._tag_builder_desc_label.setProperty("role", "secondary")
+        self._tag_builder_desc_label.setStyleSheet("font-size: 11px;")
+        self._tag_builder_desc_label.setWordWrap(True)
+        gl.addWidget(self._tag_builder_desc_label)
 
         self._tag_builder_tabs = QTabWidget()
         self._tag_builder_pages: dict[str, _TagBuilderPage] = {}
@@ -466,7 +559,7 @@ class EnhancementsTab(QWidget):
         # save action so the user can't end up with the toggle and the
         # configs out of sync on disk.
         self._annotate_mission_descs_cb = QCheckBox(
-            "Annotate components in mission descriptions"
+            tr("enhancements.annotate_mission_descs_cb")
         )
         self._annotate_mission_descs_cb.setChecked(
             AppSettings.get_tag_annotate_mission_descs()
@@ -480,27 +573,58 @@ class EnhancementsTab(QWidget):
         gl.addWidget(self._annotate_mission_descs_cb)
 
         btn_row = QHBoxLayout()
-        apply_btn = QPushButton("Apply Tag Changes")
-        apply_btn.setToolTip(
+        self._apply_tag_btn = QPushButton(tr("enhancements.apply_tag_changes_btn"))
+        self._apply_tag_btn.setToolTip(
             "Save the Components / Missiles / Ship Weapons tag configs and "
             "re-run the enhancement generator. New tags appear in-game after "
             "the next Apply to game."
         )
-        apply_btn.clicked.connect(self._apply_tag_builder)
-        btn_row.addWidget(apply_btn)
+        self._apply_tag_btn.clicked.connect(self._apply_tag_builder)
+        btn_row.addWidget(self._apply_tag_btn)
 
-        reset_btn = QPushButton("Reset to defaults")
-        reset_btn.setToolTip(
+        self._reset_tag_btn = QPushButton(tr("enhancements.reset_defaults_btn"))
+        self._reset_tag_btn.setToolTip(
             "Restore the default pattern, mapping, and ordering for every "
             "category (Components / Missiles / Ship Weapons). Does not save "
             "or regenerate until you click Apply Tag Changes."
         )
-        reset_btn.clicked.connect(self._reset_all_tag_builder_pages)
-        btn_row.addWidget(reset_btn)
+        self._reset_tag_btn.clicked.connect(self._reset_all_tag_builder_pages)
+        btn_row.addWidget(self._reset_tag_btn)
 
         btn_row.addStretch()
         gl.addLayout(btn_row)
         return group
+
+    # ── Retranslation ─────────────────────────────────────────────────────────
+
+    def retranslate_ui(self) -> None:
+        """Re-apply tr() to every text-bearing widget after a language switch."""
+        self._title_label.setText(tr("enhancements.title"))
+        self._desc_label.setText(tr("enhancements.desc"))
+        self._enhancements_group_box.setTitle(tr("enhancements.enhancements_group"))
+        self._enhancements_desc_label.setText(tr("enhancements.enhancements_desc"))
+        self._apply_categories_btn.setText(tr("enhancements.apply_btn"))
+        self._generate_enhancements_btn.setText(tr("enhancements.generate_btn"))
+        _CAT_KEYS = {
+            "ships":       "enhancements.cat_desc_ships",
+            "ship_items":  "enhancements.cat_desc_ship_items",
+            "gear":        "enhancements.cat_desc_gear",
+            "missions":    "enhancements.cat_desc_missions",
+            "commodities": "enhancements.cat_desc_commodities",
+            "journal":     "enhancements.cat_desc_journal",
+        }
+        for key, lbl in self._cat_desc_labels.items():
+            if key in _CAT_KEYS:
+                lbl.setText(tr(_CAT_KEYS[key]))
+        self._favorites_group_box.setTitle(tr("enhancements.favorites_group"))
+        self._favorites_desc_label.setText(tr("enhancements.favorites_desc"))
+        self._sort_prefix_label.setText(tr("enhancements.sort_prefix_label"))
+        self._apply_prefix_btn.setText(tr("enhancements.apply_btn"))
+        self._tag_builder_group_box.setTitle(tr("enhancements.tag_builder_group"))
+        self._tag_builder_desc_label.setText(tr("enhancements.tag_builder_desc"))
+        self._annotate_mission_descs_cb.setText(tr("enhancements.annotate_mission_descs_cb"))
+        self._apply_tag_btn.setText(tr("enhancements.apply_tag_changes_btn"))
+        self._reset_tag_btn.setText(tr("enhancements.reset_defaults_btn"))
 
     def _apply_tag_builder(self):
         """Persist every page's TagConfig and kick off enhancement regen."""
@@ -552,11 +676,12 @@ class _ElementRow(QWidget):
     # preview row below. Unmapped kinds (size, grade) ignore this and use
     # the static STYLES_BY_KIND labels.
     _SAMPLE_MAPPED_RAW: dict[str, str] = {
-        "class":     "Military",
-        "ordinance": "Infrared",
-        "damage":    "Energy",
-        "type":      "Shield Generator",
-        "label":     "Crafting",
+        "class":      "Military",
+        "ordinance":  "Infrared",
+        "damage":     "Energy",
+        "type":       "Shield Generator",
+        "label":      "Crafting",
+        "collection": "Collection",
     }
 
     def __init__(self, spec, mapping: dict | None = None,
@@ -618,7 +743,7 @@ class _ElementRow(QWidget):
         # Only kinds backed by the per-category variant mapping get the
         # mapping-edit button — size and grade are derived from raw values
         # and have nothing user-editable beyond style.
-        if spec.kind in ("class", "ordinance", "damage", "type", "label"):
+        if spec.kind in MAPPED_KIND_NAMES:
             edit_btn = QPushButton("Edit mapping…")
             _tips = {
                 "ordinance": ("Edit the Short / Medium / Long text used for each tracking "
@@ -629,6 +754,8 @@ class _ElementRow(QWidget):
                               "type (e.g. Shield Generator → SH / SHLD / Shield)."),
                 "label":     ("Edit the Short / Medium / Long text for the crafting label "
                               "(e.g. Crafting → CF / Craft / Crafting)."),
+                "collection": ("Edit the Short / Medium / Long text for the collection label "
+                               "(e.g. Collection → Col / Collect / Collection)."),
             }
             edit_btn.setToolTip(_tips.get(spec.kind,
                 "Edit the Short / Medium / Long text used for each class "
@@ -725,6 +852,11 @@ class _TagBuilderPage(QWidget):
         ctrl_grid.addWidget(QLabel("Separator:"), 0, 0)
         self.sep_combo = QComboBox()
         for key, label, _ in SEPARATORS:
+            # Commodities can't use "none": with two flags it would mash them
+            # into "[CFCollection]", and get_tag_config force-upgrades a stored
+            # "none" to "pipe", so don't offer it here (#97).
+            if self.category == "commodities" and key == "none":
+                continue
             self.sep_combo.addItem(label, userData=key)
         self._select_combo(self.sep_combo, config.separator)
         self.sep_combo.currentIndexChanged.connect(self._on_sep_changed)

@@ -13,6 +13,7 @@ from pathlib import Path
 from src.utils.perf import timed
 
 from src.utils.dataforge_diff import update_manifest
+from src.utils.i18n import tr
 
 logger = logging.getLogger(__name__)
 
@@ -217,9 +218,9 @@ def extract_global_ini(
     TOTAL_PHASES = 2
     with tempfile.TemporaryDirectory() as tmp_dir:
         if progress_callback:
-            progress_callback("Launching unp4k — this may take a minute...")
+            progress_callback(tr("progress.unp4k_launch"))
         if progress_pct_callback:
-            progress_pct_callback(0, TOTAL_PHASES, "Launching unp4k…")
+            progress_pct_callback(0, TOTAL_PHASES, tr("progress.unp4k_launch_short"))
 
         logger.info(f"Running unp4k: {unp4k_exe} {p4k_path} global.ini (cwd={tmp_dir})")
         result = subprocess.run(
@@ -244,9 +245,9 @@ def extract_global_ini(
             )
 
         if progress_callback:
-            progress_callback("Copying extracted global.ini to cache...")
+            progress_callback(tr("progress.copy_global"))
         if progress_pct_callback:
-            progress_pct_callback(1, TOTAL_PHASES, "Copying extracted global.ini…")
+            progress_pct_callback(1, TOTAL_PHASES, tr("progress.copy_global_short"))
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(str(extracted), str(output_path))
@@ -302,9 +303,9 @@ def extract_dataforge(
 
         # ── Step 1: Extract Game2.dcb ─────────────────────────────────────────
         if progress_callback:
-            progress_callback("Extracting Game2.dcb from Data.p4k…")
+            progress_callback(tr("progress.extract_dcb"))
         if progress_pct_callback:
-            progress_pct_callback(0, TOTAL_PHASES, "Extracting Game2.dcb from Data.p4k…")
+            progress_pct_callback(0, TOTAL_PHASES, tr("progress.extract_dcb"))
         logger.info(f"Running unp4k to extract .dcb: {unp4k_exe} {p4k_path} .dcb")
         result = subprocess.run(
             [str(unp4k_exe), str(p4k_path), ".dcb"],
@@ -329,9 +330,9 @@ def extract_dataforge(
 
         # ── Step 2: Run unforge to produce entity XMLs ────────────────────────
         if progress_callback:
-            progress_callback("Converting DataForge database — this takes several minutes…")
+            progress_callback(tr("progress.unforge"))
         if progress_pct_callback:
-            progress_pct_callback(1, TOTAL_PHASES, "Converting DataForge database…")
+            progress_pct_callback(1, TOTAL_PHASES, tr("progress.unforge_short"))
         logger.info(f"Running unforge: {unforge_exe} {dcb_path}")
         result = subprocess.run(
             [str(unforge_exe), str(dcb_path)],
@@ -387,9 +388,9 @@ def extract_dataforge(
 
         # ── Step 3: Cache the full extraction ─────────────────────────────────
         if progress_callback:
-            progress_callback("Caching entity files…")
+            progress_callback(tr("progress.caching_entities"))
         if progress_pct_callback:
-            progress_pct_callback(2, TOTAL_PHASES, "Caching entity files…")
+            progress_pct_callback(2, TOTAL_PHASES, tr("progress.caching_entities"))
 
         # Ensure all file handles from extraction are released before copying
         gc.collect()
@@ -426,7 +427,7 @@ def extract_dataforge(
         # so the UI doesn't appear frozen.
         logger.info("Snapshotting DataForge cache for diff manifest…")
         if progress_callback:
-            progress_callback("Snapshotting cache for diff…")
+            progress_callback(tr("progress.snapshot_diff"))
         update_manifest(raw_dir / "libs", progress_callback=progress_pct_callback)
         logger.info("Diff manifest written")
 
