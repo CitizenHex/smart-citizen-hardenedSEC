@@ -19,6 +19,7 @@ Usage:
 
 import io
 import logging
+import os
 import pickle
 import re
 import sys
@@ -44,15 +45,24 @@ try:
     if str(_gen_root) not in sys.path:
         sys.path.insert(0, str(_gen_root))
     from src.utils.tag_builder import (
-        DAMAGE_LABEL_TO_MAPPING_KEY, DEFAULT_COMPONENT_CLASS_MAPPING,
-        DEFAULT_TAG_CONFIGS, TagConfig, render_tag,
+        CRAFT_USAGE_CATEGORIES, DAMAGE_LABEL_TO_MAPPING_KEY,
+        DEFAULT_COMMODITY_USAGE_MAPPING, DEFAULT_COMPONENT_CLASS_MAPPING,
+        DEFAULT_TAG_CONFIGS, TagConfig, USAGE_INPUT_SEP,
+        apply_mission_title, render_route, render_tag, route_enabled,
     )
 except ImportError:  # pragma: no cover — only triggers if src/ is removed
+    CRAFT_USAGE_CATEGORIES = ()  # type: ignore[assignment]
     DAMAGE_LABEL_TO_MAPPING_KEY = {}  # type: ignore[assignment]
+    DEFAULT_COMMODITY_USAGE_MAPPING = {}  # type: ignore[assignment]
     DEFAULT_COMPONENT_CLASS_MAPPING = {}  # type: ignore[assignment]
     DEFAULT_TAG_CONFIGS = {}  # type: ignore[assignment]
     TagConfig = None  # type: ignore[assignment]
+    USAGE_INPUT_SEP = "\x1f"  # type: ignore[assignment]
     render_tag = None  # type: ignore[assignment]
+    render_route = None  # type: ignore[assignment]
+    apply_mission_title = None  # type: ignore[assignment]
+    def route_enabled(_cfg):  # type: ignore[misc]
+        return False
 
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
@@ -235,9 +245,16 @@ def write_ini(path: Path, entries: dict[str, str]) -> None:
 #     deliberately stay English under #30 option A), making the cached
 #     values language-independent again. Bump flushes any pickle built
 #     from a non-English loc before this fix.
+#   scitem_lookups v8 / blueprint_pools v12 (2.1.0, #160) — typeless component
+#     tags ("[S1-A]" — size+grade, no class) are no longer woven into
+#     blueprint lists. Armour, magazines and salvage/mining heads expose
+#     Size/Grade but no ship-component class, so they were picking up a
+#     meaningless "[S1-A]" in POTENTIAL BLUEPRINTS. entity_name_tags now keeps
+#     only CLASS/TYPE-qualified tags; both lookups carry the affected names so
+#     both bump to force a rebuild.
 _LOOKUP_VERSIONS: dict[str, str] = {
-    "blueprint_pools": "v11",
-    "scitem_lookups": "v7",
+    "blueprint_pools": "v12",
+    "scitem_lookups": "v8",
     "standings": "v2",
 }
 
@@ -334,6 +351,10 @@ def _index_rglob(xml_path_index: dict, entity_dir: Path, records_dir: Path) -> l
 
 ENHANCEMENT_SEPARATOR = "\\n\\n--- STATS ---\\n"
 MISSION_SEPARATOR = "\\n\\n<EM3>MISSION DETAILS</EM3>\\n"
+# #153: when the user opts to show stats ABOVE the prose description, the stats
+# block leads and a plain divider separates it from the (less-important) PR
+# blurb — no "--- STATS ---" label needed since the stats are right at the top.
+STATS_PREPEND_SEPARATOR = "\\n\\n------\\n\\n"
 
 # Default section header text — mirrored from AppSettings.MISSION_HEADER_DEFAULTS
 # (not imported because this script runs standalone too). Keep these two
@@ -355,7 +376,8 @@ def _humanize_key(key: str) -> str:
 
 
 def append_enhancements(existing_value: str, enhancements_block: str,
-                        separator: str = ENHANCEMENT_SEPARATOR) -> str:
+                        separator: str = ENHANCEMENT_SEPARATOR,
+                        prepend: bool = False) -> str:
     if existing_value is None:
         existing_value = ""
     if not enhancements_block:
@@ -372,6 +394,12 @@ def append_enhancements(existing_value: str, enhancements_block: str,
         if marker in existing_value:
             existing_value = existing_value[:existing_value.index(marker)]
             break
+    # #153: stats above the prose blurb when the user prefers it (stats are the
+    # useful part for module-picking in the Hologlass). The "--- STATS ---"
+    # header (carried in `separator`) is dropped in this mode since the block
+    # leads; a plain divider sits between it and the prose.
+    if prepend:
+        return enhancements_block + STATS_PREPEND_SEPARATOR + existing_value
     return existing_value + separator + enhancements_block
 
 
@@ -767,13 +795,10 @@ def _component_name_tag(desc_value: str, root: ET.Element | None = None,
     if not type_abbrev and class_name:
         type_abbrev = _ITEM_TYPE_ABBREV.get(class_name)
 
-    if not (type_abbrev or grade_letter):
+    if not type_abbrev:
         return None
 
-    parts: list[str] = []
-    if type_abbrev:
-        parts.append(type_abbrev)
-    parts.append(f"S{size}")
+    parts: list[str] = [type_abbrev, f"S{size}"]
     if grade_letter:
         parts.append(grade_letter)
     return f"[{'-'.join(parts)}]"
@@ -984,6 +1009,127 @@ def _classify_mission_engagement(loc_key: str | None) -> str:
         return "FPS & Ship"
 
     return "FPS"
+
+
+# #166: pickup→dropoff route appended to haul/delivery mission TITLES.
+# Captures a ~mission(Var|Modifier) token: group 1 is the variable name,
+# group 2 (optional) the "|Modifier" display tail the body uses.
+_ROUTE_TOKEN_RE = re.compile(r"~mission\(\s*([A-Za-z][A-Za-z0-9_]*)\s*(\|[^)]*)?\)")
+
+
+def _route_token_role(var: str) -> str | None:
+    """Classify a ~mission token variable as a route endpoint, or None.
+
+    ``Location*`` / ``Pickup*`` are pickups (from); ``Destination*`` /
+    ``Dropoff*`` are dropoffs (to). Case-insensitive; everything else
+    (TargetName, System, Item, ...) is not a route endpoint.
+    """
+    v = var.lower()
+    if v.startswith("location") or v.startswith("pickup"):
+        return "from"
+    if v.startswith("destination") or v.startswith("dropoff"):
+        return "to"
+    return None
+
+
+# Title-key families that carry a pickup→dropoff route. HaulCargo + Delivery
+# (from #166) plus Courier (2.1 Mission-Titles feature). Courier runs are
+# usually single-pickup / multi-dropoff, which the derivation renders as
+# "from <pickup>".
+_ROUTE_TITLE_KEY_TOKENS = ("haulcargo", "delivery", "courier")
+
+
+def _is_route_title(title_key: str) -> bool:
+    """True for a haul / delivery / courier mission title (route-eligible)."""
+    low = title_key.lower()
+    return any(tok in low for tok in _ROUTE_TITLE_KEY_TOKENS)
+
+
+def _title_has_route_token(title: str) -> bool:
+    """True if *title* already shows a from/to route token.
+
+    Some CIG base titles embed the location themselves (e.g. CFP delivery
+    titles read ``...at ~mission(Destination)``). When they do, appending our
+    own route would double it, so the caller skips those.
+    """
+    if not title:
+        return False
+    return any(
+        _route_token_role(m.group(1)) is not None
+        for m in _ROUTE_TOKEN_RE.finditer(title)
+    )
+
+
+def _title_route_token(var: str, body_token: str, location_detail: str = "name") -> str:
+    """Render a route endpoint for a mission TITLE.
+
+    For the canonical ``Location`` / ``Destination`` variables, emit the
+    configurable modifier: ``|name`` (short place name, StarStrings-validated)
+    or ``|Address`` (full address). For any other endpoint variable
+    (Pickup*/Dropoff*) copy the exact token the body uses — those bodies
+    resolve ``|Address``, not ``|name``, so reusing the body token verbatim
+    guarantees the title resolves too (the location_detail toggle only safely
+    reaches Location/Destination).
+    """
+    low = var.lower()
+    if low.startswith("location") or low.startswith("destination"):
+        mod = "Address" if location_detail == "address" else "name"
+        return f"~mission({var}|{mod})"
+    return body_token
+
+
+def _derive_route_fragment(desc_bodies: list[str], cfg=None) -> str:
+    """Build the route CORE for a haul/delivery/courier title (no separator,
+    no placement — the caller places it via ``apply_mission_title``).
+
+    Returns "" when no unambiguous route applies. The shape is driven by how
+    many distinct from/to *variables* the mission's own body resolves:
+
+    - one source, one dest       → ``<from> <arrow> <to>``   (A→B)
+    - one source, many/zero dest  → ``from <from>``           (single-to-multi)
+    - one dest, many/zero source  → ``to <to>``               (multi-to-single)
+    - many sources AND many dests → omitted (ambiguous; one title can't carry
+      two routes — the heterogeneous-shared-title guard)
+
+    The arrow and the Location/Destination modifier come from *cfg* (the
+    mission_titles TagConfig). A token is only emitted when its variable
+    appears in the body, so the game is guaranteed to resolve it (no raw
+    ``~mission(...)`` text leaks into a title).
+    """
+    arrow = getattr(cfg, "route_arrow", "gt") if cfg is not None else "gt"
+    detail = getattr(cfg, "location_detail", "name") if cfg is not None else "name"
+    # var name -> the exact ~mission(...) token string first seen in a body.
+    from_tokens: dict[str, str] = {}
+    to_tokens: dict[str, str] = {}
+    for body in desc_bodies:
+        if not body:
+            continue
+        for m in _ROUTE_TOKEN_RE.finditer(body):
+            var = m.group(1)
+            role = _route_token_role(var)
+            if role is None:
+                continue
+            token = f"~mission({var}{m.group(2) or ''})"
+            bucket = from_tokens if role == "from" else to_tokens
+            bucket.setdefault(var, token)
+
+    if not from_tokens and not to_tokens:
+        return ""
+
+    single_from = len(from_tokens) == 1
+    single_to = len(to_tokens) == 1
+
+    from_str = to_str = ""
+    if single_from:
+        fv, ft = next(iter(from_tokens.items()))
+        from_str = _title_route_token(fv, ft, detail)
+    if single_to:
+        tv, tt = next(iter(to_tokens.items()))
+        to_str = _title_route_token(tv, tt, detail)
+    # Many-from AND many-to → ambiguous, omit (render_route on two empties = "").
+    if not single_from and not single_to:
+        return ""
+    return render_route(from_str, to_str, arrow) if render_route else ""
 
 
 def _resource_amount(amount_el: ET.Element) -> str | None:
@@ -2177,12 +2323,39 @@ def _add_spawn(breakdown: SpawnBreakdown, bucket: str, label: str, count: int) -
     breakdown[bucket][label] = breakdown[bucket].get(label, 0) + count
 
 
-def _extract_spawn_counts(element: ET.Element) -> SpawnBreakdown:
+def _within_excluded_subtree(node: ET.Element, scope: ET.Element,
+                             exclude_tag: str | None) -> bool:
+    """True if ``node`` has an ancestor tagged ``exclude_tag`` at or below
+    ``scope`` (exclusive of ``scope`` itself). Walks up via ``getparent()``.
+
+    Used to keep handler-scope spawn extraction from reaching down into the
+    handler's child ``CareerContract`` nodes — see ``_extract_spawn_counts``'s
+    ``exclude_within`` and issue #186.
+    """
+    if not exclude_tag:
+        return False
+    parent = node.getparent()
+    while parent is not None and parent is not scope:
+        if parent.tag == exclude_tag:
+            return True
+        parent = parent.getparent()
+    return False
+
+
+def _extract_spawn_counts(element: ET.Element,
+                          exclude_within: str | None = None) -> SpawnBreakdown:
     """Extract a per-bucket per-label breakdown of spawn descriptions.
 
     Parses ``SpawnDescription_ShipGroup`` and ``SpawnDescription_NPC_Group``
     elements within the given XML element scope, classifies each by name via
     :func:`classify_spawn_group`, and aggregates counts per (bucket, label).
+
+    ``exclude_within`` skips any spawn group nested inside a descendant with
+    that tag. The handler-level fallback passes ``"CareerContract"`` so a
+    contract with no spawns of its own inherits only spawns defined directly at
+    handler scope (the genuine shared default), NOT the union of every sibling
+    contract's roster — which leaked e.g. ground "Kopions"/"Soldiers" onto an
+    easy 9-probe satellite mission (#186).
 
     Pre-1.4.1 this returned ``(num_waves, num_enemies, num_not_enemies)`` and
     bucketed everything unrecognized as hostile — see the keyword-table
@@ -2191,6 +2364,8 @@ def _extract_spawn_counts(element: ET.Element) -> SpawnBreakdown:
     breakdown = _empty_spawn_breakdown()
 
     for sg in element.findall(".//SpawnDescription_ShipGroup"):
+        if _within_excluded_subtree(sg, element, exclude_within):
+            continue
         name = sg.get("Name", "")
         ships = sg.findall(".//SpawnDescription_Ship")
         total = sum(int(s.get("concurrentAmount", "0")) for s in ships)
@@ -2210,6 +2385,8 @@ def _extract_spawn_counts(element: ET.Element) -> SpawnBreakdown:
         _add_spawn(breakdown, bucket, label, total)
 
     for ng in element.findall(".//SpawnDescription_NPC_Group"):
+        if _within_excluded_subtree(ng, element, exclude_within):
+            continue
         name = ng.get("Name", "")
         auto_settings = ng.findall(".//autoSpawnSettings")
         total_npcs = 0
@@ -2243,10 +2420,16 @@ def _extract_spawn_counts(element: ET.Element) -> SpawnBreakdown:
 def _format_spawn_lines(breakdown: SpawnBreakdown) -> list[str]:
     """Render a SpawnBreakdown as the MISSION DETAILS block lines.
 
-    Emits at most four ``<EM4>...</EM4>`` lines: Hostiles, Friendlies,
-    Objectives, Unknown. Each non-empty named bucket lists its types
-    alphabetically as ``Label xN``; Unknown collapses to a single count.
-    Empty buckets are omitted entirely.
+    Emits up to three ``<EM4>...</EM4>`` lines: Hostiles, Friendlies,
+    Objectives. Each non-empty named bucket lists its types alphabetically as
+    ``Label xN``; empty buckets are omitted entirely.
+
+    The Unknown bucket is intentionally NOT rendered (#187). It exists so an
+    unclassified spawn group is not miscounted as a hostile, but a bare
+    "Unknown: N" tells the player nothing actionable and reads as a bug — e.g.
+    the cargo ship you recover in a Ling delivery surfaced as "Unknown: 1".
+    Genuine player-hostile spawns are still recovered via
+    ``_wrapper_hostile_fallback`` before they ever land in Unknown.
     """
     lines: list[str] = []
     for bucket, header in (
@@ -2259,10 +2442,6 @@ def _format_spawn_lines(breakdown: SpawnBreakdown) -> list[str]:
             continue
         parts = [f"{lbl} x{cnt}" for lbl, cnt in sorted(items.items())]
         lines.append(f"<EM4>{header}:</EM4> {', '.join(parts)}")
-    unknown = breakdown.get(SPAWN_UNKNOWN) or {}
-    unknown_total = sum(unknown.values())
-    if unknown_total > 0:
-        lines.append(f"<EM4>Unknown:</EM4> {unknown_total}")
     return lines
 
 
@@ -2425,7 +2604,9 @@ def _extract_mission_flags(root: ET.Element) -> list[str]:
 
 
 def enhancements_mission(root: ET.Element, reputation_lookup: dict[str, int] | None = None,
-                         rep_xp_label: str = _DEFAULT_REP_XP_LABEL) -> str:
+                         rep_xp_label: str = _DEFAULT_REP_XP_LABEL,
+                         show_fields: "dict | None" = None,
+                         spawn_ambiguous_keys: "set[str] | None" = None) -> str:
     """Extract mission/contract reward stats (aUEC + Reputation XP) and flags.
 
     Extracts:
@@ -2437,25 +2618,43 @@ def enhancements_mission(root: ET.Element, reputation_lookup: dict[str, int] | N
     lines = []
     reputation_lookup = reputation_lookup or {}
 
+    def _show(f: str) -> bool:
+        return bool((show_fields or {}).get(f, True))
+
     try:
         loc_key = _mission_loc_key(root) or _loc_key(root)
         lines.append(f"<EM4>Engagement Type:</EM4> {_classify_mission_engagement(loc_key)}")
 
         flags = _extract_mission_flags(root)
-        lines.append(f"<EM4>Mission Type:</EM4> {', '.join(flags) if flags else 'Standard'}")
+        if _show("mission_type"):
+            lines.append(f"<EM4>Mission Type:</EM4> {', '.join(flags) if flags else 'Standard'}")
 
         difficulty = _extract_difficulty(root)
-        if difficulty:
+        if difficulty and _show("difficulty"):
             lines.append(f"<EM4>Difficulty (1-7):</EM4> {difficulty}")
 
         total_rep_xp = _extract_mission_xp(root, reputation_lookup)
-        if total_rep_xp > 0:
+        if total_rep_xp > 0 and _show("reputation"):
             lines.append(f"<EM4>{rep_xp_label}:</EM4> +{total_rep_xp:,}")
 
         # Extract spawn/wave counts — bucketed Hostiles / Friendlies /
         # Objectives / Unknown rather than the pre-1.4.1 single-tally
         # Enemies + Non-hostiles. Empty buckets are dropped by the formatter.
-        lines.extend(_format_spawn_lines(_extract_spawn_counts(root)))
+        # #163: gated by per-field show_fields (Hostiles toggle). The contractgen
+        # path gates this too (via _show("spawns")); pu_missions / entities
+        # missions reach the table through here, so without the gate salvage
+        # contracts kept showing hostiles after the user turned them off.
+        # #165: when this desc key is shared by missions with conflicting
+        # hostile spawns (every salvage contract shares one description, but
+        # only the unlawful ones spawn hostiles), drop ONLY the Hostiles bucket
+        # — a single body can't honestly show one count for both. The
+        # consistent buckets (e.g. Friendlies "Salvageable Ships") still show.
+        _ambiguous = loc_key in spawn_ambiguous_keys if spawn_ambiguous_keys else False
+        if _show("spawns"):
+            _bd = _extract_spawn_counts(root)
+            if _ambiguous:
+                _bd[SPAWN_HOSTILE] = {}
+            lines.extend(_format_spawn_lines(_bd))
 
         # Turret presence — groups visually with the other hostile-entity
         # tallies so a player sizing up the mission sees enemies + turrets
@@ -2933,7 +3132,13 @@ def scan_contract_generators(
 
                     # Extract handler-level spawn breakdown (shared across
                     # contracts; per-contract overrides win when non-empty).
-                    handler_spawns = _extract_spawn_counts(handler)
+                    # Exclude spawns nested inside the handler's CareerContract
+                    # children so the fallback inherits only genuine
+                    # handler-scope defaults, not a union of every sibling
+                    # contract's roster (#186).
+                    handler_spawns = _extract_spawn_counts(
+                        handler, exclude_within="CareerContract"
+                    )
 
                     contracts = handler.findall(contract_xpath)
 
@@ -3352,12 +3557,144 @@ def _discover_commodity_loc_pairs(internal_name: str, loc: dict[str, str]) -> li
     return pairs
 
 
+# Friendly labels for the raw DataForge blueprint category paths (the fallback
+# grouped-component lines). Keyed on the trailing path segment (after any
+# ``vehiclegear/`` prefix), so ``vehiclegear/powerplant`` → "Power Plants".
+# Unknown segments fall back to a title-cased version of the last segment.
+_CRAFT_CATEGORY_LABELS: dict[str, str] = {
+    "powerplant": "Power Plants",
+    "cooler": "Coolers",
+    "radar": "Radars",
+    "shield": "Shields",
+    "quantumdrive": "Quantum Drives",
+    "jumpdrive": "Jump Drives",
+    "nozzle": "Refuel Nozzles",
+    "refuelling": "Refuel Nozzles",
+    "scanner": "Scanners",
+    "qed": "Quantum Enforcement Devices",
+}
+
+
+def _humanize_craft_category(cat: str) -> str:
+    """Turn a raw blueprint category path into a player-facing label.
+
+    ``vehiclegear/powerplant`` → "Power Plants"; ``vehiclegear/refuelling/nozzle``
+    → "Refuel Nozzles". Unknown categories title-case their last segment so the
+    output is always readable rather than a raw slash path.
+    """
+    parts = [p for p in cat.split("/") if p and p != "vehiclegear"]
+    if not parts:
+        return cat
+    label = _CRAFT_CATEGORY_LABELS.get(parts[-1].lower())
+    if label:
+        return label
+    if len(parts) >= 2:
+        label = _CRAFT_CATEGORY_LABELS.get("/".join(parts[-2:]).lower())
+        if label:
+            return label
+    return parts[-1].replace("_", " ").title()
+
+
+def _craft_usage_key(category_path: str):
+    """Classify a raw blueprint category path into a craft-usage category name
+    (a key of tag_builder.DEFAULT_COMMODITY_USAGE_MAPPING), or None to skip.
+
+    This is the tag-side classifier. It is finer-grained than the journal's
+    ``_humanize_craft_category`` on purpose (ship weapons split by damage type),
+    but both read the same ``crafting/…`` path vocabulary — keep them in sync
+    when CIG adds a category. Returns the exact mapping-key name so render_tag
+    styles it (a mismatch would surface the raw name unstyled).
+    """
+    p = (category_path or "").lower()
+    if "$templates" in p:
+        return None
+    if "quantumdrive" in p:
+        return "Quantum Drive"
+    if "powerplant" in p:
+        return "Power Plant"
+    if "cooler" in p:
+        return "Cooler"
+    if "/shield" in p:
+        return "Shield"
+    if "/radar" in p:
+        return "Radar"
+    if "mininglaser" in p:
+        return "Mining Laser"
+    if "tractorbeam" in p:
+        return "Tractor Beam"
+    if "/salvage" in p:
+        return "Salvage Module"
+    if "nozzle" in p or "refuelling" in p:
+        return "Refuel Nozzle"
+    if "weapons/ballistic" in p:
+        return "Ship Weapon (Ballistic)"
+    if "weapons/laser" in p:
+        return "Ship Weapon (Energy)"
+    if "weapons/distortion" in p:
+        return "Ship Weapon (Distortion)"
+    if "fpsgear/weapons" in p:
+        return "FPS Weapon"
+    if "ammo" in p:
+        return "Ammo"
+    if "armour" in p or "armor" in p:
+        return "Armor"
+    if "missionitems" in p:
+        return "Mission Item"
+    return None
+
+
+def _build_craft_usage_legend(cfg) -> str:
+    """Legend block decoding the craft-usage codes, for the top of the Mining
+    Compendium. Empty string when the commodity ``usage`` element is disabled
+    (no codes appear in tags, so no key is needed). Reflects the active usage
+    style (short/med/long) and the config's mapping so user edits carry over."""
+    if cfg is None or not getattr(cfg, "elements", None):
+        return ""
+    usage_el = next((e for e in cfg.elements if e.kind == "usage" and e.enabled), None)
+    if usage_el is None or not CRAFT_USAGE_CATEGORIES:
+        return ""
+    idx = {"short": 0, "med": 1, "long": 2}.get(usage_el.style or "long", 2)
+    mapping = getattr(cfg, "class_mapping", None) or {}
+    groups: dict[str, list[str]] = {}
+    for name, s, m, long, group in CRAFT_USAGE_CATEGORIES:
+        variants = mapping.get(name) or DEFAULT_COMMODITY_USAGE_MAPPING.get(name, (s, m, long))
+        code = variants[idx] if idx < len(variants) else variants[0]
+        groups.setdefault(group, []).append(f"- {code} = {name}")
+    parts = ["<EM3>Crafting Tag Key</EM3>"]
+    for group in ("Ship Components", "FPS Gear", "Other"):
+        rows = groups.get(group)
+        if not rows:
+            continue
+        parts.append("")
+        parts.append(f"<EM4>{group}:</EM4>")
+        parts.extend(rows)
+    return "\\n".join(parts)
+
+
+def _qd_size_range(sizes: list[int]) -> str:
+    """Render a sorted list of quantum-drive sizes as "S3", "S1-S3", or
+    "S1, S3" (compact contiguous range, else comma list)."""
+    sizes = sorted(set(sizes))
+    if len(sizes) == 1:
+        return f"S{sizes[0]}"
+    if sizes == list(range(sizes[0], sizes[-1] + 1)):
+        return f"S{sizes[0]}-S{sizes[-1]}"
+    return ", ".join(f"S{s}" for s in sizes)
+
+
+_QD_SIZE_RE = re.compile(r"quantumdrive/size(\d+)$", re.IGNORECASE)
+
+
 def _condense_crafted_items(items_list: list[tuple[str, str]]) -> list[str]:
-    """Condense crafted items into readable summary lines, grouped by blueprint category."""
+    """Condense crafted items into readable summary lines, grouped by blueprint
+    category. Category paths are humanized, quantum-drive size buckets are
+    consolidated into one line, and the result is sorted alphabetically."""
     by_cat: dict[str, list[str]] = defaultdict(list)
     for cat, name in items_list:
         by_cat[cat].append(name)
     lines = []
+    qd_count = 0
+    qd_sizes: list[int] = []
     for cat in sorted(by_cat.keys()):
         names = sorted(set(by_cat[cat]))
         parts = cat.split("/")
@@ -3396,7 +3733,15 @@ def _condense_crafted_items(items_list: list[tuple[str, str]]) -> list[str]:
             else:
                 lines.append(f"{label} ({armour_type})")
             continue
-        lines.append(f"{cat}: {len(names)} items")
+        qd = _QD_SIZE_RE.search(cat)
+        if qd:
+            qd_count += len(names)
+            qd_sizes.append(int(qd.group(1)))
+            continue
+        lines.append(f"{_humanize_craft_category(cat)}: {len(names)} items")
+    if qd_count:
+        lines.append(f"Quantum Drives: {qd_count} items ({_qd_size_range(qd_sizes)})")
+    lines.sort(key=str.lower)
     return lines
 
 
@@ -3443,18 +3788,24 @@ COLLECTION_ITEM_KEYS: frozenset[str] = frozenset({
 })
 
 
-def _commodity_tag(cfg, *, crafting: bool, collection: bool) -> str:
+def _commodity_tag(cfg, *, crafting: bool, collection: bool,
+                   usage_keys: "list[str] | None" = None) -> str:
     """Render the commodity name tag for the applicable flags, wrapped in EM4.
 
     Builds the values dict from which flags apply and lets render_tag honour
     the user's config (element enabled-state, order, separator, style). An
     item that is both crafting and collection yields e.g. ``<EM4>[CF|
     Collection]</EM4>``; a single-flag item drops the empty flag and stays
-    ``<EM4>[CF]</EM4>`` / ``<EM4>[Collection]</EM4>``. Returns "" when no flag
-    resolves (e.g. the user disabled both elements)."""
+    ``<EM4>[CF]</EM4>`` / ``<EM4>[Collection]</EM4>``. When *usage_keys* is
+    given (the craft-usage categories this commodity feeds) and the config's
+    ``usage`` element is enabled, they render between CF and Collection, e.g.
+    ``<EM4>[CF|QDRV|SHLD|Collection]</EM4>``. Returns "" when no flag resolves
+    (e.g. the user disabled every element)."""
     values: dict[str, str] = {}
     if crafting:
         values["label"] = "Crafting"
+    if usage_keys:
+        values["usage"] = USAGE_INPUT_SEP.join(usage_keys)
     if collection:
         values["collection"] = "Collection"
     if not values:
@@ -3475,6 +3826,50 @@ def _place_commodity_tag(base_name: str, tag: str, cfg) -> str:
     if cfg and getattr(cfg, "placement", "append") == "prepend":
         return f"{tag} {base_name}"
     return f"{base_name} {tag}"
+
+
+def _parse_compendium_locations(base_content: str) -> dict:
+    """Map a Mining Compendium mineral name (lowercased) to its sorted mining
+    locations, parsed from the stock ``Name - loc, loc, ...`` paragraphs.
+
+    Shared by the journal reformat and the individual commodity descriptions so
+    both read the same locations from one place (they can't drift). Only
+    paragraphs shaped like a mineral entry (short name before the first
+    `` - ``, no internal newline) are captured; intro prose is skipped.
+    """
+    result: dict = {}
+    if not base_content:
+        return result
+    for para in base_content.split("\\n\\n"):
+        dash_idx = para.find(" - ")
+        name = para[:dash_idx].strip() if dash_idx > 0 else ""
+        if dash_idx > 0 and len(name) <= 40 and "\\n" not in para[:dash_idx]:
+            locs = sorted(
+                (loc_.strip() for loc_ in para[dash_idx + 3:].split(",") if loc_.strip()),
+                key=str.lower,
+            )
+            if locs:
+                result[name.lower()] = locs
+    return result
+
+
+def _lookup_commodity_locations(mineral_locations: dict, display: str,
+                                internal_name: str):
+    """Find a commodity's mining locations by display name, its first word
+    (``Aluminium (Ore)`` → ``aluminium``), or internal name — or None."""
+    candidates = []
+    d = (display or "").strip().lower()
+    if d:
+        candidates.append(d)
+        first = d.split()
+        if first:
+            candidates.append(first[0])
+    if internal_name:
+        candidates.append(internal_name.lower())
+    for k in candidates:
+        if k in mineral_locations:
+            return mineral_locations[k]
+    return None
 
 
 def scan_crafting_blueprints(
@@ -3563,6 +3958,12 @@ def scan_crafting_blueprints(
     # Each commodity stem (iron, hephaestanite, …) pulls every matching loc
     # variant (refined, _ore, _raw, etc.) so the freight-elevator view tags
     # every form the player might see.
+    # Mining locations per mineral, parsed once from the Compendium so each
+    # commodity description can carry a "Locations:" section like the journal.
+    mineral_locations = _parse_compendium_locations(
+        loc.get("Journal_General_Mining_Compendium_Content", "")
+    )
+
     out: dict[str, str] = {}
     skipped_no_loc: list[str] = []
     for commodity in sorted(commodity_items.keys()):
@@ -3573,6 +3974,10 @@ def scan_crafting_blueprints(
         condensed = _condense_crafted_items(commodity_items[commodity])
         bp_block = "\\n".join(f"- {line}" for line in condensed)
         enhancements_block = f"<{header_em_tag}>{blueprint_data_header}</{header_em_tag}>\\n{bp_block}"
+        # Craft-usage categories this commodity feeds (for the usage tag element).
+        usage_keys = sorted({
+            k for cat, _ in commodity_items[commodity] if (k := _craft_usage_key(cat))
+        })
 
         for name_key, desc_key in pairs:
             base_name = loc.get(name_key, "")
@@ -3582,12 +3987,23 @@ def scan_crafting_blueprints(
                 # Collection-mission objective → "[CF|Collection]" (#97).
                 tag = _commodity_tag(
                     cfg, crafting=True, collection=name_key in COLLECTION_ITEM_KEYS,
+                    usage_keys=usage_keys,
                 )
                 out[name_key] = _place_commodity_tag(base_name, tag, cfg) if tag else base_name
 
             base_desc = loc.get(desc_key, "")
             if base_desc and desc_key not in out:
-                out[desc_key] = f"{base_desc}\\n\\n{enhancements_block}"
+                # Structured sections after the base description: a "Locations:"
+                # block (mineable commodities only) then the BLUEPRINT DATA
+                # block. Blue subheaders + dash bullets mirror the journal.
+                sections = []
+                loc_list = _lookup_commodity_locations(mineral_locations, base_name, commodity)
+                if loc_list:
+                    loc_block = (f"<{header_em_tag}>Locations:</{header_em_tag}>\\n"
+                                 + "\\n".join(f"- {loc_}" for loc_ in loc_list))
+                    sections.append(loc_block)
+                sections.append(enhancements_block)
+                out[desc_key] = f"{base_desc}\\n\\n" + "\\n\\n".join(sections)
 
     if skipped_no_loc:
         logger.warning(
@@ -3634,12 +4050,11 @@ def scan_crafting_blueprints(
         # Without this, minerals whose internal stem and display spelling
         # diverge (most prominently aluminum/aluminium) silently lose their
         # crafting block.
-        mineral_crafting: dict[str, str] = {}
+        mineral_crafting: dict[str, list[str]] = {}
         for internal_name, items in commodity_items.items():
             condensed = _condense_crafted_items(items)
             if not condensed:
                 continue
-            crafting_text = ", ".join(condensed)
             lookup_keys: set[str] = {internal_name.lower()}
             for name_key, _desc_key in _discover_commodity_loc_pairs(internal_name, loc):
                 display = loc.get(name_key, "").strip().lower()
@@ -3653,18 +4068,36 @@ def scan_crafting_blueprints(
                 # setdefault — first writer wins on collisions (e.g. "iron"
                 # arriving from both raw and ore variants), which is fine
                 # since either crafting list is representative.
-                mineral_crafting.setdefault(k, crafting_text)
+                mineral_crafting.setdefault(k, condensed)
 
-        lines = base_content.split("\\n\\n")
+        # Reformat each mineral entry from the stock one-line "Name - loc, loc"
+        # into a structured block: underlined (EM3) name header, a blue (EM4)
+        # "Locations:" subheader with one dash-bulleted location per line
+        # (alphabetized), and, when the mineral feeds crafting, a blue "Used To
+        # Craft:" subheader with one dash-bulleted item per line (alphabetized).
+        # Intro prose and any non-mineral paragraph pass through untouched.
+        paras = base_content.split("\\n\\n")
         augmented_lines = []
-        for line in lines:
-            dash_idx = line.find(" - ")
-            if dash_idx > 0:
-                mineral_display = line[:dash_idx].strip()
-                mineral_lower = mineral_display.lower()
-                if mineral_lower in mineral_crafting:
-                    line = f"{line}\\n  <EM4>>> Crafting:</EM4> {mineral_crafting[mineral_lower]}"
-            augmented_lines.append(line)
+        for para in paras:
+            dash_idx = para.find(" - ")
+            name = para[:dash_idx].strip() if dash_idx > 0 else ""
+            locations = mineral_locations.get(name.lower()) if name else None
+            if locations is not None:
+                block = [f"<EM3>{name}</EM3>", "", "<EM4>Locations:</EM4>"]
+                block += [f"- {loc_}" for loc_ in locations]
+                craft = mineral_crafting.get(name.lower())
+                if craft:
+                    block += ["", "<EM4>Used To Craft:</EM4>"]
+                    block += [f"- {item}" for item in craft]
+                augmented_lines.append("\\n".join(block))
+            else:
+                augmented_lines.append(para)
+
+        # Prepend the craft-usage code legend when the usage tag element is on
+        # (otherwise no codes appear in commodity tags, so no key is needed).
+        legend = _build_craft_usage_legend(tag_config or DEFAULT_TAG_CONFIGS.get("commodities"))
+        if legend:
+            augmented_lines.insert(0, legend)
 
         out_journal[journal_content_key] = "\\n\\n".join(augmented_lines)
         logger.info(f"Journal: augmented Mining Compendium with crafting data for {len(mineral_crafting)} minerals")
@@ -4072,6 +4505,56 @@ def _armor_stats_block(armor_root: ET.Element) -> str:
     return "\\n".join(lines)
 
 
+# ── Earnable ship name overrides ─────────────────────────────────────────────
+# One-off vehicle_Name* renames for ships only earnable in-game (exec hangar
+# PYX ships and Wikelo WIK ships), where CIG's loc key doesn't distinguish the
+# variant from the pledge-store version. Applied at write time when the
+# "Standardize earnable ship names" option is enabled.
+# Empty-string values are placeholders and are skipped — they won't overwrite
+# the existing name.
+EARNABLE_SHIP_NAME_OVERRIDES: dict[str, str] = {
+    "vehicle_NameANVL_Hornet_F7A_Mk2_PYAM_Exec":             "Anvil F7A Hornet Mk II PYX",
+    "vehicle_NameDRAK_Cutlass_Black_PYAM_Exec":               "Drake Cutlass Black PYX",
+    "vehicle_NameRSI_Meteor_Collector_Military":               "RSI Meteor Collector Military PYX",
+    "vehicle_NameANVL_Lightning_F8C_PYAM_Exec":               "Anvil F8C Lightning PYX",
+    "vehicle_NameDRAK_Corsair_PYAM_Exec":                     "Drake Corsair PYX",
+    "vehicle_NameGAMA_Syulen_PYAM_Exec":                      "Gama Syulen PYX",
+    "TheCollector_ShipMod_MISC_Fortune_VehicleName":          "MISC Fortune WIK",
+    "TheCollector_ShipMod_MRAI_GuardianQI_VehicleName":       "Mirai Guardian QI WIK",
+    "TheCollector_ShipMod_MRAI_Pulse_VehicleName":            "Mirai Pulse WIK",
+    "TheCollector_ShipMod_URSA_Medivac_VehicleName":          "RSI Ursa Medivac WIK",
+    "TheCollector_ShipMod_XIAN_Nox_VehicleName":              "Aopoa Nox WIK",
+    "vehicle_NameCRUS_Spirit_C1_Collector_Civilian":           "Crusader C1 Spirit WIK",
+    "vehicle_NameRSI_Polaris_Collector_Military":              "RSI Polaris WIK",
+    "vehicle_NameAEGS_Firebird_Collector_Milt":                "Aegis Sabre Firebird WIK War",
+    "vehicle_NameAEGS_Idris_P_Collector_Military":             "Aegis Idris-P WIK War",
+    "vehicle_NameANVL_Asgard_Collector_Military":              "",  # placeholder — skipped
+    "vehicle_NameANVL_Lightning_F8C_Collector_Military":       "Anvil F8C Lightning WIK War",
+    "vehicle_NameCRUS_Starfighter_Inferno_Collector_Military": "Crusader Ares Star Fighter Inferno WIK War",
+    "vehicle_NameCRUS_Starlifter_A2_Collector_Military":       "Crusader A2 Hercules Starlifter WIK War",
+    "vehicle_NameKRIG_L21_Wolf_Collector_Military":            "Kruger L-21 Wolf WIK War",
+    "vehicle_NameKRIG_L22_Alpha_Wolf_Collector_Military":      "Kruger L-22 Alpha Wolf WIK War",
+    "vehicle_NameMISC_Starlancer_TAC_Collector_Military":      "MISC Starlancer TAC WIK War",
+    "vehicle_NameMRAI_Guardian_Collector_Military":            "Mirai Guardian WIK War",
+    "vehicle_NameMRAI_Guardian_MX_Collector_Military":         "Mirai Guardian MX WIK War",
+    "vehicle_NameRSI_Constellation_Taurus_Collector_Military": "RSI Constellation Taurus WIK War",
+    "vehicle_NameANVL_Lightning_F8C_Collector_Stealth":        "Anvil F8C Lightning WIK Stealth",
+    "vehicle_NameCRUS_Starfighter_Ion_Collector_Stealth":      "Crusader Ares Star Fighter Ion WIK Stealth",
+    "vehicle_NameKRIG_L21_Wolf_Collector_Stealth":             "Kruger L-21 Wolf WIK Stealth",
+    "vehicle_NameRSI_Apollo_Triage_Collector_Stealth":         "RSI Apollo Triage WIK Stealth",
+    "vehicle_NameRSI_Meteor_Collector_Stealth":                "RSI Meteor WIK Stealth",
+    "vehicle_NameRSI_Scorpius_Collector_Stealth":              "RSI Scorpius WIK Stealth",
+    "vehicle_NameARGO_RAFT_Collector_Indust":                  "Argo RAFT WIK Work",
+    "vehicle_NameCRUS_Intrepid_Collector_Indust":              "Crusader Intrepid WIK Work",
+    "vehicle_NameDRAK_Golem_Collector_Indust":                 "Drake Golem WIK Work",
+    "vehicle_NameESPR_Prowler_Utility_Collector_Indust":       "Prowler Utility WIK Work",
+    "vehicle_NameMISC_Prospector_Collector_Indust":            "MISC Prospector WIK Work",
+    "vehicle_NameMISC_Starlancer_MAX_Collector_Indust":        "MISC Starlancer MAX WIK Work",
+    "vehicle_NameRSI_Zeus_CL_Collector_Indust":                "RSI Zeus Mk II CL WIK Work",
+    "vehicle_NameRSI_Zeus_ES_Collector_Indust":                "RSI Zeus Mk II ES WIK Work",
+}
+
+
 def enhancements_ship_dataforge(
     root: ET.Element,
     controller_root: ET.Element | None,
@@ -4173,6 +4656,7 @@ def scan_spaceships(
     armor_lookup: dict | None = None,
     xml_path_index: dict | None = None,
     records_dir: Path | None = None,
+    prepend: bool = False,
 ) -> dict[str, str]:
     """Scan DataForge spaceship entities and generate ship stat descriptions."""
     out: dict[str, str] = {}
@@ -4226,7 +4710,7 @@ def scan_spaceships(
         if block:
             # Deduplicate: first match for a given key wins
             if loc_key not in out:
-                out[loc_key] = append_enhancements(base_value, block)
+                out[loc_key] = append_enhancements(base_value, block, prepend=prepend)
                 matched += 1
         elif is_discovered:
             if loc_key not in out:
@@ -4286,6 +4770,14 @@ _SUBDIR_TO_TYPE: dict[str, str] = {
     "quantumdrive":    "Quantum Drive",
     "radar":           "Radar",
 }
+
+# #160: a typeless component tag — "[S1-A]" (size, optional grade) with no
+# leading CLASS/TYPE token. _component_name_tag emits this as a fallback for
+# items that carry Size/Grade but no ship-component class (armour, magazines,
+# salvage/mining heads). Such tags are meaningless in blueprint lists, so they
+# are filtered out before being woven in. Class/type tags ("[Mil-S1-A]",
+# "[SAL-S2]") start with a letter token and don't match.
+_TYPELESS_COMPONENT_TAG_RE = re.compile(r"^\[S\d")
 
 
 def build_scitem_lookups(
@@ -4408,7 +4900,15 @@ def build_scitem_lookups(
                 tag = _component_name_tag(
                     desc_value, root, config=tag_config, component_type=comp_type
                 )
-                if tag:
+                # #160: armour, magazines, salvage/mining heads and other FPS
+                # gear expose Size + Grade in their AttachDef but no ship
+                # component CLASS, so _component_name_tag falls back to a
+                # typeless "[S1-A]" (size+grade only). That tag is meaningless
+                # in a POTENTIAL BLUEPRINTS list — users reported it as an
+                # unknown tag. Only weave CLASS/TYPE-qualified tags (e.g.
+                # "[Mil-S1-A]", "[SAL-S2]") into blueprint lists; drop the
+                # typeless fallback so these items show bare.
+                if tag and not _TYPELESS_COMPONENT_TAG_RE.search(tag):
                     entity_name_tags[ref] = tag
 
     return mag_lookup, entity_names, entity_names_by_filename, entity_name_tags
@@ -4436,6 +4936,7 @@ def scan_entity_dir(
     xml_path_index: dict | None = None,
     records_dir: Path | None = None,
     tag_loc: dict | None = None,
+    prepend: bool = False,
 ) -> dict[str, str]:
     """
     Scan all XML files in entity_dir, extract localization key + enhancements,
@@ -4492,7 +4993,8 @@ def scan_entity_dir(
             continue
 
         if enhancements_block:
-            out[key] = append_enhancements(base_value, enhancements_block, separator)
+            out[key] = append_enhancements(base_value, enhancements_block, separator,
+                                           prepend=prepend)
             matched += 1
         elif capture_all or is_discovered:
             # Still emit the base value so all missions / discovered items are captured
@@ -4550,43 +5052,17 @@ def scan_entity_dir(
 # Progress ticks are intentionally omitted here — the main process ticks once
 # per future as it completes, keeping all Qt signal emission off subprocesses.
 
-def _run_gen_components(ctx: dict) -> dict[str, str]:
-    loc             = ctx["loc"]
-    ships_scitem    = ctx["ships_scitem"]
-    xml_path_index  = ctx.get("xml_path_index")
-    records         = ctx["records"]
-    tag_configs     = ctx.get("tag_configs") or {}
-    comp_cfg        = tag_configs.get("components") or DEFAULT_TAG_CONFIGS.get("components")
-    comp_placement  = getattr(comp_cfg, "placement", "prepend") if comp_cfg else "prepend"
+def _mirror_scitem_siblings(out: dict[str, str], loc: dict[str, str]) -> tuple[int, int]:
+    """Mirror component enhancements onto the loc-key spellings the game may render.
 
-    def _make_comp_tagger(comp_type: str):
-        def _tagger(desc_value: str, root: ET.Element | None = None) -> str | None:
-            return _component_name_tag(desc_value, root, config=comp_cfg, component_type=comp_type)
-        return _tagger
-
-    out: dict[str, str] = {}
-    for subdir, fn in [
-        ("shieldgenerator", enhancements_shield),
-        ("cooler",          enhancements_cooler),
-        ("powerplant",      enhancements_powerplant),
-        ("quantumdrive",    enhancements_quantum_drive),
-        ("bombcompartments", enhancements_bomb_rack),
-    ]:
-        tagger = _make_comp_tagger(_SUBDIR_TO_TYPE.get(subdir, ""))
-        out.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc, generate_name_tags=True,
-                                   name_tag_fn=tagger,
-                                   name_tag_placement=comp_placement,
-                                   xml_path_index=xml_path_index, records_dir=records,
-                                   tag_loc=ctx.get("tag_loc")))
-    radar_dir = ships_scitem / "radar"
-    if radar_dir.exists():
-        tagger = _make_comp_tagger(_SUBDIR_TO_TYPE.get("radar", ""))
-        out.update(scan_entity_dir(radar_dir, enhancements_radar, loc=loc, generate_name_tags=True,
-                                   name_tag_fn=tagger,
-                                   name_tag_placement=comp_placement,
-                                   xml_path_index=xml_path_index, records_dir=records,
-                                   tag_loc=ctx.get("tag_loc")))
-
+    CIG ships some components under several loc-key spellings for one item: an
+    ``item_DescX_SCItem`` plus a bare ``item_DescX``, and lower/capitalized and
+    underscore/no-underscore forms. The generator only enhances the key the
+    entity XML references, so a sibling spelling the game actually displays would
+    show stock text with no stats / [CLASS-Sx-grade] tag. This propagates the
+    enhanced value onto those siblings in ``out``, in place, and returns
+    ``(scitem_sibling_count, legacy_sibling_count)`` for logging.
+    """
     comp_types = ("COOL", "SHLD", "POWR", "QDRV", "RADR")
     sibling_count = 0
     for key, value in list(out.items()):
@@ -4594,30 +5070,41 @@ def _run_gen_components(ctx: dict) -> dict[str, str]:
             continue
         base_key = key[:-len("_SCItem")]
 
-        # Mirror to the bare-key variant (just strip ``_SCItem``). CIG
-        # ships some components with BOTH ``item_DescX_SCItem`` and a bare
-        # ``item_DescX`` holding the same stock description — e.g. the S3
-        # Juno Starwerk and ARCCorp QDRVs on PTU 4.8 (Agni / Vesta /
-        # Fissure / Impulse). The game can render either key, and without
-        # this mirror the bare-key variant shows stock text with no
-        # annotations / stats / [CLASS-Sx-grade] tag. Done BEFORE the
-        # comp_types underscore-variant check below so both legacy
-        # siblings get propagated if both exist in stock.
-        if base_key in loc and base_key not in out:
-            if base_key.startswith("item_Desc"):
-                base_value = loc[base_key]
+        # Mirror to the bare-key variant(s) — both the as-is strip and the
+        # CAPITALIZED form. CIG ships some components with BOTH an
+        # ``item_DescX_SCItem`` and a same-case bare ``item_DescX`` holding the
+        # stock description — e.g. the S3 Juno Starwerk and ARCCorp QDRVs on
+        # PTU 4.8 (Agni / Vesta / Fissure / Impulse). Others reference a
+        # LOWERCASE ``item_name*`` / ``item_desc*`` _SCItem key from the entity
+        # XML while the game RENDERS the capitalized bare key (``item_Name*`` /
+        # ``item_Desc*``) — every S3 QDRV does this: Balandin, Erebos, Wanderer,
+        # Drifter, Ranger, Metis, Tyche, TS2 (#190). The game can render either
+        # key, and without this mirror the displayed bare key shows stock text
+        # with no annotations / stats / [CLASS-Sx-grade] tag. Done BEFORE the
+        # comp_types underscore-variant check below so all legacy siblings
+        # propagate.
+        bare_targets = [base_key]
+        if base_key.startswith("item_name"):
+            bare_targets.append("item_Name" + base_key[len("item_name"):])
+        elif base_key.startswith("item_desc"):
+            bare_targets.append("item_Desc" + base_key[len("item_desc"):])
+        for target in bare_targets:
+            if target not in loc or target in out:
+                continue
+            if target.startswith("item_Desc"):
+                base_value = loc[target]
                 if ENHANCEMENT_SEPARATOR in value:
-                    out[base_key] = base_value + value[value.index(ENHANCEMENT_SEPARATOR):]
+                    out[target] = base_value + value[value.index(ENHANCEMENT_SEPARATOR):]
                 else:
-                    out[base_key] = value
-            elif base_key.startswith("item_Name"):
+                    out[target] = value
+            elif target.startswith("item_Name"):
                 tag_match = re.search(r"\s(\[[A-Z0-9\-]+\])\s*$", value)
                 if tag_match:
-                    out[base_key] = f"{loc[base_key]} {tag_match.group(1)}"
+                    out[target] = f"{loc[target]} {tag_match.group(1)}"
                 else:
-                    out[base_key] = value
+                    out[target] = value
             else:
-                out[base_key] = value
+                out[target] = value
             sibling_count += 1
 
         for ct in comp_types:
@@ -4672,6 +5159,49 @@ def _run_gen_components(ctx: dict) -> dict[str, str]:
             inv_sibling_count += 1
             break
 
+    return sibling_count, inv_sibling_count
+
+
+def _run_gen_components(ctx: dict) -> dict[str, str]:
+    loc             = ctx["loc"]
+    ships_scitem    = ctx["ships_scitem"]
+    xml_path_index  = ctx.get("xml_path_index")
+    records         = ctx["records"]
+    tag_configs     = ctx.get("tag_configs") or {}
+    comp_cfg        = tag_configs.get("components") or DEFAULT_TAG_CONFIGS.get("components")
+    comp_placement  = getattr(comp_cfg, "placement", "prepend") if comp_cfg else "prepend"
+    _prepend        = ctx.get("stats_prepend", False)  # #153
+
+    def _make_comp_tagger(comp_type: str):
+        def _tagger(desc_value: str, root: ET.Element | None = None) -> str | None:
+            return _component_name_tag(desc_value, root, config=comp_cfg, component_type=comp_type)
+        return _tagger
+
+    out: dict[str, str] = {}
+    for subdir, fn in [
+        ("shieldgenerator", enhancements_shield),
+        ("cooler",          enhancements_cooler),
+        ("powerplant",      enhancements_powerplant),
+        ("quantumdrive",    enhancements_quantum_drive),
+        ("bombcompartments", enhancements_bomb_rack),
+    ]:
+        tagger = _make_comp_tagger(_SUBDIR_TO_TYPE.get(subdir, ""))
+        out.update(scan_entity_dir(ships_scitem / subdir, fn, loc=loc, generate_name_tags=True,
+                                   name_tag_fn=tagger,
+                                   name_tag_placement=comp_placement,
+                                   xml_path_index=xml_path_index, records_dir=records,
+                                   tag_loc=ctx.get("tag_loc"), prepend=_prepend))
+    radar_dir = ships_scitem / "radar"
+    if radar_dir.exists():
+        tagger = _make_comp_tagger(_SUBDIR_TO_TYPE.get("radar", ""))
+        out.update(scan_entity_dir(radar_dir, enhancements_radar, loc=loc, generate_name_tags=True,
+                                   name_tag_fn=tagger,
+                                   name_tag_placement=comp_placement,
+                                   xml_path_index=xml_path_index, records_dir=records,
+                                   prepend=_prepend,
+                                   tag_loc=ctx.get("tag_loc")))
+
+    sibling_count, inv_sibling_count = _mirror_scitem_siblings(out, loc)
     if sibling_count or inv_sibling_count:
         logger.info(
             f"Propagated enhancements to {sibling_count} _SCItem siblings "
@@ -4701,6 +5231,7 @@ def _run_gen_missiles(ctx: dict) -> dict[str, str]:
                 name_tag_placement=missile_placement,
                 xml_path_index=xml_path_index, records_dir=records,
                 tag_loc=ctx.get("tag_loc"),
+                prepend=ctx.get("stats_prepend", False),
             ))
     return out
 
@@ -4762,6 +5293,7 @@ def _run_gen_ship_weapons(ctx: dict) -> dict[str, str]:
             name_tag_placement=ship_weapon_placement,
             xml_path_index=xml_path_index, records_dir=records,
             tag_loc=ctx.get("tag_loc"),
+            prepend=ctx.get("stats_prepend", False),
         )
     logger.info(f"Finished ship weapons ({len(out)} entries)")
     return out
@@ -4781,6 +5313,7 @@ def _run_gen_fps_weapons(ctx: dict) -> dict[str, str]:
             lambda root: _fps_weapon_dispatch(root, fps_ammo, loc, mag_lookup),
             loc=loc,
             xml_path_index=xml_path_index, records_dir=records,
+            prepend=ctx.get("stats_prepend", False),
         )
     logger.info(f"Finished FPS weapons ({len(out)} entries)")
     return out
@@ -4794,7 +5327,8 @@ def _run_gen_ships(ctx: dict) -> dict[str, str]:
     xml_path_index    = ctx.get("xml_path_index")
     spaceships_dir = records / "entities" / "spaceships"
     out = scan_spaceships(spaceships_dir, controller_lookup, loc, armor_lookup,
-                          xml_path_index=xml_path_index, records_dir=records)
+                          xml_path_index=xml_path_index, records_dir=records,
+                          prepend=ctx.get("stats_prepend", False))
     logger.info(f"Finished ships ({len(out)} entries)")
     return out
 
@@ -4843,10 +5377,45 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     out: dict[str, str] = {}
     pu_missions_dir = records / "missionbroker" / "pu_missions"
 
+    # #165: pre-pass — a single mission description is often shared by many
+    # pu_missions XMLs with DIFFERENT hostile spawns (every lawful AND unlawful
+    # salvage contract shares `SalvageContractor_Description`, but only the
+    # unlawful ones spawn a hostile wave). The shared body can't honestly show
+    # one count, so flag desc keys whose hostile breakdown is inconsistent
+    # across the XMLs sharing them and suppress their Hostiles line (mirrors the
+    # [BP] -> [BP?] demotion for heterogeneous shared titles).
+    spawn_ambiguous_descs: set[str] = set()
+    if pu_missions_dir.exists():
+        _pu_pre = (
+            _index_rglob(xml_path_index, pu_missions_dir, records)
+            if xml_path_index is not None
+            else list(pu_missions_dir.rglob("*.xml"))
+        )
+        _desc_host_sigs: dict[str, set] = {}
+        for _xf in _pu_pre:
+            try:
+                _r = ET.parse(_xf).getroot()
+                _dk = _mission_loc_key(_r)
+                if not _dk:
+                    continue
+                _host = _extract_spawn_counts(_r).get(SPAWN_HOSTILE, {})
+                _desc_host_sigs.setdefault(_dk, set()).add(tuple(sorted(_host.items())))
+            except (ET.ParseError, Exception):
+                continue
+        spawn_ambiguous_descs = {k for k, s in _desc_host_sigs.items() if len(s) > 1}
+        if spawn_ambiguous_descs:
+            logger.info(
+                f"#165: suppressing hostiles on {len(spawn_ambiguous_descs)} "
+                f"shared-but-inconsistent mission description(s)"
+            )
+
     if pu_missions_dir.exists():
         out.update(scan_entity_dir(
             pu_missions_dir,
-            lambda root: enhancements_mission(root, reputation_lookup, rep_xp_label=rep_xp_label),
+            lambda root: enhancements_mission(root, reputation_lookup,
+                                              rep_xp_label=rep_xp_label,
+                                              show_fields=_mdf,
+                                              spawn_ambiguous_keys=spawn_ambiguous_descs),
             loc=loc, loc_key_fn=_mission_loc_key,
             separator=mission_sep, capture_all=True,
             xml_path_index=xml_path_index, records_dir=records,
@@ -4860,7 +5429,10 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         if mission_dir.exists():
             out.update(scan_entity_dir(
                 mission_dir,
-                lambda root: enhancements_mission(root, reputation_lookup, rep_xp_label=rep_xp_label),
+                lambda root: enhancements_mission(root, reputation_lookup,
+                                                  rep_xp_label=rep_xp_label,
+                                                  show_fields=_mdf,
+                                                  spawn_ambiguous_keys=spawn_ambiguous_descs),
                 loc=loc, separator=mission_sep, capture_all=True,
                 xml_path_index=xml_path_index, records_dir=records,
             ))
@@ -4992,11 +5564,40 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             has_blueprints and _any_variant_has_bp and not _has_dominant_no_bp_bucket
         )
         augmented_title = base_title
+        # Mission Titles tag feature (2.1, #166 successor): add the
+        # pickup→dropoff route to haul/delivery/courier titles, placed per the
+        # config (prepend/append/replace) BEFORE the [BP]/XP tags below.
+        # Scoped by the key family; skipped when CIG's base title already shows
+        # a route token so we don't double it. Route variables are read from the
+        # mission's own desc bodies so the game is guaranteed to resolve them.
+        _mt_cfg = tag_configs.get("mission_titles") or DEFAULT_TAG_CONFIGS.get("mission_titles")
+        if (route_enabled(_mt_cfg) and _is_route_title(title_key)
+                and not _title_has_route_token(base_title)):
+            _route_descs = pu_title_to_descs.get(title_key, set()) | {
+                v[3] for v in variants if v[3]
+            }
+            _route = _derive_route_fragment([loc.get(dk) for dk in _route_descs], _mt_cfg)
+            if _route and apply_mission_title:
+                augmented_title = apply_mission_title(base_title, _route, _mt_cfg)
         if _show("blueprint_tag"):
             if _all_have_bp and not _surviving_no_bp_cargo:
                 augmented_title += " <EM4>[BP]</EM4>"
             elif _bp_partial or (_all_have_bp and _surviving_no_bp_cargo):
                 augmented_title += " <EM4>[BP?]</EM4>"
+        # #158: ace-pilot flag. An AcePilotShip spawn group classifies as the
+        # "Ace Pilots" hostile label (see _SPAWN_KEYWORD_TABLE). [ACE] when
+        # every variant of this title spawns an ace; [ACE?] when only some do
+        # (mirrors [BP]/[BP?] for shared/ambiguous titles). The ace always
+        # spawns when its group is present — there is no probability in the
+        # data — so there is no percentage to show.
+        if _show("ace"):
+            _ace_flags = [
+                "Ace Pilots" in (v[5] or {}).get(SPAWN_HOSTILE, {}) for v in variants
+            ]
+            if _ace_flags and all(_ace_flags):
+                augmented_title += " <EM4>[ACE]</EM4>"
+            elif any(_ace_flags):
+                augmented_title += " <EM4>[ACE?]</EM4>"
         nonzero_xp = [x for x in unique_xp if x > 0]
         if len(nonzero_xp) == 1:
             augmented_title += f" <EM4>[{nonzero_xp[0]:,} {rep_xp_label}]</EM4>"
@@ -5008,7 +5609,14 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         unique_desc_keys: list[str] = []
         for v in variants:
             dk = v[3]
-            if dk and dk not in unique_desc_keys:
+            # #151: a contract whose Description loc-key collides with its
+            # Title key (CIG data quirk, e.g. eckhart_defendship_MRT
+            # "Stop Attack") must never have the MISSION DETAILS / blueprint
+            # body written onto the title — for a [BP] mission that body
+            # clobbers the enhanced title with the full block in-game. The
+            # title keeps its [BP]/XP tags (written above); the body is
+            # dropped because there is no distinct key to hold it.
+            if dk and dk != title_key and dk not in unique_desc_keys:
                 unique_desc_keys.append(dk)
 
         for desc_key in unique_desc_keys:
@@ -5057,6 +5665,8 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
                 details_lines.append(f"<EM4>Difficulty (1-7):</EM4> {all_difficulties[0]}")
             if _show("spawns"):
                 details_lines.extend(_format_spawn_lines(agg_spawns))
+            if _show("ace") and bool(agg_spawns.get(SPAWN_HOSTILE, {}).get("Ace Pilots", 0)):
+                details_lines.append("<EM4>Ace Pilot:</EM4> Yes")
             nonzero_tiers = [(s, f, rn) for s, f, rn in desc_seen_tiers if s > 0]
             if _show("reputation"):
                 if len(nonzero_tiers) == 1:
@@ -5315,6 +5925,8 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
          mission_headers: dict[str, str] | None = None,
          mission_header_em_tag: str = _DEFAULT_MISSION_HEADER_EM_TAG,
          mission_detail_fields: dict | None = None,
+         stats_prepend: bool = False,
+         standardize_earnable_ship_names: bool = False,
          english_base_ini_path: Path | None = None) -> None:
     import sys as sys_mod
     # Deferred import — the script is loaded by both the app worker (where
@@ -5590,6 +6202,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         "mission_headers":   mission_headers or dict(_DEFAULT_MISSION_HEADERS),
         "mission_header_em": mission_header_em_tag or _DEFAULT_MISSION_HEADER_EM_TAG,
         "mission_detail_fields": mission_detail_fields or {},
+        "stats_prepend":     bool(stats_prepend),
     }
 
     gen_jobs: dict[str, Callable] = {}
@@ -5660,6 +6273,10 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
     logger.info("Writing output files…")
     _flush()
     if _want("ship_descs"):
+        if standardize_earnable_ship_names:
+            applied = {k: v for k, v in EARNABLE_SHIP_NAME_OVERRIDES.items() if v}
+            out_ships.update(applied)
+            logger.info(f"Earnable ship name overrides: applied {len(applied)} entries")
         write_ini(output_dir / "ships_desc_enhancements.ini",       out_ships)
     if _want("component_descs"):
         write_ini(output_dir / "components_desc_enhancements.ini",  out_components)

@@ -29,6 +29,9 @@ class ConfigTab(QWidget):
     # MainWindow runs the confirmation dialog and the actual file work so
     # this tab stays decoupled from filesystem state + reload orchestration.
     reset_user_ini_requested = pyqtSignal()
+    # Emitted when the user clicks "Restore user.ini" — MainWindow lists the
+    # rotating snapshots and lets the user pick one to restore (#172).
+    restore_user_ini_requested = pyqtSignal()
     # Emitted after the user picks a new channel in the combo AND the choice
     # has already been persisted via AppSettings.set_active_channel(). Main
     # window listens and triggers a reload against the new channel's data.
@@ -116,13 +119,23 @@ class ConfigTab(QWidget):
         self._reset_user_ini_btn.clicked.connect(self.reset_user_ini_requested.emit)
         button_layout.addWidget(self._reset_user_ini_btn)
 
+        self._restore_user_ini_btn = QPushButton(tr("config.restore_user_ini_btn"))
+        self._restore_user_ini_btn.setMaximumWidth(150)
+        self._restore_user_ini_btn.setToolTip(
+            "Restore your custom string overrides from an automatic snapshot. "
+            "Smart Citizen keeps the last few states of user.ini, so you can roll "
+            "back a bad edit or recover after the file was emptied."
+        )
+        self._restore_user_ini_btn.clicked.connect(self.restore_user_ini_requested.emit)
+        button_layout.addWidget(self._restore_user_ini_btn)
+
         self._preview_btn = QPushButton(tr("config.preview_apply_btn"))
         self._preview_btn.setMaximumWidth(150)
         self._preview_btn.setToolTip(
-            "Dry-run summary of what Apply to Game would write — per-source key "
+            "Dry-run summary of what Apply Enhancements would write — per-source key "
             "counts (with Enhancements broken down by category) and a "
             "Modified / Enhanced / Unmodified / New status tally. Nothing is "
-            "written to the game until you click Apply to Game."
+            "written to the game until you click Apply Enhancements."
         )
         self._preview_btn.clicked.connect(self.preview_merge)
         button_layout.addWidget(self._preview_btn)
@@ -431,6 +444,7 @@ class ConfigTab(QWidget):
         self._tools_desc_label.setText(tr("config.tools_desc"))
         self._import_btn.setText(tr("config.import_ini_btn"))
         self._reset_user_ini_btn.setText(tr("config.reset_user_ini_btn"))
+        self._restore_user_ini_btn.setText(tr("config.restore_user_ini_btn"))
         self._preview_btn.setText(tr("config.preview_apply_btn"))
         self._check_updates_btn.setText(tr("config.check_updates_btn"))
         self._appearance_group.setTitle(tr("config.appearance_group"))
@@ -538,6 +552,23 @@ class ConfigTab(QWidget):
                     )
                     self.data_dir_input.setText(str(current_dir))
                     return
+                # Warn before committing a OneDrive-managed folder: OneDrive can
+                # sync and empty these files, which has caused lost edits (#172).
+                from src.utils.onedrive import is_onedrive_path
+                if is_onedrive_path(target):
+                    proceed = QMessageBox.warning(
+                        self,
+                        "Data Folder Inside OneDrive",
+                        f"This folder is inside OneDrive:\n\n{target}\n\n"
+                        f"OneDrive can sync and even empty these files, which has "
+                        f"caused lost edits. A local folder outside OneDrive is "
+                        f"strongly recommended.\n\nUse this OneDrive folder anyway?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No,
+                    )
+                    if proceed != QMessageBox.StandardButton.Yes:
+                        self.data_dir_input.setText(str(current_dir))
+                        return
                 target.mkdir(parents=True, exist_ok=True)
                 AppSettings.set_user_data_dir(target)
             else:
@@ -593,6 +624,13 @@ class ConfigTab(QWidget):
                 self, tr("config.migrate_data_failed_title"),
                 tr("config.migrate_data_failed_body", error=e),
             )
+
+    def change_data_dir_to(self, path: str) -> None:
+        """Set the data folder programmatically through the same validated
+        save + migrate + reload flow as the text input. Used by the startup
+        OneDrive warning's "move to a local folder" action (#172)."""
+        self.data_dir_input.setText(os.path.normpath(str(path)))
+        self._save_data_dir()
 
     def _browse_data_dir(self):
         start_dir = self.data_dir_input.text().strip() or str(AppSettings.get_user_data_dir())
@@ -919,7 +957,7 @@ class ConfigTab(QWidget):
     # ── Preview ──────────────────────────────────────────────────────────────
 
     def preview_merge(self):
-        """Show a dry-run summary of what Apply to Game would write.
+        """Show a dry-run summary of what Apply Enhancements would write.
 
         Mirrors the post-Apply success dialog so the preview reads as
         a "what will I get" forecast: per-source key counts, with the

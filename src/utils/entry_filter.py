@@ -8,6 +8,8 @@ import logging
 
 from src.gui.string_table_model import NUM_COLUMNS
 from src.models.string_model import StringEntry
+from src.utils.owned_items import BP_SECTION_HEADER
+from src.utils.ship_sort_prefix import get_order
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +23,8 @@ def filter_entry_indices(
     hide_unmodified: bool,
     favorites_only: bool,
     favorite_prefix: str,
+    bp_titles_only: bool = False,
+    bp_descs_only: bool = False,
 ) -> list[int]:
     """Return indices of entries that pass all active filters.
 
@@ -36,6 +40,11 @@ def filter_entry_indices(
         favorites_only: When True, only entries whose custom_value starts with
             favorite_prefix are shown.
         favorite_prefix: The prefix that marks a row as a favourite.
+        bp_titles_only: When True, keep mission-title rows carrying the
+            [BP] / [BP?] blueprint tag (#156).
+        bp_descs_only: When True, keep mission-description rows containing the
+            POTENTIAL BLUEPRINTS section (#156). When both bp_* flags are set
+            the row passes if it matches EITHER (blueprint titles OR bodies).
 
     Returns:
         Ordered list of integer indices into *entries* for rows that should
@@ -69,8 +78,14 @@ def filter_entry_indices(
         lambda e: default_values.get(e.key, "").lower(),
         lambda e: e.original_value.lower(),
         lambda e: "★" if e.custom_value.startswith(favorite_prefix) else "",
+        lambda e: get_order(e.custom_value, favorite_prefix) if e.category == "Ships" else "",
         lambda e: e.custom_value.lower(),
         lambda e: e.status.lower(),
+        # COL_OWNED (#157): the owned star isn't text-filterable from here (the
+        # owned set lives on the model), so this getter just keeps the tuple
+        # aligned with NUM_COLUMNS for the drift guard. Blueprint filtering is
+        # covered by the dedicated BP filters (#156).
+        lambda e: "",
     )
     active_filter_fns = [(_col_getters[i], t) for i, t in valid_col_filters]
 
@@ -84,6 +99,16 @@ def filter_entry_indices(
             continue
         if favorites_only and not entry.custom_value.startswith(favorite_prefix):
             continue
+        # #156: blueprint-mission isolation. [BP]/[BP?] tags live on title
+        # rows; the POTENTIAL BLUEPRINTS header lives on description rows. The
+        # effective value (user override if any, else the merged baseline that
+        # carries the enhancement) is what's shown, so test that.
+        if bp_titles_only or bp_descs_only:
+            val = entry.custom_value or entry.original_value
+            is_bp_title = bp_titles_only and "[BP" in val
+            is_bp_desc = bp_descs_only and BP_SECTION_HEADER.lower() in val.lower()
+            if not (is_bp_title or is_bp_desc):
+                continue
         if active_filter_fns:
             skip = False
             for get_val, filter_text in active_filter_fns:

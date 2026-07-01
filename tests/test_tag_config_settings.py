@@ -88,7 +88,8 @@ class TestCorruption:
 class TestGetAll:
     def test_get_all_returns_one_config_per_category(self, json_backend):
         all_cfgs = AppSettings.get_all_tag_configs()
-        assert set(all_cfgs.keys()) == {"components", "missiles", "ship_weapons", "commodities"}
+        assert set(all_cfgs.keys()) == {
+            "components", "missiles", "ship_weapons", "commodities", "mission_titles"}
         assert all(isinstance(v, TagConfig) for v in all_cfgs.values())
 
 
@@ -138,3 +139,44 @@ class TestShipWeaponMappingMigration:
         # Drop the orphan "Phys"; keep the user-friendly "Physical" row.
         assert "Phys" not in cfg.class_mapping
         assert cfg.class_mapping["Physical"] == ("X", "XPHY", "Custom-Physical")
+
+
+class TestCommoditySeparatorNone:
+    """#97 follow-up: 'None' is a real, persistent separator choice for
+    commodities, but a legacy leftover 'none' is upgraded once to 'pipe' so
+    existing users don't regress to a mashed '[CFCollection]'."""
+
+    _MARKER = "tag_builder/commodities/sep_migrated"
+
+    def _commodity_cfg(self, separator: str) -> TagConfig:
+        cfg = default_config("commodities")
+        cfg.separator = separator
+        return cfg
+
+    def test_legacy_none_upgraded_to_pipe_once(self, json_backend):
+        # Stored 'none' with no migration marker -> upgraded to pipe on read,
+        # the upgrade is persisted, and the marker is set.
+        AppSettings.set_tag_config("commodities", self._commodity_cfg("none"))
+        cfg = AppSettings.get_tag_config("commodities")
+        assert cfg.separator == "pipe"
+        assert json_backend.value(self._MARKER, False, type=bool) is True
+        # Persisted, so a second read stays pipe.
+        assert AppSettings.get_tag_config("commodities").separator == "pipe"
+
+    def test_deliberate_none_persists_after_migration(self, json_backend):
+        # After the one-time upgrade has run, a fresh 'none' choice sticks.
+        json_backend.setValue(self._MARKER, True)
+        AppSettings.set_tag_config("commodities", self._commodity_cfg("none"))
+        cfg = AppSettings.get_tag_config("commodities")
+        assert cfg.separator == "none"
+        assert render_tag(cfg, {"label": "CF", "collection": "Collection"}) == "[CFCollection]"
+
+    def test_pipe_config_untouched_and_marks_migrated(self, json_backend):
+        AppSettings.set_tag_config("commodities", self._commodity_cfg("pipe"))
+        cfg = AppSettings.get_tag_config("commodities")
+        assert cfg.separator == "pipe"
+        # The one-time pass runs (marker set) even when nothing needed upgrading,
+        # so a later 'none' choice is honored.
+        assert json_backend.value(self._MARKER, False, type=bool) is True
+        AppSettings.set_tag_config("commodities", self._commodity_cfg("none"))
+        assert AppSettings.get_tag_config("commodities").separator == "none"

@@ -23,16 +23,20 @@ logger = logging.getLogger(__name__)
 
 # ── Category + element vocabulary ─────────────────────────────────────────────
 
-CATEGORIES = ("components", "missiles", "ship_weapons", "commodities")
+CATEGORIES = ("components", "missiles", "ship_weapons", "commodities", "mission_titles")
 
 # Which element kinds each category supports — order here is the *default*
 # order shown in the UI before the user reorders. Each kind maps to a value
-# key in the values-dict passed to render_tag.
+# key in the values-dict passed to render_tag. ``mission_titles`` is special:
+# it carries a single ``route`` element that acts as the feature's on/off
+# toggle; its formatting is driven by the route_* config fields, not by
+# element styles/mappings (see render_route / apply_mission_title).
 CATEGORY_ELEMENT_KINDS: dict[str, tuple[str, ...]] = {
     "components":   ("class", "size", "grade", "type"),
     "missiles":     ("ordinance", "size"),
     "ship_weapons": ("damage", "size"),
-    "commodities":  ("label", "collection"),
+    "commodities":  ("label", "usage", "collection"),
+    "mission_titles": ("route",),
 }
 
 
@@ -81,6 +85,11 @@ STYLES_COLLECTION: tuple[tuple[str, str], ...] = (
     ("med",   "Medium (Collect)"),
     ("long",  "Long (Collection)"),
 )
+STYLES_USAGE: tuple[tuple[str, str], ...] = (
+    ("short", "Short (Q)"),
+    ("med",   "Medium (QD)"),
+    ("long",  "Long (QDRV)"),
+)
 
 STYLES_BY_KIND: dict[str, tuple[tuple[str, str], ...]] = {
     "class":      STYLES_CLASS,
@@ -91,6 +100,7 @@ STYLES_BY_KIND: dict[str, tuple[tuple[str, str], ...]] = {
     "type":       STYLES_TYPE,
     "label":      STYLES_LABEL,
     "collection": STYLES_COLLECTION,
+    "usage":      STYLES_USAGE,
 }
 
 # Human-friendly element kind labels for the UI.
@@ -102,7 +112,9 @@ ELEMENT_LABELS: dict[str, str] = {
     "damage":    "Damage type",
     "type":       "Type",
     "label":      "Label",
+    "usage":      "Used To Craft",
     "collection": "Collection",
+    "route":      "Route",
 }
 
 
@@ -130,6 +142,41 @@ ENCLOSINGS: tuple[tuple[str, str, str, str], ...] = (
 
 _SEPARATOR_BY_KEY = {k: s for k, _, s in SEPARATORS}
 _ENCLOSING_BY_KEY = {k: (o, c) for k, _, o, c in ENCLOSINGS}
+
+# ── Mission-title route tables (#166 successor) ──────────────────────────────
+
+# The joiner rendered between origin and destination in an A→B route.
+# (key, label, render_string)
+ROUTE_ARROWS: tuple[tuple[str, str, str], ...] = (
+    ("gt",    "Greater-than ( > )", ">"),
+    ("arrow", "Arrow ( → )",   "→"),
+    ("to",    "Word ( to )",        "to"),
+)
+# The separator between the route and the original title (prepend/append).
+# (key, label, render_string) — spaces are part of the render string.
+TITLE_SEPARATORS: tuple[tuple[str, str, str], ...] = (
+    ("dash",  "Dash ( - )",  " - "),
+    ("pipe",  "Pipe ( | )",  " | "),
+    ("colon", "Colon ( : )", ": "),
+    ("space", "Space",       " "),
+)
+# How much of a location the route shows — the only game-backed lever
+# (‘name’ = ~mission(...|name), ‘address’ = ~mission(...|Address)).
+LOCATION_DETAILS: tuple[tuple[str, str], ...] = (
+    ("name",    "Name"),
+    ("address", "Full address"),
+)
+# Placement options for the mission-title route (prepend/append/replace). Kept
+# separate from PLACEMENTS (which other tabs use) because "replace" only makes
+# sense for a whole title, never for a component name tag.
+MISSION_TITLE_PLACEMENTS: tuple[tuple[str, str], ...] = (
+    ("prepend", "Before title"),
+    ("append",  "After title"),
+    ("replace", "Replace title"),
+)
+
+_ROUTE_ARROW_BY_KEY = {k: s for k, _, s in ROUTE_ARROWS}
+_TITLE_SEP_BY_KEY = {k: s for k, _, s in TITLE_SEPARATORS}
 
 
 # ── Built-in class/ordinance/damage variant mappings ─────────────────────────
@@ -197,6 +244,42 @@ DEFAULT_COMMODITY_COLLECTION_MAPPING: dict[str, tuple[str, str, str]] = {
     "Collection": ("Col", "Collect", "Collection"),
 }
 
+# Craft-usage categories: the item groups a commodity's crafting materials feed
+# into (the "usage" element between CF and Collection). Single source of truth
+# for the category name, its (short, med, long) codes, and its legend group —
+# shared by the tag mapping AND the generator's raw-path classifier
+# (_craft_usage_key) so the two can't drift when CIG adds a category. The name
+# is the mapping key, so the classifier MUST return these exact strings or
+# _style_value would surface the raw name unstyled.
+CRAFT_USAGE_CATEGORIES: tuple[tuple[str, str, str, str, str], ...] = (
+    # (name, short, med, long, legend group)
+    ("Power Plant",              "P",  "PP",  "POWR", "Ship Components"),
+    ("Cooler",                   "C",  "CL",  "COOL", "Ship Components"),
+    ("Shield",                   "S",  "SH",  "SHLD", "Ship Components"),
+    ("Radar",                    "R",  "RD",  "RADR", "Ship Components"),
+    ("Quantum Drive",            "Q",  "QD",  "QDRV", "Ship Components"),
+    ("Mining Laser",             "M",  "ML",  "MINE", "Ship Components"),
+    ("Tractor Beam",             "T",  "TB",  "TRAC", "Ship Components"),
+    ("Salvage Module",           "SV", "SLV", "SALV", "Ship Components"),
+    ("Refuel Nozzle",            "F",  "RF",  "FUEL", "Ship Components"),
+    ("Ship Weapon (Ballistic)",  "B",  "BW",  "BGUN", "Ship Components"),
+    ("Ship Weapon (Energy)",     "E",  "EW",  "EGUN", "Ship Components"),
+    ("Ship Weapon (Distortion)", "D",  "DW",  "DGUN", "Ship Components"),
+    ("FPS Weapon",               "G",  "FW",  "FPSW", "FPS Gear"),
+    ("Ammo",                     "A",  "AM",  "AMMO", "FPS Gear"),
+    ("Armor",                    "AR", "ARM", "ARMR", "FPS Gear"),
+    ("Mission Item",             "MI", "MIT", "MITM", "Other"),
+)
+
+DEFAULT_COMMODITY_USAGE_MAPPING: dict[str, tuple[str, str, str]] = {
+    name: (short, med, long) for name, short, med, long, _group in CRAFT_USAGE_CATEGORIES
+}
+
+# The literal separator used INSIDE a values-dict "usage" entry to delimit the
+# category-name list (chosen so it can't collide with a category name). Not the
+# rendered separator — that's TagConfig.usage_separator.
+USAGE_INPUT_SEP = "\x1f"
+
 DEFAULT_KIND_MAPPINGS: dict[str, dict[str, tuple[str, str, str]]] = {
     "class":     DEFAULT_COMPONENT_CLASS_MAPPING,
     "type":      DEFAULT_COMPONENT_TYPE_MAPPING,
@@ -204,7 +287,12 @@ DEFAULT_KIND_MAPPINGS: dict[str, dict[str, tuple[str, str, str]]] = {
     "damage":    DEFAULT_SHIP_WEAPON_DAMAGE_MAPPING,
     "label":     DEFAULT_COMMODITY_LABEL_MAPPING,
     "collection": DEFAULT_COMMODITY_COLLECTION_MAPPING,
+    "usage":      DEFAULT_COMMODITY_USAGE_MAPPING,
 }
+
+# Element kinds that render a *list* of mapped values (joined by the config's
+# usage_separator) rather than a single value.
+MULTI_VALUE_KINDS: frozenset[str] = frozenset({"usage"})
 
 # Element kinds whose value resolves through a variant mapping (vs. derived
 # kinds like size/grade). Single source of truth — the renderer and the UI's
@@ -231,10 +319,17 @@ PLACEMENTS: tuple[tuple[str, str], ...] = (
 @dataclass
 class TagConfig:
     elements: list[ElementSpec] = field(default_factory=list)
-    separator: str = "hyphen"      # key from SEPARATORS
+    separator: str = "hyphen"      # key from SEPARATORS (between elements)
     enclosing: str = "square"      # key from ENCLOSINGS
     placement: str = "prepend"     # one of "prepend" / "append"
     class_mapping: dict[str, tuple[str, str, str]] = field(default_factory=dict)
+    # Separator INSIDE a multi-value element (the commodity "usage" list),
+    # independent of `separator`. Key from SEPARATORS. Only commodities use it.
+    usage_separator: str = "pipe"
+    # Mission-title route config (only the "mission_titles" category uses these).
+    route_arrow: str = "gt"        # key from ROUTE_ARROWS (origin > destination)
+    title_separator: str = "dash"  # key from TITLE_SEPARATORS (route <-> title)
+    location_detail: str = "name"  # "name" or "address" (token modifier)
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -265,7 +360,7 @@ class TagConfig:
             elif isinstance(v, (list, tuple)) and len(v) == 2:
                 mapping[k] = (str(v[0]), str(v[0]), str(v[1]))
         placement = data.get("placement", "prepend") or "prepend"
-        if placement not in ("prepend", "append"):
+        if placement not in ("prepend", "append", "replace"):
             placement = "prepend"
         return cls(
             elements=elements,
@@ -273,6 +368,10 @@ class TagConfig:
             enclosing=data.get("enclosing", "square") or "square",
             placement=placement,
             class_mapping=mapping,
+            usage_separator=data.get("usage_separator", "pipe") or "pipe",
+            route_arrow=data.get("route_arrow", "gt") or "gt",
+            title_separator=data.get("title_separator", "dash") or "dash",
+            location_detail=data.get("location_detail", "name") or "name",
         )
 
     @classmethod
@@ -328,18 +427,75 @@ DEFAULT_TAG_CONFIGS: dict[str, TagConfig] = {
     # the pre-1.5.0 single-label default.
     "commodities": TagConfig(
         elements=[
-            ElementSpec("label", True, "short"),       # CF
-            ElementSpec("collection", True, "long"),   # Collection
+            ElementSpec("label", True, "short"),        # CF
+            ElementSpec("usage", True, "long"),         # QDRV|SHLD… (on by default)
+            ElementSpec("collection", True, "long"),    # Collection
         ],
         separator="pipe",
         enclosing="square",
         placement="append",
+        usage_separator="pipe",
         class_mapping={
             **DEFAULT_COMMODITY_LABEL_MAPPING,
             **DEFAULT_COMMODITY_COLLECTION_MAPPING,
+            **DEFAULT_COMMODITY_USAGE_MAPPING,
         },
     ),
 }
+
+
+DEFAULT_TAG_CONFIGS["mission_titles"] = TagConfig(
+    # A single "route" element whose enabled-flag is the feature on/off. The
+    # look is driven by route_arrow / title_separator / location_detail +
+    # placement, not by element styles. Default: route-led (prepend), ">",
+    # " - " join, short place name. Absorbs the #166 route-in-title toggle.
+    elements=[ElementSpec("route", True, "")],
+    placement="prepend",
+    route_arrow="gt",
+    title_separator="dash",
+    location_detail="name",
+)
+
+
+def route_enabled(cfg) -> bool:
+    """True when the mission-title route feature is on for *cfg*."""
+    if cfg is None:
+        return False
+    return any(e.kind == "route" and e.enabled for e in cfg.elements)
+
+
+def render_route(from_disp: str, to_disp: str, arrow_key: str) -> str:
+    """Render the route core from two endpoint strings (tokens or names).
+
+    Both present → ``from <arrow> to``; only one → ``from <x>`` / ``to <y>``;
+    neither → "". Single source for the tab preview and the generator so the
+    format can't drift.
+    """
+    arrow = _ROUTE_ARROW_BY_KEY.get(arrow_key, ">")
+    if from_disp and to_disp:
+        return f"{from_disp} {arrow} {to_disp}"
+    if from_disp:
+        return f"from {from_disp}"
+    if to_disp:
+        return f"to {to_disp}"
+    return ""
+
+
+def apply_mission_title(original: str, route: str, cfg) -> str:
+    """Place *route* relative to *original* per ``cfg.placement``.
+
+    Empty route → *original* unchanged (so "replace" never blanks a title and
+    prepend/append no-op). The [BP]/XP tags are appended by the caller AFTER
+    this, so "replace" swaps only the title text, never the tags.
+    """
+    if not route:
+        return original
+    sep = _TITLE_SEP_BY_KEY.get(cfg.title_separator, " - ")
+    if cfg.placement == "replace":
+        return route
+    if cfg.placement == "append":
+        return f"{original}{sep}{route}"
+    return f"{route}{sep}{original}"  # prepend (default)
 
 
 def default_config(category: str) -> TagConfig:
@@ -351,6 +507,10 @@ def default_config(category: str) -> TagConfig:
         enclosing=src.enclosing,
         placement=src.placement,
         class_mapping=dict(src.class_mapping),
+        usage_separator=src.usage_separator,
+        route_arrow=src.route_arrow,
+        title_separator=src.title_separator,
+        location_detail=src.location_detail,
     )
 
 
@@ -409,9 +569,23 @@ def render_tag(config: TagConfig, values: dict[str, str]) -> str:
     sep = _SEPARATOR_BY_KEY.get(config.separator, "-")
     open_c, close_c = _ENCLOSING_BY_KEY.get(config.enclosing, ("[", "]"))
 
+    usage_sep = _SEPARATOR_BY_KEY.get(config.usage_separator, "|")
+
     parts: list[str] = []
     for el in config.elements:
         if not el.enabled:
+            continue
+        if el.kind in MULTI_VALUE_KINDS:
+            # A list element: the value is USAGE_INPUT_SEP-joined category
+            # names; style each and join with the element's own separator.
+            raw = str(values.get(el.kind, "") or "")
+            styled_vals = [
+                _style_value(el.kind, el.style or "", name, config.class_mapping)
+                for name in raw.split(USAGE_INPUT_SEP) if name
+            ]
+            styled_vals = [v for v in styled_vals if v]
+            if styled_vals:
+                parts.append(usage_sep.join(styled_vals))
             continue
         raw = str(values.get(el.kind, "") or "")
         styled = _style_value(el.kind, el.style or "", raw, config.class_mapping)

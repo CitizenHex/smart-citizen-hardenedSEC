@@ -396,17 +396,19 @@ class TestFormatSpawnLines:
         lines = gen_module._format_spawn_lines(breakdown)
         assert lines == ["<EM4>Hostiles:</EM4> Bandits x2, Pirates x4"]
 
-    def test_unknown_collapses_to_a_single_count(self, gen_module):
-        """The Unknown bucket renders as a single integer total — the
-        per-label keys inside are informational only and not surfaced."""
+    def test_unknown_bucket_is_not_rendered(self, gen_module):
+        """#187: the Unknown bucket is never surfaced. It guards against
+        miscounting unclassified spawns as hostiles, but a bare "Unknown: N"
+        (e.g. the cargo ship recovered in a Ling delivery) reads as a bug, so
+        it is suppressed in the MISSION DETAILS block."""
         breakdown = gen_module._empty_spawn_breakdown()
         breakdown[gen_module.SPAWN_UNKNOWN] = {"Unknown": 3}
-        lines = gen_module._format_spawn_lines(breakdown)
-        assert lines == ["<EM4>Unknown:</EM4> 3"]
+        assert gen_module._format_spawn_lines(breakdown) == []
 
     def test_mixed_buckets_emit_in_canonical_order(self, gen_module):
-        """Hostiles → Friendlies → Objectives → Unknown — the order matches
-        the visual hierarchy in the MISSION DETAILS block."""
+        """Hostiles → Friendlies → Objectives — the order matches the visual
+        hierarchy in the MISSION DETAILS block. The Unknown bucket, even when
+        populated, is omitted (#187)."""
         breakdown = gen_module._empty_spawn_breakdown()
         breakdown[gen_module.SPAWN_HOSTILE] = {"Pirates": 4}
         breakdown[gen_module.SPAWN_FRIENDLY] = {"Escort Wings": 1}
@@ -417,7 +419,6 @@ class TestFormatSpawnLines:
             "<EM4>Hostiles:</EM4> Pirates x4",
             "<EM4>Friendlies:</EM4> Escort Wings x1",
             "<EM4>Objectives:</EM4> Probe x3",
-            "<EM4>Unknown:</EM4> 2",
         ]
 
 
@@ -529,6 +530,81 @@ class TestWrapperHostileFallback:
         assert breakdown[gen_module.SPAWN_UNKNOWN] == {}
 
 
+class TestHandlerScopeExclusion:
+    """#186: the handler-level spawn fallback must inherit only spawns defined
+    at handler scope, never the union of every sibling ``CareerContract``'s
+    roster. A greedy ``.//`` scan over the whole handler leaked ground
+    "Kopions"/"Soldiers" onto an easy 9-probe satellite mission whose own
+    contract carried no spawns and so fell back to the handler breakdown.
+    """
+
+    def _handler(self) -> ET.Element:
+        root = _make_root(
+            '<ContractGeneratorHandler_Career>'
+            # Handler-scope default: a ship group directly under the handler,
+            # outside any CareerContract — the genuine shared default.
+            '<SpawnDescription_ShipGroup Name="Defenders">'
+            '<ships><SpawnDescription_Ship concurrentAmount="4"/></ships>'
+            '</SpawnDescription_ShipGroup>'
+            # Two sibling contracts, each with its own larger roster — including
+            # a ground "Kopions" group that must never leak onto a sibling.
+            '<CareerContract debugName="A">'
+            '<SpawnDescription_ShipGroup Name="Pirates">'
+            '<ships><SpawnDescription_Ship concurrentAmount="30"/></ships>'
+            '</SpawnDescription_ShipGroup>'
+            '</CareerContract>'
+            '<CareerContract debugName="B">'
+            '<SpawnDescription_ShipGroup Name="Kopions">'
+            '<ships><SpawnDescription_Ship concurrentAmount="9"/></ships>'
+            '</SpawnDescription_ShipGroup>'
+            '</CareerContract>'
+            '</ContractGeneratorHandler_Career>'
+        )
+        return root.find(".//ContractGeneratorHandler_Career")
+
+    def test_excludes_sibling_contract_spawns(self, gen_module):
+        handler = self._handler()
+        breakdown = gen_module._extract_spawn_counts(
+            handler, exclude_within="CareerContract"
+        )
+        # Only the handler-scope Defenders survive; the contracts' rosters drop.
+        assert breakdown[gen_module.SPAWN_HOSTILE] == {"Defenders": 4}
+
+    def test_without_exclusion_unions_everything(self, gen_module):
+        # Documents the pre-fix behavior the exclusion guards against.
+        handler = self._handler()
+        breakdown = gen_module._extract_spawn_counts(handler)
+        assert breakdown[gen_module.SPAWN_HOSTILE] == {
+            "Defenders": 4, "Pirates": 30, "Kopions": 9,
+        }
+
+    def test_contract_own_spawns_unchanged(self, gen_module):
+        # The exclusion only matters at handler scope; a contract still reports
+        # its own roster (this is what wins when a contract has its own spawns).
+        contract = self._handler().find(".//CareerContract[@debugName='A']")
+        breakdown = gen_module._extract_spawn_counts(contract)
+        assert breakdown[gen_module.SPAWN_HOSTILE] == {"Pirates": 30}
+
+    def test_no_handler_scope_spawns_yields_empty(self, gen_module):
+        # The satellite case: every spawn lives inside a contract, so handler
+        # scope is empty and an own-less contract inherits nothing (no inflated
+        # roster) rather than the union.
+        root = _make_root(
+            '<ContractGeneratorHandler_Career>'
+            '<CareerContract debugName="A">'
+            '<SpawnDescription_ShipGroup Name="Pirates">'
+            '<ships><SpawnDescription_Ship concurrentAmount="30"/></ships>'
+            '</SpawnDescription_ShipGroup>'
+            '</CareerContract>'
+            '</ContractGeneratorHandler_Career>'
+        )
+        handler = root.find(".//ContractGeneratorHandler_Career")
+        breakdown = gen_module._extract_spawn_counts(
+            handler, exclude_within="CareerContract"
+        )
+        assert breakdown[gen_module.SPAWN_HOSTILE] == {}
+
+
 class TestMergeSpawnBreakdownsMax:
     """The contract aggregator merges per-variant breakdowns by taking the
     MAX per label — preserving the pre-1.4.1 ``max(enemies, venemies)``
@@ -558,3 +634,59 @@ class TestMergeSpawnBreakdownsMax:
         v[gen_module.SPAWN_HOSTILE] = {"Pirates": 3}
         gen_module._merge_spawn_breakdowns_max(agg, v)
         assert agg[gen_module.SPAWN_HOSTILE] == {"Pirates": 10}
+
+
+class TestSpawnGatingInEnhancementsMission:
+    """#163 / #165: the Hostiles toggle and shared-desc ambiguity suppression
+    are applied inside ``enhancements_mission`` (the pu_missions / entities
+    path), not just the contractgen path."""
+
+    @staticmethod
+    def _mission():
+        # A salvage-shaped mission: one friendly salvage target + a hostile
+        # group, under a description key shared with other variants.
+        return ET.fromstring(
+            '<MissionBrokerEntry description="@Shared_desc">'
+            '<spawnDescriptions>'
+            '<SpawnDescription_ShipGroup Name="SalvageableShip">'
+            '<ships><SpawnDescription_Ship concurrentAmount="1"/></ships>'
+            '</SpawnDescription_ShipGroup>'
+            '<SpawnDescription_ShipGroup Name="Pirates">'
+            '<ships><SpawnDescription_Ship concurrentAmount="4"/></ships>'
+            '</SpawnDescription_ShipGroup>'
+            '</spawnDescriptions>'
+            '</MissionBrokerEntry>'
+        )
+
+    def test_show_spawns_true_emits_hostiles(self, gen_module):
+        body = gen_module.enhancements_mission(self._mission(), show_fields={"spawns": True})
+        assert "Hostiles:" in body and "Pirates" in body
+
+    def test_show_spawns_false_drops_all_spawn_lines(self, gen_module):
+        # #163: with the Hostiles toggle off, no spawn bucket is emitted.
+        body = gen_module.enhancements_mission(self._mission(), show_fields={"spawns": False})
+        assert "Hostiles:" not in body
+        assert "Salvageable Ships" not in body
+
+    def test_ambiguous_desc_drops_hostiles_keeps_friendlies(self, gen_module):
+        # #165: a desc key shared by missions with conflicting hostiles drops
+        # ONLY the Hostiles bucket; the consistent friendly line survives.
+        root = self._mission()
+        key = gen_module._mission_loc_key(root)
+        body = gen_module.enhancements_mission(
+            root, spawn_ambiguous_keys={key}
+        )
+        assert "Hostiles:" not in body
+        assert "Salvageable Ships" in body
+
+
+class TestAcePilotClassification:
+    """#158: an AcePilotShip spawn group is the detection basis for the
+    [ACE]/[ACE?] title tag — it must classify as the 'Ace Pilots' hostile
+    label so the title loop can find it in a variant's spawn breakdown."""
+
+    @pytest.mark.parametrize("name", ["AcePilotShip", "AcePilot", "Ace Pilot"])
+    def test_ace_group_is_hostile_ace_pilots(self, gen_module, name):
+        bucket, label = gen_module.classify_spawn_group(name, "ship")
+        assert bucket == gen_module.SPAWN_HOSTILE
+        assert label == "Ace Pilots"

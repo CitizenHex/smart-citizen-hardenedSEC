@@ -16,7 +16,7 @@ Smart Citizen (formerly SC Localization Editor) is a Windows-only PyQt6 GUI for 
 
 **Branding**: User-facing strings, registry path (`Osiris DevWorks\Smart Citizen`), and the default data root (`Documents\Smart Citizen\`) use the new name. `AppSettings` keeps one-shot migrators for the legacy `Osiris DevWorks\SC Localization Editor` registry tree and `Documents\SC Localization Editor\` folder (rebrand was 0.9.0); keep them while pre-0.9 users may upgrade.
 
-**Version**: `VERSION.TXT` is the sole source of truth. Now 2.0.0.
+**Version**: `VERSION.TXT` is the sole source of truth. Now 2.1.0.
 
 Build modes are covered in `src/utils/CLAUDE.md` under *Portable vs registry build mode*.
 
@@ -189,6 +189,7 @@ Anchor examples already in-tree: `COL_*` constants in `src/gui/string_table_mode
 | Change Modified/Enhanced/Unmodified/New status logic | `src/parser/ini_parser.py` | `_determine_status_from_source()` |
 | Adjust close-time user.ini autosave guard | `src/utils/user_ini_manager.py` | `should_autosave_user_ini()` |
 | Change "Reset user.ini" tool behavior | `src/utils/user_ini_manager.py`, `src/gui/config_tab.py` | `reset_user_ini()` (+ Config-tab button wiring) |
+| Change user.ini backup/restore behavior | `src/utils/user_ini_manager.py`, `src/gui/main_window.py` | `backup_user_ini()` / `list_user_ini_backups()` / `restore_user_ini_backup()` (rotating snapshots in `backups/`, #172); Config-tab **Restore user.ini** → `_handle_restore_user_ini()` |
 | Move DataForge XML cache out of Documents | `src/utils/settings.py` | `migrate_dataforge_cache_to_local()`, `get_dataforge_cache_dir()` |
 | Add a tag-builder element/style/category | `src/utils/tag_builder.py` | `CATEGORY_ELEMENT_KINDS`, `STYLES_BY_KIND`, `DEFAULT_TAG_CONFIGS`, `render_tag()` |
 | Change Tag Builder UI / live preview | `src/gui/enhancements_tab.py`, `src/gui/tag_mapping_dialog.py` | `_PREVIEW_VALUES`, `TagMappingDialog` |
@@ -201,9 +202,13 @@ Anchor examples already in-tree: `COL_*` constants in `src/gui/string_table_mode
 | Change the language-switch flow | `src/gui/config_tab.py`, `src/gui/main_window.py` | `language_changed` signal, `MainWindow._on_language_changed()` (retranslate chrome, repoint the `global` source, download base.ini when a URL is mapped, regen stale enhancements, reload) |
 | Change per-language base.ini download / URL mapping | `src/gui/workers.py`, `src/utils/settings.py`, `languages/sources.json` | `LanguageBaseDownloadWorker`, `get_language_base_url()`, `LanguageSourceDialog` (Config tab's *Map Language File*) |
 | Change per-language cache or enhancements layout | `src/utils/settings.py` | `get_base_ini_path(language)`, `get_enhancements_dir(language)`, `get_/set_enhancements_stamp()` |
-| Toggle mission-detail fields per user | `src/gui/enhancements_tab.py`, `src/utils/settings.py` | `_MISSION_FIELD_SETTING` (per-field show/hide for mission bodies, #121) |
+| Toggle mission-detail fields per user | `src/gui/enhancements_tab.py`, `src/utils/settings.py` | `_MISSION_FIELD_SETTING` (per-field show/hide for mission bodies, #121); the `route` key adds the haul route to titles (#166) |
+| Change hauling/delivery route-in-title | `scripts/generate_enhancements_ini.py` | `_derive_route_fragment()` / `_route_token_role()` / `_title_route_token()` (#166; archetype-driven `from > to`, gated by the `route` mission-detail toggle, appended before the [BP]/XP tags) |
+| Change Simple/Advanced view mode | `src/gui/main_window.py`, `src/gui/simple_mode_widget.py`, `src/utils/settings.py`, `installer.iss` | `_apply_ui_mode()` (QStackedWidget swap), `_run_simple_apply()` (one-button extract→generate→apply chain via the `_simple_run_active` flag), `get_/set_ui_mode()`, installer `ModeChoicePage` writing `ui_mode` (#180) |
 | Change data-folder move behavior | `src/utils/user_ini_manager.py`, `src/gui/config_tab.py` | `migrate_user_data_dir(old, new, move=...)` (merge-never-overwrite; `move=True` deletes migrated originals and prunes empty dirs) |
+| Change the OneDrive data-root warning | `src/utils/onedrive.py`, `src/gui/main_window.py`, `src/gui/config_tab.py` | `is_onedrive_path()` / `suggest_local_data_dir()`; `_maybe_warn_onedrive_data_dir()` (startup, suppressible) + Config-tab folder-pick warning; `ConfigTab.change_data_dir_to()` for the one-click move (#172) |
 | Change the toolbar More overflow menu | `src/gui/main_window.py` | `more_menu` block in toolbar setup (restore backup, clear loc/cache, import/export, open loc dir) |
+| Change the tester Test Plan panel / content | `src/utils/test_plan.py`, `src/gui/test_plan_panel.py` | `TEST_SECTIONS` (per-release checklist), `TestPlanPanel`, `_ensure_test_plan_dock()` / `show_test_plan()` (#144) |
 
 ## Version & Release
 
@@ -218,6 +223,17 @@ Smart Citizen uses **long-lived release branches as integration targets**, not f
 - **Merging `release/X.Y.Z` → `main` is the release trigger.** That merge runs the per-release checklist below (tag, GitHub release, Discord webhook). Until then, no commit on the release branch is "released."
 
 Don't propose tagging, drafting release notes, or merging to `main` mid-integration — the user drives that handoff. During integration, normal work is just landing PRs on the release branch.
+
+### Branch protection
+
+The branching model above is enforced by GitHub settings, not just convention. Don't propose workflows that fight these rules.
+
+- **`release/*` is governed by the "Protect release branches" ruleset** (active; targets `refs/heads/release/*`). It requires every change to land via a pull request (no direct pushes), requires **one approving review from the code owner** (`@Osiris-DevWorks` via `.github/CODEOWNERS`, which owns `*`), forbids the author's own last push from being the approval, and blocks force-pushes and branch deletion. Net effect: a contributor can open a PR against a release branch, but only the owner's review can clear it to merge.
+- **`.github/CODEOWNERS` lives on `main`** so every `release/X.Y.Z` cut from `main` inherits the owner gate automatically. A release branch created before the file existed needs it added directly (that's why `release/2.1.0` carries its own copy).
+- **`main` has classic branch protection** (PR required, 0 approvals, admins included) — the release-branch merge still goes through a PR.
+- **The repo owner (admin) bypasses the ruleset.** That's how the owner runs `start_release` (the initial `VERSION.TXT` bump is a direct push to the new branch), lands hotfixes, and merges PRs with `gh pr merge --admin`. Contributors have no bypass.
+- **Process violations get reverted.** A direct push to a release branch that slips through (e.g. before protection existed) should be backed out via a revert PR, not left in place. The work returns through a normal PR.
+- **Platform limit:** this is a personal (non-org) repo, so GitHub can't restrict the literal merge-button click to one user. The code-owner approval is the real gate; nothing merges without the owner's review even though the final click isn't account-restricted. Tightening that further would require moving the repo under an org.
 
 ### Release checklist (release/X.Y.Z → main)
 1. `VERSION.TXT` should already match the branch name from when it opened — confirm (sole source of truth; `installer.iss` reads it via ISPP at compile time).

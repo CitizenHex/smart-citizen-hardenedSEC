@@ -16,6 +16,11 @@ from PyQt6.QtWidgets import QApplication
 
 from src.models.string_model import StringEntry
 from src.utils.i18n import tr
+from src.utils.owned_items import normalize_item_name
+from src.utils.ship_sort_prefix import get_order, set_order
+
+_OWNED_GOLD = QColor("#FFD700")
+_OWNED_GREY = QColor("#666666")
 
 # ---------------------------------------------------------------------------
 # Column constants
@@ -25,9 +30,11 @@ COL_KEY = 1
 COL_DEFAULT = 2
 COL_CURRENT = 3
 COL_STAR = 4
-COL_CUSTOM = 5
-COL_STATUS = 6
-NUM_COLUMNS = 7
+COL_ORDER = 5
+COL_CUSTOM = 6
+COL_STATUS = 7
+COL_OWNED = 8   # #157: "owned blueprint" star, shown on craftable-blueprint item rows
+NUM_COLUMNS = 9
 
 _HEADER_KEYS = [
     "strings_tab.col_category",
@@ -35,8 +42,10 @@ _HEADER_KEYS = [
     "strings_tab.col_default_value",
     "strings_tab.col_current_value",
     "strings_tab.col_star",
+    "strings_tab.col_order",
     "strings_tab.col_custom_value",
     "strings_tab.col_status",
+    "strings_tab.col_owned",
 ]
 
 # ---------------------------------------------------------------------------
@@ -118,8 +127,11 @@ def _group_sort_key(key: str) -> tuple[str, int]:
 # ---------------------------------------------------------------------------
 # Column key-function factories for sort()
 # ---------------------------------------------------------------------------
-def _make_sort_key(entries, default_values, sort_keys, col, grouped, favorite_prefix):
+def _make_sort_key(entries, default_values, sort_keys, col, grouped, favorite_prefix,
+                   owned_items=None, bp_item_names=None):
     """Return a key function for sorted() given the column and grouped-sort state."""
+    owned_items = owned_items or set()
+    bp_item_names = bp_item_names or set()
     if col == COL_KEY and grouped:
         return lambda idx: sort_keys[idx]
     if col == COL_CATEGORY:
@@ -134,6 +146,17 @@ def _make_sort_key(entries, default_values, sort_keys, col, grouped, favorite_pr
         return lambda idx: entries[idx].custom_value.lower()
     if col == COL_STATUS:
         return lambda idx: entries[idx].status.lower()
+    if col == COL_OWNED:
+        # Owned = a blueprint item the user has marked owned (the gold ★).
+        # Primary key 0 for owned, 1 otherwise → ascending floats owned rows to
+        # the top, like favorites; the header arrow flips it. Tie-break by key
+        # so ordering within each group is stable. (#189)
+        def owned_key(idx):
+            e = entries[idx]
+            name = normalize_item_name(e.custom_value or e.original_value)
+            is_owned = name in bp_item_names and name in owned_items
+            return (0 if is_owned else 1, e.key.lower())
+        return owned_key
     if col == COL_STAR:
         # Favorite = Ship with the configured prefix on its custom_value.
         # Primary key 0 for favorites, 1 for non-favorites → ascending puts
@@ -144,6 +167,15 @@ def _make_sort_key(entries, default_values, sort_keys, col, grouped, favorite_pr
             is_fav = e.category == "Ships" and e.custom_value.startswith(favorite_prefix)
             return (0 if is_fav else 1, e.key.lower())
         return fav_key
+    if col == COL_ORDER:
+        # Sort order = the two-digit token on a Ship's custom_value. Assigned
+        # ships first (ascending by number), unassigned/non-ships after;
+        # tie-break by key so ordering within each group is stable.
+        def order_key(idx):
+            e = entries[idx]
+            order = get_order(e.custom_value, favorite_prefix) if e.category == "Ships" else ""
+            return (0 if order else 1, order, e.key.lower())
+        return order_key
     # unknown — fall back to key
     return lambda idx: entries[idx].key.lower()
 
@@ -173,6 +205,10 @@ class StringTableModel(QAbstractTableModel):
         self._grouped_sort: bool = False
         self._sort_column: int = COL_KEY
         self._sort_order: Qt.SortOrder = Qt.SortOrder.AscendingOrder
+        # #157: item names appearing in any POTENTIAL BLUEPRINTS list (the rows
+        # that get an Owned star), and the user's owned set. Both normalized.
+        self._bp_item_names: set[str] = set()
+        self._owned_items: set[str] = set()
         # Cached values recomputed only on theme/language change, not per-paint.
         self._header_labels: list[str] = [tr(k) for k in _HEADER_KEYS]
         self._fav_bg: QColor = _compute_fav_bg()
@@ -221,6 +257,23 @@ class StringTableModel(QAbstractTableModel):
 
     def set_grouped_sort(self, enabled: bool) -> None:
         self._grouped_sort = enabled
+
+    def set_owned_state(self, bp_item_names: set, owned_items: set) -> None:
+        """#157: set which item names are blueprint items (eligible for the
+        Owned star) and which are currently owned. Triggers a full refresh."""
+        self.beginResetModel()
+        self._bp_item_names = bp_item_names or set()
+        self._owned_items = owned_items or set()
+        self.endResetModel()
+
+    def _owned_name(self, entry: StringEntry) -> str:
+        """Normalized display name used to match an entry against blueprint
+        bullet names (the row's effective value, tag-stripped)."""
+        return normalize_item_name(entry.custom_value or entry.original_value)
+
+    def _is_bp_item(self, entry: StringEntry) -> bool:
+        """True if this row names an item that appears in a blueprint list."""
+        return bool(self._bp_item_names) and self._owned_name(entry) in self._bp_item_names
 
     # -- entry access helpers -----------------------------------------------
 
@@ -278,6 +331,16 @@ class StringTableModel(QAbstractTableModel):
             entry = self.entry_for_row(index.row())
             if entry is not None and entry.category != "Ships":
                 return Qt.ItemFlag.ItemIsEnabled  # not selectable
+        if col == COL_ORDER:
+            entry = self.entry_for_row(index.row())
+            if entry is not None and entry.category == "Ships":
+                return base | Qt.ItemFlag.ItemIsEditable
+            return Qt.ItemFlag.ItemIsEnabled  # non-ships: shown, not editable
+        if col == COL_OWNED:
+            # Read-only indicator: ownership is managed by the Blueprints
+            # shuttle on the Enhancements tab, so the cell is never selectable
+            # or editable (blueprint rows show the star, others are blank).
+            return Qt.ItemFlag.ItemIsEnabled
         return base
 
     def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole):
@@ -305,16 +368,26 @@ class StringTableModel(QAbstractTableModel):
                 if entry.category != "Ships":
                     return ""
                 return "\u2605" if entry.custom_value.startswith(prefix) else "\u2606"
+            if col == COL_ORDER:
+                if entry.category != "Ships":
+                    return ""
+                return get_order(entry.custom_value, prefix)
             if col == COL_CUSTOM:
                 return entry.custom_value
             if col == COL_STATUS:
                 return entry.status
+            if col == COL_OWNED:
+                if not self._is_bp_item(entry):
+                    return ""
+                return "★" if self._owned_name(entry) in self._owned_items else "☆"
             return None
 
         # -- edit text (populates the inline editor on double-click) --------
         if role == Qt.ItemDataRole.EditRole:
             if col == COL_CUSTOM:
                 return entry.custom_value
+            if col == COL_ORDER:
+                return get_order(entry.custom_value, prefix)
             return None
 
         # -- entry index (replaces old UserRole on col-0 trick) -------------
@@ -329,12 +402,24 @@ class StringTableModel(QAbstractTableModel):
                         return "Favorite \u2014 click to remove"
                     return "Click to mark as favorite"
                 return None
+            if col == COL_ORDER:
+                if entry.category == "Ships":
+                    return "Sort order: click to pick a number for ASOP ordering"
+                return None
+            if col == COL_OWNED:
+                if self._is_bp_item(entry):
+                    if self._owned_name(entry) in self._owned_items:
+                        return "Owned blueprint — manage ownership in the Enhancements tab's Blueprints list"
+                    return "Ownable blueprint — mark it owned in the Enhancements tab's Blueprints list"
+                return None
             return self.data(index, Qt.ItemDataRole.DisplayRole)
 
         # -- foreground colour ----------------------------------------------
         if role == Qt.ItemDataRole.ForegroundRole:
             if col == COL_STAR and entry.category == "Ships":
                 return _FAV_GOLD if entry.custom_value.startswith(prefix) else _FAV_GREY
+            if col == COL_OWNED and self._is_bp_item(entry):
+                return _OWNED_GOLD if self._owned_name(entry) in self._owned_items else _OWNED_GREY
             if col == COL_STATUS:
                 return status_color(entry.status)
             return None
@@ -347,30 +432,47 @@ class StringTableModel(QAbstractTableModel):
 
         # -- alignment ------------------------------------------------------
         if role == Qt.ItemDataRole.TextAlignmentRole:
-            if col == COL_STAR:
+            if col in (COL_STAR, COL_ORDER, COL_OWNED):
                 return int(Qt.AlignmentFlag.AlignCenter)
             return None
 
         return None
 
     def setData(self, index: QModelIndex, value, role=Qt.ItemDataRole.EditRole) -> bool:
-        """Handle inline editing of the Custom Value column."""
+        """Handle inline editing of the Custom Value and Sort Order columns."""
         if not index.isValid() or role != Qt.ItemDataRole.EditRole:
             return False
-        if index.column() != COL_CUSTOM:
+        col = index.column()
+        if col not in (COL_CUSTOM, COL_ORDER):
             return False
 
         entry = self.entry_for_row(index.row())
         if entry is None:
             return False
-        new_text = str(value)
-        if new_text == entry.custom_value:
-            return False
 
-        entry.custom_value = new_text
-        entry.status = "Modified" if new_text != entry.original_value else "Unmodified"
+        if col == COL_CUSTOM:
+            new_text = str(value)
+            if new_text == entry.custom_value:
+                return False
+            entry.custom_value = new_text
+            entry.status = "Modified" if new_text != entry.original_value else "Unmodified"
+        else:  # COL_ORDER — only Ships are editable here (enforced by flags()).
+            if entry.category != "Ships":
+                return False
+            new_custom = set_order(
+                entry.custom_value,
+                entry.original_value,
+                self._favorite_prefix,
+                str(value),
+            )
+            if new_custom == entry.custom_value:
+                return False
+            entry.custom_value = new_custom
+            # set_order collapses to "" when nothing distinguishes it from
+            # stock, so a non-empty value always means Modified.
+            entry.status = "Modified" if entry.custom_value else "Unmodified"
 
-        # Notify view that star, custom value, and status columns changed
+        # Notify view that star, order, custom value, and status columns changed
         left = self.index(index.row(), COL_STAR)
         right = self.index(index.row(), COL_STATUS)
         self.dataChanged.emit(left, right)
@@ -402,6 +504,7 @@ class StringTableModel(QAbstractTableModel):
         key_fn = _make_sort_key(
             self._entries, self._default_values, self._sort_keys,
             self._sort_column, self._grouped_sort, self._favorite_prefix,
+            self._owned_items, self._bp_item_names,
         )
         reverse = self._sort_order == Qt.SortOrder.DescendingOrder
         self._filtered_indices.sort(key=key_fn, reverse=reverse)

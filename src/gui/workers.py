@@ -11,6 +11,8 @@ Contents:
 - P4kExtractWorker        — unp4k extraction of global.ini
 - DataForgeExtractWorker  — unp4k + unforge + patch pipeline
 - SelectAllDelegate       — Custom Value cell delegate (auto-select, EM3/EM4 wrap)
+- OrderSpinBoxDelegate    — Sort Order cell delegate (0-99 spin box, #142)
+- TestPlanSubmitWorker    — POSTs a tester's test-plan report to a Discord webhook
 """
 
 import logging
@@ -242,6 +244,8 @@ class EnhancementsGeneratorWorker(QThread):
                  mission_headers: dict[str, str] | None = None,
                  mission_header_em_tag: str = AppSettings.DEFAULT_MISSION_HEADER_EM_TAG,
                  mission_detail_fields: dict | None = None,
+                 stats_prepend: bool = False,
+                 standardize_earnable_ship_names: bool = False,
                  language: str | None = None):
         super().__init__()
         self.categories = categories
@@ -251,6 +255,8 @@ class EnhancementsGeneratorWorker(QThread):
         self.mission_headers = mission_headers
         self.mission_header_em_tag = mission_header_em_tag
         self.mission_detail_fields = mission_detail_fields
+        self.stats_prepend = stats_prepend
+        self.standardize_earnable_ship_names = standardize_earnable_ship_names
         # Which language's base.ini to generate against. None resolves to the
         # selected language at run time. English uses the P4K base.ini in the
         # channel cache root; other languages use the downloaded per-language
@@ -345,6 +351,8 @@ class EnhancementsGeneratorWorker(QThread):
                      mission_headers=self.mission_headers,
                      mission_header_em_tag=self.mission_header_em_tag,
                      mission_detail_fields=self.mission_detail_fields,
+                     stats_prepend=self.stats_prepend,
+                     standardize_earnable_ship_names=self.standardize_earnable_ship_names,
                      english_base_ini_path=AppSettings.get_base_ini_path(
                          AppSettings.DEFAULT_LANGUAGE))
             logger.info("Enhancements generation worker: mod.main() completed successfully")
@@ -490,3 +498,83 @@ class SelectAllDelegate(QStyledItemDelegate):
         start = editor.selectionStart()
         editor.insert(wrapped)
         editor.setCursorPosition(start + len(f"<{tag}>") + len(sel))
+
+
+class OrderSpinBoxDelegate(QStyledItemDelegate):
+    """Editor for the Sort Order column (issue #142).
+
+    A 0-99 spin box where 0 means "no order" (shown blank). The model stores
+    the order as a zero-padded two-digit string on the ship's custom_value;
+    this delegate translates between that string and the spin box's int.
+    """
+
+    def createEditor(self, parent, option, index):
+        from PyQt6.QtWidgets import QSpinBox
+        editor = QSpinBox(parent)
+        editor.setRange(0, 99)
+        # 0 reads as "clear the order" — show it blank, not as "0".
+        editor.setSpecialValueText("")
+        return editor
+
+    def setEditorData(self, editor, index):
+        text = index.data(Qt.ItemDataRole.EditRole) or ""
+        editor.setValue(int(text) if str(text).isdigit() else 0)
+
+    def setModelData(self, editor, model, index):
+        editor.interpretText()
+        value = editor.value()
+        # 0 clears the order; set_order() treats "" as "no order".
+        model.setData(index, "" if value == 0 else str(value), Qt.ItemDataRole.EditRole)
+
+
+class TestPlanSubmitWorker(QThread):
+    """Post a tester's test-plan report to a Discord webhook (#144).
+
+    Network I/O off the main thread, per the project threading model. The
+    report is pre-split into Discord-sized chunks; each posts as its own
+    message in order. Emits finished(ok, message).
+    """
+
+    finished = pyqtSignal(bool, str)
+
+    def __init__(self, webhook_url: str, chunks: list, parent=None):
+        super().__init__(parent)
+        self._webhook_url = webhook_url
+        self._chunks = chunks
+
+    def _redact(self, text: str) -> str:
+        """Strip the webhook URL (a bearer secret) out of any message so it
+        never lands in the Log tab, an exported log bundle, or an error toast."""
+        if self._webhook_url:
+            return text.replace(self._webhook_url, "<webhook>")
+        return text
+
+    def run(self):
+        import json as _json
+        import urllib.request
+
+        # Only speak HTTPS to a webhook — reject file:// / ftp:// and other
+        # schemes rather than hand a user-supplied string straight to urlopen.
+        if not str(self._webhook_url).lower().startswith("https://"):
+            self.finished.emit(False, "Webhook URL must start with https://")
+            return
+
+        try:
+            for chunk in self._chunks:
+                data = _json.dumps({"content": chunk}).encode("utf-8")
+                req = urllib.request.Request(
+                    self._webhook_url,
+                    data=data,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    if resp.status >= 300:
+                        self.finished.emit(False, f"Discord returned HTTP {resp.status}")
+                        return
+            self.finished.emit(True, "Report sent to Discord.")
+        except Exception as e:
+            # Static message + no traceback dump: the webhook URL can appear in
+            # a urllib exception's text, so scrub it before it reaches the log.
+            logger.error("Test plan report submission failed: %s", self._redact(str(e)))
+            self.finished.emit(False, f"Could not send report: {self._redact(str(e))}")

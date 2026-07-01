@@ -448,12 +448,13 @@ class TestBlueprintNameTags:
         assert tag(arbor_desc) == "[MIN-S0]"
 
     def test_tagger_fallback_grade_only_no_known_item_type(self, gen_module):
-        """An item with Size + Grade but an Item Type we haven't added to
-        the abbreviation map still gets a usable tag — just without the
-        type prefix. Future-proofs against new ship-item categories."""
+        """#160: An item with Size + Grade but an Item Type not in the
+        abbreviation map returns None on the fallback path. A grade-only
+        [Sx-grade] tag conveys nothing useful without a type and was
+        incorrectly appearing on FPS gear / salvage heads in blueprint lists."""
         tag = gen_module._component_name_tag
         desc = "Item Type: Unrecognised Widget\\nSize: 2\\nGrade: A\\n"
-        assert tag(desc) == "[S2-A]"
+        assert tag(desc) is None
 
     def test_tagger_ship_weapons_tag_with_damage_type(self, gen_module):
         """1.4.1 regression: ship weapons in POTENTIAL BLUEPRINTS lists
@@ -904,3 +905,18 @@ class TestCargoBpTitleDemotion:
             pu_title_descs={"D_CG", "HaulCargo_AtoB_desc"},
         )
         assert tag == ""
+
+
+class TestTypelessTagFilter:
+    """#160: typeless component tags ("[S1-A]" — size+grade, no class/type)
+    are dropped before being woven into POTENTIAL BLUEPRINTS, so armour /
+    magazines / salvage-mining heads show bare. Class/type-qualified tags
+    survive."""
+
+    def test_typeless_tags_match_the_filter(self, gen_module):
+        for tag in ("[S1-A]", "[S2]", "[S3-B]", "[S0-D]"):
+            assert gen_module._TYPELESS_COMPONENT_TAG_RE.search(tag), tag
+
+    def test_class_or_type_tags_do_not_match(self, gen_module):
+        for tag in ("[Mil-S1-A]", "[SAL-S2]", "[MIN-S0-B]", "[CIV-S3-C]"):
+            assert not gen_module._TYPELESS_COMPONENT_TAG_RE.search(tag), tag

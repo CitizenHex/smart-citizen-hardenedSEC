@@ -12,8 +12,8 @@ from PyQt6.QtWidgets import (
     QFileDialog, QMessageBox, QTabWidget,
     QHeaderView, QStatusBar, QFrame, QStyledItemDelegate,
     QAbstractItemView, QMenu, QProgressDialog, QProgressBar, QTextBrowser,
-    QTableView, QStackedLayout, QGraphicsOpacityEffect,
-    QDockWidget, QPlainTextEdit,
+    QTableView, QStackedLayout, QStackedWidget, QGraphicsOpacityEffect,
+    QDockWidget, QPlainTextEdit, QInputDialog,
 )
 from PyQt6.QtGui import QColor, QFont, QCursor, QPixmap, QIcon, QPalette
 from PyQt6.QtCore import QUrl
@@ -25,9 +25,11 @@ from src.gui.error_dialog import ErrorDialogHandler, _ErrorDialogEmitter
 from src.gui.enhancements_tab import EnhancementsTab
 from src.gui.filter_header import FilterHeaderView
 from src.gui.log_tab import LogTab
+from src.gui.simple_mode_widget import SimpleModeWidget
 from src.gui.markdown_renderer import markdown_to_html as _md_to_html
 from src.gui.string_table_model import (
-    StringTableModel, COL_STAR, COL_CUSTOM, COL_STATUS,
+    StringTableModel, COL_CATEGORY, COL_KEY, COL_DEFAULT, COL_CURRENT,
+    COL_STAR, COL_ORDER, COL_CUSTOM, COL_STATUS, COL_OWNED,
     status_color,
 )
 from src.gui.theme import (
@@ -40,6 +42,7 @@ from src.gui.workers import (
     EnhancementsGeneratorWorker,
     FileLoaderWorker,
     LanguageBaseDownloadWorker,
+    OrderSpinBoxDelegate,
     P4kExtractWorker,
     SelectAllDelegate,
     StartupSyncWorker,
@@ -250,7 +253,11 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(tr("window.title", version=get_version()))
-        self.setGeometry(100, 100, 1400, 800)
+        # Position only; the size is set after the UI is built — restored from
+        # saved geometry, or sized to the compact content hint on first run
+        # (#180 follow-up: open as small as the layout allows). See
+        # restore_window_state().
+        self.move(100, 100)
 
         # Set window icon (taskbar + window title bar + favicon)
         icon_path = get_resource_path(os.path.join("assets", "logo.ico"))
@@ -281,6 +288,20 @@ class MainWindow(QMainWindow):
 
         # DataForge extraction worker
         self._forge_worker: Optional[DataForgeExtractWorker] = None
+
+        # #180: when True, the Simple-mode one-button flow is running and the
+        # enhancements-generation-finished slot should continue into
+        # apply_to_game. Cleared on completion or any failure.
+        self._simple_run_active = False
+
+        # #157: item names (normalized) that appear in any POTENTIAL BLUEPRINTS
+        # list — the rows eligible for the Owned star. Recomputed on each load.
+        self._bp_item_names: set[str] = set()
+        # #157 follow-up: per-blueprint-item metadata (mission names + ship
+        # component type/class/size/grade) for the Blueprints shuttle filters.
+        # Built once per load (pure function of the loaded strings), so
+        # owned-toggles only re-partition rather than rescan ~87k entries.
+        self._blueprint_meta: dict = {}
 
         # Track whether we've prompted for enhancements on startup (prevents duplicate dialogs)
         self._enhancements_prompted_on_startup = False
@@ -370,7 +391,11 @@ class MainWindow(QMainWindow):
         toolbar_row.setContentsMargins(0, 0, 12, 0)
         toolbar_row.addLayout(toolbar_layout, stretch=2)
         toolbar_row.addWidget(self.preview_pane, stretch=1)
-        main_layout.addLayout(toolbar_row)
+        # Wrapped in a container so Simple mode (#180) can hide the whole
+        # advanced toolbar + preview as a unit (a layout can't be hidden).
+        self.toolbar_container = QWidget()
+        self.toolbar_container.setLayout(toolbar_row)
+        main_layout.addWidget(self.toolbar_container)
 
         self.tabs = QTabWidget()
         self._strings_tab_index = self.tabs.addTab(self.create_strings_tab(), tr("tabs.string_editor"))
@@ -381,6 +406,7 @@ class MainWindow(QMainWindow):
         self.config_tab.p4k_extract_requested.connect(self._run_p4k_extraction)
         self.config_tab.import_ini_requested.connect(self._handle_import_ini)
         self.config_tab.reset_user_ini_requested.connect(self._handle_reset_user_ini)
+        self.config_tab.restore_user_ini_requested.connect(self._handle_restore_user_ini)
         self.config_tab.channel_changed.connect(self._on_channel_changed)
         self.config_tab.language_changed.connect(self._on_language_changed)
         self.config_tab.check_updates_requested.connect(self._on_check_updates_clicked)
@@ -393,12 +419,14 @@ class MainWindow(QMainWindow):
         self.enhancements_tab.merge_requested.connect(self.perform_merge_and_reload)
         self.enhancements_tab.enhancements_pipeline_requested.connect(self._run_enhancements_pipeline)
         self.enhancements_tab.favorite_prefix_changed.connect(self._on_favorite_prefix_changed)
+        self.enhancements_tab.owned_items_changed.connect(self._recompute_owned)
         self._enhancements_tab_index = self.tabs.addTab(self.enhancements_tab, tr("tabs.enhancements"))
 
         self.log_tab = LogTab()
         self._log_tab_index = self.tabs.addTab(self.log_tab, tr("tabs.log"))
 
         self._about_tab_index = self.tabs.addTab(self.create_about_tab(), tr("tabs.about"))
+        self._faq_tab_index = self.tabs.addTab(self.create_faq_tab(), tr("tabs.faq"))
         self._legal_tab_index = self.tabs.addTab(self.create_legal_tab(), tr("tabs.legal"))
 
         # Error-dialog handler: surfaces ERROR/CRITICAL log records as a
@@ -419,7 +447,19 @@ class MainWindow(QMainWindow):
         self.tabs.currentChanged.connect(self._on_tab_changed)
         self._previous_tab_index = self.tabs.currentIndex()
 
-        main_layout.addWidget(self.tabs, 1)
+        # #180: Simple/Advanced view switch. The tabbed UI (Advanced) and the
+        # one-button Simple page share a QStackedWidget so switching is a page
+        # swap rather than a teardown, and the QTabWidget keeps its stretch=1
+        # placement inside the stack.
+        self.simple_page = SimpleModeWidget()
+        self.simple_page.generate_and_apply_requested.connect(self._run_simple_apply)
+        self.simple_page.switch_to_advanced_requested.connect(
+            lambda: self._apply_ui_mode(AppSettings.UI_MODE_ADVANCED)
+        )
+        self.view_stack = QStackedWidget()
+        self.view_stack.addWidget(self.tabs)         # Advanced
+        self.view_stack.addWidget(self.simple_page)  # Simple
+        main_layout.addWidget(self.view_stack, 1)
 
         # Footer
         footer_layout = self.create_footer()
@@ -447,6 +487,73 @@ class MainWindow(QMainWindow):
         # now so it's visible before any source loading kicks off — users
         # who launch into an empty cache still see which channel they're on.
         self._ensure_channel_indicator()
+
+        # #180: apply the saved Simple/Advanced view last, once every widget
+        # the toggle touches exists.
+        self._apply_ui_mode(AppSettings.get_ui_mode())
+
+    def _apply_ui_mode(self, mode: str) -> None:
+        """Switch between the Simple and Advanced views and persist the choice (#180).
+
+        Simple shows the one-button page and hides the advanced toolbar +
+        preview; Advanced restores the full tabbed UI. Safe to call before or
+        after the window is shown.
+        """
+        if mode not in (AppSettings.UI_MODE_SIMPLE, AppSettings.UI_MODE_ADVANCED):
+            mode = AppSettings.UI_MODE_SIMPLE
+        from PyQt6.QtWidgets import QSizePolicy
+
+        simple = mode == AppSettings.UI_MODE_SIMPLE
+        self.view_stack.setCurrentWidget(self.simple_page if simple else self.tabs)
+        self.toolbar_container.setVisible(not simple)
+        # Only the visible page should drive the window's size hint. A
+        # QStackedWidget otherwise sizes to its largest page, so the compact
+        # Simple page would be inflated by the big Advanced tabs. Setting the
+        # hidden page's policy to Ignored zeroes its contribution to the hint,
+        # letting Simple shrink to its own minimum.
+        ignored = QSizePolicy.Policy.Ignored
+        live = QSizePolicy.Policy.Expanding
+        self.simple_page.setSizePolicy(live if simple else ignored,
+                                       live if simple else ignored)
+        self.tabs.setSizePolicy(ignored if simple else live,
+                                ignored if simple else live)
+        AppSettings.set_ui_mode(mode)
+        # Resize to suit the new view on a live switch. At startup the window
+        # isn't shown yet (isVisible() is False) — showEvent applies the
+        # initial size once instead. isVisible() also lets the unit-test stub
+        # exercise the swap without the sizing helper.
+        if self.isVisible():
+            self._size_window_for_mode(mode)
+
+    def _size_window_for_mode(self, mode: str) -> None:
+        """Size the window to suit the active view (#180 follow-up).
+
+        Advanced always opens maximized (the full table wants the room);
+        Simple shrinks to the smallest size that still fits its one-button
+        page — the hidden Advanced page is set to Ignored in _apply_ui_mode so
+        it no longer inflates the stacked-widget hint. Called once at first
+        show and on every live mode switch, so the size tracks the mode rather
+        than whatever the window was last left at.
+        """
+        if mode == AppSettings.UI_MODE_ADVANCED:
+            self.showMaximized()
+        elif self.isMaximized() or self.isFullScreen():
+            # showNormal() restores the prior (maximized) geometry on the next
+            # event-loop tick, so a synchronous resize here would be clobbered.
+            # Shrink after that restore lands; guarded so a quick switch back
+            # to Advanced isn't shrunk out from under us.
+            self.showNormal()
+            QTimer.singleShot(0, lambda: self._shrink_to_fit_if_simple())
+        else:
+            # First show / already-normal window: no pending restore to race.
+            self.resize(self.minimumSizeHint())
+
+    def _shrink_to_fit_if_simple(self) -> None:
+        """Resize to the minimum that fits the Simple page, if still in Simple
+        mode. Deferred from _size_window_for_mode after an un-maximize so the
+        async geometry restore doesn't clobber the shrink."""
+        if AppSettings.get_ui_mode() == AppSettings.UI_MODE_SIMPLE:
+            self.resize(self.minimumSizeHint())
 
     def _on_tab_changed(self, new_index: int):
         """Revert unapplied enhancement checkbox changes when leaving the Enhancements tab."""
@@ -513,6 +620,24 @@ class MainWindow(QMainWindow):
         self._action_open_loc_dir = more_menu.addAction(
             tr("toolbar.open_loc_dir_btn"), self.open_localization_dir
         )
+        more_menu.addSeparator()
+        self._action_test_plan = more_menu.addAction(
+            tr("toolbar.menu_test_plan"), self.show_test_plan
+        )
+        self._action_test_plan.setToolTip(
+            "Open the tester Test Plan: a checklist of what changed in this "
+            "release, with progress tracking and a report you can submit."
+        )
+        more_menu.addSeparator()
+        # #180: jump to the simplified one-button view. Lives in the toolbar
+        # (Advanced-only); the way back is the Simple page's own button.
+        self._action_switch_to_simple = more_menu.addAction(
+            tr("toolbar.menu_switch_to_simple"),
+            lambda: self._apply_ui_mode(AppSettings.UI_MODE_SIMPLE),
+        )
+        self._action_switch_to_simple.setToolTip(
+            "Switch to the simplified one-button view."
+        )
 
         self.more_btn = QPushButton(tr("toolbar.more_btn"))
         self.more_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
@@ -571,6 +696,19 @@ class MainWindow(QMainWindow):
         self.favorites_only_check.setToolTip("Show only rows you've starred as favorites. Favorites get a configurable prefix prepended to their name so they sort to the top of the in-game list.")
         self.favorites_only_check.stateChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.favorites_only_check)
+
+        # #156: isolate blueprint missions. BP Titles keeps title rows tagged
+        # [BP]/[BP?]; BP Descriptions keeps bodies with a POTENTIAL BLUEPRINTS
+        # section. Checking both shows either.
+        self.bp_titles_check = QCheckBox(tr("filters.bp_titles_only"))
+        self.bp_titles_check.setToolTip("Show only mission titles carrying the [BP] / [BP?] blueprint tag.")
+        self.bp_titles_check.stateChanged.connect(self.apply_filters)
+        filter_layout.addWidget(self.bp_titles_check)
+
+        self.bp_descs_check = QCheckBox(tr("filters.bp_descs_only"))
+        self.bp_descs_check.setToolTip("Show only mission descriptions containing a POTENTIAL BLUEPRINTS section.")
+        self.bp_descs_check.stateChanged.connect(self.apply_filters)
+        filter_layout.addWidget(self.bp_descs_check)
 
         self.grouped_sort_btn = QPushButton(tr("filters.group_sort_btn"))
         self.grouped_sort_btn.setToolTip("Sort titles and descriptions together for the same entity")
@@ -955,10 +1093,16 @@ class MainWindow(QMainWindow):
             tr("strings_tab.col_default_value"),
             tr("strings_tab.col_current_value"),
             tr("strings_tab.col_star"),
+            tr("strings_tab.col_order"),
             tr("strings_tab.col_custom_value"),
             tr("strings_tab.col_status"),
         ]
-        self.filter_header = FilterHeaderView(column_names, self.table, skip_columns={0, 4, 6})
+        # Skip text-filter boxes on the non-text columns: category, ★,
+        # order (a spin box), and status.
+        self.filter_header = FilterHeaderView(
+            column_names, self.table,
+            skip_columns={COL_CATEGORY, COL_STAR, COL_ORDER, COL_STATUS},
+        )
         self.table.setHorizontalHeader(self.filter_header)
         self.filter_header.filter_changed.connect(self.apply_filters)
 
@@ -974,16 +1118,23 @@ class MainWindow(QMainWindow):
 
         # Set column widths
         header = self.filter_header
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # Category
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)           # Key
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)           # Default Value
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)           # Current Value
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # ★
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)           # Custom Value
-        header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)  # Status
+        header.setSectionResizeMode(COL_CATEGORY, QHeaderView.ResizeMode.ResizeToContents)  # Category
+        header.setSectionResizeMode(COL_KEY, QHeaderView.ResizeMode.Stretch)                # Key
+        header.setSectionResizeMode(COL_DEFAULT, QHeaderView.ResizeMode.Stretch)            # Default Value
+        header.setSectionResizeMode(COL_CURRENT, QHeaderView.ResizeMode.Stretch)            # Current Value
+        header.setSectionResizeMode(COL_STAR, QHeaderView.ResizeMode.ResizeToContents)      # ★
+        header.setSectionResizeMode(COL_ORDER, QHeaderView.ResizeMode.ResizeToContents)     # Order #
+        header.setSectionResizeMode(COL_CUSTOM, QHeaderView.ResizeMode.Stretch)             # Custom Value
+        header.setSectionResizeMode(COL_STATUS, QHeaderView.ResizeMode.ResizeToContents)    # Status
+        header.setSectionResizeMode(COL_OWNED, QHeaderView.ResizeMode.ResizeToContents)     # Owned (#157)
 
-        # Set custom delegate for editing Custom Value column (col 5)
-        self.table.setItemDelegateForColumn(COL_CUSTOM, SelectAllDelegate())
+        # Set custom delegates: Custom Value text editor + Sort Order spin box.
+        # Parent each to the table so Qt's object tree owns them: the view does
+        # not take ownership, and PyQt's per-method keep-reference holds only the
+        # last delegate, so a second unparented setItemDelegateForColumn would
+        # let the first (Custom Value) delegate be garbage-collected.
+        self.table.setItemDelegateForColumn(COL_CUSTOM, SelectAllDelegate(self.table))
+        self.table.setItemDelegateForColumn(COL_ORDER, OrderSpinBoxDelegate(self.table))
         # Star column click handling
         self.table.clicked.connect(self._on_cell_clicked)
 
@@ -1102,6 +1253,36 @@ class MainWindow(QMainWindow):
         finally:
             self._error_dialog_showing = False
             self._last_error_dialog_time = time.monotonic()
+
+    def create_faq_tab(self) -> QWidget:
+        """Create the FAQ tab (#152). Content lives in docs/FAQ.md (bundled
+        into the frozen build via SmartCitizen.spec and build_exe.py) and
+        renders through the same markdown_to_html pipeline as About/Legal so
+        theme swaps recolor it consistently."""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        self.faq_browser = QTextBrowser()
+        self.faq_browser.setOpenExternalLinks(True)
+        self._render_faq_html()
+        layout.addWidget(self.faq_browser)
+        return widget
+
+    def _render_faq_html(self):
+        """(Re)render the FAQ tab HTML. Mirrors _render_legal_html (sans badge);
+        force the browser palette to track the theme for live theme swaps."""
+        from PyQt6.QtWidgets import QApplication
+        self.faq_browser.setPalette(QApplication.palette())
+        try:
+            faq_path = AppSettings.get_localized_doc_path("FAQ.md")
+            with open(faq_path, 'r', encoding='utf-8') as f:
+                faq_content = f.read()
+            self.faq_browser.setHtml(self.markdown_to_html(faq_content))
+        except Exception as e:
+            logger.error(f"Error loading FAQ.md: {e}", exc_info=True)
+            self.faq_browser.setHtml(
+                "<h1>FAQ</h1><p>Unable to load the FAQ.</p>"
+                f"<p style='color: gray;'>{str(e)}</p>"
+            )
 
     def create_legal_tab(self) -> QWidget:
         """Create the Legal tab — CIG community-content compliance, license
@@ -1308,6 +1489,17 @@ class MainWindow(QMainWindow):
 
             # Merge all sources in hierarchy order, with user edits on top
             merged_dict = merge_sources_by_hierarchy(sources_dict, hierarchy, user_overrides_dict)
+
+            # #157: weave [Owned] into blueprint lists so the tag reaches the
+            # applied game file (apply re-loads sources from disk, where the
+            # live owned overlay isn't baked in). Idempotent.
+            _owned = AppSettings.get_owned_items()
+            if _owned:
+                from src.utils.owned_items import apply_owned_to_value
+                for _k, _v in list(merged_dict.items()):
+                    _nv = apply_owned_to_value(_v, _owned)
+                    if _nv != _v:
+                        merged_dict[_k] = _nv
 
             # Stamp Journal entries Smart Citizen produced or modified —
             # both user-edited journals AND auto-generated journal
@@ -1766,6 +1958,8 @@ class MainWindow(QMainWindow):
                     AppSettings.get_favorite_prefix(),
                 )
                 self.apply_filters()
+                self._rebuild_blueprint_metadata()  # #157 follow-up: filter data
+                self._recompute_owned()  # #157
 
                 # Update status bar with entry counts and per-source status
                 self._update_status_bar()
@@ -1806,6 +2000,8 @@ class MainWindow(QMainWindow):
             self._render_help_html()
         if hasattr(self, "legal_browser"):
             self._render_legal_html()
+        if hasattr(self, "faq_browser"):
+            self._render_faq_html()
         self._apply_editor_dock_canvas_tint()
 
     def _handle_reset_user_ini(self):
@@ -1860,7 +2056,7 @@ class MainWindow(QMainWindow):
             f"(user.ini.bak-YYYYMMDD-HHMMSS) so you can restore by renaming it "
             f"back to user.ini.\n\n"
             f"This does NOT touch the game's global.ini — to revert what "
-            f"the game sees in-game, run Apply to Game after the reset, or "
+            f"the game sees in-game, run Apply Enhancements after the reset, or "
             f"use Restore Backup.\n\n"
             f"Proceed?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -1898,6 +2094,80 @@ class MainWindow(QMainWindow):
             "user.ini Reset",
             f"All custom overrides for the {channel} channel have been "
             f"cleared.{backup_note}",
+        )
+
+    def _handle_restore_user_ini(self):
+        """Let the user restore user.ini from an automatic snapshot (#172).
+
+        Lists the rotating snapshots (newest first), lets the user pick one,
+        confirms, restores it (snapshotting the current file first so the
+        restore is itself reversible), and reloads the table. The reset-button
+        siblings (user.ini.bak-*) are intentionally not listed here — those are
+        restored by renaming, as the Reset dialog explains.
+        """
+        from src.utils.user_ini_manager import (
+            list_user_ini_backups,
+            restore_user_ini_backup,
+        )
+
+        user_ini_path = AppSettings.get_user_ini_path()
+        channel = AppSettings.get_active_channel()
+        backups = list_user_ini_backups(user_ini_path)
+
+        if not backups:
+            QMessageBox.information(
+                self,
+                "No Snapshots Yet",
+                f"Smart Citizen has no automatic user.ini snapshots for the "
+                f"{channel} channel yet. A snapshot is saved each time your "
+                f"overrides change, so restore points appear once you've made "
+                f"and saved edits.",
+            )
+            return
+
+        # Build "YYYY-MM-DD HH:MM:SS — N lines, M KB" labels mapped to paths.
+        from datetime import datetime as _dt
+
+        labels = []
+        for b in backups:
+            try:
+                st = b.stat()
+                when = _dt.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                lines = b.read_text(encoding="utf-8", errors="replace").count("\n")
+                size_kb = st.st_size / 1024
+                labels.append(f"{when}  —  {lines} overrides, {size_kb:.1f} KB")
+            except OSError:
+                labels.append(b.name)
+
+        choice, ok = QInputDialog.getItem(
+            self,
+            "Restore user.ini",
+            f"Pick a snapshot to restore for the {channel} channel.\n"
+            f"Your current user.ini is snapshotted first, so this is reversible.",
+            labels,
+            0,
+            False,
+        )
+        if not ok:
+            return
+        chosen = backups[labels.index(choice)]
+
+        try:
+            restore_user_ini_backup(chosen, user_ini_path)
+        except OSError as e:
+            logger.exception(f"Failed to restore user.ini from {chosen}")
+            QMessageBox.critical(
+                self, "Restore Failed",
+                f"Smart Citizen could not restore the snapshot:\n\n{type(e).__name__}: {e}",
+            )
+            return
+
+        self._show_loading_progress(f"Reloading {channel} after user.ini restore...")
+        self.statusBar().showMessage(f"Restored user.ini for {channel}", 5000)
+        QMessageBox.information(
+            self, "user.ini Restored",
+            f"Restored your overrides for the {channel} channel from:\n{chosen.name}\n\n"
+            f"Run Apply Enhancements to push the restored overrides in-game.",
         )
 
     def _handle_import_ini(self):
@@ -2097,19 +2367,11 @@ class MainWindow(QMainWindow):
             # Restore the backup
             shutil.copy2(str(backup_file_path), str(target_path))
 
-            # Reload the file with overrides
-            overrides_path = AppSettings.get_user_ini_path()
-            overrides_arg = str(overrides_path) if overrides_path.exists() else None
-            self.entries = load_source_files(str(target_path), overrides_arg)
-            self.load_default_values()
-            self.update_category_combo()
-            self._model.set_data_source(
-                self.entries, self.default_values, AppSettings.get_favorite_prefix(),
-            )
-            self.apply_filters()
-
-            # Update status bar with entry counts and per-source status
-            self._update_status_bar()
+            # Refresh the table from configured sources. The restore writes the
+            # game's global.ini (merged output); the editor view is source-backed
+            # (base.ini + user.ini + enhancements), so reload from settings rather
+            # than parsing the restored output file as if it were a source.
+            self.perform_merge_and_reload()
 
             logger.info(f"Restored backup from {backup_file} to {target_path}")
             QMessageBox.information(self, "Success", f"Backup restored from:\n{backup_file_path.name}")
@@ -2188,6 +2450,40 @@ class MainWindow(QMainWindow):
                 "<h1>Help</h1><p>Help content could not be loaded. "
                 "See the About tab or the project README for usage details.</p>"
             )
+
+    # ── Side-docked Test Plan (#144) ─────────────────────────────────────────
+
+    def _ensure_test_plan_dock(self) -> QDockWidget:
+        """Create the side-docked tester Test Plan on first use and return it."""
+        if getattr(self, "test_plan_dock", None) is not None:
+            return self.test_plan_dock
+
+        from src.gui.test_plan_panel import TestPlanPanel
+
+        dock = QDockWidget("Test Plan", self)
+        dock.setObjectName("testPlanDock")
+        dock.setAllowedAreas(
+            Qt.DockWidgetArea.RightDockWidgetArea
+            | Qt.DockWidgetArea.LeftDockWidgetArea
+        )
+        dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetClosable
+            | QDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        )
+        dock.setWidget(TestPlanPanel(dock))
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+        self.test_plan_dock = dock
+        return dock
+
+    def show_test_plan(self):
+        """Toggle the Test Plan side-panel."""
+        dock = self._ensure_test_plan_dock()
+        if dock.isVisible():
+            dock.hide()
+        else:
+            dock.show()
+            dock.raise_()
 
     # ── Side-docked String Editor ────────────────────────────────────────────
 
@@ -2453,6 +2749,7 @@ class MainWindow(QMainWindow):
             "enh_favorites":         {"target": lambda: self.enhancements_tab._favorites_group,                "pre_action": _switch_to(enh_tab)},
             "enh_mission_labels":    {"target": lambda: self.enhancements_tab.mission_labels_group,            "pre_action": _switch_to(enh_tab)},
             "enh_tag_builder":       {"target": lambda: self.enhancements_tab._tag_builder_group,              "pre_action": _switch_to(enh_tab)},
+            "enh_blueprints":        {"target": lambda: self.enhancements_tab._blueprints_group,               "pre_action": _switch_to(enh_tab)},
             # Config tab section deep-dive
             "cfg_appearance":        {"target": lambda: self.config_tab._appearance_group,                     "pre_action": _switch_to(config_tab)},
             "cfg_sc_install":        {"target": lambda: self.config_tab._loc_group,                            "pre_action": _switch_to(config_tab)},
@@ -2572,6 +2869,52 @@ class MainWindow(QMainWindow):
         self._post_tutorial_tasks_started = True
         self._start_startup_sync()
         self._maybe_auto_check_app_updates()
+        self._maybe_warn_onedrive_data_dir()
+
+    def _maybe_warn_onedrive_data_dir(self) -> None:
+        """Warn once when the data root is inside a OneDrive-managed folder (#172).
+
+        OneDrive can sync and dehydrate/empty files under its tree, which has
+        emptied user.ini. The default data root resolves Documents via the shell
+        Personal folder, so on a OneDrive-redirected machine the per-user data
+        lands inside OneDrive. Offers a one-click move to a local folder and a
+        'don't warn again' opt-out.
+        """
+        if AppSettings.get_onedrive_warning_dismissed():
+            return
+        from src.utils.onedrive import is_onedrive_path, suggest_local_data_dir
+
+        data_dir = AppSettings.get_user_data_dir()
+        if not is_onedrive_path(data_dir):
+            return
+
+        local = suggest_local_data_dir()
+        from PyQt6.QtWidgets import QCheckBox
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Your Smart Citizen Data Is in OneDrive")
+        box.setText(
+            "Smart Citizen stores your edits (user.ini), source cache, and "
+            "backups in:\n\n"
+            f"{data_dir}\n\n"
+            "That folder is inside OneDrive. OneDrive can sync and even empty "
+            "these files, which has caused lost edits. Moving your data to a "
+            "local folder outside OneDrive avoids this.\n\n"
+            f"Move it to:\n{local} ?"
+        )
+        move_btn = box.addButton("Move to a Local Folder", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Keep Here", QMessageBox.ButtonRole.RejectRole)
+        dont_warn = QCheckBox("Don't warn me again")
+        box.setCheckBox(dont_warn)
+        box.exec()
+
+        if dont_warn.isChecked():
+            AppSettings.set_onedrive_warning_dismissed(True)
+
+        if box.clickedButton() is move_btn:
+            # Route through the Config tab's validated save + migrate + reload.
+            self.config_tab.change_data_dir_to(str(local))
 
     def _maybe_start_first_run_tutorial(self) -> None:
         """Auto-start the tour on first launch of a version whose tour wasn't seen.
@@ -2590,6 +2933,15 @@ class MainWindow(QMainWindow):
         if getattr(self, "_tutorial_first_run_checked", False):
             return
         self._tutorial_first_run_checked = True
+        # #180: the guided tour spotlights the tabs and toolbar, which are
+        # hidden in Simple mode (the default for new installs). Skip it there —
+        # Simple mode is self-explanatory (one button), and the tour is one
+        # click away from the toolbar once the user switches to Advanced. Still
+        # fire the deferred startup tasks so first-run source sync / update /
+        # OneDrive checks aren't lost.
+        if AppSettings.get_ui_mode() == AppSettings.UI_MODE_SIMPLE:
+            QTimer.singleShot(0, self._start_post_tutorial_tasks)
+            return
         if AppSettings.get_tutorial_disabled():
             QTimer.singleShot(0, self._start_post_tutorial_tasks)
             return
@@ -2602,6 +2954,13 @@ class MainWindow(QMainWindow):
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
+        # Apply the mode-driven window size once, on first show: Advanced opens
+        # maximized, Simple opens compact. Deferred to here (not __init__) so
+        # showMaximized/showNormal act on a window that is actually visible —
+        # doing it pre-show is unreliable. Guarded so it runs a single time.
+        if not getattr(self, "_initial_size_applied", False):
+            self._initial_size_applied = True
+            self._size_window_for_mode(AppSettings.get_ui_mode())
         self._maybe_start_first_run_tutorial()
 
     def keyPressEvent(self, event):
@@ -2819,6 +3178,7 @@ class MainWindow(QMainWindow):
         self.tabs.setTabText(self._enhancements_tab_index, tr("tabs.enhancements"))
         self.tabs.setTabText(self._log_tab_index, tr("tabs.log"))
         self.tabs.setTabText(self._about_tab_index, tr("tabs.about"))
+        self.tabs.setTabText(self._faq_tab_index, tr("tabs.faq"))
         self.tabs.setTabText(self._legal_tab_index, tr("tabs.legal"))
 
         # Toolbar buttons
@@ -2835,12 +3195,19 @@ class MainWindow(QMainWindow):
         self._action_import_ini.setText(tr("toolbar.menu_import_ini"))
         self._action_export_ini.setText(tr("toolbar.menu_export_ini"))
         self._action_open_loc_dir.setText(tr("toolbar.open_loc_dir_btn"))
+        self._action_test_plan.setText(tr("toolbar.menu_test_plan"))
+        self._action_switch_to_simple.setText(tr("toolbar.menu_switch_to_simple"))
+
+        # Simple-mode page (#180)
+        self.simple_page.retranslate_ui()
 
         # Filter row
         self._category_label.setText(tr("filters.category_label"))
         self._status_label.setText(tr("filters.status_label"))
         self.hide_unmodified_check.setText(tr("filters.hide_unmodified"))
         self.favorites_only_check.setText(tr("filters.favorites_only"))
+        self.bp_titles_check.setText(tr("filters.bp_titles_only"))
+        self.bp_descs_check.setText(tr("filters.bp_descs_only"))
         self.grouped_sort_btn.setText(tr("filters.group_sort_btn"))
         self.clear_filters_btn.setText(tr("filters.clear_filters_btn"))
         self.copy_filtered_btn.setText(tr("filters.copy_filtered_btn"))
@@ -2866,8 +3233,10 @@ class MainWindow(QMainWindow):
             tr("strings_tab.col_default_value"),
             tr("strings_tab.col_current_value"),
             tr("strings_tab.col_star"),
+            tr("strings_tab.col_order"),
             tr("strings_tab.col_custom_value"),
             tr("strings_tab.col_status"),
+            tr("strings_tab.col_owned"),
         ]
         self.filter_header.update_column_names(new_column_names)
         self._model.retranslate()
@@ -3578,6 +3947,8 @@ class MainWindow(QMainWindow):
             sort_keys=sort_keys,
         )
         self.apply_filters()
+        self._rebuild_blueprint_metadata()  # #157 follow-up: filter data
+        self._recompute_owned()  # #157: weave [Owned] tags + populate Owned stars
 
         # Update status bar with entry counts and per-source status
         self._update_status_bar()
@@ -3598,6 +3969,47 @@ class MainWindow(QMainWindow):
             self._loader_worker.quit()
             self._loader_worker.wait()
             self._loader_worker = None
+
+    def _run_simple_apply(self):
+        """Simple-mode one-button flow (#180): generate enhancements, then apply.
+
+        Reuses the existing async pipeline (extract → generate) and the
+        existing ``apply_to_game`` (backup / validate / rollback). Sets a flag
+        so ``_on_enhancements_generation_finished`` continues into the apply
+        once generation completes; this adds one continuation, not a parallel
+        pipeline.
+        """
+        if self._enhancements_worker is not None or self._forge_worker is not None:
+            return  # already running
+
+        # Applying needs the game folder, but Config (where it's set) is hidden
+        # in Simple mode — so guide the user to Advanced rather than no-op.
+        if not AppSettings.get_game_install_path():
+            QMessageBox.information(
+                self, "Set Your Game Folder",
+                "Smart Citizen needs to know where Star Citizen is installed "
+                "before it can apply changes.\n\nSwitching to Advanced mode so "
+                "you can set the game folder on the Config tab.",
+            )
+            self._apply_ui_mode(AppSettings.UI_MODE_ADVANCED)
+            self.tabs.setCurrentIndex(self._config_tab_index)
+            return
+
+        reply = QMessageBox.question(
+            self, "Apply Enhancements",
+            "This will generate the latest enhancements with your current "
+            "settings and apply them to your game's global.ini. A timestamped "
+            "backup is made first.\n\nThe first run can take a few minutes "
+            "while DataForge is extracted. Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self._simple_run_active = True
+        self.simple_page.set_busy(True)
+        self._run_enhancements_pipeline()
 
     def _run_enhancements_pipeline(self):
         """Entry point for the enhancements button: extract DataForge if needed, then generate enhancements."""
@@ -3651,6 +4063,8 @@ class MainWindow(QMainWindow):
             mission_headers=AppSettings.get_mission_headers(),
             mission_header_em_tag=AppSettings.get_mission_header_em_tag(),
             mission_detail_fields=AppSettings.get_mission_detail_fields(),
+            stats_prepend=AppSettings.get_stats_prepend(),
+            standardize_earnable_ship_names=AppSettings.get_standardize_earnable_ship_names(),
             language=language,
         )
         self.enhancements_tab.set_operation_running("Generating enhancements…")
@@ -3691,8 +4105,17 @@ class MainWindow(QMainWindow):
         self._enhancements_worker.finished.connect(self._on_enhancements_generation_finished)
         self._enhancements_worker.start()
 
+    def _end_simple_run(self):
+        """End the Simple-mode one-button flow: clear the active flag and let
+        the Simple page leave its busy state. Idempotent — safe to call when no
+        Simple run is in progress (both are already idle)."""
+        self._simple_run_active = False
+        self.simple_page.set_busy(False)
+
     def _on_enhancements_generation_error(self, message: str):
         logger.error(f"Enhancements generation error: {message}")
+        # #180: abandon any in-flight Simple-mode flow so it doesn't apply.
+        self._end_simple_run()
         # Close progress dialog on error
         if self._enhancements_progress_dialog is not None:
             self._enhancements_progress_dialog.close()
@@ -3711,9 +4134,19 @@ class MainWindow(QMainWindow):
         self.enhancements_tab.refresh_enhancements_status()
 
         if success:
-            self.statusBar().showMessage("Enhancements generated — reloading entries…")
+            # #180: Simple-mode one-button flow continues into apply here.
+            # apply_to_game is synchronous and re-loads sources from disk, so
+            # the just-written enhancement INIs are picked up; the table reload
+            # below keeps the (hidden) Advanced view consistent afterward.
+            if self._simple_run_active:
+                self._end_simple_run()
+                self.statusBar().showMessage("Enhancements generated — applying to game…")
+                self.apply_to_game()
+            else:
+                self.statusBar().showMessage("Enhancements generated — reloading entries…")
             self._show_loading_progress("Reloading strings with updated enhancements…")
         else:
+            self._end_simple_run()
             self.statusBar().showMessage("Enhancement generation failed — check the Log tab for details")
 
     def _run_dataforge_extraction(self):
@@ -3745,6 +4178,8 @@ class MainWindow(QMainWindow):
 
     def _on_dataforge_extract_error(self, message: str):
         logger.error(f"DataForge extraction error: {message}")
+        # #180: abandon any in-flight Simple-mode flow so it doesn't apply.
+        self._end_simple_run()
         if getattr(self, "_forge_progress_dialog", None) is not None:
             self._forge_progress_dialog.close()
             self._forge_progress_dialog = None
@@ -3775,6 +4210,8 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("DataForge extracted — generating enhancements…")
             self._run_enhancements_generation()
         else:
+            # #180: extraction failed, so the Simple-mode flow can't continue.
+            self._end_simple_run()
             if getattr(self, "_forge_progress_dialog", None) is not None:
                 self._forge_progress_dialog.close()
                 self._forge_progress_dialog = None
@@ -3842,8 +4279,8 @@ class MainWindow(QMainWindow):
             self._loader_worker.quit()
             self._loader_worker.wait()
 
-        # Save window state
-        AppSettings.set_window_geometry(self.saveGeometry())
+        # Persist only the dock/toolbar layout; window size is mode-driven and
+        # recomputed on next launch (see _size_window_for_mode).
         AppSettings.set_window_state(self.saveState())
 
         event.accept()
@@ -3865,6 +4302,8 @@ class MainWindow(QMainWindow):
             self.hide_unmodified_check.isChecked(),
             self.favorites_only_check.isChecked(),
             AppSettings.get_favorite_prefix(),
+            bp_titles_only=self.bp_titles_check.isChecked(),
+            bp_descs_only=self.bp_descs_check.isChecked(),
         )
 
     @timed
@@ -3983,17 +4422,23 @@ class MainWindow(QMainWindow):
         self.status_combo.blockSignals(True)
         self.hide_unmodified_check.blockSignals(True)
         self.favorites_only_check.blockSignals(True)
+        self.bp_titles_check.blockSignals(True)
+        self.bp_descs_check.blockSignals(True)
 
         self.filter_header.clear_all()
         self.category_combo.setCurrentIndex(0)
         self.status_combo.setCurrentIndex(0)
         self.hide_unmodified_check.setChecked(False)
         self.favorites_only_check.setChecked(False)
+        self.bp_titles_check.setChecked(False)
+        self.bp_descs_check.setChecked(False)
 
         self.category_combo.blockSignals(False)
         self.status_combo.blockSignals(False)
         self.hide_unmodified_check.blockSignals(False)
         self.favorites_only_check.blockSignals(False)
+        self.bp_titles_check.blockSignals(False)
+        self.bp_descs_check.blockSignals(False)
 
         self.apply_filters()
 
@@ -4093,11 +4538,45 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(QModelIndex)
     def _on_cell_clicked(self, proxy_index: QModelIndex):
-        """Handle cell clicks — col 4 (★) toggles favorite for Ship rows."""
-        if proxy_index.column() == COL_STAR:
+        """Handle cell clicks — COL_STAR toggles favorite (Ships).
+
+        The Owned column (COL_OWNED) is a read-only indicator: ownership is now
+        managed by the Blueprints shuttle on the Enhancements tab, not by
+        clicking the star here.
+        """
+        col = proxy_index.column()
+        if col == COL_STAR:
             entry_idx = self._entry_index_for_row(proxy_index.row())
             if entry_idx < len(self.entries) and self.entries[entry_idx].category == "Ships":
                 self.toggle_favorite(proxy_index.row())
+
+    def _rebuild_blueprint_metadata(self):
+        """#157 follow-up: scan loaded strings once to build the blueprint-item
+        metadata (eligible names + per-item mission/type/class/size/grade) the
+        Blueprints shuttle filters on. Pure function of the loaded strings, so
+        it runs on load — not on every owned-toggle (that path re-partitions
+        the cached result)."""
+        from src.utils.blueprint_meta import build_blueprint_metadata
+        self._blueprint_meta = build_blueprint_metadata(self.entries)
+        self._bp_item_names = set(self._blueprint_meta)
+
+    def _recompute_owned(self):
+        """#157: weave/strip [Owned] tags on blueprint-list bullets to match the
+        owned set and refresh the table. Called after every load and on every
+        Owned change; the transform is idempotent so repeated runs never double
+        the tag. The eligible-name set + filter metadata are built separately by
+        `_rebuild_blueprint_metadata` (cached, not rescanned here)."""
+        from src.utils.owned_items import apply_owned_to_value
+        owned = AppSettings.get_owned_items()
+        for e in self.entries:
+            new_val = apply_owned_to_value(e.original_value, owned)
+            if new_val != e.original_value:
+                e.original_value = new_val
+        self._model.set_owned_state(self._bp_item_names, owned)
+        # Feed the blueprint metadata to the Enhancements tab's Blueprints
+        # shuttle (it can't see the loaded strings the data is derived from).
+        if hasattr(self, "enhancements_tab"):
+            self.enhancements_tab.set_blueprint_items(self._blueprint_meta)
 
     def toggle_favorite(self, proxy_row: int):
         """Add or remove the sort prefix from a ship's custom value."""
@@ -4121,12 +4600,13 @@ class MainWindow(QMainWindow):
         self._model.notify_entry_changed(entry_idx)
 
     def restore_window_state(self):
-        """Restore window geometry and state."""
-        geometry = AppSettings.get_window_geometry()
-        state = AppSettings.get_window_state()
+        """Restore the dock / toolbar layout.
 
-        if geometry:
-            self.restoreGeometry(geometry)
+        Window *size* is mode-driven (Simple opens compact, Advanced opens
+        maximized — see _size_window_for_mode), so geometry is intentionally
+        neither persisted nor restored; only the dock/toolbar arrangement is.
+        """
+        state = AppSettings.get_window_state()
         if state:
             self.restoreState(state)
 

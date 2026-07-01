@@ -40,7 +40,7 @@ def _bundled_language_sources() -> dict:
 SC_LANGUAGE_IDS: dict[str, str] = {
     "english":       "english",
     "french":        "french_(france)",
-    "spanish":       "spanish_(latin_america)",
+    "spanish":       "spanish_(spain)",
     "portuguese_br": "portuguese_(brazil)",
 }
 
@@ -92,6 +92,12 @@ class AppSettings:
     # Settings keys - Favorites
     FAVORITE_PREFIX = "favorite_prefix"
 
+    # Settings keys - Test Plan panel (#144)
+    TEST_PLAN_CHECKS = "test_plan/checks"        # JSON: {"hash": ..., "checked": [...]}
+    TEST_PLAN_TESTER = "test_plan/tester_name"
+    TEST_WEBHOOK_URL = "test_plan/webhook_url"   # falls back to env var when unset
+    TEST_WEBHOOK_ENV = "SMART_CITIZEN_TEST_WEBHOOK_URL"
+
     # Settings keys - Mission labels
     REP_XP_LABEL = "rep_xp_label"
     MISSION_HEADER_DETAILS = "mission_header/details"
@@ -111,9 +117,13 @@ class AppSettings:
     # DETAILS body. All default on (the pre-#121 behaviour). Baked at
     # generation time, so a change takes effect on the next Generate
     # Enhancements run.
+    # NOTE: the 2.0 "route" field moved to the Mission Titles Tag Builder tab in
+    # 2.1 (route arrow / placement / location detail live there now), so it is
+    # no longer a mission-detail toggle. migrate_route_toggle_to_mission_titles()
+    # carries a user's old off-state into the new config.
     MISSION_FIELD_KEYS = (
         "mission_type", "difficulty", "spawns", "reputation",
-        "blueprints", "blueprint_tag",
+        "blueprints", "blueprint_tag", "ace",
     )
     _MISSION_FIELD_SETTING = {
         "mission_type":  "mission_field/mission_type",
@@ -122,9 +132,13 @@ class AppSettings:
         "reputation":    "mission_field/reputation",
         "blueprints":    "mission_field/blueprints",
         "blueprint_tag": "mission_field/blueprint_tag",
+        # #158: [ACE]/[ACE?] title tag for missions that spawn an ace pilot.
+        "ace":           "mission_field/ace",
     }
     MISSION_HEADER_DEFAULTS = {
         "details": "MISSION DETAILS",
+        # Kept in sync with owned_items.BP_SECTION_HEADER (the settings-free
+        # matcher modules can't import AppSettings, so they carry the default).
         "blueprints": "POTENTIAL BLUEPRINTS",
         "items": "ITEM REWARDS",
         "blueprint_data": "BLUEPRINT DATA",
@@ -132,10 +146,20 @@ class AppSettings:
 
     # Settings keys - Appearance
     THEME = "theme"
+    # #180: "simple" (one-button generate+apply) vs "advanced" (full UI).
+    # The installer writes this on a fresh registry install; the in-app
+    # toggle changes it at runtime. Defaults to "simple" when unset.
+    UI_MODE = "ui_mode"
+    UI_MODE_SIMPLE = "simple"
+    UI_MODE_ADVANCED = "advanced"
 
     # Settings keys - Enhancements
     ENHANCEMENTS_ENABLED = "enhancements_enabled"
     INCLUDE_NEW_LINES = "include_new_lines"
+
+    # When the user dismisses the "your data is in OneDrive" warning with
+    # "don't warn again", we stop nagging on startup (#172).
+    ONEDRIVE_WARNING_DISMISSED = "onedrive_warning_dismissed"
 
     # Settings keys - Tutorial
     # Stores the app version string ("0.9.3") that last marked the guided tour
@@ -251,6 +275,9 @@ class AppSettings:
     # text can turn it off here without affecting the inline tags on
     # the actual component names elsewhere. Issue #31 follow-up.
     TAG_ANNOTATE_MISSION_DESCS = "tag_builder/annotate_mission_descs"
+    STATS_PREPEND = "stats_prepend"  # #153: stats block above the description
+    STANDARDIZE_EARNABLE_SHIP_NAMES = "standardize_earnable_ship_names"
+    OWNED_ITEMS = "owned_items"      # #157: blueprint items the user owns (JSON list of names)
 
     # Settings keys - Data sources (new)
     # Prefix: data_sources/{source_name}/
@@ -310,6 +337,20 @@ class AppSettings:
         AppSettings.settings().setValue(AppSettings.INCLUDE_NEW_LINES, enabled)
 
     @staticmethod
+    def get_onedrive_warning_dismissed() -> bool:
+        """Whether the user dismissed the OneDrive data-root warning (#172)."""
+        return AppSettings.settings().value(
+            AppSettings.ONEDRIVE_WARNING_DISMISSED, False, type=bool
+        )
+
+    @staticmethod
+    def set_onedrive_warning_dismissed(dismissed: bool) -> None:
+        """Persist 'don't warn me again' for the OneDrive data-root warning."""
+        AppSettings.settings().setValue(
+            AppSettings.ONEDRIVE_WARNING_DISMISSED, dismissed
+        )
+
+    @staticmethod
     def get_enhancement_category_enabled(key: str) -> bool:
         """Check if a specific enhancement category is enabled (default: True)."""
         return AppSettings.settings().value(
@@ -341,6 +382,30 @@ class AppSettings:
     def set_theme(theme: str) -> None:
         """Persist UI theme name."""
         AppSettings.settings().setValue(AppSettings.THEME, theme)
+
+    @staticmethod
+    def get_ui_mode() -> str:
+        """Return the UI mode: 'simple' or 'advanced' (#180).
+
+        Defaults to 'simple' for fresh installs (the installer may have
+        already written the user's choice). Any unrecognized stored value
+        coerces back to 'simple'.
+        """
+        value = AppSettings.settings().value(
+            AppSettings.UI_MODE, AppSettings.UI_MODE_SIMPLE
+        )
+        return (
+            value
+            if value in (AppSettings.UI_MODE_SIMPLE, AppSettings.UI_MODE_ADVANCED)
+            else AppSettings.UI_MODE_SIMPLE
+        )
+
+    @staticmethod
+    def set_ui_mode(mode: str) -> None:
+        """Persist the UI mode. Unknown values fall back to 'simple'."""
+        if mode not in (AppSettings.UI_MODE_SIMPLE, AppSettings.UI_MODE_ADVANCED):
+            mode = AppSettings.UI_MODE_SIMPLE
+        AppSettings.settings().setValue(AppSettings.UI_MODE, mode)
 
     @staticmethod
     def get_selected_language() -> str:
@@ -474,6 +539,55 @@ class AppSettings:
         """Set the character prepended to favorited ship names."""
         AppSettings.settings().setValue(AppSettings.FAVORITE_PREFIX, prefix)
 
+    # ── Test Plan panel (#144) ───────────────────────────────────────────────
+    @staticmethod
+    def get_test_plan_checks() -> set:
+        """Return the tester's checked item keys, or empty if the plan changed.
+
+        Stored with the plan hash it was saved against; when TEST_SECTIONS
+        changes the hash no longer matches and the stale marks are dropped.
+        """
+        from src.utils.test_plan import plan_hash
+        raw = AppSettings.settings().value(AppSettings.TEST_PLAN_CHECKS, "")
+        if not raw:
+            return set()
+        try:
+            data = json.loads(raw)
+        except (ValueError, TypeError):
+            return set()
+        if data.get("hash") != plan_hash():
+            return set()
+        return set(data.get("checked", []))
+
+    @staticmethod
+    def set_test_plan_checks(checked) -> None:
+        """Persist the tester's checked item keys against the current plan hash."""
+        from src.utils.test_plan import plan_hash
+        payload = json.dumps({"hash": plan_hash(), "checked": sorted(checked)})
+        AppSettings.settings().setValue(AppSettings.TEST_PLAN_CHECKS, payload)
+
+    @staticmethod
+    def get_tester_name() -> str:
+        return AppSettings.settings().value(AppSettings.TEST_PLAN_TESTER, "")
+
+    @staticmethod
+    def set_tester_name(name: str) -> None:
+        AppSettings.settings().setValue(AppSettings.TEST_PLAN_TESTER, name)
+
+    @staticmethod
+    def get_test_webhook_url() -> str:
+        """Resolve the test-report Discord webhook: stored override, then env.
+
+        Returns "" when neither is set; the panel disables Submit in that case
+        and falls back to Copy Report. No webhook URL is ever bundled.
+        """
+        stored = AppSettings.settings().value(AppSettings.TEST_WEBHOOK_URL, "")
+        return (stored or os.environ.get(AppSettings.TEST_WEBHOOK_ENV, "")).strip()
+
+    @staticmethod
+    def set_test_webhook_url(url: str) -> None:
+        AppSettings.settings().setValue(AppSettings.TEST_WEBHOOK_URL, url)
+
     @staticmethod
     def get_rep_xp_label() -> str:
         """Label shown on single-tier mission XP lines (default 'Rep')."""
@@ -519,6 +633,29 @@ class AppSettings:
     @staticmethod
     def set_mission_header_em_tag(tag: str) -> None:
         AppSettings.settings().setValue(AppSettings.MISSION_HEADER_EM_TAG, tag)
+
+    @staticmethod
+    def migrate_route_toggle_to_mission_titles() -> None:
+        """One-time (2.1): carry the retired #166 ``route`` mission-detail toggle
+        into the new mission_titles tag config. Only acts when the user had route
+        explicitly OFF and hasn't configured the new tab yet — so a deliberate
+        opt-out survives the move and nobody is silently flipped back on."""
+        s = AppSettings.settings()
+        marker = "mission_field/route_migrated"
+        if s.value(marker, False, type=bool):
+            return
+        old = s.value("mission_field/route", None)
+        was_off = old is not None and str(old).strip().lower() in ("false", "0")
+        already = s.value("tag_builder/mission_titles/config", "", type=str)
+        if was_off and not already:
+            from src.utils.tag_builder import default_config
+            cfg = default_config("mission_titles")
+            for e in cfg.elements:
+                if e.kind == "route":
+                    e.enabled = False
+            AppSettings.set_tag_config("mission_titles", cfg)
+        s.setValue(marker, True)
+        s.sync()
 
     @staticmethod
     def get_mission_detail_fields() -> dict:
@@ -567,12 +704,21 @@ class AppSettings:
         AppSettings._migrate_tag_config_mapping(category, cfg)
         AppSettings._backfill_new_elements(category, cfg)
         # 1.5.0: commodities gained a second flag (Collection). A stored
-        # single-element config used separator "none", which would mash the
-        # two flags together as "[CFCollection]". Pipe is the intended joiner,
-        # and the separator was meaningless for the old single-element tag, so
-        # upgrading it is safe (#97).
-        if category == "commodities" and cfg.separator == "none":
-            cfg.separator = "pipe"
+        # single-element config used separator "none" (meaningless when there
+        # was only one flag), which post-1.5.0 would mash the two flags into
+        # "[CFCollection]". Upgrade that leftover to "pipe" ONCE (marker-gated)
+        # so existing users don't regress — but never clamp again, so a user
+        # can deliberately choose "none" and have it stick (#97 follow-up).
+        if category == "commodities":
+            marker = "tag_builder/commodities/sep_migrated"
+            if not AppSettings.settings().value(marker, False, type=bool):
+                if cfg.separator == "none":
+                    cfg.separator = "pipe"
+                    AppSettings.settings().setValue(
+                        f"tag_builder/{category}/config", cfg.to_json()
+                    )
+                AppSettings.settings().setValue(marker, True)
+                AppSettings.settings().sync()
         return cfg
 
     @staticmethod
@@ -607,9 +753,15 @@ class AppSettings:
 
     @staticmethod
     def _backfill_new_elements(category: str, cfg) -> None:
-        """Append element kinds added in a newer version that the stored
-        config doesn't have yet (e.g. ``type`` added to components in 1.4.2).
-        New elements are appended disabled so existing output is unchanged."""
+        """Insert element kinds added in a newer version that the stored config
+        doesn't have yet (e.g. ``type`` added to components in 1.4.2, ``usage``
+        added to commodities in 2.1). New elements inherit the default config's
+        enabled state (usually disabled so existing output is unchanged; the
+        commodity ``usage`` element is on by default, so upgraded users pick it
+        up too), and are inserted at their canonical position in
+        ``CATEGORY_ELEMENT_KINDS`` (not appended) so an element added in the
+        middle of the order — like ``usage`` between ``label`` and
+        ``collection`` — renders in the right place for upgraded users too."""
         from src.utils.tag_builder import (
             CATEGORY_ELEMENT_KINDS, DEFAULT_TAG_CONFIGS, DEFAULT_KIND_MAPPINGS,
             ElementSpec,
@@ -617,16 +769,24 @@ class AppSettings:
         expected_kinds = CATEGORY_ELEMENT_KINDS.get(category, ())
         existing_kinds = {e.kind for e in cfg.elements}
         defaults = DEFAULT_TAG_CONFIGS.get(category)
-        for kind in expected_kinds:
+        for pos, kind in enumerate(expected_kinds):
             if kind not in existing_kinds:
                 default_spec = None
                 if defaults:
                     default_spec = next((e for e in defaults.elements if e.kind == kind), None)
-                cfg.elements.append(ElementSpec(
+                new_spec = ElementSpec(
                     kind=kind,
                     enabled=default_spec.enabled if default_spec else False,
                     style=default_spec.style if default_spec else "",
-                ))
+                )
+                # Insert just after the last already-present element that
+                # precedes `kind` in canonical order; falls back to `pos`.
+                preceding = {k for k in expected_kinds[:pos]}
+                insert_at = 0
+                for i, el in enumerate(cfg.elements):
+                    if el.kind in preceding:
+                        insert_at = i + 1
+                cfg.elements.insert(insert_at, new_spec)
             kind_mapping = DEFAULT_KIND_MAPPINGS.get(kind, {})
             for key, val in kind_mapping.items():
                 if key not in cfg.class_mapping:
@@ -669,6 +829,76 @@ class AppSettings:
             AppSettings.TAG_ANNOTATE_MISSION_DESCS, bool(enabled)
         )
         AppSettings.settings().sync()
+
+    @staticmethod
+    def get_stats_prepend() -> bool:
+        """#153: whether the generated stats block is placed ABOVE the prose
+        description (True) instead of appended below it (False, default).
+        Applies to ship and component/weapon descriptions; baked at generation
+        time, so it takes effect on the next Generate Enhancements run."""
+        return bool(AppSettings.settings().value(
+            AppSettings.STATS_PREPEND, False, type=bool
+        ))
+
+    @staticmethod
+    def set_stats_prepend(enabled: bool) -> None:
+        """Persist the stats-above-description toggle (#153)."""
+        AppSettings.settings().setValue(AppSettings.STATS_PREPEND, bool(enabled))
+        AppSettings.settings().sync()
+
+    @staticmethod
+    def get_standardize_earnable_ship_names() -> bool:
+        """Whether to apply standardized display names for earnable ships
+        (PYX exec-hangar and WIK Wikelo variants). Off by default."""
+        return bool(AppSettings.settings().value(
+            AppSettings.STANDARDIZE_EARNABLE_SHIP_NAMES, False, type=bool
+        ))
+
+    @staticmethod
+    def set_standardize_earnable_ship_names(enabled: bool) -> None:
+        AppSettings.settings().setValue(
+            AppSettings.STANDARDIZE_EARNABLE_SHIP_NAMES, bool(enabled)
+        )
+        AppSettings.settings().sync()
+
+    @staticmethod
+    def get_owned_items() -> set:
+        """Return the set of owned blueprint item names (#157).
+
+        Stored as a JSON list string so it round-trips identically through the
+        registry (QSettings) and the portable JSON backend — a raw Python list
+        in QSettings comes back as a QStringList and mangles single-item sets.
+        """
+        import json
+        raw = AppSettings.settings().value(AppSettings.OWNED_ITEMS, "", type=str)
+        if not raw:
+            return set()
+        try:
+            return set(json.loads(raw))
+        except (ValueError, TypeError):
+            return set()
+
+    @staticmethod
+    def set_owned_items(names) -> None:
+        """Persist the owned blueprint item-name set (#157)."""
+        import json
+        AppSettings.settings().setValue(
+            AppSettings.OWNED_ITEMS, json.dumps(sorted(names))
+        )
+        AppSettings.settings().sync()
+
+    @staticmethod
+    def toggle_owned_item(name: str) -> bool:
+        """Add/remove *name* from the owned set; return the new owned state."""
+        owned = AppSettings.get_owned_items()
+        if name in owned:
+            owned.discard(name)
+            new_state = False
+        else:
+            owned.add(name)
+            new_state = True
+        AppSettings.set_owned_items(owned)
+        return new_state
 
     @staticmethod
     def get_tutorial_completed_version() -> str:
@@ -1786,9 +2016,16 @@ class AppSettings:
         consistent without manual bookkeeping at each call site.
         """
         AppSettings.settings().setValue(AppSettings.SC_INSTALL_ROOT, path)
-        AppSettings.set_game_install_path(
-            AppSettings.get_channel_install_path() if path else ""
+        # Compose the active-channel path from the value we were just handed,
+        # NOT via get_channel_install_path()/get_sc_install_root(). That getter
+        # runs a cross-check against the still-stale GAME_INSTALL_PATH and, when
+        # the user switches install locations (e.g. C: default → D:), reverts
+        # SC_INSTALL_ROOT back to the old root before we get a chance to refresh
+        # the legacy key — silently discarding the path the user just picked.
+        channel_path = (
+            str(Path(path) / AppSettings.get_active_channel()) if path else ""
         )
+        AppSettings.set_game_install_path(channel_path)
 
     @staticmethod
     def get_available_channels() -> list[str]:
