@@ -842,6 +842,38 @@
       "ht": "Mais tarde",
       "at": "Mais tarde"
     },
+    "update_now": {
+      "ht": "",
+      "at": "Atualizar agora"
+    },
+    "update_auto_note": {
+      "ht": "",
+      "at": "O Smart Citizen vai fechar, instalar a atualização e reabrir automaticamente. O Windows pedirá permissão primeiro."
+    },
+    "update_download_title": {
+      "ht": "",
+      "at": "Baixando atualização"
+    },
+    "update_download_label": {
+      "ht": "",
+      "at": "Baixando Smart Citizen v{latest}..."
+    },
+    "update_download_failed_title": {
+      "ht": "",
+      "at": "Falha ao baixar a atualização"
+    },
+    "update_download_failed_body": {
+      "ht": "",
+      "at": "Não foi possível baixar a atualização:\n\n{message}\n\nVocê pode baixá-la manualmente na página da versão."
+    },
+    "update_launch_failed_title": {
+      "ht": "",
+      "at": "Atualização não iniciada"
+    },
+    "update_launch_failed_body": {
+      "ht": "",
+      "at": "O instalador da atualização não foi iniciado (a permissão do Windows foi negada ou a execução falhou).\n\nVocê pode executá-lo manualmente mais tarde:\n{path}\n\nO Smart Citizen continuará rodando na versão atual por enquanto."
+    },
     "up_to_date_title": {
       "ht": "Smart Citizen — Atualizado",
       "at": "Smart Citizen — Atualizado"

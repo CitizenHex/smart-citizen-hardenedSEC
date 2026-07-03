@@ -53,6 +53,13 @@ Name: "{commondesktop}\Smart Citizen"; Filename: "{app}\SmartCitizen.exe"
 
 [Run]
 Filename: "{app}\SmartCitizen.exe"; Description: "{cm:LaunchProgram,Smart Citizen}"; Flags: nowait postinstall skipifsilent
+; #211 in-app auto-update: relaunch Smart Citizen after a silent upgrade. The
+; postinstall entry above only fires from the finish page, which a /SILENT
+; install never shows. Gated on the /AUTOUPDATE=1 switch the app passes, so
+; manual silent installs are unaffected. runasoriginaluser is required: the
+; installer runs elevated, and without it the relaunched app would run as
+; admin (and write user.ini / caches with admin ownership).
+Filename: "{app}\SmartCitizen.exe"; Flags: nowait runasoriginaluser; Check: IsAutoUpdate
 
 [Code]
 var
@@ -68,6 +75,15 @@ var
     HKCU\...\ui_mode in WriteInstallerChoicesToRegistry and the app reads it on
     first launch. Defaults to Simple, pre-selected from a prior install. }
   ModeChoicePage: TInputOptionWizardPage;
+
+function IsAutoUpdate(): Boolean;
+begin
+  { True when this install was spawned by the app's in-app auto-updater
+    (#211), which passes /AUTOUPDATE=1 — see _launch_installer_and_quit in
+    src/gui/main_window.py. Drives the [Run] entry that relaunches the app
+    after a silent upgrade. }
+  Result := ExpandConstant('{param:AUTOUPDATE|0}') = '1';
+end;
 
 function GetLocalCacheDefault(): String;
 begin

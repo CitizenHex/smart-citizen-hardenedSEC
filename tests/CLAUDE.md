@@ -19,7 +19,7 @@ Split by domain:
 - `test_pak_extraction.py` — P4K/DataForge.
 - `test_progress_sink.py` — thread-safe progress coalescing.
 - `test_dataforge_patcher.py` — declarative XML patching.
-- `test_app_updater.py` — GitHub Releases version-check worker.
+- `test_app_updater.py` — GitHub Releases version-check worker, plus the #211 auto-updater's installer-asset picker (`pick_installer_asset`: anchored name match, malformed-entry tolerance).
 - `test_channel_layout.py` — per-channel directory migration.
 - `test_cache_dir.py` — 1.4.1 split of the DataForge cache override from the user-data override: `CACHE_DIR` is its own registry key, defaults to `%LOCALAPPDATA%\Smart Citizen\<channel>\cache\dataforge\` when unset, and never falls back to the user-data override.
 - `test_retired_url_sources_migration.py` — 1.0 cleanup of contracts/components/ships/commodities/gear sources retired in 0.7.0. Covers fresh-install defaults, upgrade-time prune, URL-vs-local guard, idempotence.

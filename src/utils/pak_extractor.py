@@ -17,6 +17,12 @@ from src.utils.i18n import tr
 
 logger = logging.getLogger(__name__)
 
+# DataForge-cache freshness stamps, written after extraction and read by
+# dataforge_cache_is_fresh. Size is the primary signal (#209); mtime is the
+# legacy fallback for caches written before the size stamp existed.
+P4K_MTIME_STAMP = ".p4k_mtime"
+P4K_SIZE_STAMP = ".p4k_size"
+
 # ``shutil.rmtree`` replaced ``onerror`` with ``onexc`` in Python 3.12. The
 # frozen build runs on 3.11, so passing ``onexc=`` raises TypeError there.
 # Detect once at import.
@@ -417,9 +423,15 @@ def extract_dataforge(
             f"keep-subpaths copied ({skipped} not present in this build)"
         )
 
-        # Write a stamp so we know when this was extracted (p4k mtime)
-        stamp = dataforge_cache_dir / ".p4k_mtime"
-        stamp.write_text(str(p4k_path.stat().st_mtime))
+        # Stamp the source Data.p4k's mtime AND size so a later launch can tell
+        # whether this cache is still current. Size is the reliable signal —
+        # see dataforge_cache_is_fresh — because the RSI launcher's file
+        # verification bumps Data.p4k's mtime on game launches without changing
+        # its content, and a multi-GB re-extract on every such benign touch is
+        # exactly the needless work issue #209 reported.
+        p4k_stat = p4k_path.stat()
+        (dataforge_cache_dir / P4K_MTIME_STAMP).write_text(str(p4k_stat.st_mtime))
+        (dataforge_cache_dir / P4K_SIZE_STAMP).write_text(str(p4k_stat.st_size))
         logger.info(f"DataForge cache written to {dataforge_cache_dir}")
         # Snapshot the new cache so the next run can diff against it.
         # SHA-256 over ~28k files is multi-minute serial; we surface it
@@ -442,10 +454,21 @@ def extract_dataforge(
 def dataforge_cache_is_fresh(p4k_path: Path, dataforge_cache_dir: Path) -> bool:
     """Return True if the cached DataForge XMLs are up-to-date with the p4k.
 
-    Requires both a matching mtime stamp AND actual XML content in the cache
-    so a stamp-only remnant from a failed/partial extraction returns False.
+    Requires a stamp AND actual XML content in the cache so a stamp-only
+    remnant from a failed/partial extraction returns False.
+
+    Freshness is keyed off the source Data.p4k's **byte size**, not its mtime
+    (issue #209). The RSI launcher's file verification bumps Data.p4k's mtime
+    on ordinary game launches without changing its content, so an mtime-only
+    check declared the cache stale after any game launch and forced a needless
+    multi-minute re-extract on the next app start. A real game patch always
+    changes the ~100 GB archive's size, so size is the reliable "did the
+    content change" signal. Caches written before the ``.p4k_size`` stamp
+    existed (upgrades) fall back to the legacy mtime comparison until the next
+    extraction writes the size stamp.
     """
-    stamp = dataforge_cache_dir / ".p4k_mtime"
+    stamp = dataforge_cache_dir / P4K_MTIME_STAMP
+    size_stamp = dataforge_cache_dir / P4K_SIZE_STAMP
     libs_dir = dataforge_cache_dir / "raw" / "libs"
     if not stamp.exists() or not libs_dir.exists():
         return False
@@ -453,7 +476,19 @@ def dataforge_cache_is_fresh(p4k_path: Path, dataforge_cache_dir: Path) -> bool:
     if not any(libs_dir.rglob("*.xml")):
         return False
     try:
+        p4k_stat = p4k_path.stat()
+    except OSError:
+        return False
+    # Primary signal: unchanged size means unchanged content → fresh,
+    # regardless of any benign mtime drift.
+    try:
+        cached_size = int(size_stamp.read_text().strip())
+        return cached_size == p4k_stat.st_size
+    except (OSError, ValueError):
+        pass
+    # Legacy fallback (no size stamp yet): the pre-#209 mtime comparison.
+    try:
         cached_mtime = float(stamp.read_text().strip())
-        return cached_mtime >= p4k_path.stat().st_mtime
-    except Exception:
+        return cached_mtime >= p4k_stat.st_mtime
+    except (OSError, ValueError):
         return False

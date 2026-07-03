@@ -28,7 +28,7 @@ A Windows desktop app for customizing Star Citizen's localization strings. Layer
 - **Guided Tutorial**: A coach-mark tour walks new users through the workflow on first launch of each version. Replayable any time from the Tutorial button.
 - **In-App FAQ**: A FAQ tab answers the common questions (what files get touched, ban risk, the Windows unrecognized-app warning, undoing changes) without leaving the app.
 - **In-App Log Viewer**: Real-time application log with level filter, auto-scroll, and an Export button for bug reports.
-- **Auto-Update Notifier**: Smart Citizen checks GitHub Releases every 6 hours and surfaces a non-blocking notification when a newer installer is available.
+- **Auto-Updater**: Smart Citizen checks GitHub Releases at every launch. When a new version is out, review the release notes in-app and click **Update Now**: the installer downloads, Windows asks for permission, and the app reopens updated. Portable builds link to the release page instead.
 - **Themes**: Four built-in themes — SCLE (default deep-navy mobiGlas), Light, Dark, and ODW (Osiris DevWorks signature).
 
 ## Screenshots

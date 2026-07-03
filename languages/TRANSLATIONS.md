@@ -37,6 +37,17 @@ The English file is the source: every leaf is `{"ht": "<source text>", "at": ""}
   language under the `tutorial.*` keys. English has no `tutorial.*` section, so
   those keys are language-only by design.
 
+## Needs human re-review
+
+Keys whose **English source changed after they were human-translated**. The
+`ht` values below are still the translator's words for the old English text,
+so they were left untouched (AI never edits `ht`); a human should re-translate
+them against the new source.
+
+- `enhancements.apply_tag_changes_btn` — English renamed from "Apply Tag
+  Changes" to "Save Tag Changes" (#214, 2.1.2). Affects french,
+  portuguese_br, spanish (all three still translate "Apply...").
+
 ## Per-language notes
 
 - **english** — source language. All strings authored by the maintainer.

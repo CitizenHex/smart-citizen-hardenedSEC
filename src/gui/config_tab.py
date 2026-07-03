@@ -687,7 +687,8 @@ class ConfigTab(QWidget):
         # The ``.p4k_mtime`` stamp is written by pak_extractor.py once an
         # extraction succeeds, so its presence is the cheapest "is this a
         # populated cache" probe (avoids walking 28k files).
-        old_has_content = (old_leaf / ".p4k_mtime").exists()
+        from src.utils.pak_extractor import P4K_MTIME_STAMP
+        old_has_content = (old_leaf / P4K_MTIME_STAMP).exists()
         if not old_has_content:
             logger.info(
                 f"DataForge cache base changed: {old_base} → {new_base} "

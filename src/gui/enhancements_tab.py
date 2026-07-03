@@ -315,7 +315,7 @@ class EnhancementsTab(QWidget):
             "DataForge data will be extracted automatically if not already cached\n"
             "(first run takes a few minutes; subsequent runs are fast)."
         )
-        self._generate_enhancements_btn.clicked.connect(self.enhancements_pipeline_requested.emit)
+        self._generate_enhancements_btn.clicked.connect(self._on_generate_enhancements_clicked)
         btn_row.addWidget(self._generate_enhancements_btn)
 
         btn_row.addStretch()
@@ -575,10 +575,10 @@ class EnhancementsTab(QWidget):
 
     def refresh_forge_status(self):
         """Update the DataForge cache status label."""
-        from src.utils.pak_extractor import dataforge_cache_is_fresh
+        from src.utils.pak_extractor import P4K_MTIME_STAMP, dataforge_cache_is_fresh
         forge_dir = AppSettings.get_dataforge_cache_dir()
         p4k_path = AppSettings.get_p4k_path()
-        if not (forge_dir / ".p4k_mtime").exists():
+        if not (forge_dir / P4K_MTIME_STAMP).exists():
             self._forge_status_label.setText(
                 "DataForge: not yet extracted — click 'Generate Enhancements' to begin"
             )
@@ -628,7 +628,7 @@ class EnhancementsTab(QWidget):
         # render bare names ("Norfield") even though the same component
         # on the strings tab still shows the configured tag. The toggle
         # is persisted alongside the per-category configs and applied
-        # by the same "Apply Tag Changes" button below — no separate
+        # by the same "Save Tag Changes" button below — no separate
         # save action so the user can't end up with the toggle and the
         # configs out of sync on disk.
         self._annotate_mission_descs_cb = QCheckBox(
@@ -659,7 +659,8 @@ class EnhancementsTab(QWidget):
         self._reset_tag_btn.setToolTip(
             "Restore the default pattern, mapping, and ordering for every "
             "category (Components / Missiles / Ship Weapons). Does not save "
-            "or regenerate until you click Apply Tag Changes."
+            "or regenerate until you click Save Tag Changes or Generate "
+            "Enhancements."
         )
         self._reset_tag_btn.clicked.connect(self._reset_all_tag_builder_pages)
         btn_row.addWidget(self._reset_tag_btn)
@@ -711,16 +712,42 @@ class EnhancementsTab(QWidget):
         for label_key, lbl in self._blueprints_facet_labels.items():
             lbl.setText(tr(label_key))
 
+    def _persist_tag_builder_state(self) -> None:
+        """Save every Tag Builder page's TagConfig plus the annotate-descs
+        toggle to settings.
+
+        Shared by the dedicated *Save Tag Changes* button and the *Generate
+        Enhancements* button (#215): whichever the user clicks, the on-screen
+        Tag Builder state is what gets generated, so a toggled-off label (e.g.
+        the commodity CF flag) can't linger just because the config wasn't
+        saved first. Guarded with getattr so it's a safe no-op if the Tag
+        Builder group hasn't been built."""
+        pages = getattr(self, "_tag_builder_pages", None)
+        if not pages:
+            return
+        for cat, page in pages.items():
+            AppSettings.set_tag_config(cat, page.config)
+        annotate_cb = getattr(self, "_annotate_mission_descs_cb", None)
+        if annotate_cb is not None:
+            AppSettings.set_tag_annotate_mission_descs(annotate_cb.isChecked())
+        logger.info("Tag Builder: saved configs for %s", ", ".join(pages))
+
     def _apply_tag_builder(self):
         """Persist every page's TagConfig and kick off enhancement regen."""
-        for cat, page in self._tag_builder_pages.items():
-            AppSettings.set_tag_config(cat, page.config)
-        AppSettings.set_tag_annotate_mission_descs(
-            self._annotate_mission_descs_cb.isChecked()
-        )
-        logger.info("Tag Builder: saved configs for %s", ", ".join(self._tag_builder_pages))
+        self._persist_tag_builder_state()
         # Re-run the generator so the new tags show up in the output INIs;
         # MainWindow handles the worker lifecycle + progress UI.
+        self.enhancements_pipeline_requested.emit()
+
+    def _on_generate_enhancements_clicked(self):
+        """Generate Enhancements entry point.
+
+        Persists the current Tag Builder edits first (#215) so "what you see is
+        what you generate" — previously only the separate *Save Tag Changes*
+        button saved them, so a user who disabled a tag and clicked Generate
+        still got the old tag in the output.
+        """
+        self._persist_tag_builder_state()
         self.enhancements_pipeline_requested.emit()
 
     def _reset_all_tag_builder_pages(self):
