@@ -28,21 +28,26 @@ from utils.pak_extractor import (
 class TestDataForgeCache:
     """Test DataForge cache freshness detection"""
 
-    # NOTE: freshness is keyed off a ``.p4k_mtime`` stamp file written into
-    # the cache dir at extraction time PLUS real ``raw/libs`` XML content,
-    # and the signature is dataforge_cache_is_fresh(p4k_path, cache_dir).
+    # NOTE: freshness is keyed off a ``.p4k_size`` stamp (issue #209) with a
+    # legacy ``.p4k_mtime`` fallback, PLUS real ``raw/libs`` XML content, and
+    # the signature is dataforge_cache_is_fresh(p4k_path, cache_dir).
     # (Earlier versions of these tests utime'd the cache directory and passed
     # the args swapped as strings — both wrong against the current contract.)
 
     @staticmethod
-    def _populate_cache(cache_dir: Path, stamp_mtime: float, *, with_xml: bool = True) -> None:
+    def _populate_cache(cache_dir: Path, stamp_mtime: float, *,
+                        with_xml: bool = True, stamp_size: int = None) -> None:
         """Build a cache dir the way a real extraction leaves it: a
-        ``.p4k_mtime`` stamp plus ``raw/libs`` content."""
+        ``.p4k_mtime`` stamp plus ``raw/libs`` content. When *stamp_size* is
+        given, also write the ``.p4k_size`` stamp a post-#209 extraction
+        leaves; omit it to simulate a legacy (mtime-only) cache."""
         libs = cache_dir / "raw" / "libs"
         libs.mkdir(parents=True, exist_ok=True)
         if with_xml:
             (libs / "sample.xml").write_text("<x/>")
         (cache_dir / ".p4k_mtime").write_text(str(stamp_mtime))
+        if stamp_size is not None:
+            (cache_dir / ".p4k_size").write_text(str(stamp_size))
 
     def test_cache_is_fresh_when_stamp_newer(self):
         """Fresh when the stamped mtime is >= the p4k mtime and XMLs exist."""
@@ -103,6 +108,53 @@ class TestDataForgeCache:
             self._populate_cache(cache_dir, stamp_mtime=2_000_000_000)
 
             assert dataforge_cache_is_fresh(p4k_path, cache_dir) is False
+
+    def test_cache_is_fresh_when_size_matches_despite_newer_mtime(self):
+        """Issue #209: a benign launcher mtime bump must NOT invalidate the
+        cache. When ``.p4k_size`` matches the current p4k size, the cache is
+        fresh even though the p4k mtime is now far newer than the stamp — the
+        exact scenario the mtime-only check re-extracted needlessly on."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            p4k_path = tmp / "Data.p4k"
+            p4k_path.write_bytes(b"x" * 4096)  # size == 4096
+            os.utime(p4k_path, (9_999_999_999, 9_999_999_999))  # launcher touch
+
+            cache_dir = tmp / "dataforge"
+            # Older stamp mtime, same size.
+            self._populate_cache(cache_dir, stamp_mtime=1_000_000_000, stamp_size=4096)
+
+            assert dataforge_cache_is_fresh(p4k_path, cache_dir) is True
+
+    def test_cache_is_stale_when_size_differs(self):
+        """A real game patch changes Data.p4k's size, so a size mismatch is
+        stale even when the mtime would look fresh (p4k older than the stamp)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            p4k_path = tmp / "Data.p4k"
+            p4k_path.write_bytes(b"x" * 8192)  # size == 8192
+            os.utime(p4k_path, (1_000_000_000, 1_000_000_000))  # older than stamp
+
+            cache_dir = tmp / "dataforge"
+            # Newer stamp mtime, different size.
+            self._populate_cache(cache_dir, stamp_mtime=2_000_000_000, stamp_size=4096)
+
+            assert dataforge_cache_is_fresh(p4k_path, cache_dir) is False
+
+    def test_missing_size_stamp_falls_back_to_mtime(self):
+        """A pre-#209 cache (no ``.p4k_size``) still resolves via the legacy
+        mtime comparison, so upgrades don't force a spurious re-extract."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            p4k_path = tmp / "Data.p4k"
+            p4k_path.write_bytes(b"x" * 4096)
+            os.utime(p4k_path, (1_000_000_000, 1_000_000_000))
+
+            cache_dir = tmp / "dataforge"
+            # No stamp_size → legacy path. Stamp mtime newer than p4k → fresh.
+            self._populate_cache(cache_dir, stamp_mtime=2_000_000_000)
+
+            assert dataforge_cache_is_fresh(p4k_path, cache_dir) is True
 
 
 class TestDataForgeExtraction:

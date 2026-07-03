@@ -58,15 +58,14 @@ jobs:
         # on sys.path — required for the `from src.X` test imports even
         # if pytest.ini's pythonpath resolution drifts. Belt-and-braces.
         #
-        # Excludes the 4 known-broken pak_extraction failures (str/Path
-        # bug in dataforge_cache_is_fresh — separate fix, tracked
-        # outside this PR). Also excludes the skipped TestStringEntry
-        # block in test_core.py (constructor calls predate the
-        # StringEntry signature expansion). Everything else MUST pass.
+        # TestDataForgeCache was previously deselected for a str/Path bug in
+        # dataforge_cache_is_fresh; that's fixed (issue #209, now size-keyed)
+        # and the suite runs it again. The only remaining non-passing block is
+        # the skipped TestStringEntry in test_core.py (constructor calls
+        # predate the StringEntry signature expansion), which self-skips via a
+        # marker. Everything else MUST pass.
         run: |
-          python -m pytest tests/ `
-            --deselect tests/test_pak_extraction.py::TestDataForgeCache `
-            -q
+          python -m pytest tests/ -q
 
       - name: Build PyInstaller onedir
         # Verifies the build script runs to completion on a clean
