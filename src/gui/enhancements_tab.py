@@ -575,10 +575,10 @@ class EnhancementsTab(QWidget):
 
     def refresh_forge_status(self):
         """Update the DataForge cache status label."""
-        from src.utils.pak_extractor import dataforge_cache_is_fresh
+        from src.utils.pak_extractor import P4K_MTIME_STAMP, dataforge_cache_is_fresh
         forge_dir = AppSettings.get_dataforge_cache_dir()
         p4k_path = AppSettings.get_p4k_path()
-        if not (forge_dir / ".p4k_mtime").exists():
+        if not (forge_dir / P4K_MTIME_STAMP).exists():
             self._forge_status_label.setText(
                 "DataForge: not yet extracted — click 'Generate Enhancements' to begin"
             )

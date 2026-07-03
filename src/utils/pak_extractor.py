@@ -17,6 +17,12 @@ from src.utils.i18n import tr
 
 logger = logging.getLogger(__name__)
 
+# DataForge-cache freshness stamps, written after extraction and read by
+# dataforge_cache_is_fresh. Size is the primary signal (#209); mtime is the
+# legacy fallback for caches written before the size stamp existed.
+P4K_MTIME_STAMP = ".p4k_mtime"
+P4K_SIZE_STAMP = ".p4k_size"
+
 # ``shutil.rmtree`` replaced ``onerror`` with ``onexc`` in Python 3.12. The
 # frozen build runs on 3.11, so passing ``onexc=`` raises TypeError there.
 # Detect once at import.
@@ -424,8 +430,8 @@ def extract_dataforge(
         # its content, and a multi-GB re-extract on every such benign touch is
         # exactly the needless work issue #209 reported.
         p4k_stat = p4k_path.stat()
-        (dataforge_cache_dir / ".p4k_mtime").write_text(str(p4k_stat.st_mtime))
-        (dataforge_cache_dir / ".p4k_size").write_text(str(p4k_stat.st_size))
+        (dataforge_cache_dir / P4K_MTIME_STAMP).write_text(str(p4k_stat.st_mtime))
+        (dataforge_cache_dir / P4K_SIZE_STAMP).write_text(str(p4k_stat.st_size))
         logger.info(f"DataForge cache written to {dataforge_cache_dir}")
         # Snapshot the new cache so the next run can diff against it.
         # SHA-256 over ~28k files is multi-minute serial; we surface it
@@ -461,8 +467,8 @@ def dataforge_cache_is_fresh(p4k_path: Path, dataforge_cache_dir: Path) -> bool:
     existed (upgrades) fall back to the legacy mtime comparison until the next
     extraction writes the size stamp.
     """
-    stamp = dataforge_cache_dir / ".p4k_mtime"
-    size_stamp = dataforge_cache_dir / ".p4k_size"
+    stamp = dataforge_cache_dir / P4K_MTIME_STAMP
+    size_stamp = dataforge_cache_dir / P4K_SIZE_STAMP
     libs_dir = dataforge_cache_dir / "raw" / "libs"
     if not stamp.exists() or not libs_dir.exists():
         return False

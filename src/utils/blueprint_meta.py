@@ -40,6 +40,10 @@ from src.utils.owned_items import (
     normalize_item_name,
 )
 
+# Loc-key prefix for item names; ship-weapon detection slices it off to
+# inspect the manufacturer token that follows.
+_ITEM_NAME_PREFIX = "item_Name"
+
 # Coarse type buckets for non-component blueprint items.
 _TYPE_FPS_WEAPON = "FPS Weapon"
 _TYPE_SHIP_WEAPON = "Ship Weapon"
@@ -165,8 +169,8 @@ def blueprint_type_from_key(key: str):
     # subsystem code — the same signal string_model uses to route ship weapons
     # into "Ship Items". Without this they fell into the "Other" bucket and had
     # no entry in the Blueprints tracker's Type filter.
-    if kl.startswith("item_name"):
-        after = key[9:]  # strip the "item_Name" prefix
+    if kl.startswith(_ITEM_NAME_PREFIX.lower()):
+        after = key[len(_ITEM_NAME_PREFIX):]
         if after[:1].isupper() and _SHIP_WEAPON_SIZE_RE.search(key):
             return _TYPE_SHIP_WEAPON
     return None

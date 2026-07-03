@@ -2259,7 +2259,8 @@ class AppSettings:
         if not old_dir.exists():
             return
 
-        if (new_dir / ".p4k_mtime").exists():
+        from src.utils.pak_extractor import P4K_MTIME_STAMP
+        if (new_dir / P4K_MTIME_STAMP).exists():
             logger.info(
                 f"DataForge cache already at new location; removing old copy at {old_dir}"
             )
@@ -2413,8 +2414,9 @@ class AppSettings:
         (see :meth:`get_enhancements_stamp`). Returns 'unknown' when no
         DataForge cache exists yet.
         """
+        from src.utils.pak_extractor import P4K_MTIME_STAMP
         forge_dir = AppSettings.get_dataforge_cache_dir()
-        stamp = forge_dir / ".p4k_mtime"
+        stamp = forge_dir / P4K_MTIME_STAMP
         try:
             text = stamp.read_text(encoding="utf-8").strip()
             if text:

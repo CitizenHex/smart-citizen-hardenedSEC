@@ -1069,12 +1069,8 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_update_download_worker_done(self) -> None:
-        worker = self._update_download_worker
-        if worker is not None:
-            worker.quit()
-            worker.wait()
-            worker.deleteLater()
-            self._update_download_worker = None
+        self._reap_worker(self._update_download_worker)
+        self._update_download_worker = None
 
     def _close_update_download_progress(self) -> None:
         if self._update_download_progress is not None:
@@ -1150,14 +1146,18 @@ class MainWindow(QMainWindow):
             )
         self._continue_startup_after_update_gate()
 
-    @pyqtSlot()
-    def _on_update_check_finished(self) -> None:
-        worker = self._update_check_worker
+    def _reap_worker(self, worker) -> None:
+        """Standard QThread cleanup (quit + wait + deleteLater) for a
+        finished worker. See the threading model in root CLAUDE.md."""
         if worker is not None:
             worker.quit()
             worker.wait()
             worker.deleteLater()
-            self._update_check_worker = None
+
+    @pyqtSlot()
+    def _on_update_check_finished(self) -> None:
+        self._reap_worker(self._update_check_worker)
+        self._update_check_worker = None
         self._force_update_dialog = False
         self.config_tab.set_check_updates_enabled(True)
 
@@ -3823,7 +3823,7 @@ class MainWindow(QMainWindow):
         the table doesn't depend on DataForge. The extract runs in the
         background and chains into enhancements generation on completion.
         """
-        from src.utils.pak_extractor import dataforge_cache_is_fresh
+        from src.utils.pak_extractor import P4K_MTIME_STAMP, dataforge_cache_is_fresh
 
         if self._forge_worker is not None or self._enhancements_worker is not None:
             return
@@ -3833,7 +3833,7 @@ class MainWindow(QMainWindow):
         if not p4k_path.exists() or not unp4k_exe.exists() or not unforge_exe.exists():
             return
         forge_dir = AppSettings.get_dataforge_cache_dir()
-        if not (forge_dir / ".p4k_mtime").exists():
+        if not (forge_dir / P4K_MTIME_STAMP).exists():
             # Never extracted — handled later by _check_enhancements_freshness,
             # which shows a richer category-selection dialog.
             return
