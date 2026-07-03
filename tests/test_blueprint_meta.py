@@ -71,7 +71,18 @@ def test_blueprint_type_buckets():
     assert blueprint_type_from_key("item_Name_pistol_gmni") == "FPS Weapon"
     assert blueprint_type_from_key("item_Name_armor_rsi_torso") == "Armor"
     assert blueprint_type_from_key("item_Name_helmet_xyz") == "Armor"
+    # Ship weapons (#212): uppercase manufacturer + weapon size designator,
+    # no recognized subsystem code. Size codes: _S2, _XL, _L-2, ...
+    assert blueprint_type_from_key("item_NameKLWE_LaserCannon_S2") == "Ship Weapon"
+    assert blueprint_type_from_key("item_NameBEHR_Gatling_S3") == "Ship Weapon"
+    assert blueprint_type_from_key("item_NameAEGS_Bulldog_XL") == "Ship Weapon"
+    # A recognized subsystem code still wins over the ship-weapon fallback
+    # even though shields etc. also carry a _Sx size designator.
+    assert blueprint_type_from_key("item_NameSHLD_ACOM_S01") == "Shield"
+    # Lowercase (FPS gear) with a size-looking token is NOT a ship weapon.
+    assert blueprint_type_from_key("item_Name_pistol_gmni") == "FPS Weapon"
     # Unrecognized / no match -> None (caller folds into "Other").
+    # BombRack has no _Sx / _XL size designator, so it stays None.
     assert blueprint_type_from_key("item_NameAEGS_Eclipse_BombRack") is None
     assert blueprint_type_from_key(None) is None
 
