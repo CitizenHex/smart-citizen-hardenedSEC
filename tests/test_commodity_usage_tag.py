@@ -77,6 +77,32 @@ class TestUsageRender:
         out = render_tag(cfg, {"label": "Crafting", "usage": _usage("Quantum Drive", "Shield")})
         assert out == "[CF|QDRVSHLD]"
 
+
+class TestUsageCap:
+    """#208: the name tag caps how many craft-usage codes it lists so a
+    many-recipe commodity can't overflow/overlap the Fabricator item name."""
+
+    _MANY = ["Cooler", "Power Plant", "Quantum Drive",
+             "Radar", "Shield", "Tractor Beam"]
+
+    def test_caps_at_max_with_overflow_token(self, gen_module):
+        cfg = _commodities_cfg(usage_sep="pipe")
+        assert gen_module.USAGE_TAG_MAX_CODES == 4
+        out = gen_module._commodity_tag(
+            cfg, crafting=True, collection=False, usage_keys=self._MANY
+        )
+        # First 4 render as codes; the remaining 2 collapse to a raw "+2".
+        assert out == "<EM4>[CF|COOL|POWR|QDRV|RADR|+2]</EM4>"
+
+    def test_at_or_below_cap_is_unchanged(self, gen_module):
+        cfg = _commodities_cfg(usage_sep="pipe")
+        four = self._MANY[:gen_module.USAGE_TAG_MAX_CODES]
+        out = gen_module._commodity_tag(
+            cfg, crafting=True, collection=False, usage_keys=four
+        )
+        assert "+" not in out
+        assert out == "<EM4>[CF|COOL|POWR|QDRV|RADR]</EM4>"
+
     def test_disabled_usage_element_is_ignored(self):
         cfg = default_config("commodities")
         for e in cfg.elements:

@@ -3904,6 +3904,15 @@ COLLECTION_ITEM_KEYS: frozenset[str] = frozenset({
 })
 
 
+# Cap the number of craft-usage codes shown inside a commodity *name* tag.
+# A commodity that feeds many recipes could otherwise produce a tag like
+# ``[CF|QDRV|SHLD|POWR|COOL|RADR|…|Collection]`` long enough to overflow and
+# overlap the item name in the in-game Fabricator (#208). Beyond this count
+# the extras collapse to a ``+N`` token; the full, uncapped list still renders
+# in the item's description ("BLUEPRINT DATA" section), so no information is lost.
+USAGE_TAG_MAX_CODES = 4
+
+
 def _commodity_tag(cfg, *, crafting: bool, collection: bool,
                    usage_keys: "list[str] | None" = None) -> str:
     """Render the commodity name tag for the applicable flags, wrapped in EM4.
@@ -3921,7 +3930,11 @@ def _commodity_tag(cfg, *, crafting: bool, collection: bool,
     if crafting:
         values["label"] = "Crafting"
     if usage_keys:
-        values["usage"] = USAGE_INPUT_SEP.join(usage_keys)
+        shown = list(usage_keys)
+        if len(shown) > USAGE_TAG_MAX_CODES:
+            overflow = len(shown) - USAGE_TAG_MAX_CODES
+            shown = shown[:USAGE_TAG_MAX_CODES] + [f"+{overflow}"]
+        values["usage"] = USAGE_INPUT_SEP.join(shown)
     if collection:
         values["collection"] = "Collection"
     if not values:
