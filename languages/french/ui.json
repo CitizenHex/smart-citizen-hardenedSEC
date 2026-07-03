@@ -842,6 +842,38 @@
       "ht": "Plus tard",
       "at": "Plus tard"
     },
+    "update_now": {
+      "ht": "",
+      "at": "Mettre à jour maintenant"
+    },
+    "update_auto_note": {
+      "ht": "",
+      "at": "Smart Citizen va se fermer, installer la mise à jour et se rouvrir automatiquement. Windows demandera d'abord votre autorisation."
+    },
+    "update_download_title": {
+      "ht": "",
+      "at": "Téléchargement de la mise à jour"
+    },
+    "update_download_label": {
+      "ht": "",
+      "at": "Téléchargement de Smart Citizen v{latest}..."
+    },
+    "update_download_failed_title": {
+      "ht": "",
+      "at": "Échec du téléchargement de la mise à jour"
+    },
+    "update_download_failed_body": {
+      "ht": "",
+      "at": "Impossible de télécharger la mise à jour :\n\n{message}\n\nVous pouvez la télécharger manuellement depuis la page de la version."
+    },
+    "update_launch_failed_title": {
+      "ht": "",
+      "at": "Mise à jour non lancée"
+    },
+    "update_launch_failed_body": {
+      "ht": "",
+      "at": "L'installateur de la mise à jour n'a pas démarré (autorisation Windows refusée ou échec du lancement).\n\nVous pouvez l'exécuter vous-même plus tard :\n{path}\n\nSmart Citizen continuera de fonctionner avec la version actuelle pour le moment."
+    },
     "up_to_date_title": {
       "ht": "Smart Citizen — À jour",
       "at": "Smart Citizen — À jour"

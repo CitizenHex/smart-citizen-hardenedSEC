@@ -18,23 +18,23 @@
   "simple_mode": {
     "switch_to_advanced": {
       "ht": "",
-      "at": ""
+      "at": "Cambiar a avanzado"
     },
     "switch_to_advanced_tip": {
       "ht": "",
-      "at": ""
+      "at": "Muestra la interfaz completa de Smart Citizen con todas las pestañas y opciones."
     },
     "generate_apply_btn": {
       "ht": "",
-      "at": ""
+      "at": "Aplicar mejoras"
     },
     "generate_apply_tip": {
       "ht": "",
-      "at": ""
+      "at": "Genera las mejoras más recientes con tu configuración actual y las aplica a tu juego. Antes se crea una copia de seguridad del global.ini actual."
     },
     "defaults_hint": {
       "ht": "",
-      "at": ""
+      "at": "Usa tu configuración actual (la misma que muestra la vista avanzada).\nLa primera ejecución puede tardar unos minutos mientras se extrae DataForge."
     }
   },
   "tabs": {
@@ -60,7 +60,7 @@
     },
     "faq": {
       "ht": "",
-      "at": ""
+      "at": "FAQ"
     },
     "legal": {
       "ht": "Legal",
@@ -122,11 +122,11 @@
     },
     "menu_test_plan": {
       "ht": "",
-      "at": ""
+      "at": "Plan de pruebas"
     },
     "menu_switch_to_simple": {
       "ht": "",
-      "at": ""
+      "at": "Cambiar a modo simple"
     }
   },
   "filters": {
@@ -168,11 +168,11 @@
     },
     "bp_titles_only": {
       "ht": "",
-      "at": ""
+      "at": "Títulos de BP"
     },
     "bp_descs_only": {
       "ht": "",
-      "at": ""
+      "at": "Descripciones de BP"
     },
     "group_sort_btn": {
       "ht": "Ordenar por grupo",
@@ -210,7 +210,7 @@
     },
     "col_order": {
       "ht": "",
-      "at": ""
+      "at": "#"
     },
     "col_custom_value": {
       "ht": "Valor personalizado",
@@ -222,7 +222,7 @@
     },
     "col_owned": {
       "ht": "",
-      "at": ""
+      "at": "Adquirido"
     },
     "no_data": {
       "ht": "No hay datos cargados",
@@ -268,7 +268,7 @@
     },
     "restore_user_ini_btn": {
       "ht": "",
-      "at": ""
+      "at": "Restaurar user.ini..."
     },
     "preview_apply_btn": {
       "ht": "Previsualizar aplicación",
@@ -857,6 +857,38 @@
     "update_later": {
       "ht": "Más tarde",
       "at": ""
+    },
+    "update_now": {
+      "ht": "",
+      "at": "Actualizar ahora"
+    },
+    "update_auto_note": {
+      "ht": "",
+      "at": "Smart Citizen se cerrará, instalará la actualización y se volverá a abrir automáticamente. Windows pedirá permiso primero."
+    },
+    "update_download_title": {
+      "ht": "",
+      "at": "Descargando actualización"
+    },
+    "update_download_label": {
+      "ht": "",
+      "at": "Descargando Smart Citizen v{latest}..."
+    },
+    "update_download_failed_title": {
+      "ht": "",
+      "at": "Error al descargar la actualización"
+    },
+    "update_download_failed_body": {
+      "ht": "",
+      "at": "No se pudo descargar la actualización:\n\n{message}\n\nPuedes descargarla manualmente desde la página de la versión."
+    },
+    "update_launch_failed_title": {
+      "ht": "",
+      "at": "Actualización no iniciada"
+    },
+    "update_launch_failed_body": {
+      "ht": "",
+      "at": "El instalador de la actualización no se inició (se denegó el permiso de Windows o falló el inicio).\n\nPuedes ejecutarlo tú mismo más tarde:\n{path}\n\nSmart Citizen seguirá funcionando con la versión actual por ahora."
     },
     "up_to_date_title": {
       "ht": "Smart Citizen: actualizado",

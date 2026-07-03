@@ -545,7 +545,7 @@
       "at": ""
     },
     "tag_builder_desc": {
-      "ht": "Customizes the bracketed name tags on components, missiles, and ship weapons. Changes take effect after clicking Apply Tag Changes and re-running Generate Enhancements.",
+      "ht": "Customizes the bracketed name tags on components, missiles, and ship weapons. Changes take effect after clicking Save Tag Changes and re-running Generate Enhancements.",
       "at": ""
     },
     "preview_label": {

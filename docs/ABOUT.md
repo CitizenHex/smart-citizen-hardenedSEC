@@ -112,7 +112,7 @@ The non-English game strings are community translations:
 - **Registry Persistence**: All paths and preferences saved securely in Windows Registry
 - **Configurable Data Storage**: Your custom edits are stored under `<data folder>\<channel>\` (default `Documents\Smart Citizen`, one isolated subtree per Star Citizen channel) for safe persistence across sessions
 - **In-App Log Viewer**: Real-time application log with level filter, auto-scroll, and an Export button for bug reports
-- **Auto-Update Notifier**: Smart Citizen checks GitHub Releases periodically and surfaces a non-blocking notification when a newer installer is available
+- **Auto-Updater**: Smart Citizen checks GitHub Releases at launch and shows the release notes in-app; one click (plus a Windows permission prompt) downloads the update, installs it, and reopens the app
 
 ## Quick Start
 

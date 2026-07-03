@@ -112,6 +112,15 @@ Applying writes to the matching language folder in your game install and sets `g
 
 Want to help translate? Translation status per language is tracked in `languages/TRANSLATIONS.md` in the repo, and we would much rather ship your words than a machine's. Reach out on the Discord.
 
+## 15. App Updates
+
+Smart Citizen checks for a new version every time it starts. When one is available, the release notes appear in a scrollable window with two choices:
+
+- **Update Now** downloads the new installer, Windows asks for permission, and Smart Citizen closes, updates, and reopens on the new version. Your edits, backups, and settings are untouched.
+- **Later** keeps you on the current version; you'll be asked again next launch.
+
+You can also check manually anytime with **Check for Updates** on the Config tab. Portable builds show an **Open Release Page** button instead, since there's no installer to run: download the new zip and unpack it over the old folder.
+
 ## Enhancements Tab
 
 - Toggle stat overlays that append numerical stats to descriptions — SCM speed, shield HP, DPS, cargo capacity, mining-laser beam stats (Fracture / Extraction), handheld salvage-tool rates, blueprint pools, mission XP, and more.
@@ -119,7 +128,7 @@ Want to help translate? Translation status per language is tracked in `languages
 - Enable or disable each enhancement category independently.
 - Configure the ship favorites prefix character.
 - **Blueprints ownership** — mark the crafting blueprints you already own. Owned items get a star (the **Owned** column in blueprint lists), and you can filter the table to just blueprint titles or just blueprint descriptions to find and tag them fast. It's a way to see at a glance, in mission and craft listings, what you still need to hunt down.
-- **Tag Builder** — customize the bracketed tags placed on component, missile, ship-weapon, and commodity names. Reorder elements with ▲/▼, toggle individual elements off, change abbreviation length (`M` / `MIL` / `Military`), pick separator (none, hyphen, space, etc.) and brackets (square, round, none, etc.), and choose whether the tag appears before or after the name. Components also have an optional **Type** element (Shield, Cooler, Power Plant, etc.) — disabled by default. Commodities have a **Usage** element that shows what a commodity's crafting materials feed into. Click **Apply Tag Changes** to save and regenerate.
+- **Tag Builder** — customize the bracketed tags placed on component, missile, ship-weapon, and commodity names. Reorder elements with ▲/▼, toggle individual elements off, change abbreviation length (`M` / `MIL` / `Military`), pick separator (none, hyphen, space, etc.) and brackets (square, round, none, etc.), and choose whether the tag appears before or after the name. Components also have an optional **Type** element (Shield, Cooler, Power Plant, etc.) — disabled by default. Commodities have a **Usage** element that shows what a commodity's crafting materials feed into. Click **Save Tag Changes** to save and regenerate. (**Generate Enhancements** also saves any pending tag edits first, so an unsaved tweak can't slip out of a regen.)
 - **Mission Titles** (Tag Builder tab) — lead hauling mission titles with their route. Pick placement (Prepend, Append, or Replace the title), the route arrow (`>`, `->`, `to`, or the shape-encoding `->-`/`->=`/`=>-`/`=>=` that shows one-vs-many endpoints per side), the title separator, and how much of the location to show (full address by default; the short name can fail to display on rare missions), with a live preview. A hauling run reads like `Area18 > Lorville - <original title>` so you can see the job at a glance in the contract list, and multi-stop hauls list their drop-offs (`Area18 > Lorville, New Babbage`). A **Shorten original titles** toggle trims stock-title boilerplate and abbreviates cargo-grade sizes ("Senior Rank - Direct Medium Cargo Haul" reads "Senior - Direct M") so the route and tags fit.
 - **Mission Labels** — customize the section headers used in mission enhancement blocks (MISSION DETAILS, POTENTIAL BLUEPRINTS, ITEM REWARDS, BLUEPRINT DATA), the XP label shown on missions without a specific reputation rank (default "Rep"), and the emphasis tag (EM3 = underline, EM4 = color) used for headers.
 - **Mission Details fields** — show or hide each line of the MISSION DETAILS block individually (mission type, difficulty, spawns, reputation, blueprints, and the `[BP]` title tag), so your mission descriptions carry only the data you care about.
