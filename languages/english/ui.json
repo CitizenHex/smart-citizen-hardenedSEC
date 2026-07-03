@@ -922,6 +922,38 @@
       "ht": "Later",
       "at": ""
     },
+    "update_now": {
+      "ht": "Update Now",
+      "at": ""
+    },
+    "update_auto_note": {
+      "ht": "Smart Citizen will close, install the update, and reopen automatically. Windows will ask for permission first.",
+      "at": ""
+    },
+    "update_download_title": {
+      "ht": "Downloading Update",
+      "at": ""
+    },
+    "update_download_label": {
+      "ht": "Downloading Smart Citizen v{latest}...",
+      "at": ""
+    },
+    "update_download_failed_title": {
+      "ht": "Update Download Failed",
+      "at": ""
+    },
+    "update_download_failed_body": {
+      "ht": "Could not download the update:\n\n{message}\n\nYou can download it manually from the release page.",
+      "at": ""
+    },
+    "update_launch_failed_title": {
+      "ht": "Update Not Started",
+      "at": ""
+    },
+    "update_launch_failed_body": {
+      "ht": "The update installer did not start (Windows permission was declined or the launch failed).\n\nYou can run it yourself later:\n{path}\n\nSmart Citizen will keep running on the current version for now.",
+      "at": ""
+    },
     "up_to_date_title": {
       "ht": "Smart Citizen — Up to Date",
       "at": ""

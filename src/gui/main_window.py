@@ -50,8 +50,10 @@ from src.gui.workers import (
 from src.merger.ini_merger import merge_sources_by_hierarchy
 from src.models.string_model import StringEntry
 from src.parser.ini_parser import load_source_files, load_sources_from_settings, parse_ini_file
-from src.utils.app_updater import AppUpdateCheckWorker
+from src.gui.update_dialog import UpdateDialog
+from src.utils.app_updater import AppUpdateCheckWorker, AppUpdateDownloadWorker
 from src.utils.applied_file_validator import validate_applied_file as _validate_applied_file_impl
+from src.utils.build_mode import IS_PORTABLE
 from src.utils.entry_filter import filter_entry_indices as _filter_entry_indices_impl
 from src.utils.perf import timed
 from src.utils.resource_path import get_resource_path
@@ -318,6 +320,11 @@ class MainWindow(QMainWindow):
         # App self-update check
         self._update_check_worker: Optional[AppUpdateCheckWorker] = None
         self._latest_release_url: Optional[str] = None
+        # #211: True while the rest of startup (source sync, extraction
+        # prompts, OneDrive warning) waits on the update check to resolve.
+        self._startup_gate_pending = False
+        self._update_download_worker: Optional[AppUpdateDownloadWorker] = None
+        self._update_download_progress: Optional[AnimatedProgressDialog] = None
 
         # Build UI
         self.setup_ui()
@@ -946,22 +953,10 @@ class MainWindow(QMainWindow):
 
     # ── App self-update ─────────────────────────────────────────────────────
 
-    # Auto-check runs on startup but only every 6h to stay under GitHub's
-    # 60-req/hr unauthenticated rate limit.
-    _UPDATE_CHECK_MIN_INTERVAL_SECONDS = 6 * 60 * 60
-
-    def _maybe_auto_check_app_updates(self) -> None:
-        """Kick off an app-update check iff the throttle window has elapsed."""
-        import time
-        last = AppSettings.get_last_update_check_epoch()
-        now = int(time.time())
-        if last and now - last < self._UPDATE_CHECK_MIN_INTERVAL_SECONDS:
-            logger.debug(
-                f"Skipping auto update check (last ran {now - last}s ago, "
-                f"throttle {self._UPDATE_CHECK_MIN_INTERVAL_SECONDS}s)"
-            )
-            return
-        self._run_app_update_check(force_dialog=False)
+    # The startup check runs on every launch (#211) — one unauthenticated API
+    # call per launch, far under GitHub's 60-req/hr cap. The former 6-hour
+    # throttle was removed when the check became the gate for the rest of
+    # startup.
 
     def _on_check_updates_clicked(self) -> None:
         """Handle the Config tab's 'Check for Updates' button."""
@@ -986,8 +981,9 @@ class MainWindow(QMainWindow):
         self.config_tab.set_update_status(tr("status_bar.update_checking"))
         worker.start()
 
-    @pyqtSlot(str, str, str)
-    def _on_update_available(self, latest: str, url: str, body: str) -> None:
+    @pyqtSlot(str, str, str, str, int)
+    def _on_update_available(self, latest: str, url: str, body: str,
+                             asset_url: str, asset_size: int) -> None:
         current = get_version()
         self._latest_release_url = url
         self._update_check_state = ("available", latest)
@@ -998,25 +994,128 @@ class MainWindow(QMainWindow):
         self._app_version_indicator.setToolTip(f"Open release page for v{latest}")
         self._refresh_update_indicator_texts()
 
-        # Truncate long release bodies for the dialog so the modal doesn't
-        # stretch off-screen. Users get the full notes on the release page.
-        excerpt = body.strip()
-        if len(excerpt) > 600:
-            excerpt = excerpt[:600].rstrip() + "…"
+        # Auto-update needs an installer asset on the release and a registry
+        # build — the portable variant has no installer to run, so it keeps
+        # the link-only prompt (#211).
+        can_auto_update = bool(asset_url) and not IS_PORTABLE
 
-        msg = QMessageBox(self)
-        msg.setIcon(QMessageBox.Icon.Information)
-        msg.setWindowTitle(tr("dialogs.update_available_title"))
-        text = tr("dialogs.update_available_body", latest=latest, current=current)
-        if excerpt:
-            text += f"\n\n—\n{excerpt}"
-        msg.setText(text)
-        open_btn = msg.addButton(tr("dialogs.update_open_release"), QMessageBox.ButtonRole.AcceptRole)
-        msg.addButton(tr("dialogs.update_later"), QMessageBox.ButtonRole.RejectRole)
-        msg.setDefaultButton(open_btn)
-        msg.exec()
-        if msg.clickedButton() is open_btn:
+        dlg = UpdateDialog(
+            self,
+            latest=latest,
+            current=current,
+            notes_html=self.markdown_to_html(body.strip()),
+            can_auto_update=can_auto_update,
+        )
+        dlg.exec()
+
+        if dlg.choice == UpdateDialog.CHOICE_UPDATE:
+            # Gate stays closed: the app exits to install. On download or
+            # launch failure the handlers reopen it so startup continues.
+            self._start_update_download(latest, url, asset_url, asset_size)
+            return
+        if dlg.choice == UpdateDialog.CHOICE_OPEN_PAGE:
             QDesktopServices.openUrl(QUrl(url))
+        # Whether declined or sent to the release page, the app keeps
+        # running — open the startup gate.
+        self._continue_startup_after_update_gate()
+
+    def _start_update_download(self, latest: str, url: str, asset_url: str,
+                               asset_size: int) -> None:
+        """Download the release installer with progress, then install (#211)."""
+        label = tr("dialogs.update_download_label", latest=latest)
+        self._update_download_progress = AnimatedProgressDialog(
+            label, parent=self, title=tr("dialogs.update_download_title")
+        )
+        self._latest_release_url = url
+
+        worker = AppUpdateDownloadWorker(asset_url, asset_size, self)
+        self._update_download_worker = worker
+        worker.progress_pct.connect(
+            lambda done, total, msg: (
+                self._update_download_progress.set_progress(
+                    done, total, f"{label}\n{msg}"
+                )
+                if self._update_download_progress is not None
+                else None
+            )
+        )
+        worker.download_finished.connect(self._on_update_download_finished)
+        worker.download_error.connect(self._on_update_download_error)
+        worker.finished.connect(self._on_update_download_worker_done)
+        worker.start()
+
+    @pyqtSlot(str)
+    def _on_update_download_finished(self, installer_path: str) -> None:
+        self._close_update_download_progress()
+        self._launch_installer_and_quit(installer_path)
+
+    @pyqtSlot(str)
+    def _on_update_download_error(self, message: str) -> None:
+        self._close_update_download_progress()
+        logger.error(f"Update download failed: {message}")
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(tr("dialogs.update_download_failed_title"))
+        box.setText(tr("dialogs.update_download_failed_body", message=message))
+        page_btn = box.addButton(
+            tr("dialogs.update_open_release"), QMessageBox.ButtonRole.AcceptRole
+        )
+        box.addButton(tr("dialogs.update_later"), QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        if box.clickedButton() is page_btn and self._latest_release_url:
+            QDesktopServices.openUrl(QUrl(self._latest_release_url))
+        # The update didn't happen — let startup proceed normally.
+        self._continue_startup_after_update_gate()
+
+    @pyqtSlot()
+    def _on_update_download_worker_done(self) -> None:
+        worker = self._update_download_worker
+        if worker is not None:
+            worker.quit()
+            worker.wait()
+            worker.deleteLater()
+            self._update_download_worker = None
+
+    def _close_update_download_progress(self) -> None:
+        if self._update_download_progress is not None:
+            self._update_download_progress.close()
+            self._update_download_progress = None
+
+    def _launch_installer_and_quit(self, installer_path: str) -> None:
+        """Spawn the silent installer and exit so file locks release (#211).
+
+        ShellExecuteW honors the installer's admin manifest, so this call is
+        what raises the UAC prompt — and it returns only after the user
+        answers it. A declined prompt (or any launch failure) returns <= 32,
+        in which case the app keeps running and startup proceeds normally.
+
+        Installer switches: /SILENT /NORESTART run the upgrade with just a
+        progress bar; /SUPPRESSMSGBOXES auto-answers the "previous version
+        found" box with its default (Yes = upgrade in place); /AUTOUPDATE=1
+        tells installer.iss to relaunch Smart Citizen when the install
+        finishes (the normal postinstall Run entry is skipifsilent).
+        """
+        import ctypes
+
+        args = "/SILENT /NORESTART /SUPPRESSMSGBOXES /AUTOUPDATE=1"
+        ret = ctypes.windll.shell32.ShellExecuteW(
+            None, "open", installer_path, args, None, 1
+        )
+        if ret <= 32:
+            logger.error(
+                f"Update installer launch failed or was declined "
+                f"(ShellExecuteW returned {ret}) for {installer_path}"
+            )
+            QMessageBox.warning(
+                self,
+                tr("dialogs.update_launch_failed_title"),
+                tr("dialogs.update_launch_failed_body", path=installer_path),
+            )
+            self._continue_startup_after_update_gate()
+            return
+
+        logger.info(f"Update installer launched ({installer_path}); exiting to install")
+        self.close()
 
     @pyqtSlot(str)
     def _on_update_up_to_date(self, current: str) -> None:
@@ -1032,6 +1131,7 @@ class MainWindow(QMainWindow):
                 tr("dialogs.up_to_date_title"),
                 tr("dialogs.up_to_date_body", current=current),
             )
+        self._continue_startup_after_update_gate()
 
     @pyqtSlot(str)
     def _on_update_check_error(self, message: str) -> None:
@@ -1048,11 +1148,10 @@ class MainWindow(QMainWindow):
                 tr("dialogs.update_check_failed_title"),
                 tr("dialogs.update_check_failed_body", message=message),
             )
+        self._continue_startup_after_update_gate()
 
     @pyqtSlot()
     def _on_update_check_finished(self) -> None:
-        import time
-        AppSettings.set_last_update_check_epoch(int(time.time()))
         worker = self._update_check_worker
         if worker is not None:
             worker.quit()
@@ -2857,18 +2956,37 @@ class MainWindow(QMainWindow):
         self._start_post_tutorial_tasks()
 
     def _start_post_tutorial_tasks(self) -> None:
-        """Fire the deferred startup tasks (source sync + app-update check) once.
+        """Fire the deferred startup tasks once, app-update check first (#211).
 
         Held back until the guided tour finishes so its modal prompts (P4K
         extraction, app-update dialog, enhancements pipeline) don't pop over
         the coach-mark overlay during first-run. Idempotent — safe to call
         from multiple paths (no-tutorial branch, tour-finished, tour-skipped).
+
+        The update check gates everything else: source sync (and the P4K /
+        DataForge extraction prompts behind it) plus the OneDrive warning wait
+        in _continue_startup_after_update_gate until the check resolves. An
+        accepted update exits the app to install — starting an extraction that
+        exit would interrupt helps nobody.
         """
         if getattr(self, "_post_tutorial_tasks_started", False):
             return
         self._post_tutorial_tasks_started = True
+        self._startup_gate_pending = True
+        self._run_app_update_check(force_dialog=False)
+
+    def _continue_startup_after_update_gate(self) -> None:
+        """Run the gated startup tasks once the update check resolves (#211).
+
+        Called from every terminal outcome of the startup update check: up to
+        date, check failed, or update offered but not installed. Guarded by
+        the pending flag, so a later manual Config-tab check landing on the
+        same handlers can't restart the sequence.
+        """
+        if not getattr(self, "_startup_gate_pending", False):
+            return
+        self._startup_gate_pending = False
         self._start_startup_sync()
-        self._maybe_auto_check_app_updates()
         self._maybe_warn_onedrive_data_dir()
 
     def _maybe_warn_onedrive_data_dir(self) -> None:

@@ -169,12 +169,6 @@ class AppSettings:
     TUTORIAL_DISABLED = "tutorial_disabled"
 
     # Settings keys - App self-update check
-    # Unix epoch of the last successful GitHub Releases check; the auto-check
-    # on startup uses this to throttle itself to once per 6h (staying well
-    # under GitHub's 60-req/hr unauthenticated rate limit). Manual checks
-    # from the Config tab bypass the throttle.
-    LAST_UPDATE_CHECK_EPOCH = "last_update_check_epoch"
-
     # Settings keys - Star Citizen channel selection
     # Star Citizen ships multiple channels (LIVE/PTU/EPTU/HOTFIX/TECH-PREVIEW)
     # under a common install root, each with its own Data.p4k. We store the
@@ -947,21 +941,6 @@ class AppSettings:
     @staticmethod
     def set_tutorial_disabled(disabled: bool) -> None:
         AppSettings.settings().setValue(AppSettings.TUTORIAL_DISABLED, bool(disabled))
-        AppSettings.settings().sync()
-
-    @staticmethod
-    def get_last_update_check_epoch() -> int:
-        """Unix epoch of the last successful app-update check (0 if never)."""
-        raw = AppSettings.settings().value(AppSettings.LAST_UPDATE_CHECK_EPOCH, 0)
-        try:
-            return int(raw)
-        except (TypeError, ValueError):
-            return 0
-
-    @staticmethod
-    def set_last_update_check_epoch(epoch: int) -> None:
-        """Persist the timestamp of the most recent app-update check."""
-        AppSettings.settings().setValue(AppSettings.LAST_UPDATE_CHECK_EPOCH, int(epoch))
         AppSettings.settings().sync()
 
     @staticmethod
