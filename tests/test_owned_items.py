@@ -39,6 +39,32 @@ class TestNormalize:
         # The whole point: a tagged bullet and the bare item row normalize equal.
         assert normalize_item_name("[Mil-S1-A] Norfield") == normalize_item_name("Norfield")
 
+    # ── #222: fold log-imported blueprint names onto the same identity ────────
+    def test_strips_trailing_component_tag(self):
+        # SC's blueprint log puts the tag after some ship-component names.
+        assert normalize_item_name("Barbican [IND-S3-B]") == "Barbican"
+
+    def test_nfkc_folds_non_breaking_space(self):
+        # Log names arrive with U+00A0 where loc data has a plain space.
+        assert normalize_item_name("Lynx" + chr(0xA0) + "Legs") == "Lynx Legs"
+
+    def test_collapses_internal_whitespace(self):
+        assert normalize_item_name("F55  LMG   Magazine") == "F55 LMG Magazine"
+
+    def test_leading_and_trailing_tag_together(self):
+        assert normalize_item_name("[E-S2] Omnisky VI Cannon") == "Omnisky VI Cannon"
+
+    def test_empty_value(self):
+        assert normalize_item_name("") == ""
+
+    def test_log_name_matches_mission_bullet(self):
+        # The #222 contract: a raw log name folds to the same key a mission
+        # bullet does, so importing the log name lights up the bullet.
+        nbsp = normalize_item_name("Lynx" + chr(0xA0) + "Legs")
+        assert nbsp == normalize_item_name("- Lynx Legs".lstrip("- "))
+        assert normalize_item_name("Barbican [IND-S3-B]") == \
+            normalize_item_name("[IND-S3-B] Barbican")
+
 
 class TestExtract:
     def test_finds_normalized_bullet_names(self):
@@ -83,6 +109,17 @@ class TestApply:
         tagged = apply_owned_to_value(_DESC, {"Antium Core"})
         assert "[Owned]" not in apply_owned_to_value(tagged, set())
 
+    def test_tags_bullets_with_nbsp_and_trailing_tag(self):
+        # #222: a bullet carrying a non-breaking space or a trailing component
+        # tag still matches an owned entry stored in bare/plain form.
+        nl = chr(92) + "n"
+        val = ("POTENTIAL BLUEPRINTS" + nl + "- Lynx" + chr(0xA0) + "Legs"
+               + nl + "- Barbican [IND-S3-B]" + nl + "- Norfield")
+        out = apply_owned_to_value(val, {"Lynx Legs", "Barbican"})
+        assert out.count("<EM4>[Owned]</EM4>") == 2
+        assert "Norfield <EM4>[Owned]" not in out  # not owned
+        assert apply_owned_to_value(out, {"Lynx Legs", "Barbican"}) == out  # idempotent
+
 
 # ── AppSettings owned-set persistence + model rendering ──────────────────────
 
@@ -119,6 +156,39 @@ class TestOwnedSettings:
         assert "Norfield" in AppSettings.get_owned_items()
         assert AppSettings.toggle_owned_item("Norfield") is False
         assert "Norfield" not in AppSettings.get_owned_items()
+
+
+class TestBlueprintWatermark:
+    """#222: per-channel BP Scan watermark round-trip."""
+
+    def test_default_none(self, isolated_settings):
+        assert AppSettings.get_blueprint_log_watermark() is None
+
+    def test_roundtrip_preserves_utc_instant(self, isolated_settings):
+        from datetime import datetime, timezone
+        when = datetime(2026, 3, 26, 17, 15, 41, 684000, tzinfo=timezone.utc)
+        AppSettings.set_blueprint_log_watermark(when)
+        assert AppSettings.get_blueprint_log_watermark() == when
+
+    def test_per_channel_isolation(self, isolated_settings, monkeypatch):
+        from datetime import datetime, timezone
+        live = datetime(2026, 4, 1, tzinfo=timezone.utc)
+        ptu = datetime(2026, 5, 1, tzinfo=timezone.utc)
+
+        monkeypatch.setattr(AppSettings, "get_active_channel", staticmethod(lambda: "LIVE"))
+        AppSettings.set_blueprint_log_watermark(live)
+        monkeypatch.setattr(AppSettings, "get_active_channel", staticmethod(lambda: "PTU"))
+        assert AppSettings.get_blueprint_log_watermark() is None  # PTU untouched
+        AppSettings.set_blueprint_log_watermark(ptu)
+
+        monkeypatch.setattr(AppSettings, "get_active_channel", staticmethod(lambda: "LIVE"))
+        assert AppSettings.get_blueprint_log_watermark() == live  # LIVE unchanged by PTU write
+
+    def test_garbage_value_returns_none(self, isolated_settings):
+        AppSettings.settings().setValue(
+            AppSettings._blueprint_watermark_key(), "not-a-timestamp"
+        )
+        assert AppSettings.get_blueprint_log_watermark() is None
 
 
 class TestModelOwnedColumn:

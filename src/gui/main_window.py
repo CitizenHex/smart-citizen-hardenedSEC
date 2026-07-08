@@ -38,6 +38,7 @@ from src.gui.theme import (
 )
 from src.gui.workers import (
     AnimatedProgressDialog,
+    BlueprintLogScanWorker,
     DataForgeExtractWorker,
     EnhancementsGeneratorWorker,
     FileLoaderWorker,
@@ -291,6 +292,10 @@ class MainWindow(QMainWindow):
         # DataForge extraction worker
         self._forge_worker: Optional[DataForgeExtractWorker] = None
 
+        # #222: BP Scan — reads SC logs for received-blueprint events
+        self._bp_scan_worker: Optional[BlueprintLogScanWorker] = None
+        self._bp_scan_progress: Optional[AnimatedProgressDialog] = None
+
         # #180: when True, the Simple-mode one-button flow is running and the
         # enhancements-generation-finished slot should continue into
         # apply_to_game. Cleared on completion or any failure.
@@ -427,6 +432,7 @@ class MainWindow(QMainWindow):
         self.enhancements_tab.enhancements_pipeline_requested.connect(self._run_enhancements_pipeline)
         self.enhancements_tab.favorite_prefix_changed.connect(self._on_favorite_prefix_changed)
         self.enhancements_tab.owned_items_changed.connect(self._recompute_owned)
+        self.enhancements_tab.blueprint_scan_requested.connect(self._run_blueprint_log_scan)
         self._enhancements_tab_index = self.tabs.addTab(self.enhancements_tab, tr("tabs.enhancements"))
 
         self.log_tab = LogTab()
@@ -4720,6 +4726,105 @@ class MainWindow(QMainWindow):
         # shuttle (it can't see the loaded strings the data is derived from).
         if hasattr(self, "enhancements_tab"):
             self.enhancements_tab.set_blueprint_items(self._blueprint_meta)
+
+    # ── BP Scan: populate ownership from SC logs (#222) ──────────────────────
+
+    def _run_blueprint_log_scan(self):
+        """Scan the active channel's SC logs for received-blueprint events and
+        fold them into the owned set. Launched by the Enhancements tab's
+        "BP Scan" button; runs in a background worker with a progress dialog."""
+        if self._bp_scan_worker is not None:
+            return  # already scanning
+
+        channel_dir = AppSettings.get_channel_install_path()
+        if not channel_dir or not Path(channel_dir).is_dir():
+            QMessageBox.warning(
+                self,
+                tr("enhancements.bp_scan_title"),
+                tr("enhancements.bp_scan_no_path"),
+            )
+            return
+
+        since = AppSettings.get_blueprint_log_watermark()
+        self._bp_scan_worker = BlueprintLogScanWorker(channel_dir, since)
+        self._bp_scan_progress = AnimatedProgressDialog(
+            tr("enhancements.bp_scan_starting"),
+            parent=self,
+            title=tr("enhancements.bp_scan_title"),
+        )
+        self._bp_scan_worker.progress.connect(self.statusBar().showMessage)
+        self._bp_scan_worker.progress.connect(self._bp_scan_progress.setLabelText)
+        self._bp_scan_worker.progress_pct.connect(self._bp_scan_progress.set_progress)
+        self._bp_scan_worker.error.connect(self._on_bp_scan_error)
+        self._bp_scan_worker.finished.connect(self._on_bp_scan_finished)
+        self._bp_scan_worker.start()
+
+    def _on_bp_scan_error(self, message: str):
+        logger.error(f"BP Scan failed: {message}")
+        if self._bp_scan_progress is not None:
+            self._bp_scan_progress.close()
+            self._bp_scan_progress = None
+
+    def _on_bp_scan_finished(self, result):
+        """Fold a completed scan's names into the owned set and report.
+
+        Owns all owned-set / watermark mutation (the worker stays read-only), so
+        every settings write happens on the main thread. ``result`` is a
+        ``ScanResult`` or ``None`` when the scan errored."""
+        if self._bp_scan_progress is not None:
+            self._bp_scan_progress.close()
+            self._bp_scan_progress = None
+        if self._bp_scan_worker is not None:
+            self._bp_scan_worker.quit()
+            self._bp_scan_worker.wait()
+            self._bp_scan_worker = None
+
+        if result is None:
+            return  # error already surfaced via _on_bp_scan_error
+
+        from src.utils.owned_items import normalize_item_name
+
+        # Normalize raw log names to the shared owned-set identity; drop blanks.
+        scanned = {normalize_item_name(n) for n in result.names}
+        scanned.discard("")
+
+        owned = AppSettings.get_owned_items()
+        new_names = sorted(scanned - owned)
+
+        # Advance the watermark even when nothing new was imported, so a growing
+        # Game.log's already-seen events aren't reparsed next time.
+        if result.latest_timestamp is not None:
+            prev = AppSettings.get_blueprint_log_watermark()
+            newest = result.latest_timestamp if prev is None else max(prev, result.latest_timestamp)
+            AppSettings.set_blueprint_log_watermark(newest)
+
+        if not new_names:
+            QMessageBox.information(
+                self,
+                tr("enhancements.bp_scan_title"),
+                tr("enhancements.bp_scan_none"),
+            )
+            return
+
+        AppSettings.set_owned_items(owned | set(new_names))
+        # Re-weave [Owned] tags + refresh the shuttle against the new set.
+        self._recompute_owned()
+
+        # How many of the newly-added names are visible right now (i.e. appear
+        # as a blueprint bullet in the currently-loaded data). The rest light up
+        # automatically whenever their item next appears in a blueprint list.
+        visible_now = len(set(new_names) & getattr(self, "_bp_item_names", set()))
+        summary = tr(
+            "enhancements.bp_scan_summary",
+            count=len(new_names),
+            visible=visible_now,
+        )
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setWindowTitle(tr("enhancements.bp_scan_title"))
+        box.setText(summary)
+        box.setDetailedText("\n".join(new_names))
+        box.exec()
 
     def toggle_favorite(self, proxy_row: int):
         """Add or remove the sort prefix from a ship's custom value."""

@@ -8,6 +8,7 @@ Contents:
 - FileLoaderWorker        — loads sources, builds StringEntry list, sort keys
 - StartupSyncWorker       — refreshes URL-backed sources on startup
 - EnhancementsGeneratorWorker — runs scripts/generate_enhancements_ini.py
+- BlueprintLogScanWorker  — scans SC logs for received-blueprint events (#222)
 - P4kExtractWorker        — unp4k extraction of global.ini
 - DataForgeExtractWorker  — unp4k + unforge + patch pipeline
 - SelectAllDelegate       — Custom Value cell delegate (auto-select, EM3/EM4 wrap)
@@ -227,6 +228,48 @@ class LanguageBaseDownloadWorker(QThread):
             # finished(False): a download failure isn't fatal — the caller
             # falls back to any cached copy, or to English.
             self.finished.emit(False)
+
+
+class BlueprintLogScanWorker(QThread):
+    """Scan a channel's SC logs for received-blueprint events (#222).
+
+    Thin wrapper over ``blueprint_log_scanner.scan_channel``: it does the I/O
+    (reading up to hundreds of log files, some tens of MB) off the main thread
+    and reports per-file progress. It intentionally does *not* touch the owned
+    set or the watermark — the main-thread slot normalizes the returned raw
+    names, unions them into the owned set, and advances the watermark, so all
+    settings mutation stays on one thread.
+    """
+
+    progress = pyqtSignal(str)
+    progress_pct = pyqtSignal(int, int, str)  # (completed, total, message)
+    finished = pyqtSignal(object)             # ScanResult, or None on error
+    error = pyqtSignal(str)
+
+    def __init__(self, channel_dir, since):
+        super().__init__()
+        self._channel_dir = channel_dir
+        self._since = since  # datetime watermark, or None to use the epoch floor
+
+    def run(self):
+        from src.utils.blueprint_log_scanner import scan_channel
+        try:
+            def _cb(done, total, name):
+                msg = (tr("enhancements.bp_scan_progress", file=name)
+                       if name else tr("enhancements.bp_scan_finishing"))
+                self.progress.emit(msg)
+                self.progress_pct.emit(done, total, msg)
+
+            result = scan_channel(self._channel_dir, since=self._since, progress=_cb)
+            logger.info(
+                "BP Scan: %d new names across %d files (latest=%s)",
+                len(result.names), result.files_scanned, result.latest_timestamp,
+            )
+            self.finished.emit(result)
+        except Exception as e:
+            logger.exception(f"Blueprint log scan failed: {e}")
+            self.error.emit(str(e))
+            self.finished.emit(None)
 
 
 class EnhancementsGeneratorWorker(QThread):

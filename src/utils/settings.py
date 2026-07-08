@@ -272,6 +272,11 @@ class AppSettings:
     STATS_PREPEND = "stats_prepend"  # #153: stats block above the description
     STANDARDIZE_EARNABLE_SHIP_NAMES = "standardize_earnable_ship_names"
     OWNED_ITEMS = "owned_items"      # #157: blueprint items the user owns (JSON list of names)
+    # #222: newest "Received Blueprint" log event a BP Scan has already
+    # consumed, so a re-scan only imports genuinely new blueprints. Per-channel
+    # (each SC channel has its own LogBackups), stored as an ISO-8601 string
+    # under "{BLUEPRINT_LOG_WATERMARK}/{channel}".
+    BLUEPRINT_LOG_WATERMARK = "blueprint_log_watermark"
 
     # Settings keys - Data sources (new)
     # Prefix: data_sources/{source_name}/
@@ -921,6 +926,44 @@ class AppSettings:
             new_state = True
         AppSettings.set_owned_items(owned)
         return new_state
+
+    @staticmethod
+    def _blueprint_watermark_key() -> str:
+        """Per-channel storage key for the BP Scan watermark (#222)."""
+        return (f"{AppSettings.BLUEPRINT_LOG_WATERMARK}/"
+                f"{AppSettings.get_active_channel()}")
+
+    @staticmethod
+    def get_blueprint_log_watermark():
+        """Return the active channel's BP Scan watermark, or ``None`` (#222).
+
+        The watermark is the newest received-blueprint event a prior scan
+        consumed. Returns a timezone-aware ``datetime`` (the stored ISO string
+        carries the ``+00:00`` offset); ``None`` when unset or unparseable, in
+        which case the scanner falls back to the March-2026 blueprint epoch.
+        """
+        from datetime import datetime
+        raw = AppSettings.settings().value(
+            AppSettings._blueprint_watermark_key(), "", type=str
+        )
+        if not raw:
+            return None
+        try:
+            return datetime.fromisoformat(raw)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def set_blueprint_log_watermark(when) -> None:
+        """Persist the active channel's BP Scan watermark (#222).
+
+        *when* is a ``datetime`` (the scanner emits timezone-aware UTC); stored
+        as its ISO-8601 string so it round-trips through both settings backends.
+        """
+        AppSettings.settings().setValue(
+            AppSettings._blueprint_watermark_key(), when.isoformat()
+        )
+        AppSettings.settings().sync()
 
     @staticmethod
     def get_tutorial_completed_version() -> str:
