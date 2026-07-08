@@ -16,6 +16,7 @@ sequence, not a real newline.
 from __future__ import annotations
 
 import re
+import unicodedata
 
 # The bullet line separator inside a stored INI value (literal backslash-n).
 _NL = "\\n"
@@ -30,6 +31,15 @@ _OWNED_TAG = " <EM4>[Owned]</EM4>"
 _OWNED_STRIP_RE = re.compile(r"\s*<EM4>\[Owned\]</EM4>")
 # A leading bracketed component tag on a bullet name, e.g. "[Mil-S1-A] ".
 _LEADING_TAG_RE = re.compile(r"^\[[^\]]*\]\s*")
+# A trailing bracketed component tag, e.g. "Barbican [IND-S3-B]". SC's blueprint
+# log emits the tag on either side of the name (leading for FPS/ship weapons,
+# trailing for some ship components), so we strip both ends to land on the bare
+# item identity the owned set and mission bullets share (#222).
+_TRAILING_TAG_RE = re.compile(r"\s*\[[^\]]*\]$")
+# Collapse any run of whitespace to a single space. Runs after NFKC folds a
+# non-breaking space (U+00A0, seen in log names like "Lynx\xa0Legs") into a
+# plain space, so the same item from a log and from loc data normalize alike.
+_WS_RE = re.compile(r"\s+")
 
 # Marks the start of a POTENTIAL BLUEPRINTS section. The header text is
 # user-configurable (AppSettings.MISSION_HEADER_DEFAULTS["blueprints"]) but the
@@ -46,15 +56,24 @@ _BP_HEADER_RE = re.compile(BP_SECTION_HEADER, re.IGNORECASE)
 def normalize_item_name(name: str) -> str:
     """Reduce a bullet/name to a stable identity for matching.
 
-    Strips a leading component tag (``[Mil-S1-A] Norfield`` -> ``Norfield``),
-    any ``[Owned]`` tag, and surrounding whitespace. Used for both the owned
-    set and bullet matching so a tagged bullet matches its bare item row.
+    Applies, in order: NFKC unicode folding (so a non-breaking space becomes a
+    plain space), removal of any ``[Owned]`` tag, removal of a leading *and* a
+    trailing bracketed component tag (``[Mil-S1-A] Norfield`` and
+    ``Barbican [IND-S3-B]`` both reduce to the bare name), and whitespace
+    collapse. Used for both the owned set and bullet matching, so a tagged
+    bullet, a log-imported name, and a bare item row all resolve to one key.
+
+    Both sides of every comparison pass through here (the owned-set entries and
+    the mission bullets in ``apply_owned_to_value``), so the folding is
+    symmetric and can never introduce a one-sided mismatch.
     """
     if not name:
         return ""
-    s = _OWNED_STRIP_RE.sub("", name)
+    s = unicodedata.normalize("NFKC", name)
+    s = _OWNED_STRIP_RE.sub("", s)
     s = _LEADING_TAG_RE.sub("", s)
-    return s.strip()
+    s = _TRAILING_TAG_RE.sub("", s)
+    return _WS_RE.sub(" ", s).strip()
 
 
 def extract_bp_item_names(value: str) -> set[str]:

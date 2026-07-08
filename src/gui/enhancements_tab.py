@@ -76,6 +76,9 @@ class EnhancementsTab(QWidget):
     # The owned-blueprint set changed via the Blueprints shuttle (#157 follow-up).
     # MainWindow re-weaves [Owned] tags into the strings table and refreshes it.
     owned_items_changed = pyqtSignal()
+    # #222: the "BP Scan" button was clicked. MainWindow scans the SC logs for
+    # received-blueprint events and folds them into the owned set.
+    blueprint_scan_requested = pyqtSignal()
     # (old_prefix, new_prefix) — the favourite sort prefix changed. MainWindow
     # re-prefixes in-memory favourites to match the migrated user.ini before
     # reloading, so the reload's pending-edit snapshot doesn't clobber the new
@@ -709,6 +712,8 @@ class EnhancementsTab(QWidget):
         self._blueprints_owned_label.setText(tr("enhancements.blueprints_owned_label"))
         self._blueprints_add_btn.setToolTip(tr("enhancements.blueprints_add_tooltip"))
         self._blueprints_remove_btn.setToolTip(tr("enhancements.blueprints_remove_tooltip"))
+        self._blueprints_scan_btn.setText(tr("enhancements.bp_scan_button"))
+        self._blueprints_scan_btn.setToolTip(tr("enhancements.bp_scan_tooltip"))
         for label_key, lbl in self._blueprints_facet_labels.items():
             lbl.setText(tr(label_key))
 
@@ -782,6 +787,17 @@ class EnhancementsTab(QWidget):
         self._blueprints_desc_label.setStyleSheet("font-size: 11px;")
         self._blueprints_desc_label.setWordWrap(True)
         gl.addWidget(self._blueprints_desc_label)
+
+        # "BP Scan" — populate ownership from the SC logs (#222). Lives above the
+        # shuttle and stays usable even when the available list is empty, since
+        # scanning is what seeds ownership independently of loaded missions.
+        scan_row = QHBoxLayout()
+        self._blueprints_scan_btn = QPushButton(tr("enhancements.bp_scan_button"))
+        self._blueprints_scan_btn.setToolTip(tr("enhancements.bp_scan_tooltip"))
+        self._blueprints_scan_btn.clicked.connect(self.blueprint_scan_requested.emit)
+        scan_row.addWidget(self._blueprints_scan_btn)
+        scan_row.addStretch()
+        gl.addLayout(scan_row)
 
         # Shown instead of the lists when no blueprint items exist yet (mission
         # enhancements not generated) — the same precondition the stars had.
