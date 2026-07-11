@@ -1,6 +1,13 @@
 # Contributor Guide
 
 How to set up Smart Citizen for local development.
+## TLDR
+
+1) Use Claude code to check out the repo.
+2) Tell it to view and describe the issues listed [here](https://github.com/Osiris-DevWorks/smart-citizen/issues?q=is%3Aissue%20state%3Aopen%20label%3A2.2.0%20no%3Aassignee) to you.
+3) Pick an issue that interests you and use the `/begin_work` Claude command to begin work. So for example "/begin_work [issue number or issue link] and then just go through the process. 
+4) When you think it's done, do the `/pull_request` command. 
+5) It will be reviewed by the repo owner. Resolve any requested changes, then it will be merged into the release branch.
 
 ## Prerequisites
 
