@@ -1,215 +1,93 @@
-"""Parse "Received Blueprint" events out of Star Citizen log files (#222).
+"""Scan Star Citizen's Game.log / logbackups for "Received Blueprint" reward
+notifications, so the Blueprint Tracker's Owned list can be auto-populated
+from a player's actual play history instead of manual marking one by one.
 
-Star Citizen records every blueprint the player receives as a client
-notification line in its rolling ``Game.log``; rotated copies pile up under
-``<channel>\\LogBackups\\``. The authoritative event looks like::
-
-    <2026-03-26T17:15:41.684Z> [Notice] <SHUDEvent_OnNotification> Added
-    notification "Received Blueprint: Defiance Helmet Tactical: " [23] to
-    queue. ... [Team_CoreGameplayFeatures][Missions][Comms]
-
-The same blueprint also spawns ``<UpdateNotificationItem>`` lines and bare
-continuation lines quoting the notification; those are UI echoes, so we key
-only on the ``<SHUDEvent_OnNotification> Added notification`` line and de-dup by
-display name.
-
-This module is Qt-free and settings-free: it takes explicit paths and returns
-plain data so it unit-tests with fixture strings. Name *normalization* and the
-watermark *persistence* live elsewhere (``owned_items.normalize_item_name`` and
-``AppSettings``) — the scanner deliberately returns raw display names so the one
-canonical normalizer does the matching.
-
-Two filters bound the work:
-
-* **Epoch floor** — blueprints did not exist before March 2026 (#222), so any
-  event (and any log file) older than ``BLUEPRINT_EPOCH`` is ignored outright.
-* **Watermark** — an optional ``since`` timestamp (the newest event a prior
-  scan already consumed); events at or before it are skipped so a re-scan only
-  imports genuinely new blueprints, even from a still-growing ``Game.log``.
+Qt-free and settings-free (mirrors owned_items.py) so it's unit-testable with
+plain strings/paths; the caller (a QThread worker) resolves the actual log
+directory via AppSettings and reports progress to the UI.
 """
 from __future__ import annotations
 
-import logging
 import re
-from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Iterator, List, Optional, Sequence, Set
+from typing import Callable, Iterable, Optional
 
-logger = logging.getLogger(__name__)
+from src.utils.owned_items import normalize_item_name
 
-# Blueprints did not exist in Star Citizen before March 2026 (#222). A hard
-# floor so we never parse ancient logs even absent a watermark. Timezone-aware
-# (UTC) to compare cleanly against the ``...Z`` timestamps the log carries.
-BLUEPRINT_EPOCH = datetime(2026, 3, 1, tzinfo=timezone.utc)
+# Star Citizen logs one line per notification-queue event, e.g.:
+#   <2026-07-09T07:54:03.720Z> [Notice] <SHUDEvent_OnNotification> Added
+#   notification "Received Blueprint: NDB-30 Repeater [Energy-S3]: " [15] to
+#   queue. New queue size: 4, ...
+#
+# The item name can itself contain literal double quotes (paint/skin variant
+# names, e.g. `Demeco "Purgatory Camo" LMG`), so a naive capture up to the
+# next `"` truncates at the first embedded quote. The reliable terminator is
+# the fixed `: " [<id>]` suffix the game always appends after the name —
+# colon, space, quote, space, bracketed notification id — a sequence real
+# item names never happen to contain.
+_RECEIVED_BLUEPRINT_RE = re.compile(r'Received Blueprint: (.+?): "\s\[\d+\]')
 
-# The one authoritative "you received a blueprint" line. The name is captured
-# non-greedily up to the trailing ``: "`` so embedded quotes survive intact
-# (e.g. ``Parallax "Shock Trooper" Energy Assault Rifle``).
-_EVENT_RE = re.compile(
-    r"<(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)>"
-    r".*?<SHUDEvent_OnNotification> Added notification "
-    r'"Received Blueprint: (?P<name>.*?): " \['
-)
-
-# The live (current-session) log at the channel install root, plus the rotated
-# copies beside it.
-LIVE_LOG_NAME = "Game.log"
-LOGBACKUPS_DIRNAME = "LogBackups"
-_LOG_GLOB = "*.log"
-
-# A progress reporter: (files_completed, files_total, current_filename).
-ProgressFn = Callable[[int, int, str], None]
+ProgressCallback = Callable[[int, int, str], None]
 
 
-@dataclass(frozen=True)
-class BlueprintEvent:
-    """One parsed "Received Blueprint" notification."""
+def extract_blueprint_names(text: str) -> set[str]:
+    """Return the normalized blueprint names in one log file's full text.
 
-    timestamp: datetime
-    name: str  # raw display name exactly as it appears in the log
-
-
-@dataclass
-class ScanResult:
-    """Outcome of a scan.
-
-    ``names`` are raw, de-duplicated display names that passed both filters —
-    the caller normalizes them (via the shared normalizer) before unioning into
-    the owned set, so normalization-based de-dup falls out for free.
-    ``latest_timestamp`` is the newest event at/after the epoch across every
-    scanned file (ignoring the watermark) so the caller can advance the
-    watermark monotonically: ``new = max(old, result.latest_timestamp)``.
+    Names are run through the same `normalize_item_name` used for blueprint
+    bullet matching, so the game's own reward-notification tag (e.g.
+    "Agni [Industrial-S3-B-Quantum]") reduces to the same identity ("Agni")
+    the Blueprint Tracker keys its Available/Owned lists on. A notification
+    fires 4 times per earned blueprint (queued + Next/StartFade/Remove), all
+    with identical text, so duplicates collapse naturally via the set.
     """
+    return {
+        normalize_item_name(m.group(1))
+        for m in _RECEIVED_BLUEPRINT_RE.finditer(text)
+        if normalize_item_name(m.group(1))
+    }
 
-    names: Set[str]
-    latest_timestamp: Optional[datetime]
-    events_matched: int  # events that passed epoch + watermark filters
-    files_scanned: int
 
+def find_log_files(channel_install_path) -> list[Path]:
+    """Return every log file worth scanning for a channel install dir.
 
-def _parse_ts(raw: str) -> Optional[datetime]:
-    """Parse a ``2026-03-26T17:15:41.684Z`` stamp to an aware UTC datetime.
-
-    Returns ``None`` on anything unparseable rather than raising, so one odd
-    line never aborts a scan. ``fromisoformat`` (Python 3.9+) accepts the
-    ``+00:00`` offset and optional fractional seconds once ``Z`` is rewritten.
+    Includes ``logbackups/*.log`` (rotated prior-session logs — where
+    "Received Blueprint" notifications accumulate over a player's whole
+    history) and the current session's live ``Game.log`` if present, so a
+    scan run without restarting the game still picks up blueprints earned
+    this session. Returns an empty list if neither exists (uninitialized or
+    misconfigured install path).
     """
-    try:
-        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
-    except ValueError:
-        return None
+    channel_install_path = Path(channel_install_path)
+    files = sorted((channel_install_path / "logbackups").glob("*.log"))
+    live_log = channel_install_path / "Game.log"
+    if live_log.exists():
+        files.append(live_log)
+    return files
 
 
-def parse_events(text: str) -> Iterator[BlueprintEvent]:
-    """Yield every ``BlueprintEvent`` in *text*, unfiltered and in file order.
+def scan_log_files(
+    paths: Iterable[Path],
+    *,
+    progress_callback: Optional[ProgressCallback] = None,
+) -> set[str]:
+    """Scan every file in *paths* for blueprint-reward notifications.
 
-    De-duplication and time filtering are the caller's job (``scan_files``);
-    this stays a pure line matcher so it is trivially testable.
+    Returns the union of normalized names across all files. Unreadable
+    files (permission errors, a mid-write live Game.log) are skipped, not
+    fatal — logbackups/ can hold hundreds of rotated session logs and one
+    bad file shouldn't abort the whole scan.
     """
-    for m in _EVENT_RE.finditer(text):
-        ts = _parse_ts(m.group("ts"))
-        name = m.group("name").strip()
-        if ts is not None and name:
-            yield BlueprintEvent(ts, name)
-
-
-def iter_log_files(
-    channel_dir, *, since: Optional[datetime] = None
-) -> List[Path]:
-    """Return the SC log files worth scanning under *channel_dir*, oldest first.
-
-    Covers ``LogBackups\\*.log`` plus the live ``Game.log`` at the channel root.
-    A file whose mtime predates the effective floor (``since`` or the epoch) is
-    dropped: its last write — hence its newest line — is already older than
-    anything we care about. Oldest-first ordering makes progress read naturally
-    and lets ``latest_timestamp`` grow as the scan proceeds.
-    """
-    channel_dir = Path(channel_dir)
-    floor = since or BLUEPRINT_EPOCH
-    floor_posix = floor.timestamp()
-
-    candidates: List[Path] = []
-    backups = channel_dir / LOGBACKUPS_DIRNAME
-    if backups.is_dir():
-        candidates.extend(backups.glob(_LOG_GLOB))
-    live = channel_dir / LIVE_LOG_NAME
-    if live.is_file():
-        candidates.append(live)
-
-    kept: List[tuple] = []
-    for path in candidates:
+    paths = list(paths)
+    total = len(paths)
+    found: set[str] = set()
+    for i, path in enumerate(paths):
+        if progress_callback:
+            progress_callback(i, total, path.name)
         try:
-            mtime = path.stat().st_mtime
+            text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        if mtime < floor_posix:
-            continue
-        kept.append((mtime, path))
-
-    kept.sort(key=lambda t: (t[0], str(t[1])))
-    return [path for _, path in kept]
-
-
-def scan_files(
-    paths: Sequence[Path],
-    *,
-    since: Optional[datetime] = None,
-    progress: Optional[ProgressFn] = None,
-) -> ScanResult:
-    """Scan *paths* for received-blueprint names, applying both time filters.
-
-    A name is collected when its event is at/after ``BLUEPRINT_EPOCH`` and
-    strictly after ``since`` (the watermark). ``latest_timestamp`` tracks the
-    newest at/after-epoch event regardless of the watermark, so re-scans never
-    lose ground on the mark. Files are read line by line — some live logs run to
-    tens of MB.
-    """
-    names: Set[str] = set()
-    latest: Optional[datetime] = None
-    matched = 0
-    total = len(paths)
-
-    for i, path in enumerate(paths):
-        if progress is not None:
-            progress(i, total, Path(path).name)
-        try:
-            with open(path, encoding="utf-8", errors="replace") as fh:
-                for line in fh:
-                    # Cheap reject before the regex — the vast majority of log
-                    # lines never mention a blueprint.
-                    if "Received Blueprint:" not in line:
-                        continue
-                    for ev in parse_events(line):
-                        if ev.timestamp < BLUEPRINT_EPOCH:
-                            continue
-                        if latest is None or ev.timestamp > latest:
-                            latest = ev.timestamp
-                        if since is not None and ev.timestamp <= since:
-                            continue
-                        names.add(ev.name)
-                        matched += 1
-        except OSError as exc:
-            logger.warning("Blueprint log scan skipped %s: %s", path, exc)
-            continue
-
-    if progress is not None:
-        progress(total, total, "")
-
-    return ScanResult(
-        names=names,
-        latest_timestamp=latest,
-        events_matched=matched,
-        files_scanned=total,
-    )
-
-
-def scan_channel(
-    channel_dir,
-    *,
-    since: Optional[datetime] = None,
-    progress: Optional[ProgressFn] = None,
-) -> ScanResult:
-    """Discover and scan a channel's logs in one call (the worker entry point)."""
-    paths = iter_log_files(channel_dir, since=since)
-    return scan_files(paths, since=since, progress=progress)
+        found.update(extract_blueprint_names(text))
+    if progress_callback:
+        progress_callback(total, total, "")
+    return found

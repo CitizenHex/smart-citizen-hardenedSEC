@@ -17,6 +17,8 @@ Split by domain:
 - `test_commodity_journal.py` — 1.4.1 generator guard for the `commodity_journal` unpack crash when the crafting cache directory is missing.
 - `test_blueprint_pools.py` — multi-source pool merge regression, component-style tag annotation, CIG-prefix strip, pool rank-tier label.
 - `test_blueprint_log_scan.py` — #222 BP Scan log scanner. `parse_events` keys only on the `<SHUDEvent_OnNotification> Added notification "Received Blueprint: <name>: "` line (embedded quotes survive, UI-echo/continuation lines and malformed timestamps ignored); `scan_files` applies the March-2026 epoch floor + exclusive watermark, de-dups names across files, and advances `latest_timestamp` past the watermark for a monotonic mark; `iter_log_files` discovers `LogBackups\*.log` + `Game.log` oldest-first with an mtime pre-filter. Fabricated logs via `tmp_path`, no SC install or Qt. The worker + MainWindow fold-in stay manual-test only.
+- `test_blueprint_log_scanner.py` — #223 "Scan Logs for Owned Blueprints": `extract_blueprint_names` regex against real Game.log notification lines (bare names, component-tagged names, embedded-quote paint variants, repeated-notification dedup, unrelated "blueprint" mentions ignored); `find_log_files` / `scan_log_files` directory walking and per-file progress callback.
+- `test_blueprints_shuttle.py` — Blueprint Tracker's Available/Owned split (`BlueprintTrackerTab._available_blueprints`, a pure staticmethod).
 - `test_pak_extraction.py` — P4K/DataForge.
 - `test_progress_sink.py` — thread-safe progress coalescing.
 - `test_dataforge_patcher.py` — declarative XML patching.

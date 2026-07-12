@@ -50,6 +50,10 @@
       "ht": "Enhancements",
       "at": ""
     },
+    "blueprint_tracker": {
+      "ht": "Blueprint Tracker",
+      "at": ""
+    },
     "log": {
       "ht": "Log",
       "at": ""
@@ -588,6 +592,10 @@
       "ht": "Search blueprints by name…",
       "at": ""
     },
+    "blueprints_show_tags_checkbox": {
+      "ht": "Show tags on blueprint names",
+      "at": ""
+    },
     "blueprints_mission_label": {
       "ht": "Mission:",
       "at": ""
@@ -670,6 +678,20 @@
     },
     "bp_scan_summary": {
       "ht": "Added {count} blueprint(s) to your owned list.\n\n{visible} are visible in your current blueprint lists now; the rest will show [Owned] automatically whenever their item next appears in a mission's blueprint rewards.",
+      "at": ""
+    }
+  },
+  "blueprint_tracker": {
+    "title": {
+      "ht": "Blueprint Tracker",
+      "at": ""
+    },
+    "scan_logs_btn": {
+      "ht": "Scan Logs for Owned Blueprints",
+      "at": ""
+    },
+    "scan_logs_tooltip": {
+      "ht": "Scan your Star Citizen log files (Game.log and logbackups) for \"Received Blueprint\" reward notifications and automatically mark them as owned.",
       "at": ""
     }
   },

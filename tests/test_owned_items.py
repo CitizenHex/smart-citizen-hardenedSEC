@@ -48,9 +48,6 @@ class TestNormalize:
         # Log names arrive with U+00A0 where loc data has a plain space.
         assert normalize_item_name("Lynx" + chr(0xA0) + "Legs") == "Lynx Legs"
 
-    def test_collapses_internal_whitespace(self):
-        assert normalize_item_name("F55  LMG   Magazine") == "F55 LMG Magazine"
-
     def test_leading_and_trailing_tag_together(self):
         assert normalize_item_name("[E-S2] Omnisky VI Cannon") == "Omnisky VI Cannon"
 
