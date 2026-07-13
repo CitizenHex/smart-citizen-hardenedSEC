@@ -14,6 +14,7 @@ from src.utils.perf import timed
 
 from src.utils.dataforge_diff import update_manifest
 from src.utils.i18n import tr
+from src.utils.win_paths import win_long_path as _win_long_path
 
 logger = logging.getLogger(__name__)
 
