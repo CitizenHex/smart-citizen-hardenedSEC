@@ -214,6 +214,7 @@ class AppSettings:
         "commodity_crafting":  "commodity_crafting_enhancements.ini",
         "journal":            "journal_enhancements.ini",
         "missile_enhancements": "missile_enhancements.ini",
+        "medical_consumables": "medical_consumables_enhancements.ini",
     }
 
     # User-facing category labels — match the filter categories on the main page
@@ -224,6 +225,7 @@ class AppSettings:
         "missions":    "Missions",
         "commodities": "Commodities",
         "journal":     "Journal",
+        "medical_consumables": "Medical Consumables",
     }
 
     # Maps each checkbox key to the enhancement file keys it controls
@@ -234,6 +236,7 @@ class AppSettings:
         "missions":    ["mission_rewards"],
         "commodities": ["commodity_crafting"],
         "journal":     ["journal"],
+        "medical_consumables": ["medical_consumables"],
     }
 
     # Settings keys - Legacy (kept for migration)
