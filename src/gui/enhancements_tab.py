@@ -1671,8 +1671,7 @@ class _TagBuilderPage(QWidget):
         tags_col.setContentsMargins(10, 10, 10, 10)
         tags_col.setSpacing(6)
         tags_hint = QLabel(
-            "Show or hide these tags on the mission title only — separate "
-            "from the Mission Detail Fields body toggles."
+            "Show or hide these tags on the mission title only"
         )
         tags_hint.setProperty("role", "secondary")
         tags_hint.setStyleSheet("font-size: 11px;")
