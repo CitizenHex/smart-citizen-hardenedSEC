@@ -3104,6 +3104,100 @@ def _build_template_lookup(
     return lookup
 
 
+# Recco Battaglia's Scan/Mining contracts (4.9+, "Battaglia_RPT_Scan_*" /
+# "Battaglia_RPT_ScanMine_*" title keys) each target 1-3 specific mineable
+# ores, chosen via sibling MissionProperty overrides with
+# extendedTextToken="ResourceType"/"ResourceType2"/"ResourceType3" pointing at
+# a "mineabletype_primary_<ore>" loc key. CIG doesn't expose a per-ore "RS"
+# (resonance-signature) number anywhere in DataForge — checked the full PTU
+# 4.9 cache for both the literal values and any per-mineable stat registry,
+# found neither — so this is a curated table covering just the 8 ores this
+# mission family actually uses, matching the community loc reference the
+# values were modeled on (MrKraken/StarStrings, ptu/4.9 branch, mining.ini).
+MINEABLE_RS_VALUES = {
+    "aluminium":  4285,
+    "bexalite":   3600,
+    "ice":        4300,
+    "iron":       4270,
+    "lindinium":  3400,
+    "savrillium": 3200,
+    "titanium":   3855,
+    "torite":     3900,
+}
+
+_BATTAGLIA_SCAN_TITLE_PREFIXES = ("Battaglia_RPT_Scan_", "Battaglia_RPT_ScanMine_")
+_RESOURCE_TYPE_TOKEN_RE = re.compile(r"ResourceType[0-9]*")
+
+
+def _battaglia_contract_mineable_ores(contract: ET.Element) -> list[str]:
+    """Return the ore keys (e.g. ``"aluminium"``) a Battaglia scan/mining
+    contract targets, in ResourceType/ResourceType2/ResourceType3 order,
+    de-duplicated but order-preserving.
+    """
+    ores: list[str] = []
+    for prop in contract.findall(".//propertyOverrides/MissionProperty"):
+        token = prop.get("extendedTextToken", "")
+        if not _RESOURCE_TYPE_TOKEN_RE.fullmatch(token):
+            continue
+        opt = prop.find(".//MissionPropertyValueOption_StringHash")
+        if opt is None:
+            continue
+        text_id = opt.get("textId", "")
+        if not text_id.startswith("@mineabletype_primary_"):
+            continue
+        ore = text_id[len("@mineabletype_primary_"):]
+        if ore not in ores:
+            ores.append(ore)
+    return ores
+
+
+def _format_rs_tag(ores: list[str]) -> str:
+    """Render ``["aluminium", "iron"]`` as ``"[RS 4285/4270]"``, or ``""``
+    when no ore in the list has a known RS value."""
+    values = [str(MINEABLE_RS_VALUES[o]) for o in ores if o in MINEABLE_RS_VALUES]
+    if not values:
+        return ""
+    return f"[RS {'/'.join(values)}]"
+
+
+def _build_battaglia_mineable_rs_tags(
+    contractgen_dir: Path,
+    xml_path_index: dict | None = None,
+    records_dir: Path | None = None,
+) -> dict[str, str]:
+    """Build ``title_key -> "[RS ####[/####...]]"`` for Recco Battaglia's
+    Scan/ScanMine mission titles (see :data:`MINEABLE_RS_VALUES`). Every
+    contract variant sharing a title targets the same ore set (confirmed
+    against the PTU 4.9 data), so the first variant found for a title wins.
+    """
+    tags: dict[str, str] = {}
+    if not contractgen_dir.exists():
+        return tags
+
+    _files = (
+        _index_rglob(xml_path_index, contractgen_dir, records_dir)
+        if xml_path_index is not None and records_dir is not None
+        else contractgen_dir.rglob("*.xml")
+    )
+    for xml_file in _files:
+        try:
+            root = ET.parse(xml_file).getroot()
+        except ET.ParseError:
+            continue
+        for contract in root.findall(".//CareerContract") + root.findall(".//Contract"):
+            title_param = contract.find(".//ContractStringParam[@param='Title']")
+            if title_param is None:
+                continue
+            title_key = title_param.get("value", "").lstrip("@")
+            if not title_key.startswith(_BATTAGLIA_SCAN_TITLE_PREFIXES) or title_key in tags:
+                continue
+            tag = _format_rs_tag(_battaglia_contract_mineable_ores(contract))
+            if tag:
+                tags[title_key] = tag
+
+    return tags
+
+
 def _variant_label_short(debug_name: str) -> str:
     """Extract a short, human-readable variant label from a contract debugName.
 
@@ -5610,6 +5704,10 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     )
     logger.info(f"Processed {len(contractgen_missions)} contract generator mission variants")
 
+    battaglia_mineable_rs = _build_battaglia_mineable_rs_tags(
+        contractgen_dir, xml_path_index=xml_path_index, records_dir=records
+    )
+
     # Materialise the pu_missions file list early so the title-augment loop
     # can demote [BP] → [BP?] for titles whose pu_missions side spawns
     # descs the contractgenerator never sees (and therefore can't award
@@ -5760,6 +5858,10 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             augmented_title += f" <EM4>[{nonzero_xp[0]:,} {rep_xp_label}]</EM4>"
         elif len(nonzero_xp) > 1:
             augmented_title += f" <EM4>[{min(nonzero_xp):,}\u2013{max(nonzero_xp):,} {rep_xp_label}]</EM4>"
+        if _show_title_tag("rs"):
+            _rs_tag = battaglia_mineable_rs.get(title_key)
+            if _rs_tag:
+                augmented_title += f" <EM4>{_rs_tag}</EM4>"
         out[title_key] = augmented_title
         mission_titles_augmented += 1
 

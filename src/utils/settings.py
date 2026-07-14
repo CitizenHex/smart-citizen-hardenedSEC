@@ -146,11 +146,14 @@ class AppSettings:
     # ace title tag and the rep/xp title tag were both unconditionally shown
     # before this split). migrate_title_tag_settings() carries a user's prior
     # blueprint_tag / ace choice forward once.
-    MISSION_TITLE_TAG_KEYS = ("rep", "blueprint", "ace")
+    MISSION_TITLE_TAG_KEYS = ("rep", "blueprint", "ace", "rs")
     _MISSION_TITLE_TAG_SETTING = {
         "rep":       "mission_title_tag/rep",
         "blueprint": "mission_title_tag/blueprint",
         "ace":       "mission_title_tag/ace",
+        # RS ("resonance signature") tag for Recco Battaglia's Scan/Mining
+        # contracts (4.9+) — see MINEABLE_RS_VALUES in generate_enhancements_ini.py.
+        "rs":        "mission_title_tag/rs",
     }
     MISSION_HEADER_DEFAULTS = {
         "details": "MISSION DETAILS",
