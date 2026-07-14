@@ -67,6 +67,23 @@ except ImportError:  # pragma: no cover — only triggers if src/ is removed
     def route_enabled(_cfg):  # type: ignore[misc]
         return False
 
+# Same deferred-import pattern as tag_builder above. DataForge paths under a
+# deep portable/tester install directory can exceed the 260-char MAX_PATH;
+# lxml's ET.parse and pathlib's own rglob/stat raise a raw WinError 3
+# ("cannot find the path specified") even though the file exists. The \\?\
+# long-path prefix sidesteps it (originally added for pak_extractor.py's
+# copy/cleanup step, #221) — wrapping ``forge_dir`` once in main() below
+# means every path this whole module derives from it (20+ ET.parse call
+# sites, 18+ rglob walks) inherits long-path safety for free.
+try:
+    _gen_root = Path(__file__).parent.parent
+    if str(_gen_root) not in sys.path:
+        sys.path.insert(0, str(_gen_root))
+    from src.utils.win_paths import win_long_path
+except ImportError:  # pragma: no cover — only triggers if src/ is removed
+    def win_long_path(path):  # type: ignore[misc]
+        return str(path)
+
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -6192,6 +6209,11 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             logger.info(f"Loaded {len(en_loc):,} English keys for annotation lookups")
 
     # ── Check DataForge cache ─────────────────────────────────────────────────
+    # Long-path-prefix once here so every downstream path derived from
+    # forge_dir/records (the whole rest of this function, plus every helper
+    # it calls with forge_dir/records) inherits long-path safety — see the
+    # win_long_path import comment near the top of this file.
+    forge_dir = Path(win_long_path(forge_dir))
     records = forge_dir / "raw" / "libs" / "foundry" / "records"
     if not forge_dir.exists() or not records.exists():
         raise FileNotFoundError(

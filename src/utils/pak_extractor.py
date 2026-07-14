@@ -70,7 +70,7 @@ def _robust_rmtree(path: Path, attempts: int = 6) -> None:
     for i in range(attempts):
         try:
             gc.collect()  # drop any lingering XML file handles we own
-            shutil.rmtree(path, **{_RMTREE_CB_KWARG: _on_error})
+            shutil.rmtree(_win_long_path(path), **{_RMTREE_CB_KWARG: _on_error})
             return
         except OSError as e:
             last_err = e
@@ -155,7 +155,7 @@ def _copy_filtered_records(src_libs: Path, dst_libs: Path) -> tuple[int, int]:
             f"unforge output missing expected 'foundry/records/' layout at {records_src}"
         )
 
-    records_dst.mkdir(parents=True, exist_ok=True)
+    Path(_win_long_path(records_dst)).mkdir(parents=True, exist_ok=True)
 
     copied = 0
     skipped = 0
@@ -170,8 +170,11 @@ def _copy_filtered_records(src_libs: Path, dst_libs: Path) -> tuple[int, int]:
             logger.debug(f"DataForge keep-path not in this build, skipping: {rel}")
             skipped += 1
             continue
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(src, dst)
+        Path(_win_long_path(dst.parent)).mkdir(parents=True, exist_ok=True)
+        # Long-path-prefixed on both sides: the deepest entries under
+        # entities/scitem/mission_entities/ routinely push the destination
+        # past 260 chars once nested under a user's install dir (#221).
+        shutil.copytree(_win_long_path(src), _win_long_path(dst))
         copied += 1
 
     return copied, skipped
@@ -303,6 +306,11 @@ def extract_dataforge(
             raise FileNotFoundError(f"{name} not found at: {exe}")
     if not p4k_path.exists():
         raise FileNotFoundError(f"Data.p4k not found at: {p4k_path}")
+
+    # Wrap once here so every use below (mkdir, exists checks, and whatever
+    # this function hands to _copy_filtered_records/update_manifest) inherits
+    # long-path safety — see win_paths.win_long_path (#221).
+    dataforge_cache_dir = Path(_win_long_path(dataforge_cache_dir))
 
     TOTAL_PHASES = 3
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -468,6 +476,7 @@ def dataforge_cache_is_fresh(p4k_path: Path, dataforge_cache_dir: Path) -> bool:
     existed (upgrades) fall back to the legacy mtime comparison until the next
     extraction writes the size stamp.
     """
+    dataforge_cache_dir = Path(_win_long_path(dataforge_cache_dir))
     stamp = dataforge_cache_dir / P4K_MTIME_STAMP
     size_stamp = dataforge_cache_dir / P4K_SIZE_STAMP
     libs_dir = dataforge_cache_dir / "raw" / "libs"
