@@ -1694,6 +1694,7 @@ class _TagBuilderPage(QWidget):
             ("rep",       'Rep Tag (adds "[500 REP]")'),
             ("blueprint", 'BP Tag (adds "[BP]" / "[BP?]")'),
             ("ace",       'ACE Tag (adds "[ACE]" / "[ACE?]")'),
+            ("rep_track", 'Rep Track Tag (adds "(Security)" / "(Contractor)" to the Rep tag)'),
         ]
         self._title_tag_checkboxes: dict = {}
         _tt_saved = AppSettings.get_mission_title_tags()
@@ -1863,17 +1864,21 @@ class _TagBuilderPage(QWidget):
             self._select_combo(self._mt_arrow, fresh.route_arrow)
             self._select_combo(self._mt_sep, fresh.title_separator)
             self._select_combo(self._mt_detail, fresh.location_detail)
-            # General Tags (Rep/BP/ACE) aren't part of TagConfig — they're
-            # their own settings domain (AppSettings.set_mission_title_tag),
-            # persisted immediately on toggle rather than staged until Apply
-            # Tag Changes like the rest of this page. Reset explicitly persists
-            # their default (all on) to match that immediate-save behavior,
-            # rather than relying solely on setChecked's toggled signal (a
-            # checkbox already True wouldn't fire it, leaving a stale saved
-            # value if one had somehow drifted out of sync).
+            # General Tags (Rep/BP/ACE/Rep Track) aren't part of TagConfig —
+            # they're their own settings domain
+            # (AppSettings.set_mission_title_tag), persisted immediately on
+            # toggle rather than staged until Apply Tag Changes like the rest
+            # of this page. Reset explicitly persists each field's own
+            # default (get_mission_title_tag_default — all on except Rep
+            # Track, which defaults off) to match that immediate-save
+            # behavior, rather than relying solely on setChecked's toggled
+            # signal (a checkbox already at its default wouldn't fire it,
+            # leaving a stale saved value if one had somehow drifted out of
+            # sync).
             for field, box in self._title_tag_checkboxes.items():
-                box.setChecked(True)
-                AppSettings.set_mission_title_tag(field, True)
+                default = AppSettings.get_mission_title_tag_default(field)
+                box.setChecked(default)
+                AppSettings.set_mission_title_tag(field, default)
             self._set_mt_controls_enabled(self._mt_enable.isChecked())
             self._refresh_preview()
             return

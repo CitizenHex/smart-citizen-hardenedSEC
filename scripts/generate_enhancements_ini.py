@@ -2690,7 +2690,7 @@ def _extract_difficulty(element: ET.Element) -> str:
     return ""
 
 
-def _rep_reward_line(field_name: str, amount_str: str, rep_xp_label: str) -> str:
+def _rep_reward_line(field_name: str, amount_str: str, rep_xp_label: str, track: str = "") -> str:
     """Render one reputation-reward line for a MISSION DETAILS body.
 
     *field_name* is the rank / standing name when known (e.g. ``"Neutral"``),
@@ -2701,10 +2701,20 @@ def _rep_reward_line(field_name: str, amount_str: str, rep_xp_label: str) -> str
     literal ``"XP"`` is never emitted: the label is the single source of the
     unit word, so renaming it (Enhancements tab) flows through every mission
     body (issue #102).
+
+    *track* is the reputation TRACK a faction's rank belongs to (e.g.
+    "Security" vs the generic Contractor/Standing track — some factions have
+    multiple; see issue #161) and, when known, is appended in parentheses
+    after the unit so a shared field name/label is never ambiguous about
+    which track it feeds. Suppressed when it's identical to *field_name*
+    (some ranks are named the same as their own track, e.g. Contractor rank 2
+    of the Contractor track — "Contractor: +200 Rep (Contractor)" would just
+    repeat itself with no new information).
     """
+    suffix = f" ({track})" if track and track != field_name else ""
     if field_name and field_name != rep_xp_label:
-        return f"<EM4>{field_name}:</EM4> {amount_str} {rep_xp_label}"
-    return f"<EM4>{rep_xp_label}:</EM4> {amount_str}"
+        return f"<EM4>{field_name}:</EM4> {amount_str} {rep_xp_label}{suffix}"
+    return f"<EM4>{rep_xp_label}:</EM4> {amount_str}{suffix}"
 
 
 def _extract_mission_flags(root: ET.Element) -> list[str]:
@@ -3249,6 +3259,13 @@ def _build_battaglia_mineable_rs_tags(
     return tags
 
 
+# A standing rank's displayName loc key encodes its reputation TRACK as the
+# token right after the RepStanding_/RepScope_ prefix (e.g.
+# "RepStanding_Security_Rank0" -> "Security", "RepScope_Contractor_Rank3"
+# -> "Contractor") — see _build_standing_tracks / issue #161.
+_REP_TRACK_PREFIX_RE = re.compile(r"^Rep(?:Standing|Scope)_([A-Za-z]+)_")
+
+
 def _variant_label_short(debug_name: str) -> str:
     """Extract a short, human-readable variant label from a contract debugName.
 
@@ -3283,11 +3300,12 @@ def scan_contract_generators(
     records_dir: Path | None = None,
     pool_names: dict[str, str] | None = None,
     standings_lookup: dict[str, str] | None = None,
+    standing_track_lookup: dict[str, str] | None = None,
 ):
     """Scan contract generator XMLs for mission variants with different systems.
 
     Returns tuple of:
-        - missions: dict mapping title_key → [(system_name, success_xp, failure_xp, desc_key, flags, spawns, difficulty, has_bp, bp_chance, bp_variant, rank_name), ...]
+        - missions: dict mapping title_key → [(system_name, success_xp, failure_xp, desc_key, flags, spawns, difficulty, has_bp, bp_chance, bp_variant, rank_name, rep_track), ...]
         - mission_blueprints: dict title_key → dict system_name → dict pool_label → list of craftable item display names.
           The pool_label dimension preserves rank-tier sub-grouping derived from the
           pool filename (e.g. ``Rank 0–1`` / ``Rank 2–3`` / ``Rank 4`` from Shubin
@@ -3307,7 +3325,8 @@ def scan_contract_generators(
     entity_names = entity_names or {}
     pool_names = pool_names or {}
     standings_lookup = standings_lookup or {}
-    # Variant tuple: (system_name, success_xp, failure_xp, desc_key, flags, spawns, difficulty, has_bp, bp_chance, bp_variant, rank_name)
+    standing_track_lookup = standing_track_lookup or {}
+    # Variant tuple: (system_name, success_xp, failure_xp, desc_key, flags, spawns, difficulty, has_bp, bp_chance, bp_variant, rank_name, rep_track)
     missions: dict[str, list[tuple[str, int, int, str, list[str], int, int]]] = {}
     # Per-system, per-pool-label item lists. The extra label dimension keeps
     # items from different rank-tier pools separate inside one system so the
@@ -3604,12 +3623,16 @@ def scan_contract_generators(
                             contract_difficulty = _extract_difficulty(contract)
 
                             # Resolve minStanding UUID to a reputation rank name
+                            # and its reputation TRACK (e.g. "Security" vs the
+                            # generic "Standing"/Contractor track — some
+                            # factions have both; see issue #161).
                             rank_name = standings_lookup.get(min_standing, "") if min_standing else ""
+                            rep_track = standing_track_lookup.get(min_standing, "") if min_standing else ""
 
                             # Add all missions (not just those with XP/blueprint data)
                             if title_key not in missions:
                                 missions[title_key] = []
-                            missions[title_key].append((system_name, success_xp, failure_xp, desc_key, contract_flags, spawns, contract_difficulty, contract_has_bp, contract_bp_chance, contract_bp_variant, rank_name))
+                            missions[title_key].append((system_name, success_xp, failure_xp, desc_key, contract_flags, spawns, contract_difficulty, contract_has_bp, contract_bp_chance, contract_bp_variant, rank_name, rep_track))
 
                             # Sub-contracts override title/desc but inherit
                             # everything else from the parent contract.
@@ -3624,7 +3647,7 @@ def scan_contract_generators(
                                     sub_desc = ""
                                 if sub_title not in missions:
                                     missions[sub_title] = []
-                                missions[sub_title].append((system_name, success_xp, failure_xp, sub_desc or desc_key, contract_flags, spawns, contract_difficulty, contract_has_bp, contract_bp_chance, contract_bp_variant, rank_name))
+                                missions[sub_title].append((system_name, success_xp, failure_xp, sub_desc or desc_key, contract_flags, spawns, contract_difficulty, contract_has_bp, contract_bp_chance, contract_bp_variant, rank_name, rep_track))
                                 if contract_has_bp and sub_title != title_key:
                                     for bp_elem in contract.iter("BlueprintRewards"):
                                         sub_pool_uuid = bp_elem.get("blueprintPool", "")
@@ -5680,6 +5703,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     entity_name_tags  = ctx.get("entity_name_tags", {})
     reputation_lookup = ctx["reputation_lookup"]
     standings_lookup  = ctx.get("standings_lookup") or {}
+    standing_track_lookup = ctx.get("standing_track_lookup") or {}
     rep_xp_label      = ctx.get("rep_xp_label") or _DEFAULT_REP_XP_LABEL
     mh                = ctx.get("mission_headers") or {}
     mh_em             = ctx.get("mission_header_em") or _DEFAULT_MISSION_HEADER_EM_TAG
@@ -5815,6 +5839,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         xml_path_index=xml_path_index, records_dir=records,
         pool_names=pool_names,
         standings_lookup=standings_lookup,
+        standing_track_lookup=standing_track_lookup,
     )
     logger.info(f"Processed {len(contractgen_missions)} contract generator mission variants")
 
@@ -5872,13 +5897,19 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         if is_discovered_title:
             base_title = _humanize_key(title_key)
 
-        seen_tiers: list[tuple[int, int, str]] = []
-        for _, sxp, fxp, _, _, _, _, _, _, _, rname in variants:
-            tier = (sxp, fxp, rname)
+        seen_tiers: list[tuple[int, int, str, str]] = []
+        for _, sxp, fxp, _, _, _, _, _, _, _, rname, rtrack in variants:
+            tier = (sxp, fxp, rname, rtrack)
             if tier not in seen_tiers:
                 seen_tiers.append(tier)
 
-        unique_xp = sorted(set(sxp for sxp, _, _ in seen_tiers))
+        unique_xp = sorted(set(sxp for sxp, _, _, _ in seen_tiers))
+        # For the title tag: only show a track suffix when every nonzero
+        # tier agrees on one — a title spanning multiple tracks (rare) stays
+        # silent here rather than risk showing the wrong one; the per-desc
+        # body line below is always precise regardless.
+        _nonzero_tier_tracks = {rt for sxp, _, _, rt in seen_tiers if sxp > 0 and rt}
+        _title_track = next(iter(_nonzero_tier_tracks)) if len(_nonzero_tier_tracks) == 1 else ""
         has_blueprints = title_key in mission_blueprints
         _bp_variants = [v[7] for v in variants]  # v[7] = contract_has_bp
         _all_have_bp = has_blueprints and all(_bp_variants)
@@ -5968,10 +5999,13 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             elif any(_ace_flags):
                 augmented_title += " <EM4>[ACE?]</EM4>"
         nonzero_xp = [x for x in unique_xp if x > 0] if _show_title_tag("rep") else []
+        _rep_tag_suffix = (
+            f" ({_title_track})" if _title_track and _show_title_tag("rep_track") else ""
+        )
         if len(nonzero_xp) == 1:
-            augmented_title += f" <EM4>[{nonzero_xp[0]:,} {rep_xp_label}]</EM4>"
+            augmented_title += f" <EM4>[{nonzero_xp[0]:,} {rep_xp_label}{_rep_tag_suffix}]</EM4>"
         elif len(nonzero_xp) > 1:
-            augmented_title += f" <EM4>[{min(nonzero_xp):,}\u2013{max(nonzero_xp):,} {rep_xp_label}]</EM4>"
+            augmented_title += f" <EM4>[{min(nonzero_xp):,}\u2013{max(nonzero_xp):,} {rep_xp_label}{_rep_tag_suffix}]</EM4>"
         if _show_title_tag("rs"):
             _rs_tag = battaglia_mineable_rs.get(title_key)
             if _rs_tag:
@@ -6011,8 +6045,8 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             all_variants_have_bp = True
             any_variant_has_bp = False
             variant_bp_chance = 0.0
-            desc_seen_tiers: list[tuple[int, int, str]] = []
-            for _, vsxp, vfxp, _, vflags, vspawns, vdiff, vhas_bp, vbp_chance, vbp_variant, vrname in desc_variants:
+            desc_seen_tiers: list[tuple[int, int, str, str]] = []
+            for _, vsxp, vfxp, _, vflags, vspawns, vdiff, vhas_bp, vbp_chance, vbp_variant, vrname, vrtrack in desc_variants:
                 for f in vflags:
                     if f not in all_flags:
                         all_flags.append(f)
@@ -6027,7 +6061,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
                         bp_variant_names.append(short_name)
                 else:
                     all_variants_have_bp = False
-                tier = (vsxp, vfxp, vrname)
+                tier = (vsxp, vfxp, vrname, vrtrack)
                 if tier not in desc_seen_tiers:
                     desc_seen_tiers.append(tier)
 
@@ -6040,18 +6074,18 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
                 details_lines.extend(_format_spawn_lines(agg_spawns))
             if _show("ace") and bool(agg_spawns.get(SPAWN_HOSTILE, {}).get("Ace Pilots", 0)):
                 details_lines.append("<EM4>Ace Pilot:</EM4> Yes")
-            nonzero_tiers = [(s, f, rn) for s, f, rn in desc_seen_tiers if s > 0]
+            nonzero_tiers = [(s, f, rn, rt) for s, f, rn, rt in desc_seen_tiers if s > 0]
             if _show("reputation"):
                 if len(nonzero_tiers) == 1:
-                    sxp, fxp, rn = nonzero_tiers[0]
-                    details_lines.append(_rep_reward_line(rn, f"+{sxp:,}", rep_xp_label))
+                    sxp, fxp, rn, rt = nonzero_tiers[0]
+                    details_lines.append(_rep_reward_line(rn, f"+{sxp:,}", rep_xp_label, rt))
                     if fxp < 0:
                         details_lines.append(
                             _rep_reward_line("Failure Penalty", f"{fxp:,}", rep_xp_label)
                         )
                 elif len(nonzero_tiers) > 1:
-                    for i, (sxp, fxp, rn) in enumerate(sorted(nonzero_tiers, key=lambda t: t[0]), 1):
-                        line = _rep_reward_line(rn if rn else f"Tier {i}", f"+{sxp:,}", rep_xp_label)
+                    for i, (sxp, fxp, rn, rt) in enumerate(sorted(nonzero_tiers, key=lambda t: t[0]), 1):
+                        line = _rep_reward_line(rn if rn else f"Tier {i}", f"+{sxp:,}", rep_xp_label, rt)
                         if fxp < 0:
                             line += f" (Failure: {fxp:,})"
                         details_lines.append(line)
@@ -6209,7 +6243,10 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             except (ET.ParseError, Exception):
                 continue
 
-    xp_tag_re = re.compile(r"<EM4>\[\d[\d,]*(?:[–\-]\d[\d,]*)?\s*\w+\]</EM4>")
+    # Optional trailing "(Track)" (issue #161's reputation-track suffix)
+    # must not break this already-tagged guard, or the pu_missions-only pass
+    # below re-appends its own XP tag onto a title the main loop already tagged.
+    xp_tag_re = re.compile(r"<EM4>\[\d[\d,]*(?:[–\-]\d[\d,]*)?\s*\w+(?:\s*\([^)]*\))?\]</EM4>")
     _mt_cfg2 = tag_configs.get("mission_titles") or DEFAULT_TAG_CONFIGS.get("mission_titles")
     # #200 follow-up: cargo-size abbreviation, independent of the word/phrase
     # removal checkboxes — one "Shorten cargo sizes" master checkbox, not
@@ -6463,6 +6500,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
     armor_lookup: dict = {}
     reputation_lookup: dict[str, int] = {}
     standings_lookup: dict[str, str] = {}
+    standing_track_lookup: dict[str, str] = {}
 
     # Components Tag Builder config — drives the [CLASS-Sx-grade] tags that
     # get baked into both scitem_lookups (entity_name_tags) and the pickle
@@ -6543,6 +6581,53 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
     if _want("mission_rewards"):
         lookup_jobs["standings"] = _build_standings
 
+    def _build_standing_tracks():
+        """Map a standing (min/maxStanding) UUID to its reputation TRACK
+        name (e.g. "Security", "Contractor", "Bounty Hunting") — distinct
+        from the rank NAME (e.g. "Security Trainee") ``_build_standings``
+        resolves. Some factions have multiple reputation tracks (Foxwell
+        Enforcement shows separate "Security" and "Standing" columns
+        in-game); which track a mission feeds isn't obvious from its type or
+        name alone (a ship-combat "Security Patrol" contract actually feeds
+        the generic Contractor/Standing track, while the satellite-scan
+        "Destroy Data Skimmers" contract feeds Security) — see issue #161.
+
+        Every standing rank's ``displayName`` loc key encodes its track as
+        the token right after the ``RepStanding_``/``RepScope_`` prefix
+        (``RepStanding_Security_Rank0``, ``RepScope_Contractor_Rank3``);
+        that token's ``RepScope_<track>_Name`` key gives the clean label
+        already used by the in-game Reputation Manager UI.
+        """
+        standings_dir = records / "reputation" / "standings"
+        def _builder() -> dict[str, str]:
+            out: dict[str, str] = {}
+            if not standings_dir.exists():
+                return out
+            for xml_file in standings_dir.rglob("*.xml"):
+                try:
+                    root = ET.parse(xml_file).getroot()
+                    uuid = root.get("__ref")
+                    display_name = root.get("displayName", "")
+                    if not uuid or not display_name.startswith("@"):
+                        continue
+                    m = _REP_TRACK_PREFIX_RE.match(display_name.lstrip("@"))
+                    if not m:
+                        continue
+                    family = m.group(1)
+                    track_name = (
+                        (en_loc or {}).get(f"RepScope_{family}_Name")
+                        or (en_loc or {}).get(f"RepScope_{family}_Name,P")
+                        or family
+                    )
+                    out[uuid] = track_name
+                except ET.ParseError:
+                    continue
+            return out
+        return _cached_lookup(forge_dir, "standing_tracks", _builder)
+
+    if _want("mission_rewards"):
+        lookup_jobs["standing_tracks"] = _build_standing_tracks
+
     if lookup_jobs:
         logger.info(f"Building {len(lookup_jobs)} lookups in parallel (workers={min(max_workers, len(lookup_jobs))})…")
         _flush()
@@ -6578,6 +6663,10 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             standings_lookup = results["standings"]
             logger.info(f"Loaded {len(standings_lookup)} reputation standing definitions")
             _tick("Built standings lookup")
+        if "standing_tracks" in results:
+            standing_track_lookup = results["standing_tracks"]
+            logger.info(f"Loaded {len(standing_track_lookup)} reputation track definitions")
+            _tick("Built standing track lookup")
 
     # ── Output-file generators (parallel wave) ────────────────────────────────
     # Generators run in a ThreadPoolExecutor. Each is a module-level function
@@ -6605,6 +6694,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         "armor_lookup":      armor_lookup,
         "reputation_lookup": reputation_lookup,
         "standings_lookup":  standings_lookup,
+        "standing_track_lookup": standing_track_lookup,
         "xml_path_index":    xml_path_index,
         "tag_configs":       tag_configs or {},
         "_components_cfg_key": _components_cfg_key,
