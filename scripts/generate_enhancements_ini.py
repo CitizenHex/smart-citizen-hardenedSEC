@@ -3104,25 +3104,61 @@ def _build_template_lookup(
     return lookup
 
 
-# Recco Battaglia's Scan/Mining contracts (4.9+, "Battaglia_RPT_Scan_*" /
-# "Battaglia_RPT_ScanMine_*" title keys) each target 1-3 specific mineable
-# ores, chosen via sibling MissionProperty overrides with
-# extendedTextToken="ResourceType"/"ResourceType2"/"ResourceType3" pointing at
-# a "mineabletype_primary_<ore>" loc key. CIG doesn't expose a per-ore "RS"
-# (resonance-signature) number anywhere in DataForge — checked the full PTU
-# 4.9 cache for both the literal values and any per-mineable stat registry,
-# found neither — so this is a curated table covering just the 8 ores this
-# mission family actually uses, matching the community loc reference the
-# values were modeled on (MrKraken/StarStrings, ptu/4.9 branch, mining.ini).
+# CIG doesn't expose a per-ore "RS" (resonance-signature) number anywhere in
+# DataForge — checked the full PTU 4.9 cache for both the literal values and
+# any per-mineable stat registry, found neither — so this is a curated table
+# sourced from community reference data (MrKraken/StarStrings; the original 8
+# from the ptu/4.9 branch mining.ini, the rest cross-checked against
+# starminersdepot.com's Alpha 4.8 scanner table — the 7 ores present in both
+# sources agree exactly). "ice" has no confirmed reference for this patch but
+# is kept from the original 4.9 source. Two consumers:
+#   - Recco Battaglia's Scan/Mining contracts (4.9+, "Battaglia_RPT_Scan_*" /
+#     "Battaglia_RPT_ScanMine_*" title keys), each targeting 1-3 specific
+#     mineable ores via sibling MissionProperty overrides with
+#     extendedTextToken="ResourceType"/"ResourceType2"/"ResourceType3"
+#     pointing at a "mineabletype_primary_<ore>" loc key.
+#   - The "Mining Fundamentals #2: Where to Mine" journal entry (see
+#     enhancements_journal's per-mineral block builder), which shows every
+#     ore's base RS next to its mining locations.
+# Not every ore in either consumer has a known value; unmatched ores are
+# simply left without an RS line/tag (see each consumer for its own
+# unmatched-key handling).
 MINEABLE_RS_VALUES = {
-    "aluminium":  4285,
-    "bexalite":   3600,
-    "ice":        4300,
-    "iron":       4270,
-    "lindinium":  3400,
-    "savrillium": 3200,
-    "titanium":   3855,
-    "torite":     3900,
+    "agricium":      3885,
+    "aluminium":     4285,
+    "aslarite":      3840,
+    "beryl":         3540,
+    "bexalite":      3600,
+    "borase":        3570,
+    "copper":        4240,
+    "corundum":      4225,
+    "gold":          3585,
+    "hephaestanite": 4180,
+    "ice":           4300,
+    "iron":          4270,
+    "laranite":      3825,
+    "lindinium":     3400,
+    "ouratite":      3370,
+    "quantainium":   3170,
+    "quartz":        4210,
+    "riccite":       3385,
+    "savrillium":    3200,
+    "silicon":       4255,
+    "stileron":      3185,
+    "taranite":      3555,
+    "tin":           4195,
+    "titanium":      3855,
+    "torite":        3900,
+    "tungsten":      3870,
+}
+
+# The Mining Compendium journal's own prose spells a couple of ore names
+# differently from their DataForge loc-key spelling (a CIG typo, not a
+# transcription error here) — "Savrilium" (single L) vs the canonical
+# mineabletype_primary_savrillium. Maps the journal's lowercased spelling to
+# the MINEABLE_RS_VALUES key so the lookup still matches.
+_MINING_COMPENDIUM_ORE_ALIASES = {
+    "savrilium": "savrillium",
 }
 
 _BATTAGLIA_SCAN_TITLE_PREFIXES = ("Battaglia_RPT_Scan_", "Battaglia_RPT_ScanMine_")
@@ -4302,19 +4338,29 @@ def scan_crafting_blueprints(
                 mineral_crafting.setdefault(k, condensed)
 
         # Reformat each mineral entry from the stock one-line "Name - loc, loc"
-        # into a structured block: underlined (EM3) name header, a blue (EM4)
+        # into a structured block: underlined (EM3) name header, a
+        # "Base Resource Signature: <value>" line when MINEABLE_RS_VALUES has
+        # a confirmed number for this ore (silently omitted otherwise — see
+        # that table's docstring for which ores are covered), a blue (EM4)
         # "Locations:" subheader with one dash-bulleted location per line
         # (alphabetized), and, when the mineral feeds crafting, a blue "Used To
         # Craft:" subheader with one dash-bulleted item per line (alphabetized).
         # Intro prose and any non-mineral paragraph pass through untouched.
         paras = base_content.split("\\n\\n")
         augmented_lines = []
+        rs_ores_tagged = 0
         for para in paras:
             dash_idx = para.find(" - ")
             name = para[:dash_idx].strip() if dash_idx > 0 else ""
             locations = mineral_locations.get(name.lower()) if name else None
             if locations is not None:
-                block = [f"<EM3>{name}</EM3>", "", "<EM4>Locations:</EM4>"]
+                block = [f"<EM3>{name}</EM3>", ""]
+                ore_key = _MINING_COMPENDIUM_ORE_ALIASES.get(name.lower(), name.lower())
+                rs_value = MINEABLE_RS_VALUES.get(ore_key)
+                if rs_value is not None:
+                    block += [f"Base Resource Signature: <EM4>{rs_value}</EM4>", ""]
+                    rs_ores_tagged += 1
+                block += ["<EM4>Locations:</EM4>"]
                 block += [f"- {loc_}" for loc_ in locations]
                 craft = mineral_crafting.get(name.lower())
                 if craft:
@@ -4331,7 +4377,10 @@ def scan_crafting_blueprints(
             augmented_lines.insert(0, legend)
 
         out_journal[journal_content_key] = "\\n\\n".join(augmented_lines)
-        logger.info(f"Journal: augmented Mining Compendium with crafting data for {len(mineral_crafting)} minerals")
+        logger.info(
+            f"Journal: augmented Mining Compendium with crafting data for {len(mineral_crafting)} minerals, "
+            f"base RS for {rs_ores_tagged} minerals"
+        )
 
     return out, out_journal
 
