@@ -81,7 +81,7 @@
       "at": ""
     },
     "apply_btn_disabled_tooltip": {
-      "ht": "Already applied — nothing has changed since the last Apply to Game.",
+      "ht": "Already applied: nothing has changed since the last Apply to Game.",
       "at": ""
     },
     "restore_backup_btn": {
