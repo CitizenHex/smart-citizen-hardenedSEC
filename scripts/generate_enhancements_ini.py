@@ -71,6 +71,23 @@ except ImportError:  # pragma: no cover — only triggers if src/ is removed
     def route_enabled(_cfg):  # type: ignore[misc]
         return False
 
+# Same deferred-import pattern as tag_builder above. DataForge paths under a
+# deep portable/tester install directory can exceed the 260-char MAX_PATH;
+# lxml's ET.parse and pathlib's own rglob/stat raise a raw WinError 3
+# ("cannot find the path specified") even though the file exists. The \\?\
+# long-path prefix sidesteps it (originally added for pak_extractor.py's
+# copy/cleanup step, #221) — wrapping ``forge_dir`` once in main() below
+# means every path this whole module derives from it (20+ ET.parse call
+# sites, 18+ rglob walks) inherits long-path safety for free.
+try:
+    _gen_root = Path(__file__).parent.parent
+    if str(_gen_root) not in sys.path:
+        sys.path.insert(0, str(_gen_root))
+    from src.utils.win_paths import win_long_path
+except ImportError:  # pragma: no cover — only triggers if src/ is removed
+    def win_long_path(path):  # type: ignore[misc]
+        return str(path)
+
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -259,10 +276,21 @@ def write_ini(path: Path, entries: dict[str, str]) -> None:
 #     meaningless "[S1-A]" in POTENTIAL BLUEPRINTS. entity_name_tags now keeps
 #     only CLASS/TYPE-qualified tags; both lookups carry the affected names so
 #     both bump to force a rebuild.
+#   xml_path_index v2 (2.2.0, #231 follow-up) — main() now wraps forge_dir
+#     (and everything derived from it, including records_dir) via
+#     win_paths.win_long_path before building this index, so its stored path
+#     strings carry the \\?\ long-path prefix. xml_path_index had no entry
+#     here before, so it silently defaulted to "v1" forever — a pickle built
+#     by a pre-#231 run (unprefixed paths, same DataForge fingerprint) was
+#     reused indefinitely, mixing unprefixed indexed paths with the now-
+#     prefixed bp_dir/entity_dir callers compare them against and crashing
+#     scan_crafting_blueprints's xml_file.relative_to(bp_dir) with "not in
+#     the subpath of". Bump flushes any pre-#231 pickle.
 _LOOKUP_VERSIONS: dict[str, str] = {
     "blueprint_pools": "v12",
     "scitem_lookups": "v8",
     "standings": "v2",
+    "xml_path_index": "v2",
 }
 
 
@@ -2051,7 +2079,12 @@ def enhancements_mining_laser(root: ET.Element) -> str:
         if dps not in (None, "0", "0.0"):
             parts.append(f"DPS: {_fmt(dps)}")
         if full_r not in (None, "0", "0.0") or zero_r not in (None, "0", "0.0"):
-            parts.append(f"Range: {_fmt(full_r, 'm')}→{_fmt(zero_r, 'm')}")
+            # En dash, not the arrow "→" this used to use — the in-game
+            # Vehicle Loadout Manager's item-description font has no glyph
+            # for it and renders a fallback box character instead (reported
+            # on GitHub). The en dash is already used for Energy just below
+            # and reads fine there, so it's a safe, tested-working choice.
+            parts.append(f"Range: {_fmt(full_r, 'm')}–{_fmt(zero_r, 'm')}")
         if e_max not in (None, "0", "0.0"):
             if e_min and e_min != e_max and e_min not in ("0", "0.0"):
                 parts.append(f"Energy: {_fmt(e_min)}–{_fmt(e_max)} PU/s")
@@ -2062,7 +2095,12 @@ def enhancements_mining_laser(root: ET.Element) -> str:
         if wear_s not in (None, "0", "0.0"):
             parts.append(f"Wear: {wear_s}/s")
         if parts:
-            lines.append(f"<EM4>{mode}:</EM4>  " + "  |  ".join(parts))
+            # Plain label, not <EM4>-wrapped — matches every other component
+            # extractor (enhancements_shield etc.) and avoids the Vehicle
+            # Loadout Manager's item-description widget showing the raw tag
+            # text literally (that widget doesn't interpret EM4 rich-text,
+            # unlike mission descriptions elsewhere; reported on GitHub).
+            lines.append(f"{mode}:  " + "  |  ".join(parts))
 
     # Mining-laser modifier overlay. CIG's description has these but the
     # user wants them re-emitted from XML so balance updates surface even
@@ -2090,16 +2128,16 @@ def enhancements_mining_laser(root: ET.Element) -> str:
                     sign = "+" if float(fval) > 0 else ""
                     mod_parts.append(f"Inert Filter: {sign}{fval}%")
             if mod_parts:
-                lines.append("<EM4>Modifiers:</EM4>  " + "  |  ".join(mod_parts))
+                lines.append("Modifiers:  " + "  |  ".join(mod_parts))
 
     # Structural stats — component HP + distortion + ship-component-style
     # signatures if they happen to be present on a ship-mountable laser.
     comp_hp = _attr(root, "SHealthComponentParams", "Health")
     if comp_hp is not None:
-        lines.append(f"<EM4>Component HP:</EM4> {_fmt(comp_hp)}")
+        lines.append(f"Component HP: {_fmt(comp_hp)}")
     distort = _attr(root, "SDistortionParams", "Maximum")
     if distort is not None and distort not in ("0", "0.0"):
-        lines.append(f"<EM4>Max Distortion:</EM4> {_fmt(distort)}")
+        lines.append(f"Max Distortion: {_fmt(distort)}")
     em_sig = _attr(root, "EMSignature", "nominalSignature")
     ir_sig = _attr(root, "IRSignature", "nominalSignature")
     if em_sig is not None or ir_sig is not None:
@@ -2109,7 +2147,7 @@ def enhancements_mining_laser(root: ET.Element) -> str:
         if ir_sig is not None and ir_sig not in ("0", "0.0"):
             sig_parts.append(f"IR: {_fmt(ir_sig)}")
         if sig_parts:
-            lines.append("<EM4>Signatures:</EM4>  " + "  |  ".join(sig_parts))
+            lines.append("Signatures:  " + "  |  ".join(sig_parts))
 
     return "\\n".join(lines) if lines else ""
 
@@ -2135,7 +2173,7 @@ def enhancements_salvage_tool(root: ET.Element) -> str:
     fire_actions = root.findall(".//SWeaponActionFireSalvageRepairParams")
     for fa in fire_actions:
         # Mode is encoded on the element itself via the `salvageRepairMode`
-        # attribute ("Repair" / "Salvage"). Use it as the EM4-tagged header.
+        # attribute ("Repair" / "Salvage"). Use it as the plain-text header.
         mode = fa.get("salvageRepairMode") or fa.get("name") or "Mode"
         eff      = fa.get("materialEfficiency")
         hp_rate  = fa.get("maxHealthRepairRate")
@@ -2160,7 +2198,11 @@ def enhancements_salvage_tool(root: ET.Element) -> str:
         if h2a not in (None, "0", "0.0"):
             parts.append(f"HP/Ammo: {_fmt(h2a, '', 2)}")
         if ramp_up not in (None, "0", "0.0") or ramp_dn not in (None, "0", "0.0"):
-            parts.append(f"Ramp: {_fmt(ramp_up, 's', 1)}↑ {_fmt(ramp_dn, 's', 1)}↓")
+            # Plain "up"/"down" words, not the "↑"/"↓" arrows this used to
+            # use — same missing-glyph issue as the mining-laser Range line
+            # (see the note there): the in-game item-description font has
+            # no glyph for them and shows a fallback box character instead.
+            parts.append(f"Ramp: {_fmt(ramp_up, 's', 1)} up, {_fmt(ramp_dn, 's', 1)} down")
         if e_max not in (None, "0", "0.0"):
             if e_min and e_min != e_max and e_min not in ("0", "0.0"):
                 parts.append(f"Energy: {_fmt(e_min)}–{_fmt(e_max)} PU/s")
@@ -2171,15 +2213,16 @@ def enhancements_salvage_tool(root: ET.Element) -> str:
         if wear_s not in (None, "0", "0.0"):
             parts.append(f"Wear: {wear_s}/s")
         if parts:
-            lines.append(f"<EM4>{mode}:</EM4>  " + "  |  ".join(parts))
+            # Plain label — see the matching note in enhancements_mining_laser.
+            lines.append(f"{mode}:  " + "  |  ".join(parts))
 
     # Structural stats (durability / wear) — same pattern as mining lasers.
     comp_hp = _attr(root, "SHealthComponentParams", "Health")
     if comp_hp is not None and comp_hp not in ("0", "0.0"):
-        lines.append(f"<EM4>Component HP:</EM4> {_fmt(comp_hp)}")
+        lines.append(f"Component HP: {_fmt(comp_hp)}")
     wear_max = _attr(root, "SWearAccumulatorParams", "MaxLifetimeHours")
     if wear_max is not None and wear_max not in ("0", "0.0"):
-        lines.append(f"<EM4>Max Lifetime:</EM4> {_fmt(wear_max, 'h', 1)}")
+        lines.append(f"Max Lifetime: {_fmt(wear_max, 'h', 1)}")
 
     return "\\n".join(lines) if lines else ""
 
@@ -2449,38 +2492,49 @@ def _add_spawn(breakdown: SpawnBreakdown, bucket: str, label: str, count: int) -
 
 
 def _within_excluded_subtree(node: ET.Element, scope: ET.Element,
-                             exclude_tag: str | None) -> bool:
-    """True if ``node`` has an ancestor tagged ``exclude_tag`` at or below
-    ``scope`` (exclusive of ``scope`` itself). Walks up via ``getparent()``.
+                             exclude_tags: str | tuple[str, ...] | None) -> bool:
+    """True if ``node`` has an ancestor tagged one of ``exclude_tags`` at or
+    below ``scope`` (exclusive of ``scope`` itself). Walks up via
+    ``getparent()``. Accepts a single tag name or a tuple of names.
 
     Used to keep handler-scope spawn extraction from reaching down into the
-    handler's child ``CareerContract`` nodes — see ``_extract_spawn_counts``'s
+    handler's child mission variants — see ``_extract_spawn_counts``'s
     ``exclude_within`` and issue #186.
     """
-    if not exclude_tag:
+    if not exclude_tags:
         return False
+    tags = (exclude_tags,) if isinstance(exclude_tags, str) else exclude_tags
     parent = node.getparent()
     while parent is not None and parent is not scope:
-        if parent.tag == exclude_tag:
+        if parent.tag in tags:
             return True
         parent = parent.getparent()
     return False
 
 
 def _extract_spawn_counts(element: ET.Element,
-                          exclude_within: str | None = None) -> SpawnBreakdown:
+                          exclude_within: str | tuple[str, ...] | None = None) -> SpawnBreakdown:
     """Extract a per-bucket per-label breakdown of spawn descriptions.
 
     Parses ``SpawnDescription_ShipGroup`` and ``SpawnDescription_NPC_Group``
     elements within the given XML element scope, classifies each by name via
     :func:`classify_spawn_group`, and aggregates counts per (bucket, label).
 
-    ``exclude_within`` skips any spawn group nested inside a descendant with
-    that tag. The handler-level fallback passes ``"CareerContract"`` so a
-    contract with no spawns of its own inherits only spawns defined directly at
-    handler scope (the genuine shared default), NOT the union of every sibling
-    contract's roster — which leaked e.g. ground "Kopions"/"Soldiers" onto an
-    easy 9-probe satellite mission (#186).
+    ``exclude_within`` skips any spawn group nested inside a descendant tagged
+    with one of the given names. The handler-level fallback passes
+    ``("CareerContract", "Contract")`` so a contract with no spawns of its own
+    inherits only spawns defined directly at handler scope (the genuine shared
+    default), NOT the union of every sibling contract's roster — which leaked
+    e.g. ground "Kopions"/"Soldiers" onto an easy 9-probe satellite mission
+    (#186). ``Contract`` (not just ``CareerContract``) must be excluded too:
+    a handler's ``introContracts`` wraps its one-time intro mission in a
+    ``<Contract>`` tag (the same tag List-type handlers use for their regular
+    children), and without excluding it, the intro mission's own roster
+    (e.g. Foxwell Enforcement's "Attackers"/"Defenders" FPS NPCs, scoped to
+    just its one-time "Mercenary Intro" contract) leaked into every sibling
+    CareerContract with no spawns of its own — including the unrelated
+    "Destroy Data Skimmers"/"Handle Security Threat" satellite-probe missions,
+    which have no combat roster and shouldn't show any Hostiles at all.
 
     Pre-1.4.1 this returned ``(num_waves, num_enemies, num_not_enemies)`` and
     bucketed everything unrecognized as hostile — see the keyword-table
@@ -3395,11 +3449,13 @@ def scan_contract_generators(
                     # Extract handler-level spawn breakdown (shared across
                     # contracts; per-contract overrides win when non-empty).
                     # Exclude spawns nested inside the handler's CareerContract
-                    # children so the fallback inherits only genuine
-                    # handler-scope defaults, not a union of every sibling
-                    # contract's roster (#186).
+                    # children AND its introContracts' Contract wrapper so the
+                    # fallback inherits only genuine handler-scope defaults,
+                    # not a union of every sibling contract's roster (#186) —
+                    # including the one-time intro mission's own roster, which
+                    # uses the plain <Contract> tag, not <CareerContract>.
                     handler_spawns = _extract_spawn_counts(
-                        handler, exclude_within="CareerContract"
+                        handler, exclude_within=("CareerContract", "Contract")
                     )
 
                     contracts = handler.findall(contract_xpath)
@@ -6405,6 +6461,11 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             logger.info(f"Loaded {len(en_loc):,} English keys for annotation lookups")
 
     # ── Check DataForge cache ─────────────────────────────────────────────────
+    # Long-path-prefix once here so every downstream path derived from
+    # forge_dir/records (the whole rest of this function, plus every helper
+    # it calls with forge_dir/records) inherits long-path safety — see the
+    # win_long_path import comment near the top of this file.
+    forge_dir = Path(win_long_path(forge_dir))
     records = forge_dir / "raw" / "libs" / "foundry" / "records"
     if not forge_dir.exists() or not records.exists():
         raise FileNotFoundError(
