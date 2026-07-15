@@ -3154,6 +3154,13 @@ def _battaglia_contract_mineable_ores(contract: ET.Element) -> list[str]:
 def _format_rs_tag(ores: list[str]) -> str:
     """Render ``["aluminium", "iron"]`` as ``"[RS 4285/4270]"``, or ``""``
     when no ore in the list has a known RS value."""
+    unknown = [o for o in ores if o not in MINEABLE_RS_VALUES]
+    if unknown:
+        # MINEABLE_RS_VALUES is a curated table (see its docstring), not
+        # derived from DataForge — a CIG data bump can add an ore this table
+        # doesn't know about. Silently dropping it would otherwise show a
+        # title with fewer RS values than ores and nobody would notice.
+        logger.info(f"Battaglia RS tag: unmatched ore key(s) {unknown} (no curated RS value)")
     values = [str(MINEABLE_RS_VALUES[o]) for o in ores if o in MINEABLE_RS_VALUES]
     if not values:
         return ""
