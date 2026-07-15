@@ -1709,6 +1709,37 @@ class _TagBuilderPage(QWidget):
         tags_col.addStretch()
         page.addWidget(tags_group)
 
+        # "Scanning/Mining Missions" (4.9+): its own box next to General Tags
+        # rather than folded into it, since it's specific to one mission
+        # family (Recco Battaglia's Scan/Mining contracts) rather than a
+        # tag shown across every mission type. Same immediate-persist
+        # pattern as the General Tags checkboxes above (shares
+        # self._title_tag_checkboxes so Reset-to-defaults picks it up too).
+        scanning_group = QGroupBox("Scanning/Mining Missions")
+        scanning_col = QVBoxLayout(scanning_group)
+        scanning_col.setContentsMargins(10, 10, 10, 10)
+        scanning_col.setSpacing(6)
+        scanning_hint = QLabel(
+            "Recco Battaglia's Scanning/Mining missions target specific "
+            "mineable ores, show each ore's Resource Signature value on "
+            "the mission title."
+        )
+        scanning_hint.setProperty("role", "secondary")
+        scanning_hint.setStyleSheet("font-size: 11px;")
+        scanning_hint.setWordWrap(True)
+        scanning_col.addWidget(scanning_hint)
+
+        _rs_cb = QCheckBox("Show Resource Signature (RS) Tags")
+        _rs_cb.setChecked(_tt_saved.get("rs", True))
+        _rs_cb.toggled.connect(
+            lambda checked: AppSettings.set_mission_title_tag("rs", checked)
+        )
+        _rs_cb.toggled.connect(self.config_changed.emit)
+        scanning_col.addWidget(_rs_cb)
+        self._title_tag_checkboxes["rs"] = _rs_cb
+        scanning_col.addStretch()
+        page.addWidget(scanning_group)
+
         page.addStretch()
 
     def _set_mt_controls_enabled(self, on: bool) -> None:
