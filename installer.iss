@@ -83,6 +83,15 @@ var
     language selector. Options must stay in sync with the non-stub folders
     under languages/ (AppSettings.get_available_languages()). }
   LanguageChoicePage: TInputOptionWizardPage;
+  { True when a saved selected_language value was found but didn't match any
+    of the known LanguageChoicePage options below. Guards the always-write in
+    WriteInstallerChoicesToRegistry: without it, an upgrade install whose
+    saved value has fallen out of sync with this page's option list (e.g. a
+    5th language shipped in the app but not added here yet) would silently
+    overwrite the user's real saved value with 'english', since the page
+    itself falls back to displaying English (index 0) for an unrecognized
+    value. See #236 review discussion. }
+  LanguageChoiceUnknownSaved: Boolean;
 
 function IsAutoUpdate(): Boolean;
 begin
@@ -715,19 +724,33 @@ begin
   { App UI/string language, matching AppSettings.SELECTED_LANGUAGE. Always
     written (not just on a non-English choice) so a fresh install opens in
     the chosen language rather than relying on the app's English fallback.
-    Values here must stay in sync with the folder names under languages/. }
-  case LanguageChoicePage.SelectedValueIndex of
-    1: RegWriteStringValue(HKCU,
-         'Software\Osiris DevWorks\Smart Citizen', 'selected_language', 'french');
-    2: RegWriteStringValue(HKCU,
-         'Software\Osiris DevWorks\Smart Citizen', 'selected_language', 'portuguese_br');
-    3: RegWriteStringValue(HKCU,
-         'Software\Osiris DevWorks\Smart Citizen', 'selected_language', 'spanish');
+    Values here must stay in sync with the folder names under languages/.
+
+    Exception: skip the write entirely when the saved value didn't match any
+    option this page knows about (LanguageChoiceUnknownSaved) — the page
+    falls back to displaying English in that case, and an always-write would
+    silently downgrade the user's real (just-unrecognized) language back to
+    English, both on an interactive upgrade and on a silent auto-update
+    install where nobody sees the page to correct it. Worst case with the
+    guard: the page shows English pre-selected but the saved value is left
+    untouched. }
+  if LanguageChoiceUnknownSaved then
+    Log('Skipped rewriting selected_language: saved value matched no known option, left unchanged.')
   else
-    RegWriteStringValue(HKCU,
-      'Software\Osiris DevWorks\Smart Citizen', 'selected_language', 'english');
+  begin
+    case LanguageChoicePage.SelectedValueIndex of
+      1: RegWriteStringValue(HKCU,
+           'Software\Osiris DevWorks\Smart Citizen', 'selected_language', 'french');
+      2: RegWriteStringValue(HKCU,
+           'Software\Osiris DevWorks\Smart Citizen', 'selected_language', 'portuguese_br');
+      3: RegWriteStringValue(HKCU,
+           'Software\Osiris DevWorks\Smart Citizen', 'selected_language', 'spanish');
+    else
+      RegWriteStringValue(HKCU,
+        'Software\Osiris DevWorks\Smart Citizen', 'selected_language', 'english');
+    end;
+    Log('Saved selected_language to registry.');
   end;
-  Log('Saved selected_language to registry.');
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -921,6 +944,7 @@ begin
     English (index 0) when nothing is saved yet or the saved value
     doesn't match a known option. }
   LanguageIndex := 0;
+  LanguageChoiceUnknownSaved := False;
   if RegQueryStringValue(HKCU, 'Software\Osiris DevWorks\Smart Citizen',
        'selected_language', SavedLanguage) then
   begin
@@ -929,7 +953,13 @@ begin
     else if CompareText(SavedLanguage, 'portuguese_br') = 0 then
       LanguageIndex := 2
     else if CompareText(SavedLanguage, 'spanish') = 0 then
-      LanguageIndex := 3;
+      LanguageIndex := 3
+    else if CompareText(SavedLanguage, 'english') <> 0 then
+      { A saved value that matches none of this page's options — e.g. a
+        newer app version shipped a 5th language before this installer's
+        option list caught up. Flag it so the write-back below leaves the
+        real saved value alone instead of clobbering it with 'english'. }
+      LanguageChoiceUnknownSaved := True;
   end;
   LanguageChoicePage.SelectedValueIndex := LanguageIndex;
 
