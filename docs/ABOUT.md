@@ -21,6 +21,7 @@ All Osiris DevWorks tools will be either **completely free** or have a **free ti
 
 Thanks to those who've contributed code to Smart Citizen:
 
+- **Stealrull**
 - **Ishikudeska**
 - **jonigirl**
 - **Coerwyn**
@@ -34,6 +35,7 @@ Thanks to those who've translated Smart Citizen's interface:
 
 - **Akwa** (Français)
 - **Nxzzin** (Português brasileiro)
+- **Thord82** (Español)
 
 ## Acknowledgements
 
@@ -47,6 +49,8 @@ Thanks to the testers who helped shape Smart Citizen with their feedback:
 - **Apolleon Phoibos**
 - **Epiq**
 - **Narull**
+- **XaileiShiv**
+- **Mindbulletz**
 
 ### Supporters
 

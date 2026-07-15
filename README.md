@@ -202,6 +202,7 @@ StarCitizen/
 
 Thanks to those who've contributed code to Smart Citizen:
 
+- [**Stealrull**](https://github.com/Stealrull)
 - [**Ishikudeska**](https://github.com/Ishikudeska)
 - **jonigirl**
 - [**Coerwyn**](https://github.com/Coerwyn)
@@ -211,9 +212,10 @@ Thanks to those who've contributed code to Smart Citizen:
 
 ## Acknowledgments
 
-- **Boogie Man, Perseuscz, Flat Earth, Lord Valium, Zero, Apolleon Phoibos, Epiq, Narull** — testers who helped shape Smart Citizen with their feedback
+- **Boogie Man, Perseuscz, Flat Earth, Lord Valium, Zero, Apolleon Phoibos, Epiq, Narull, XaileiShiv, Mindbulletz** — testers who helped shape Smart Citizen with their feedback
 - **Akwa** — French interface translation
 - **Nxzzin** — Brazilian Portuguese interface translation
+- [**Thord82**](https://github.com/Thord82) — Spanish interface translation, plus the [Spanish `global.ini` source](https://github.com/Thord82/Star_citizen_ES) that powers the Spanish game strings
 - [**Osiris-DevWorks/odw-fast-unp4k**](https://github.com/Osiris-DevWorks/odw-fast-unp4k) — Bundled `unp4k.exe` / `unforge.exe` used to unpack `Data.p4k` and convert DataForge to XML; our parallelized fork of the original [dolkensp/unp4k](https://github.com/dolkensp/unp4k)
 - [**Dymerz/StarCitizen-Localization**](https://github.com/Dymerz/StarCitizen-Localization) — Community-maintained `global.ini` translations that power the non-English language options
 - [**ExoAE**](https://github.com/ExoAE/ScCompLangPack) — Original ScCompLangPack concept and merge logic that inspired Smart Citizen's foundation
