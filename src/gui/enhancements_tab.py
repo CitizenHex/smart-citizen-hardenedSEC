@@ -50,11 +50,21 @@ class _NoScrollComboBox(QComboBox):
     def showPopup(self):  # noqa: N802 (Qt override)
         # Qt's default popup placement flips the list above the box when it
         # judges there isn't room below (common in this tab's scroll area,
-        # even when there visually is room) — force it below every time so
-        # the option list is always where the user expects it.
+        # even when there visually is room) — force it below whenever that
+        # actually fits on-screen, so the option list is where the user
+        # expects it. A combo near the bottom of the screen is the case Qt's
+        # flip logic exists for; forcing "below" there would run the popup
+        # off the bottom of the display, so only override when there's room.
         super().showPopup()
         popup = self.view().window()
-        popup.move(self.mapToGlobal(self.rect().bottomLeft()))
+        below_point = self.mapToGlobal(self.rect().bottomLeft())
+        screen = self.screen()
+        fits_below = (
+            screen is None
+            or below_point.y() + popup.height() <= screen.availableGeometry().bottom()
+        )
+        if fits_below:
+            popup.move(below_point)
 
 
 class _NoScrollTabBar(QTabBar):
@@ -182,6 +192,7 @@ class EnhancementsTab(QWidget):
             "missions":    tr("enhancements.cat_desc_missions"),
             "commodities": tr("enhancements.cat_desc_commodities"),
             "journal":     tr("enhancements.cat_desc_journal"),
+            "medical_consumables": tr("enhancements.cat_desc_medical_consumables"),
         }
 
         self._enhancements_status_labels: dict = {}
@@ -713,6 +724,7 @@ class EnhancementsTab(QWidget):
             "missions":    "enhancements.cat_desc_missions",
             "commodities": "enhancements.cat_desc_commodities",
             "journal":     "enhancements.cat_desc_journal",
+            "medical_consumables": "enhancements.cat_desc_medical_consumables",
         }
         for key, lbl in self._cat_desc_labels.items():
             if key in _CAT_KEYS:

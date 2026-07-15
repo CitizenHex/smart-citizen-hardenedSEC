@@ -8,10 +8,14 @@ All enhancements are sourced directly from the game's DataForge entity XML files
 (extracted from Data.p4k via unp4k + unforge).  No external JSON sources.
 
 Output files (written to OUTPUT_DIR / cache):
-  ships_desc_enhancements.ini        – vehicle_Desc* entries with flight/specs data
-  components_desc_enhancements.ini   – item_Desc* COOL/SHLD/POWR/QDRV with numerical data
-  ship_weapons_desc_enhancements.ini – item_Desc* ship weapon data
-  fps_weapons_desc_enhancements.ini  – item_Desc* FPS weapon data
+  ships_desc_enhancements.ini             – vehicle_Desc* entries with flight/specs data
+  components_desc_enhancements.ini        – item_Desc* COOL/SHLD/POWR/QDRV with numerical data
+  ship_weapons_desc_enhancements.ini      – item_Desc* ship weapon data
+  fps_weapons_desc_enhancements.ini       – item_Desc* FPS weapon data
+  medical_consumables_enhancements.ini    – item_Desc* CureLife pens; static curated
+                                             effect text, not DataForge-derived (the
+                                             stock descriptions are lore-only and never
+                                             state what the item actually does)
 
 Usage:
   python scripts/generate_enhancements_ini.py [base_ini_path [dataforge_cache_dir]]
@@ -353,6 +357,9 @@ def _index_rglob(xml_path_index: dict, entity_dir: Path, records_dir: Path) -> l
 
 
 ENHANCEMENT_SEPARATOR = "\\n\\n--- STATS ---\\n"
+# Medical consumables (CureLife pens) have no numeric stats — just a plain
+# effect summary — so they get their own header instead of "--- STATS ---".
+EFFECT_SEPARATOR = "\\n\\n--- EFFECT ---\\n"
 MISSION_SEPARATOR = "\\n\\n<EM3>MISSION DETAILS</EM3>\\n"
 # #153: when the user opts to show stats ABOVE the prose description, the stats
 # block leads and a plain divider separates it from the (less-important) PR
@@ -1070,12 +1077,13 @@ _CARGO_GRADE_KEY_PREFIXES = ("HaulCargo_CargoGrade_", "HaulCargo_CargoScale_")
 def _size_abbreviation_overrides(loc, shortened_sizes: frozenset = frozenset()) -> dict:
     """Loc-key overrides that shorten cargo-grade size words (#200 follow-up).
 
-    Each size is independently opted in via its own None/abbreviation
-    dropdown (`TagConfig.shortened_sizes`). For sizes in *shortened_sizes*,
-    the grade words a haul title's ``~mission(CargoGradeToken)`` resolves
-    through are abbreviated at the source ("Extra Small" -> "XS") by
-    overriding the ``HaulCargo_CargoGrade_*`` / ``CargoScale_*`` loc keys.
-    Exact value match only, so an unmapped grade passes through untouched.
+    Opted in via the single "Shorten cargo sizes" master checkbox
+    (`TagConfig.shortened_sizes` — all-or-nothing, not per-size). For sizes
+    in *shortened_sizes*, the grade words a haul title's
+    ``~mission(CargoGradeToken)`` resolves through are abbreviated at the
+    source ("Extra Small" -> "XS") by overriding the
+    ``HaulCargo_CargoGrade_*`` / ``CargoScale_*`` loc keys. Exact value
+    match only, so an unmapped grade passes through untouched.
     """
     out: dict = {}
     if not shortened_sizes:
@@ -5393,6 +5401,56 @@ def _mirror_scitem_siblings(out: dict[str, str], loc: dict[str, str]) -> tuple[i
     return sibling_count, inv_sibling_count
 
 
+# ── Medical consumables (CureLife pens) ──────────────────────────────────────
+# The only enhancement category with no DataForge dependency: the stock
+# item_Desc for every pen is pure lore ("From the Empire's most trusted
+# medical company...") and never states what the item actually does in
+# gameplay terms. There's no XML stat to extract — this is fixed, curated
+# copy keyed directly off the loc keys already present in base.ini.
+MEDICAL_CONSUMABLE_EFFECTS: dict[str, str] = {
+    "item_Desccrlf_consumable_adrenaline_01":     "Reduces concussion symptoms, normalizes weapon handling and movement speed.",
+    "item_Desccrlf_consumable_steroids_01":       "Reduces vision and hearing symptoms, normalizes stamina.",
+    "item_Desccrlf_consumable_radiation_01":      "Reduces injuries from radiation.",
+    "item_Desccrlf_consumable_overdoseRevival_01": "Revives an overdosed person (if not incapacitated), doubles decay rate of Blood Drug Level.",
+    "item_Desccrlf_consumable_healing_01":        "Restores health and stops bleeding. When used on another person recovers from incapacitated state.",
+    "item_Desccrlf_consumable_painkiller_01":     "Reduces pain symptoms, normalizes movement ability.",
+    "item_Desccrlf_consumable_oxygen_01":         "Recharges Oxygen reserves of a suit.",
+}
+
+
+def enhancements_medical_consumables(ctx: dict) -> dict[str, str]:
+    """Append a plain-text effect summary to each known CureLife pen.
+
+    No entity XML scan (see MEDICAL_CONSUMABLE_EFFECTS above) — just looks
+    each key up directly in the parsed base.ini and appends via the same
+    append_enhancements() every other category uses, so it respects the
+    user's stats-prepend preference and plays nicely with re-runs. Plain
+    text, no <EM4> — the in-game inventory tooltip doesn't render it any
+    better than the Vehicle Loadout Manager did (see the mining-laser/
+    salvage-tool EM4 fix). Uses the "--- EFFECT ---" header (not the shared
+    "--- STATS ---" one) since there's no numeric stat here, just the effect
+    line itself — no redundant "Effect:" prefix needed under that header.
+
+    Because this category has no CATEGORY_SUBTREES entry (see scripts/CLAUDE.md
+    → Medical consumables), the post-extraction dirty-category pass never
+    flags it, so it never regenerates automatically on a fresh P4K extract.
+    Its only input is base.ini, so if CIG rewords a pen's lore, the stale
+    copy stays baked into medical_consumables_enhancements.ini until the user
+    runs a manual full Generate. Low stakes (pen lore rarely changes), but
+    worth knowing since this category is the one exception to the freshness
+    system.
+    """
+    loc = ctx["loc"]
+    prepend = ctx.get("stats_prepend", False)
+    out: dict[str, str] = {}
+    for key, effect in MEDICAL_CONSUMABLE_EFFECTS.items():
+        if key not in loc:
+            continue
+        out[key] = append_enhancements(loc[key], effect, separator=EFFECT_SEPARATOR, prepend=prepend)
+    logger.info(f"Finished medical consumables ({len(out)} entries)")
+    return out
+
+
 def _run_gen_components(ctx: dict) -> dict[str, str]:
     loc             = ctx["loc"]
     ships_scitem    = ctx["ships_scitem"]
@@ -6104,9 +6162,9 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
 
     xp_tag_re = re.compile(r"<EM4>\[\d[\d,]*(?:[–\-]\d[\d,]*)?\s*\w+\]</EM4>")
     _mt_cfg2 = tag_configs.get("mission_titles") or DEFAULT_TAG_CONFIGS.get("mission_titles")
-    # #200 follow-up: per-size abbreviation, independent of the word/phrase
-    # removal checkboxes — each size opts in via its own None/abbreviation
-    # dropdown. Overrides the cargo-grade size words haul titles resolve
+    # #200 follow-up: cargo-size abbreviation, independent of the word/phrase
+    # removal checkboxes — one "Shorten cargo sizes" master checkbox, not
+    # per-size. Overrides the cargo-grade size words haul titles resolve
     # through ("Extra Small" -> "XS") at the loc-key level.
     _mt_sizes = getattr(_mt_cfg2, "shortened_sizes", frozenset())
     if _mt_sizes:
@@ -6333,6 +6391,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         + (2 if _want("ship_descs") else 0)  # controller+armor lookup, scan
         + (4 if _want("mission_rewards") else 0)  # rep lookup, scan, bp pools, contractgen+XP
         + (1 if _want("commodity_crafting") or _want("journal") else 0)
+        + (1 if _want("medical_consumables") else 0)
         + 1  # write files
     )
     if _sink is not None:
@@ -6518,6 +6577,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
     if _want("mission_rewards"):      gen_jobs["missions"]          = _run_gen_missions
     if _want("commodity_crafting") or _want("journal"):
                                       gen_jobs["commodity_journal"] = _run_gen_commodity_journal
+    if _want("medical_consumables"): gen_jobs["medical_consumables"] = enhancements_medical_consumables
 
     out_components:  dict[str, str] = {}
     out_missiles:    dict[str, str] = {}
@@ -6527,6 +6587,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
     out_missions:    dict[str, str] = {}
     out_commodities: dict[str, str] = {}
     out_journal:     dict[str, str] = {}
+    out_medical_consumables: dict[str, str] = {}
 
     if gen_jobs:
         n_workers = min(max_workers, len(gen_jobs))
@@ -6545,6 +6606,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                 elif name == "ships":             out_ships        = result
                 elif name == "missions":          out_missions     = result
                 elif name == "commodity_journal": out_commodities, out_journal = result
+                elif name == "medical_consumables": out_medical_consumables = result
 
     # ── Apply loc-string workarounds for CIG data bugs ────────────────────────
     # XML patches we ran before this script realigned the enhancement
@@ -6564,7 +6626,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                 total_applied = 0
                 for out_dict in (out_missions, out_components, out_ship_weapons,
                                  out_fps_weapons, out_ships, out_missiles,
-                                 out_commodities, out_journal):
+                                 out_commodities, out_journal, out_medical_consumables):
                     total_applied += apply_locstring_workarounds(out_dict, workarounds)
                 logger.info(
                     f"Loc-string workarounds: {total_applied}/{len(workarounds)} applied"
@@ -6596,10 +6658,12 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         write_ini(output_dir / "journal_enhancements.ini", out_journal)
     if _want("missile_enhancements"):
         write_ini(output_dir / "missile_enhancements.ini", out_missiles)
+    if _want("medical_consumables"):
+        write_ini(output_dir / "medical_consumables_enhancements.ini", out_medical_consumables)
 
     total = (len(out_ships) + len(out_components) + len(out_ship_weapons) +
              len(out_fps_weapons) + len(out_missions) + len(out_commodities) +
-             len(out_journal) + len(out_missiles))
+             len(out_journal) + len(out_missiles) + len(out_medical_consumables))
     logger.info(f"Done — {total:,} total stat entries written to {output_dir}")
     _tick("Wrote all output files")
     if _sink is not None:
