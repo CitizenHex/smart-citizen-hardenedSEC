@@ -824,6 +824,34 @@
       "ht": "Remove selected blueprints from owned",
       "at": ""
     },
+    "bp_scan_title": {
+      "ht": "BP Scan",
+      "at": ""
+    },
+    "bp_scan_starting": {
+      "ht": "Scanning Star Citizen logs for received blueprints…",
+      "at": ""
+    },
+    "bp_scan_progress": {
+      "ht": "Scanning {file}…",
+      "at": ""
+    },
+    "bp_scan_finishing": {
+      "ht": "Finishing up…",
+      "at": ""
+    },
+    "bp_scan_no_path": {
+      "ht": "No Star Citizen install path is configured, so there are no logs to scan. Set your game folder on the Config tab first.",
+      "at": ""
+    },
+    "bp_scan_none": {
+      "ht": "No new blueprints found since the last scan.",
+      "at": ""
+    },
+    "bp_scan_summary": {
+      "ht": "Added {count} blueprint(s) to your owned list.\n\n{visible} are visible in your current blueprint lists now; the rest will show [Owned] automatically whenever their item next appears in a mission's blueprint rewards.",
+      "at": ""
+    },
     "mission_field_ace_tooltip": {
       "ht": "Show an \"Ace Pilot: Yes\" line in the mission details body when the mission spawns an ace pilot. The [ACE] title tag is a separate toggle under General Tags. Takes effect on the next Generate Enhancements.",
       "at": ""
