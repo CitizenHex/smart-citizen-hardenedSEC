@@ -1070,12 +1070,13 @@ _CARGO_GRADE_KEY_PREFIXES = ("HaulCargo_CargoGrade_", "HaulCargo_CargoScale_")
 def _size_abbreviation_overrides(loc, shortened_sizes: frozenset = frozenset()) -> dict:
     """Loc-key overrides that shorten cargo-grade size words (#200 follow-up).
 
-    Each size is independently opted in via its own None/abbreviation
-    dropdown (`TagConfig.shortened_sizes`). For sizes in *shortened_sizes*,
-    the grade words a haul title's ``~mission(CargoGradeToken)`` resolves
-    through are abbreviated at the source ("Extra Small" -> "XS") by
-    overriding the ``HaulCargo_CargoGrade_*`` / ``CargoScale_*`` loc keys.
-    Exact value match only, so an unmapped grade passes through untouched.
+    Opted in via the single "Shorten cargo sizes" master checkbox
+    (`TagConfig.shortened_sizes` — all-or-nothing, not per-size). For sizes
+    in *shortened_sizes*, the grade words a haul title's
+    ``~mission(CargoGradeToken)`` resolves through are abbreviated at the
+    source ("Extra Small" -> "XS") by overriding the
+    ``HaulCargo_CargoGrade_*`` / ``CargoScale_*`` loc keys. Exact value
+    match only, so an unmapped grade passes through untouched.
     """
     out: dict = {}
     if not shortened_sizes:
@@ -5995,9 +5996,9 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
 
     xp_tag_re = re.compile(r"<EM4>\[\d[\d,]*(?:[–\-]\d[\d,]*)?\s*\w+\]</EM4>")
     _mt_cfg2 = tag_configs.get("mission_titles") or DEFAULT_TAG_CONFIGS.get("mission_titles")
-    # #200 follow-up: per-size abbreviation, independent of the word/phrase
-    # removal checkboxes — each size opts in via its own None/abbreviation
-    # dropdown. Overrides the cargo-grade size words haul titles resolve
+    # #200 follow-up: cargo-size abbreviation, independent of the word/phrase
+    # removal checkboxes — one "Shorten cargo sizes" master checkbox, not
+    # per-size. Overrides the cargo-grade size words haul titles resolve
     # through ("Extra Small" -> "XS") at the loc-key level.
     _mt_sizes = getattr(_mt_cfg2, "shortened_sizes", frozenset())
     if _mt_sizes:

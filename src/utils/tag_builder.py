@@ -250,16 +250,14 @@ UNDERLINE_OPTIONS: tuple[tuple[str, str, str, str], ...] = (
 RANK_TRIGGERS: tuple[str, ...] = (" Rank -", " Rank,")
 
 # Separator rendered after the "Rank" position, independent of whether Rank
-# itself was removed. Identical option set to TITLE_SEPARATORS (dash listed
-# first — it's the default) rather than a bespoke list: "space" collapses to
-# the same visible result a dedicated "none" option would after whitespace
-# normalization, so there's no need for a separate "none" entry.
-RANK_SEPARATORS: tuple[tuple[str, str, str], ...] = (
-    ("dash",  "Dash ( - )",  " - "),
-    ("pipe",  "Pipe ( | )",  " | "),
-    ("colon", "Colon ( : )", ": "),
-    ("space", "Space",       " "),
-)
+# itself was removed. Aliased to TITLE_SEPARATORS rather than a second copy
+# of the same four options (dash listed first — it's the default) so the
+# two option sets can't drift apart; "space" collapses to the same visible
+# result a dedicated "none" option would after whitespace normalization, so
+# there's no need for a separate "none" entry either.
+# tests/test_mission_title_tag.py::test_rank_separator_matches_title_separator_options
+# locks the alias.
+RANK_SEPARATORS = TITLE_SEPARATORS
 _RANK_SEP_BY_KEY = {k: s for k, _, s in RANK_SEPARATORS}
 
 # "Standardize hauling mission names" (top-of-page toggle, separate from the
@@ -564,9 +562,9 @@ class TagConfig:
     # checkbox on this page — is on. Defaults to "dash" so it's on by itself
     # out of the box, matching what stock dash-led titles already show.
     rank_separator: str = "dash"
-    # Which SIZE_ABBREVIATIONS words get shortened, chosen independently per
-    # size via its own None/abbreviation dropdown. Empty by default — off
-    # until the user opts in per size.
+    # Which SIZE_ABBREVIATIONS words get shortened. All-or-nothing via the
+    # single "Shorten cargo sizes" master checkbox, not per-size. Empty by
+    # default — off until the user opts in.
     shortened_sizes: frozenset[str] = field(default_factory=frozenset)
     # "Standardize hauling mission names" (top-of-page toggle, sibling of the
     # route-enable checkbox — not part of `abbreviated_phrases` since it's a
@@ -611,8 +609,10 @@ class TagConfig:
         legacy_on = bool(data.get("abbreviate_title", False))
         if raw_phrases is None:
             # Backward compat: pre-redesign blobs stored a single bool. A
-            # user who had opted in (`abbreviate_title: true`) keeps
-            # equivalent shortening — every current option key turns on.
+            # user who had opted in (`abbreviate_title: true`) gets a
+            # superset of the old behavior — every current option key turns
+            # on, including the new Ling Family handling ("ling_family_rank"
+            # / "ling_family_prefix") that didn't exist to opt into before.
             abbreviated_phrases = frozenset(_LEGACY_MIGRATION_KEYS) if legacy_on else frozenset()
         else:
             abbreviated_phrases = frozenset(
