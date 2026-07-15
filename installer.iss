@@ -75,6 +75,23 @@ var
     HKCU\...\ui_mode in WriteInstallerChoicesToRegistry and the app reads it on
     first launch. Defaults to Simple, pre-selected from a prior install. }
   ModeChoicePage: TInputOptionWizardPage;
+  { App UI/string language. Radio page anchored to wpWelcome so it's the very
+    first page the user sees, before any of the built-in wizard pages. The
+    choice is written to HKCU\...\selected_language (matching AppSettings.
+    SELECTED_LANGUAGE) so the app opens in that language on first launch
+    instead of defaulting to English until the user finds the Config tab's
+    language selector. Options must stay in sync with the non-stub folders
+    under languages/ (AppSettings.get_available_languages()). }
+  LanguageChoicePage: TInputOptionWizardPage;
+  { True when a saved selected_language value was found but didn't match any
+    of the known LanguageChoicePage options below. Guards the always-write in
+    WriteInstallerChoicesToRegistry: without it, an upgrade install whose
+    saved value has fallen out of sync with this page's option list (e.g. a
+    5th language shipped in the app but not added here yet) would silently
+    overwrite the user's real saved value with 'english', since the page
+    itself falls back to displaying English (index 0) for an unrecognized
+    value. See #236 review discussion. }
+  LanguageChoiceUnknownSaved: Boolean;
 
 function IsAutoUpdate(): Boolean;
 begin
@@ -703,6 +720,43 @@ begin
     RegWriteStringValue(HKCU,
       'Software\Osiris DevWorks\Smart Citizen', 'ui_mode', 'simple');
   Log('Saved ui_mode to registry.');
+
+  { App UI/string language, matching AppSettings.SELECTED_LANGUAGE. Always
+    written (not just on a non-English choice) so a fresh install opens in
+    the chosen language rather than relying on the app's English fallback.
+    Values here must stay in sync with the folder names under languages/.
+
+    Exception: skip the write when the saved value didn't match any option
+    this page knows about (LanguageChoiceUnknownSaved) AND the selection is
+    still sitting at the pre-selected default (index 0) — the page falls
+    back to displaying English in that case, and an always-write would
+    silently downgrade the user's real (just-unrecognized) language back to
+    English, both on an interactive upgrade and on a silent auto-update
+    install where nobody sees the page to correct it. The index-0 check
+    matters: on an INTERACTIVE upgrade the user still sees the page and can
+    actively move the selection off English to a real choice, and that
+    explicit pick must win — the flag only describes the pre-selection
+    state, not anything the user did afterward. Worst case with the guard:
+    a user who deliberately re-picks English while their saved value is
+    unknown stays on the unknown value (the safe direction — they can
+    switch in-app, and this never destroys a value it doesn't understand). }
+  if LanguageChoiceUnknownSaved and (LanguageChoicePage.SelectedValueIndex = 0) then
+    Log('Skipped rewriting selected_language: saved value matched no known option and selection was left at the default, left unchanged.')
+  else
+  begin
+    case LanguageChoicePage.SelectedValueIndex of
+      1: RegWriteStringValue(HKCU,
+           'Software\Osiris DevWorks\Smart Citizen', 'selected_language', 'french');
+      2: RegWriteStringValue(HKCU,
+           'Software\Osiris DevWorks\Smart Citizen', 'selected_language', 'portuguese_br');
+      3: RegWriteStringValue(HKCU,
+           'Software\Osiris DevWorks\Smart Citizen', 'selected_language', 'spanish');
+    else
+      RegWriteStringValue(HKCU,
+        'Software\Osiris DevWorks\Smart Citizen', 'selected_language', 'english');
+    end;
+    Log('Saved selected_language to registry.');
+  end;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -865,7 +919,56 @@ var
   SCRoot: String;
   ActiveChannel: String;
   SavedDataDir: String;
+  SavedLanguage: String;
+  LanguageIndex: Integer;
 begin
+  { App UI/string language — first page, anchored to wpWelcome. Kept ahead
+    of every other custom page (and the built-in Select Destination /
+    Program Group / Tasks pages) so it's the first choice a user makes. }
+  LanguageChoicePage := CreateInputOptionPage(
+    wpWelcome,
+    'Select Language',
+    'Choose the language Smart Citizen starts in.',
+    'This sets both the app''s interface language and, where available, '
+    + 'the in-game localization strings it loads.'
+    + #13#10 + #13#10 +
+    'You can change this anytime from the app''s Config tab.',
+    True,
+    False
+  );
+  { Plain ASCII labels, matching the app's own Config-tab language combo
+    (ConfigTab._populate_language_combo does lang.replace('_', ' ').title(),
+    not native-script names) — installer.iss has no UTF-8 BOM, so accented
+    characters risk mangling under ISCC's ANSI-codepage fallback. }
+  LanguageChoicePage.Add('English');
+  LanguageChoicePage.Add('French');
+  LanguageChoicePage.Add('Portuguese (Brazil)');
+  LanguageChoicePage.Add('Spanish');
+
+  { Pre-select the prior choice on a reinstall so an upgrade doesn't
+    silently reset a non-English user back to English. Defaults to
+    English (index 0) when nothing is saved yet or the saved value
+    doesn't match a known option. }
+  LanguageIndex := 0;
+  LanguageChoiceUnknownSaved := False;
+  if RegQueryStringValue(HKCU, 'Software\Osiris DevWorks\Smart Citizen',
+       'selected_language', SavedLanguage) then
+  begin
+    if CompareText(SavedLanguage, 'french') = 0 then
+      LanguageIndex := 1
+    else if CompareText(SavedLanguage, 'portuguese_br') = 0 then
+      LanguageIndex := 2
+    else if CompareText(SavedLanguage, 'spanish') = 0 then
+      LanguageIndex := 3
+    else if CompareText(SavedLanguage, 'english') <> 0 then
+      { A saved value that matches none of this page's options — e.g. a
+        newer app version shipped a 5th language before this installer's
+        option list caught up. Flag it so the write-back below leaves the
+        real saved value alone instead of clobbering it with 'english'. }
+      LanguageChoiceUnknownSaved := True;
+  end;
+  LanguageChoicePage.SelectedValueIndex := LanguageIndex;
+
   { Registry path resolution order:
       1. NEW "Smart Citizen" node (post-0.9.2 rebrand) — every app launch
          writes here, and the one-shot migrate_registry_appname() in the

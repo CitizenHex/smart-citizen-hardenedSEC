@@ -8,10 +8,14 @@ All enhancements are sourced directly from the game's DataForge entity XML files
 (extracted from Data.p4k via unp4k + unforge).  No external JSON sources.
 
 Output files (written to OUTPUT_DIR / cache):
-  ships_desc_enhancements.ini        – vehicle_Desc* entries with flight/specs data
-  components_desc_enhancements.ini   – item_Desc* COOL/SHLD/POWR/QDRV with numerical data
-  ship_weapons_desc_enhancements.ini – item_Desc* ship weapon data
-  fps_weapons_desc_enhancements.ini  – item_Desc* FPS weapon data
+  ships_desc_enhancements.ini             – vehicle_Desc* entries with flight/specs data
+  components_desc_enhancements.ini        – item_Desc* COOL/SHLD/POWR/QDRV with numerical data
+  ship_weapons_desc_enhancements.ini      – item_Desc* ship weapon data
+  fps_weapons_desc_enhancements.ini       – item_Desc* FPS weapon data
+  medical_consumables_enhancements.ini    – item_Desc* CureLife pens; static curated
+                                             effect text, not DataForge-derived (the
+                                             stock descriptions are lore-only and never
+                                             state what the item actually does)
 
 Usage:
   python scripts/generate_enhancements_ini.py [base_ini_path [dataforge_cache_dir]]
@@ -26,7 +30,7 @@ import sys
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, NamedTuple, Optional
 from lxml import etree as ET
 
 logger = logging.getLogger(__name__)
@@ -66,6 +70,23 @@ except ImportError:  # pragma: no cover — only triggers if src/ is removed
     SIZE_ABBREV_BY_WORD = {}  # type: ignore[assignment]
     def route_enabled(_cfg):  # type: ignore[misc]
         return False
+
+# Same deferred-import pattern as tag_builder above. DataForge paths under a
+# deep portable/tester install directory can exceed the 260-char MAX_PATH;
+# lxml's ET.parse and pathlib's own rglob/stat raise a raw WinError 3
+# ("cannot find the path specified") even though the file exists. The \\?\
+# long-path prefix sidesteps it (originally added for pak_extractor.py's
+# copy/cleanup step, #221) — wrapping ``forge_dir`` once in main() below
+# means every path this whole module derives from it (20+ ET.parse call
+# sites, 18+ rglob walks) inherits long-path safety for free.
+try:
+    _gen_root = Path(__file__).parent.parent
+    if str(_gen_root) not in sys.path:
+        sys.path.insert(0, str(_gen_root))
+    from src.utils.win_paths import win_long_path
+except ImportError:  # pragma: no cover — only triggers if src/ is removed
+    def win_long_path(path):  # type: ignore[misc]
+        return str(path)
 
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
@@ -255,10 +276,26 @@ def write_ini(path: Path, entries: dict[str, str]) -> None:
 #     meaningless "[S1-A]" in POTENTIAL BLUEPRINTS. entity_name_tags now keeps
 #     only CLASS/TYPE-qualified tags; both lookups carry the affected names so
 #     both bump to force a rebuild.
+#   standings v3 (#239 review follow-up) — _build_standings now returns a
+#     (rank_lookup, track_lookup) 2-tuple instead of a bare rank dict, folding
+#     in the former standalone standing_tracks job so the standings XMLs are
+#     only walked once. v2 pickles unpack as a bare dict and crash the new
+#     2-tuple consumer, so bump invalidates.
+#   xml_path_index v2 (2.2.0, #231 follow-up) — main() now wraps forge_dir
+#     (and everything derived from it, including records_dir) via
+#     win_paths.win_long_path before building this index, so its stored path
+#     strings carry the \\?\ long-path prefix. xml_path_index had no entry
+#     here before, so it silently defaulted to "v1" forever — a pickle built
+#     by a pre-#231 run (unprefixed paths, same DataForge fingerprint) was
+#     reused indefinitely, mixing unprefixed indexed paths with the now-
+#     prefixed bp_dir/entity_dir callers compare them against and crashing
+#     scan_crafting_blueprints's xml_file.relative_to(bp_dir) with "not in
+#     the subpath of". Bump flushes any pre-#231 pickle.
 _LOOKUP_VERSIONS: dict[str, str] = {
     "blueprint_pools": "v12",
     "scitem_lookups": "v8",
-    "standings": "v2",
+    "standings": "v3",
+    "xml_path_index": "v2",
 }
 
 
@@ -353,6 +390,9 @@ def _index_rglob(xml_path_index: dict, entity_dir: Path, records_dir: Path) -> l
 
 
 ENHANCEMENT_SEPARATOR = "\\n\\n--- STATS ---\\n"
+# Medical consumables (CureLife pens) have no numeric stats — just a plain
+# effect summary — so they get their own header instead of "--- STATS ---".
+EFFECT_SEPARATOR = "\\n\\n--- EFFECT ---\\n"
 MISSION_SEPARATOR = "\\n\\n<EM3>MISSION DETAILS</EM3>\\n"
 # #153: when the user opts to show stats ABOVE the prose description, the stats
 # block leads and a plain divider separates it from the (less-important) PR
@@ -1067,20 +1107,22 @@ def _title_has_route_token(title: str) -> bool:
 _CARGO_GRADE_KEY_PREFIXES = ("HaulCargo_CargoGrade_", "HaulCargo_CargoScale_")
 
 
-def _size_abbreviation_overrides(loc) -> dict:
+def _size_abbreviation_overrides(loc, shortened_sizes: frozenset = frozenset()) -> dict:
     """Loc-key overrides that shorten cargo-grade size words (#200 follow-up).
 
-    When the Shorten-original-titles toggle is on, the grade words a haul
-    title's ``~mission(CargoGradeToken)`` resolves through are abbreviated at
-    the source ("Extra Small" -> "XS") by overriding the
-    ``HaulCargo_CargoGrade_*`` / ``CargoScale_*`` loc keys. Exact value match
-    only, so an unmapped grade passes through untouched.
+    Opted in via the single "Shorten cargo sizes" master checkbox
+    (`TagConfig.shortened_sizes` — all-or-nothing, not per-size). For sizes
+    in *shortened_sizes*, the grade words a haul title's
+    ``~mission(CargoGradeToken)`` resolves through are abbreviated at the
+    source ("Extra Small" -> "XS") by overriding the
+    ``HaulCargo_CargoGrade_*`` / ``CargoScale_*`` loc keys. Exact value
+    match only, so an unmapped grade passes through untouched.
     """
     out: dict = {}
-    if not SIZE_ABBREV_BY_WORD:
+    if not shortened_sizes:
         return out
     for key, value in (loc or {}).items():
-        if key.startswith(_CARGO_GRADE_KEY_PREFIXES):
+        if key.startswith(_CARGO_GRADE_KEY_PREFIXES) and value in shortened_sizes:
             short = SIZE_ABBREV_BY_WORD.get(value)
             if short:
                 out[key] = short
@@ -2042,7 +2084,12 @@ def enhancements_mining_laser(root: ET.Element) -> str:
         if dps not in (None, "0", "0.0"):
             parts.append(f"DPS: {_fmt(dps)}")
         if full_r not in (None, "0", "0.0") or zero_r not in (None, "0", "0.0"):
-            parts.append(f"Range: {_fmt(full_r, 'm')}→{_fmt(zero_r, 'm')}")
+            # En dash, not the arrow "→" this used to use — the in-game
+            # Vehicle Loadout Manager's item-description font has no glyph
+            # for it and renders a fallback box character instead (reported
+            # on GitHub). The en dash is already used for Energy just below
+            # and reads fine there, so it's a safe, tested-working choice.
+            parts.append(f"Range: {_fmt(full_r, 'm')}–{_fmt(zero_r, 'm')}")
         if e_max not in (None, "0", "0.0"):
             if e_min and e_min != e_max and e_min not in ("0", "0.0"):
                 parts.append(f"Energy: {_fmt(e_min)}–{_fmt(e_max)} PU/s")
@@ -2053,7 +2100,12 @@ def enhancements_mining_laser(root: ET.Element) -> str:
         if wear_s not in (None, "0", "0.0"):
             parts.append(f"Wear: {wear_s}/s")
         if parts:
-            lines.append(f"<EM4>{mode}:</EM4>  " + "  |  ".join(parts))
+            # Plain label, not <EM4>-wrapped — matches every other component
+            # extractor (enhancements_shield etc.) and avoids the Vehicle
+            # Loadout Manager's item-description widget showing the raw tag
+            # text literally (that widget doesn't interpret EM4 rich-text,
+            # unlike mission descriptions elsewhere; reported on GitHub).
+            lines.append(f"{mode}:  " + "  |  ".join(parts))
 
     # Mining-laser modifier overlay. CIG's description has these but the
     # user wants them re-emitted from XML so balance updates surface even
@@ -2081,16 +2133,16 @@ def enhancements_mining_laser(root: ET.Element) -> str:
                     sign = "+" if float(fval) > 0 else ""
                     mod_parts.append(f"Inert Filter: {sign}{fval}%")
             if mod_parts:
-                lines.append("<EM4>Modifiers:</EM4>  " + "  |  ".join(mod_parts))
+                lines.append("Modifiers:  " + "  |  ".join(mod_parts))
 
     # Structural stats — component HP + distortion + ship-component-style
     # signatures if they happen to be present on a ship-mountable laser.
     comp_hp = _attr(root, "SHealthComponentParams", "Health")
     if comp_hp is not None:
-        lines.append(f"<EM4>Component HP:</EM4> {_fmt(comp_hp)}")
+        lines.append(f"Component HP: {_fmt(comp_hp)}")
     distort = _attr(root, "SDistortionParams", "Maximum")
     if distort is not None and distort not in ("0", "0.0"):
-        lines.append(f"<EM4>Max Distortion:</EM4> {_fmt(distort)}")
+        lines.append(f"Max Distortion: {_fmt(distort)}")
     em_sig = _attr(root, "EMSignature", "nominalSignature")
     ir_sig = _attr(root, "IRSignature", "nominalSignature")
     if em_sig is not None or ir_sig is not None:
@@ -2100,7 +2152,7 @@ def enhancements_mining_laser(root: ET.Element) -> str:
         if ir_sig is not None and ir_sig not in ("0", "0.0"):
             sig_parts.append(f"IR: {_fmt(ir_sig)}")
         if sig_parts:
-            lines.append("<EM4>Signatures:</EM4>  " + "  |  ".join(sig_parts))
+            lines.append("Signatures:  " + "  |  ".join(sig_parts))
 
     return "\\n".join(lines) if lines else ""
 
@@ -2126,7 +2178,7 @@ def enhancements_salvage_tool(root: ET.Element) -> str:
     fire_actions = root.findall(".//SWeaponActionFireSalvageRepairParams")
     for fa in fire_actions:
         # Mode is encoded on the element itself via the `salvageRepairMode`
-        # attribute ("Repair" / "Salvage"). Use it as the EM4-tagged header.
+        # attribute ("Repair" / "Salvage"). Use it as the plain-text header.
         mode = fa.get("salvageRepairMode") or fa.get("name") or "Mode"
         eff      = fa.get("materialEfficiency")
         hp_rate  = fa.get("maxHealthRepairRate")
@@ -2151,7 +2203,11 @@ def enhancements_salvage_tool(root: ET.Element) -> str:
         if h2a not in (None, "0", "0.0"):
             parts.append(f"HP/Ammo: {_fmt(h2a, '', 2)}")
         if ramp_up not in (None, "0", "0.0") or ramp_dn not in (None, "0", "0.0"):
-            parts.append(f"Ramp: {_fmt(ramp_up, 's', 1)}↑ {_fmt(ramp_dn, 's', 1)}↓")
+            # Plain "up"/"down" words, not the "↑"/"↓" arrows this used to
+            # use — same missing-glyph issue as the mining-laser Range line
+            # (see the note there): the in-game item-description font has
+            # no glyph for them and shows a fallback box character instead.
+            parts.append(f"Ramp: {_fmt(ramp_up, 's', 1)} up, {_fmt(ramp_dn, 's', 1)} down")
         if e_max not in (None, "0", "0.0"):
             if e_min and e_min != e_max and e_min not in ("0", "0.0"):
                 parts.append(f"Energy: {_fmt(e_min)}–{_fmt(e_max)} PU/s")
@@ -2162,15 +2218,16 @@ def enhancements_salvage_tool(root: ET.Element) -> str:
         if wear_s not in (None, "0", "0.0"):
             parts.append(f"Wear: {wear_s}/s")
         if parts:
-            lines.append(f"<EM4>{mode}:</EM4>  " + "  |  ".join(parts))
+            # Plain label — see the matching note in enhancements_mining_laser.
+            lines.append(f"{mode}:  " + "  |  ".join(parts))
 
     # Structural stats (durability / wear) — same pattern as mining lasers.
     comp_hp = _attr(root, "SHealthComponentParams", "Health")
     if comp_hp is not None and comp_hp not in ("0", "0.0"):
-        lines.append(f"<EM4>Component HP:</EM4> {_fmt(comp_hp)}")
+        lines.append(f"Component HP: {_fmt(comp_hp)}")
     wear_max = _attr(root, "SWearAccumulatorParams", "MaxLifetimeHours")
     if wear_max is not None and wear_max not in ("0", "0.0"):
-        lines.append(f"<EM4>Max Lifetime:</EM4> {_fmt(wear_max, 'h', 1)}")
+        lines.append(f"Max Lifetime: {_fmt(wear_max, 'h', 1)}")
 
     return "\\n".join(lines) if lines else ""
 
@@ -2440,38 +2497,49 @@ def _add_spawn(breakdown: SpawnBreakdown, bucket: str, label: str, count: int) -
 
 
 def _within_excluded_subtree(node: ET.Element, scope: ET.Element,
-                             exclude_tag: str | None) -> bool:
-    """True if ``node`` has an ancestor tagged ``exclude_tag`` at or below
-    ``scope`` (exclusive of ``scope`` itself). Walks up via ``getparent()``.
+                             exclude_tags: str | tuple[str, ...] | None) -> bool:
+    """True if ``node`` has an ancestor tagged one of ``exclude_tags`` at or
+    below ``scope`` (exclusive of ``scope`` itself). Walks up via
+    ``getparent()``. Accepts a single tag name or a tuple of names.
 
     Used to keep handler-scope spawn extraction from reaching down into the
-    handler's child ``CareerContract`` nodes — see ``_extract_spawn_counts``'s
+    handler's child mission variants — see ``_extract_spawn_counts``'s
     ``exclude_within`` and issue #186.
     """
-    if not exclude_tag:
+    if not exclude_tags:
         return False
+    tags = (exclude_tags,) if isinstance(exclude_tags, str) else exclude_tags
     parent = node.getparent()
     while parent is not None and parent is not scope:
-        if parent.tag == exclude_tag:
+        if parent.tag in tags:
             return True
         parent = parent.getparent()
     return False
 
 
 def _extract_spawn_counts(element: ET.Element,
-                          exclude_within: str | None = None) -> SpawnBreakdown:
+                          exclude_within: str | tuple[str, ...] | None = None) -> SpawnBreakdown:
     """Extract a per-bucket per-label breakdown of spawn descriptions.
 
     Parses ``SpawnDescription_ShipGroup`` and ``SpawnDescription_NPC_Group``
     elements within the given XML element scope, classifies each by name via
     :func:`classify_spawn_group`, and aggregates counts per (bucket, label).
 
-    ``exclude_within`` skips any spawn group nested inside a descendant with
-    that tag. The handler-level fallback passes ``"CareerContract"`` so a
-    contract with no spawns of its own inherits only spawns defined directly at
-    handler scope (the genuine shared default), NOT the union of every sibling
-    contract's roster — which leaked e.g. ground "Kopions"/"Soldiers" onto an
-    easy 9-probe satellite mission (#186).
+    ``exclude_within`` skips any spawn group nested inside a descendant tagged
+    with one of the given names. The handler-level fallback passes
+    ``("CareerContract", "Contract")`` so a contract with no spawns of its own
+    inherits only spawns defined directly at handler scope (the genuine shared
+    default), NOT the union of every sibling contract's roster — which leaked
+    e.g. ground "Kopions"/"Soldiers" onto an easy 9-probe satellite mission
+    (#186). ``Contract`` (not just ``CareerContract``) must be excluded too:
+    a handler's ``introContracts`` wraps its one-time intro mission in a
+    ``<Contract>`` tag (the same tag List-type handlers use for their regular
+    children), and without excluding it, the intro mission's own roster
+    (e.g. Foxwell Enforcement's "Attackers"/"Defenders" FPS NPCs, scoped to
+    just its one-time "Mercenary Intro" contract) leaked into every sibling
+    CareerContract with no spawns of its own — including the unrelated
+    "Destroy Data Skimmers"/"Handle Security Threat" satellite-probe missions,
+    which have no combat roster and shouldn't show any Hostiles at all.
 
     Pre-1.4.1 this returned ``(num_waves, num_enemies, num_not_enemies)`` and
     bucketed everything unrecognized as hostile — see the keyword-table
@@ -2681,7 +2749,7 @@ def _extract_difficulty(element: ET.Element) -> str:
     return ""
 
 
-def _rep_reward_line(field_name: str, amount_str: str, rep_xp_label: str) -> str:
+def _rep_reward_line(field_name: str, amount_str: str, rep_xp_label: str, track: str = "") -> str:
     """Render one reputation-reward line for a MISSION DETAILS body.
 
     *field_name* is the rank / standing name when known (e.g. ``"Neutral"``),
@@ -2692,10 +2760,20 @@ def _rep_reward_line(field_name: str, amount_str: str, rep_xp_label: str) -> str
     literal ``"XP"`` is never emitted: the label is the single source of the
     unit word, so renaming it (Enhancements tab) flows through every mission
     body (issue #102).
+
+    *track* is the reputation TRACK a faction's rank belongs to (e.g.
+    "Security" vs the generic Contractor/Standing track — some factions have
+    multiple; see issue #161) and, when known, is appended in parentheses
+    after the unit so a shared field name/label is never ambiguous about
+    which track it feeds. Suppressed when it's identical to *field_name*
+    (some ranks are named the same as their own track, e.g. Contractor rank 2
+    of the Contractor track — "Contractor: +200 Rep (Contractor)" would just
+    repeat itself with no new information).
     """
+    suffix = f" ({track})" if track and track != field_name else ""
     if field_name and field_name != rep_xp_label:
-        return f"<EM4>{field_name}:</EM4> {amount_str} {rep_xp_label}"
-    return f"<EM4>{rep_xp_label}:</EM4> {amount_str}"
+        return f"<EM4>{field_name}:</EM4> {amount_str} {rep_xp_label}{suffix}"
+    return f"<EM4>{rep_xp_label}:</EM4> {amount_str}{suffix}"
 
 
 def _extract_mission_flags(root: ET.Element) -> list[str]:
@@ -3103,6 +3181,150 @@ def _build_template_lookup(
     return lookup
 
 
+# CIG doesn't expose a per-ore "RS" (resonance-signature) number anywhere in
+# DataForge — checked the full PTU 4.9 cache for both the literal values and
+# any per-mineable stat registry, found neither — so this is a curated table
+# sourced from community reference data (MrKraken/StarStrings; the original 8
+# from the ptu/4.9 branch mining.ini, the rest cross-checked against
+# starminersdepot.com's Alpha 4.8 scanner table — the 7 ores present in both
+# sources agree exactly). "ice" has no confirmed reference for this patch but
+# is kept from the original 4.9 source. Two consumers:
+#   - Recco Battaglia's Scan/Mining contracts (4.9+, "Battaglia_RPT_Scan_*" /
+#     "Battaglia_RPT_ScanMine_*" title keys), each targeting 1-3 specific
+#     mineable ores via sibling MissionProperty overrides with
+#     extendedTextToken="ResourceType"/"ResourceType2"/"ResourceType3"
+#     pointing at a "mineabletype_primary_<ore>" loc key.
+#   - The "Mining Fundamentals #2: Where to Mine" journal entry (see
+#     enhancements_journal's per-mineral block builder), which shows every
+#     ore's base RS next to its mining locations.
+# Not every ore in either consumer has a known value; unmatched ores are
+# simply left without an RS line/tag (see each consumer for its own
+# unmatched-key handling).
+MINEABLE_RS_VALUES = {
+    "agricium":      3885,
+    "aluminium":     4285,
+    "aslarite":      3840,
+    "beryl":         3540,
+    "bexalite":      3600,
+    "borase":        3570,
+    "copper":        4240,
+    "corundum":      4225,
+    "gold":          3585,
+    "hephaestanite": 4180,
+    "ice":           4300,
+    "iron":          4270,
+    "laranite":      3825,
+    "lindinium":     3400,
+    "ouratite":      3370,
+    "quantainium":   3170,
+    "quartz":        4210,
+    "riccite":       3385,
+    "savrillium":    3200,
+    "silicon":       4255,
+    "stileron":      3185,
+    "taranite":      3555,
+    "tin":           4195,
+    "titanium":      3855,
+    "torite":        3900,
+    "tungsten":      3870,
+}
+
+# The Mining Compendium journal's own prose spells a couple of ore names
+# differently from their DataForge loc-key spelling (a CIG typo, not a
+# transcription error here) — "Savrilium" (single L) vs the canonical
+# mineabletype_primary_savrillium. Maps the journal's lowercased spelling to
+# the MINEABLE_RS_VALUES key so the lookup still matches.
+_MINING_COMPENDIUM_ORE_ALIASES = {
+    "savrilium": "savrillium",
+}
+
+_BATTAGLIA_SCAN_TITLE_PREFIXES = ("Battaglia_RPT_Scan_", "Battaglia_RPT_ScanMine_")
+_RESOURCE_TYPE_TOKEN_RE = re.compile(r"ResourceType[0-9]*")
+
+
+def _battaglia_contract_mineable_ores(contract: ET.Element) -> list[str]:
+    """Return the ore keys (e.g. ``"aluminium"``) a Battaglia scan/mining
+    contract targets, in ResourceType/ResourceType2/ResourceType3 order,
+    de-duplicated but order-preserving.
+    """
+    ores: list[str] = []
+    for prop in contract.findall(".//propertyOverrides/MissionProperty"):
+        token = prop.get("extendedTextToken", "")
+        if not _RESOURCE_TYPE_TOKEN_RE.fullmatch(token):
+            continue
+        opt = prop.find(".//MissionPropertyValueOption_StringHash")
+        if opt is None:
+            continue
+        text_id = opt.get("textId", "")
+        if not text_id.startswith("@mineabletype_primary_"):
+            continue
+        ore = text_id[len("@mineabletype_primary_"):]
+        if ore not in ores:
+            ores.append(ore)
+    return ores
+
+
+def _format_rs_tag(ores: list[str]) -> str:
+    """Render ``["aluminium", "iron"]`` as ``"[RS 4285/4270]"``, or ``""``
+    when no ore in the list has a known RS value."""
+    unknown = [o for o in ores if o not in MINEABLE_RS_VALUES]
+    if unknown:
+        # MINEABLE_RS_VALUES is a curated table (see its docstring), not
+        # derived from DataForge — a CIG data bump can add an ore this table
+        # doesn't know about. Silently dropping it would otherwise show a
+        # title with fewer RS values than ores and nobody would notice.
+        logger.info(f"Battaglia RS tag: unmatched ore key(s) {unknown} (no curated RS value)")
+    values = [str(MINEABLE_RS_VALUES[o]) for o in ores if o in MINEABLE_RS_VALUES]
+    if not values:
+        return ""
+    return f"[RS {'/'.join(values)}]"
+
+
+def _build_battaglia_mineable_rs_tags(
+    contractgen_dir: Path,
+    xml_path_index: dict | None = None,
+    records_dir: Path | None = None,
+) -> dict[str, str]:
+    """Build ``title_key -> "[RS ####[/####...]]"`` for Recco Battaglia's
+    Scan/ScanMine mission titles (see :data:`MINEABLE_RS_VALUES`). Every
+    contract variant sharing a title targets the same ore set (confirmed
+    against the PTU 4.9 data), so the first variant found for a title wins.
+    """
+    tags: dict[str, str] = {}
+    if not contractgen_dir.exists():
+        return tags
+
+    _files = (
+        _index_rglob(xml_path_index, contractgen_dir, records_dir)
+        if xml_path_index is not None and records_dir is not None
+        else contractgen_dir.rglob("*.xml")
+    )
+    for xml_file in _files:
+        try:
+            root = ET.parse(xml_file).getroot()
+        except ET.ParseError:
+            continue
+        for contract in root.findall(".//CareerContract") + root.findall(".//Contract"):
+            title_param = contract.find(".//ContractStringParam[@param='Title']")
+            if title_param is None:
+                continue
+            title_key = title_param.get("value", "").lstrip("@")
+            if not title_key.startswith(_BATTAGLIA_SCAN_TITLE_PREFIXES) or title_key in tags:
+                continue
+            tag = _format_rs_tag(_battaglia_contract_mineable_ores(contract))
+            if tag:
+                tags[title_key] = tag
+
+    return tags
+
+
+# A standing rank's displayName loc key encodes its reputation TRACK as the
+# token right after the RepStanding_/RepScope_ prefix (e.g.
+# "RepStanding_Security_Rank0" -> "Security", "RepScope_Contractor_Rank3"
+# -> "Contractor") — see _build_standings / issue #161.
+_REP_TRACK_PREFIX_RE = re.compile(r"^Rep(?:Standing|Scope)_([A-Za-z]+)_")
+
+
 def _variant_label_short(debug_name: str) -> str:
     """Extract a short, human-readable variant label from a contract debugName.
 
@@ -3128,6 +3350,32 @@ def _variant_label_short(debug_name: str) -> str:
     return debug_name.rsplit("_", 1)[-1]
 
 
+class ContractVariant(NamedTuple):
+    """One mission variant from a contract generator (issue #240 follow-up).
+
+    Was a bare positional tuple that grew to 12 fields (10 -> 11 for
+    rank_name in 1.4.2, 11 -> 12 for rep_track in 2.2.0's reputation-track
+    change, #161); every growth risked an off-by-one at one of the many
+    ``v[N]`` reads and destructures below. A NamedTuple is still a plain
+    tuple — positional unpacking, indexing, and ``len()`` all still work
+    exactly as before (see tests/test_mission_variant_tuple.py, which locks
+    that contract) — so this is purely a self-documenting rename at the call
+    sites that read fields by name instead of by position.
+    """
+    system_name: str
+    success_xp: int
+    failure_xp: int
+    desc_key: str
+    flags: list[str]
+    spawns: dict
+    difficulty: str | None
+    has_bp: bool
+    bp_chance: float
+    bp_variant: str
+    rank_name: str
+    rep_track: str
+
+
 def scan_contract_generators(
     contractgen_dir: Path,
     reputation_lookup: dict[str, int] | None = None,
@@ -3137,11 +3385,12 @@ def scan_contract_generators(
     records_dir: Path | None = None,
     pool_names: dict[str, str] | None = None,
     standings_lookup: dict[str, str] | None = None,
+    standing_track_lookup: dict[str, str] | None = None,
 ):
     """Scan contract generator XMLs for mission variants with different systems.
 
     Returns tuple of:
-        - missions: dict mapping title_key → [(system_name, success_xp, failure_xp, desc_key, flags, spawns, difficulty, has_bp, bp_chance, bp_variant, rank_name), ...]
+        - missions: dict mapping title_key → [ContractVariant, ...]
         - mission_blueprints: dict title_key → dict system_name → dict pool_label → list of craftable item display names.
           The pool_label dimension preserves rank-tier sub-grouping derived from the
           pool filename (e.g. ``Rank 0–1`` / ``Rank 2–3`` / ``Rank 4`` from Shubin
@@ -3161,8 +3410,8 @@ def scan_contract_generators(
     entity_names = entity_names or {}
     pool_names = pool_names or {}
     standings_lookup = standings_lookup or {}
-    # Variant tuple: (system_name, success_xp, failure_xp, desc_key, flags, spawns, difficulty, has_bp, bp_chance, bp_variant, rank_name)
-    missions: dict[str, list[tuple[str, int, int, str, list[str], int, int]]] = {}
+    standing_track_lookup = standing_track_lookup or {}
+    missions: dict[str, list[ContractVariant]] = {}
     # Per-system, per-pool-label item lists. The extra label dimension keeps
     # items from different rank-tier pools separate inside one system so the
     # renderer can show ``[Stanton, Rank 0–1]`` / ``[Stanton, Rank 2–3]`` /
@@ -3249,11 +3498,13 @@ def scan_contract_generators(
                     # Extract handler-level spawn breakdown (shared across
                     # contracts; per-contract overrides win when non-empty).
                     # Exclude spawns nested inside the handler's CareerContract
-                    # children so the fallback inherits only genuine
-                    # handler-scope defaults, not a union of every sibling
-                    # contract's roster (#186).
+                    # children AND its introContracts' Contract wrapper so the
+                    # fallback inherits only genuine handler-scope defaults,
+                    # not a union of every sibling contract's roster (#186) —
+                    # including the one-time intro mission's own roster, which
+                    # uses the plain <Contract> tag, not <CareerContract>.
                     handler_spawns = _extract_spawn_counts(
-                        handler, exclude_within="CareerContract"
+                        handler, exclude_within=("CareerContract", "Contract")
                     )
 
                     contracts = handler.findall(contract_xpath)
@@ -3458,12 +3709,16 @@ def scan_contract_generators(
                             contract_difficulty = _extract_difficulty(contract)
 
                             # Resolve minStanding UUID to a reputation rank name
+                            # and its reputation TRACK (e.g. "Security" vs the
+                            # generic "Standing"/Contractor track — some
+                            # factions have both; see issue #161).
                             rank_name = standings_lookup.get(min_standing, "") if min_standing else ""
+                            rep_track = standing_track_lookup.get(min_standing, "") if min_standing else ""
 
                             # Add all missions (not just those with XP/blueprint data)
                             if title_key not in missions:
                                 missions[title_key] = []
-                            missions[title_key].append((system_name, success_xp, failure_xp, desc_key, contract_flags, spawns, contract_difficulty, contract_has_bp, contract_bp_chance, contract_bp_variant, rank_name))
+                            missions[title_key].append(ContractVariant(system_name, success_xp, failure_xp, desc_key, contract_flags, spawns, contract_difficulty, contract_has_bp, contract_bp_chance, contract_bp_variant, rank_name, rep_track))
 
                             # Sub-contracts override title/desc but inherit
                             # everything else from the parent contract.
@@ -3478,7 +3733,7 @@ def scan_contract_generators(
                                     sub_desc = ""
                                 if sub_title not in missions:
                                     missions[sub_title] = []
-                                missions[sub_title].append((system_name, success_xp, failure_xp, sub_desc or desc_key, contract_flags, spawns, contract_difficulty, contract_has_bp, contract_bp_chance, contract_bp_variant, rank_name))
+                                missions[sub_title].append(ContractVariant(system_name, success_xp, failure_xp, sub_desc or desc_key, contract_flags, spawns, contract_difficulty, contract_has_bp, contract_bp_chance, contract_bp_variant, rank_name, rep_track))
                                 if contract_has_bp and sub_title != title_key:
                                     for bp_elem in contract.iter("BlueprintRewards"):
                                         sub_pool_uuid = bp_elem.get("blueprintPool", "")
@@ -3497,7 +3752,7 @@ def scan_contract_generators(
 
         # Sort variants by system name for consistent output (Stanton first, then others alphabetically)
         for title_key in missions:
-            missions[title_key].sort(key=lambda v: (v[0] != "Stanton", v[0]))
+            missions[title_key].sort(key=lambda v: (v.system_name != "Stanton", v.system_name))
 
     except Exception as e:
         logger.warning(f"Error scanning contract generators: {e}")
@@ -4200,19 +4455,29 @@ def scan_crafting_blueprints(
                 mineral_crafting.setdefault(k, condensed)
 
         # Reformat each mineral entry from the stock one-line "Name - loc, loc"
-        # into a structured block: underlined (EM3) name header, a blue (EM4)
+        # into a structured block: underlined (EM3) name header, a
+        # "Base Resource Signature: <value>" line when MINEABLE_RS_VALUES has
+        # a confirmed number for this ore (silently omitted otherwise — see
+        # that table's docstring for which ores are covered), a blue (EM4)
         # "Locations:" subheader with one dash-bulleted location per line
         # (alphabetized), and, when the mineral feeds crafting, a blue "Used To
         # Craft:" subheader with one dash-bulleted item per line (alphabetized).
         # Intro prose and any non-mineral paragraph pass through untouched.
         paras = base_content.split("\\n\\n")
         augmented_lines = []
+        rs_ores_tagged = 0
         for para in paras:
             dash_idx = para.find(" - ")
             name = para[:dash_idx].strip() if dash_idx > 0 else ""
             locations = mineral_locations.get(name.lower()) if name else None
             if locations is not None:
-                block = [f"<EM3>{name}</EM3>", "", "<EM4>Locations:</EM4>"]
+                block = [f"<EM3>{name}</EM3>", ""]
+                ore_key = _MINING_COMPENDIUM_ORE_ALIASES.get(name.lower(), name.lower())
+                rs_value = MINEABLE_RS_VALUES.get(ore_key)
+                if rs_value is not None:
+                    block += [f"Base Resource Signature: <EM4>{rs_value}</EM4>", ""]
+                    rs_ores_tagged += 1
+                block += ["<EM4>Locations:</EM4>"]
                 block += [f"- {loc_}" for loc_ in locations]
                 craft = mineral_crafting.get(name.lower())
                 if craft:
@@ -4229,7 +4494,10 @@ def scan_crafting_blueprints(
             augmented_lines.insert(0, legend)
 
         out_journal[journal_content_key] = "\\n\\n".join(augmented_lines)
-        logger.info(f"Journal: augmented Mining Compendium with crafting data for {len(mineral_crafting)} minerals")
+        logger.info(
+            f"Journal: augmented Mining Compendium with crafting data for {len(mineral_crafting)} minerals, "
+            f"base RS for {rs_ores_tagged} minerals"
+        )
 
     return out, out_journal
 
@@ -5012,12 +5280,21 @@ def build_scitem_lookups(
         if ref and desc_loc_key:
             desc_value = loc.get(desc_loc_key, "")
             _parts = {p.lower() for p in xml_file.parts}
-            # FPS weapons must never carry a component-style name tag.
-            # _component_name_tag keys off Size:/Grade:/Class: data that FPS
-            # weapons also expose, so without this guard they pick up nonsense
-            # tags like "[S30-A] Rifle" in blueprint lists. FPS weapons are
-            # meant to pass through bare (per request + the docstring above).
-            if desc_value and "fps_weapons" not in _parts:
+            # Weapons of any kind must never carry a component-style name tag.
+            # _component_name_tag keys off Size:/Grade:/Class: data that ship
+            # weapons and FPS weapons also expose in their description, so
+            # without this guard they pick up nonsense tags — FPS guns got
+            # "[S30-A] Rifle", and ship weapons got a components-flavoured
+            # "[B-S2-A]" that doesn't match the "[Physical-S2]" tag their own
+            # item_Name entry carries (from _ship_weapon_name_tag_factory),
+            # breaking the Blueprints tracker's name matching for every ship
+            # weapon (#220). All weapon/missile/rocket-pod entities live under
+            # a "weapons" parent dir, distinct from the component subdirs in
+            # _SUBDIR_TO_TYPE, so excluding that whole subtree here is safe.
+            # Weapons/missiles are meant to pass through bare (per request +
+            # the docstring above) since they have their own tag mechanisms
+            # (or none) that aren't wired into blueprint-pool weaving.
+            if desc_value and "weapons" not in _parts:
                 # Derive the component type from the entity's subdir so the
                 # blueprint-list tag carries the same Type element the
                 # standalone component path emits (#101). Non-component
@@ -5291,6 +5568,56 @@ def _mirror_scitem_siblings(out: dict[str, str], loc: dict[str, str]) -> tuple[i
     return sibling_count, inv_sibling_count
 
 
+# ── Medical consumables (CureLife pens) ──────────────────────────────────────
+# The only enhancement category with no DataForge dependency: the stock
+# item_Desc for every pen is pure lore ("From the Empire's most trusted
+# medical company...") and never states what the item actually does in
+# gameplay terms. There's no XML stat to extract — this is fixed, curated
+# copy keyed directly off the loc keys already present in base.ini.
+MEDICAL_CONSUMABLE_EFFECTS: dict[str, str] = {
+    "item_Desccrlf_consumable_adrenaline_01":     "Reduces concussion symptoms, normalizes weapon handling and movement speed.",
+    "item_Desccrlf_consumable_steroids_01":       "Reduces vision and hearing symptoms, normalizes stamina.",
+    "item_Desccrlf_consumable_radiation_01":      "Reduces injuries from radiation.",
+    "item_Desccrlf_consumable_overdoseRevival_01": "Revives an overdosed person (if not incapacitated), doubles decay rate of Blood Drug Level.",
+    "item_Desccrlf_consumable_healing_01":        "Restores health and stops bleeding. When used on another person recovers from incapacitated state.",
+    "item_Desccrlf_consumable_painkiller_01":     "Reduces pain symptoms, normalizes movement ability.",
+    "item_Desccrlf_consumable_oxygen_01":         "Recharges Oxygen reserves of a suit.",
+}
+
+
+def enhancements_medical_consumables(ctx: dict) -> dict[str, str]:
+    """Append a plain-text effect summary to each known CureLife pen.
+
+    No entity XML scan (see MEDICAL_CONSUMABLE_EFFECTS above) — just looks
+    each key up directly in the parsed base.ini and appends via the same
+    append_enhancements() every other category uses, so it respects the
+    user's stats-prepend preference and plays nicely with re-runs. Plain
+    text, no <EM4> — the in-game inventory tooltip doesn't render it any
+    better than the Vehicle Loadout Manager did (see the mining-laser/
+    salvage-tool EM4 fix). Uses the "--- EFFECT ---" header (not the shared
+    "--- STATS ---" one) since there's no numeric stat here, just the effect
+    line itself — no redundant "Effect:" prefix needed under that header.
+
+    Because this category has no CATEGORY_SUBTREES entry (see scripts/CLAUDE.md
+    → Medical consumables), the post-extraction dirty-category pass never
+    flags it, so it never regenerates automatically on a fresh P4K extract.
+    Its only input is base.ini, so if CIG rewords a pen's lore, the stale
+    copy stays baked into medical_consumables_enhancements.ini until the user
+    runs a manual full Generate. Low stakes (pen lore rarely changes), but
+    worth knowing since this category is the one exception to the freshness
+    system.
+    """
+    loc = ctx["loc"]
+    prepend = ctx.get("stats_prepend", False)
+    out: dict[str, str] = {}
+    for key, effect in MEDICAL_CONSUMABLE_EFFECTS.items():
+        if key not in loc:
+            continue
+        out[key] = append_enhancements(loc[key], effect, separator=EFFECT_SEPARATOR, prepend=prepend)
+    logger.info(f"Finished medical consumables ({len(out)} entries)")
+    return out
+
+
 def _run_gen_components(ctx: dict) -> dict[str, str]:
     loc             = ctx["loc"]
     ships_scitem    = ctx["ships_scitem"]
@@ -5471,6 +5798,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     entity_name_tags  = ctx.get("entity_name_tags", {})
     reputation_lookup = ctx["reputation_lookup"]
     standings_lookup  = ctx.get("standings_lookup") or {}
+    standing_track_lookup = ctx.get("standing_track_lookup") or {}
     rep_xp_label      = ctx.get("rep_xp_label") or _DEFAULT_REP_XP_LABEL
     mh                = ctx.get("mission_headers") or {}
     mh_em             = ctx.get("mission_header_em") or _DEFAULT_MISSION_HEADER_EM_TAG
@@ -5485,6 +5813,13 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
 
     def _show(_field: str) -> bool:
         return bool(_mdf.get(_field, True))
+    # 2.2.0 ("General Tags"): independent show/hide for the [BP]/[ACE]/rep-xp
+    # markers appended to the mission TITLE, separate from the body fields
+    # above. Missing/unknown keys default to True (prior, unsplit behaviour).
+    _mtt = ctx.get("mission_title_tags") or {}
+
+    def _show_title_tag(_field: str) -> bool:
+        return bool(_mtt.get(_field, True))
     tag_configs       = ctx.get("tag_configs") or {}
     # User toggle (Enhancements tab) for the inline component annotation
     # in mission descriptions. Default True preserves v1.4.0 behavior. When
@@ -5599,8 +5934,13 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         xml_path_index=xml_path_index, records_dir=records,
         pool_names=pool_names,
         standings_lookup=standings_lookup,
+        standing_track_lookup=standing_track_lookup,
     )
     logger.info(f"Processed {len(contractgen_missions)} contract generator mission variants")
+
+    battaglia_mineable_rs = _build_battaglia_mineable_rs_tags(
+        contractgen_dir, xml_path_index=xml_path_index, records_dir=records
+    )
 
     # Materialise the pu_missions file list early so the title-augment loop
     # can demote [BP] → [BP?] for titles whose pu_missions side spawns
@@ -5652,15 +5992,21 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         if is_discovered_title:
             base_title = _humanize_key(title_key)
 
-        seen_tiers: list[tuple[int, int, str]] = []
-        for _, sxp, fxp, _, _, _, _, _, _, _, rname in variants:
-            tier = (sxp, fxp, rname)
+        seen_tiers: list[tuple[int, int, str, str]] = []
+        for v in variants:
+            tier = (v.success_xp, v.failure_xp, v.rank_name, v.rep_track)
             if tier not in seen_tiers:
                 seen_tiers.append(tier)
 
-        unique_xp = sorted(set(sxp for sxp, _, _ in seen_tiers))
+        unique_xp = sorted(set(sxp for sxp, _, _, _ in seen_tiers))
+        # For the title tag: only show a track suffix when every nonzero
+        # tier agrees on one — a title spanning multiple tracks (rare) stays
+        # silent here rather than risk showing the wrong one; the per-desc
+        # body line below is always precise regardless.
+        _nonzero_tier_tracks = {rt for sxp, _, _, rt in seen_tiers if sxp > 0 and rt}
+        _title_track = next(iter(_nonzero_tier_tracks)) if len(_nonzero_tier_tracks) == 1 else ""
         has_blueprints = title_key in mission_blueprints
-        _bp_variants = [v[7] for v in variants]  # v[7] = contract_has_bp
+        _bp_variants = [v.has_bp for v in variants]
         _all_have_bp = has_blueprints and all(_bp_variants)
 
         # #102 / #31: a haul title's contractgenerator variants (CareerContract
@@ -5672,7 +6018,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         # would sit over blueprint-less haul bodies and read as wrong in-game.
         # Detect the surviving no-BP cargo/delivery descs and demote [BP] to the
         # honest [BP?] (the 9-BP career bodies keep their full list either way).
-        _cg_desc_keys = {v[3] for v in variants if v[3]}
+        _cg_desc_keys = {v.desc_key for v in variants if v.desc_key}
         _surviving_no_bp_cargo = bool(
             (pu_cargo_delivery_descs & pu_title_to_descs.get(title_key, set()))
             - _cg_desc_keys
@@ -5681,10 +6027,10 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         desc_bucket_has_bp: dict[str, bool] = {}
         desc_bucket_count: dict[str, int] = {}
         for v in variants:
-            dk = v[3]
+            dk = v.desc_key
             if not dk:
                 continue
-            desc_bucket_has_bp[dk] = desc_bucket_has_bp.get(dk, False) or v[7]
+            desc_bucket_has_bp[dk] = desc_bucket_has_bp.get(dk, False) or v.has_bp
             desc_bucket_count[dk] = desc_bucket_count.get(dk, 0) + 1
         _total_bucketed = sum(desc_bucket_count.values())
         _any_variant_has_bp = any(_bp_variants)
@@ -5705,22 +6051,30 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         _mt_cfg = tag_configs.get("mission_titles") or DEFAULT_TAG_CONFIGS.get("mission_titles")
         # #200 follow-up: optional stock-title shortening so the route plus
         # [BP]/XP tags don't overflow the contract list. Independent of the
-        # route toggle; same key-family scope.
-        if (abbreviate_title and _is_route_title(title_key)
-                and getattr(_mt_cfg, "abbreviate_title", False)):
-            base_title = abbreviate_title(base_title)
+        # route toggle; same key-family scope. Generalized to per-word/phrase
+        # checkboxes (Cargo/Haul/Rank, Rank merged to one checkbox for both
+        # contexts). Always called (not gated on any checkbox) because the
+        # separator-after-Rank normalization is itself an independent,
+        # always-on feature — the word/phrase toggles inside abbreviate_title
+        # are what stay individually gated on `abbreviated_phrases`.
+        _mt_phrases = getattr(_mt_cfg, "abbreviated_phrases", frozenset())
+        if abbreviate_title and _is_route_title(title_key):
+            base_title = abbreviate_title(
+                base_title, _mt_phrases, getattr(_mt_cfg, "rank_separator", "dash"),
+                getattr(_mt_cfg, "standardize_hauling_names", False),
+            )
         augmented_title = base_title
         if (route_enabled(_mt_cfg) and _is_route_title(title_key)
                 and not _title_has_route_token(base_title)):
             _route_descs = pu_title_to_descs.get(title_key, set()) | {
-                v[3] for v in variants if v[3]
+                v.desc_key for v in variants if v.desc_key
             }
             _route = _derive_route_fragment(
                 [loc.get(dk) for dk in _route_descs], _mt_cfg, loc, _route_expand_cache
             )
             if _route and apply_mission_title:
                 augmented_title = apply_mission_title(base_title, _route, _mt_cfg)
-        if _show("blueprint_tag"):
+        if _show_title_tag("blueprint"):
             if _all_have_bp and not _surviving_no_bp_cargo:
                 augmented_title += " <EM4>[BP]</EM4>"
             elif _bp_partial or (_all_have_bp and _surviving_no_bp_cargo):
@@ -5731,25 +6085,32 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         # (mirrors [BP]/[BP?] for shared/ambiguous titles). The ace always
         # spawns when its group is present — there is no probability in the
         # data — so there is no percentage to show.
-        if _show("ace"):
+        if _show_title_tag("ace"):
             _ace_flags = [
-                "Ace Pilots" in (v[5] or {}).get(SPAWN_HOSTILE, {}) for v in variants
+                "Ace Pilots" in (v.spawns or {}).get(SPAWN_HOSTILE, {}) for v in variants
             ]
             if _ace_flags and all(_ace_flags):
                 augmented_title += " <EM4>[ACE]</EM4>"
             elif any(_ace_flags):
                 augmented_title += " <EM4>[ACE?]</EM4>"
-        nonzero_xp = [x for x in unique_xp if x > 0]
+        nonzero_xp = [x for x in unique_xp if x > 0] if _show_title_tag("rep") else []
+        _rep_tag_suffix = (
+            f" ({_title_track})" if _title_track and _show_title_tag("rep_track") else ""
+        )
         if len(nonzero_xp) == 1:
-            augmented_title += f" <EM4>[{nonzero_xp[0]:,} {rep_xp_label}]</EM4>"
+            augmented_title += f" <EM4>[{nonzero_xp[0]:,} {rep_xp_label}{_rep_tag_suffix}]</EM4>"
         elif len(nonzero_xp) > 1:
-            augmented_title += f" <EM4>[{min(nonzero_xp):,}\u2013{max(nonzero_xp):,} {rep_xp_label}]</EM4>"
+            augmented_title += f" <EM4>[{min(nonzero_xp):,}\u2013{max(nonzero_xp):,} {rep_xp_label}{_rep_tag_suffix}]</EM4>"
+        if _show_title_tag("rs"):
+            _rs_tag = battaglia_mineable_rs.get(title_key)
+            if _rs_tag:
+                augmented_title += f" <EM4>{_rs_tag}</EM4>"
         out[title_key] = augmented_title
         mission_titles_augmented += 1
 
         unique_desc_keys: list[str] = []
         for v in variants:
-            dk = v[3]
+            dk = v.desc_key
             # #151: a contract whose Description loc-key collides with its
             # Title key (CIG data quirk, e.g. eckhart_defendship_MRT
             # "Stop Attack") must never have the MISSION DETAILS / blueprint
@@ -5761,12 +6122,12 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
                 unique_desc_keys.append(dk)
 
         for desc_key in unique_desc_keys:
-            desc_variants = [v for v in variants if v[3] == desc_key]
+            desc_variants = [v for v in variants if v.desc_key == desc_key]
             base_desc = loc.get(desc_key)
             if base_desc is None:
                 # Synthesize from contract debug name in variant tuple
                 contract_debug = next(
-                    (v[9] for v in desc_variants if v[9]), ""
+                    (v.bp_variant for v in desc_variants if v.bp_variant), ""
                 )
                 if contract_debug:
                     base_desc = _humanize_key(contract_debug)
@@ -5779,23 +6140,23 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             all_variants_have_bp = True
             any_variant_has_bp = False
             variant_bp_chance = 0.0
-            desc_seen_tiers: list[tuple[int, int, str]] = []
-            for _, vsxp, vfxp, _, vflags, vspawns, vdiff, vhas_bp, vbp_chance, vbp_variant, vrname in desc_variants:
-                for f in vflags:
+            desc_seen_tiers: list[tuple[int, int, str, str]] = []
+            for v in desc_variants:
+                for f in v.flags:
                     if f not in all_flags:
                         all_flags.append(f)
-                _merge_spawn_breakdowns_max(agg_spawns, vspawns)
-                if vdiff and vdiff not in all_difficulties:
-                    all_difficulties.append(vdiff)
-                if vhas_bp:
+                _merge_spawn_breakdowns_max(agg_spawns, v.spawns)
+                if v.difficulty and v.difficulty not in all_difficulties:
+                    all_difficulties.append(v.difficulty)
+                if v.has_bp:
                     any_variant_has_bp = True
-                    variant_bp_chance = max(variant_bp_chance, vbp_chance)
-                    short_name = _variant_label_short(vbp_variant)
+                    variant_bp_chance = max(variant_bp_chance, v.bp_chance)
+                    short_name = _variant_label_short(v.bp_variant)
                     if short_name and short_name not in bp_variant_names:
                         bp_variant_names.append(short_name)
                 else:
                     all_variants_have_bp = False
-                tier = (vsxp, vfxp, vrname)
+                tier = (v.success_xp, v.failure_xp, v.rank_name, v.rep_track)
                 if tier not in desc_seen_tiers:
                     desc_seen_tiers.append(tier)
 
@@ -5808,18 +6169,18 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
                 details_lines.extend(_format_spawn_lines(agg_spawns))
             if _show("ace") and bool(agg_spawns.get(SPAWN_HOSTILE, {}).get("Ace Pilots", 0)):
                 details_lines.append("<EM4>Ace Pilot:</EM4> Yes")
-            nonzero_tiers = [(s, f, rn) for s, f, rn in desc_seen_tiers if s > 0]
+            nonzero_tiers = [(s, f, rn, rt) for s, f, rn, rt in desc_seen_tiers if s > 0]
             if _show("reputation"):
                 if len(nonzero_tiers) == 1:
-                    sxp, fxp, rn = nonzero_tiers[0]
-                    details_lines.append(_rep_reward_line(rn, f"+{sxp:,}", rep_xp_label))
+                    sxp, fxp, rn, rt = nonzero_tiers[0]
+                    details_lines.append(_rep_reward_line(rn, f"+{sxp:,}", rep_xp_label, rt))
                     if fxp < 0:
                         details_lines.append(
                             _rep_reward_line("Failure Penalty", f"{fxp:,}", rep_xp_label)
                         )
                 elif len(nonzero_tiers) > 1:
-                    for i, (sxp, fxp, rn) in enumerate(sorted(nonzero_tiers, key=lambda t: t[0]), 1):
-                        line = _rep_reward_line(rn if rn else f"Tier {i}", f"+{sxp:,}", rep_xp_label)
+                    for i, (sxp, fxp, rn, rt) in enumerate(sorted(nonzero_tiers, key=lambda t: t[0]), 1):
+                        line = _rep_reward_line(rn if rn else f"Tier {i}", f"+{sxp:,}", rep_xp_label, rt)
                         if fxp < 0:
                             line += f" (Failure: {fxp:,})"
                         details_lines.append(line)
@@ -5838,7 +6199,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
                 details_lines.append(bp_header)
 
                 pools_by_system = mission_blueprints.get(title_key, {})
-                desc_systems = {v[0] for v in desc_variants if v[7]}
+                desc_systems = {v.system_name for v in desc_variants if v.has_bp}
                 desc_pools = {s: by_label for s, by_label in pools_by_system.items() if s in desc_systems}
                 if not desc_pools:
                     desc_pools = pools_by_system
@@ -5939,7 +6300,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     for _title_key, _variants in contractgen_missions.items():
         if _title_key not in mission_blueprints:
             continue
-        _cg_descs = {v[3] for v in _variants if v[3]}
+        _cg_descs = {v.desc_key for v in _variants if v.desc_key}
         for _orphan in pu_title_to_descs.get(_title_key, set()) - _cg_descs:
             # #102: keep cargo / delivery haul bodies. A haul awards no
             # blueprints, so under a [BP]-tagged shared title it would be
@@ -5977,12 +6338,18 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             except (ET.ParseError, Exception):
                 continue
 
-    xp_tag_re = re.compile(r"<EM4>\[\d[\d,]*(?:[–\-]\d[\d,]*)?\s*\w+\]</EM4>")
+    # Optional trailing "(Track)" (issue #161's reputation-track suffix)
+    # must not break this already-tagged guard, or the pu_missions-only pass
+    # below re-appends its own XP tag onto a title the main loop already tagged.
+    xp_tag_re = re.compile(r"<EM4>\[\d[\d,]*(?:[–\-]\d[\d,]*)?\s*\w+(?:\s*\([^)]*\))?\]</EM4>")
     _mt_cfg2 = tag_configs.get("mission_titles") or DEFAULT_TAG_CONFIGS.get("mission_titles")
-    # #200 follow-up: with Shorten on, abbreviate the cargo-grade size words
-    # haul titles resolve through ("Extra Small" -> "XS") at the loc-key level.
-    if getattr(_mt_cfg2, "abbreviate_title", False):
-        _size_overrides = _size_abbreviation_overrides(loc)
+    # #200 follow-up: cargo-size abbreviation, independent of the word/phrase
+    # removal checkboxes — one "Shorten cargo sizes" master checkbox, not
+    # per-size. Overrides the cargo-grade size words haul titles resolve
+    # through ("Extra Small" -> "XS") at the loc-key level.
+    _mt_sizes = getattr(_mt_cfg2, "shortened_sizes", frozenset())
+    if _mt_sizes:
+        _size_overrides = _size_abbreviation_overrides(loc, _mt_sizes)
         if _size_overrides:
             out.update(_size_overrides)
             logger.info(
@@ -6000,10 +6367,15 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         # get the same route + shortening treatment as the contractgen loop
         # above. Guarded to pure pu titles (not already in out) so a desc
         # entry sharing the key is never mangled.
-        if (title_key not in out and abbreviate_title
-                and _is_route_title(title_key)
-                and getattr(_mt_cfg2, "abbreviate_title", False)):
-            current = abbreviate_title(current)
+        # Same "always call" rationale as the contractgen loop above — the
+        # Rank separator is an independent always-on feature, not gated on
+        # any checkbox.
+        _mt2_phrases = getattr(_mt_cfg2, "abbreviated_phrases", frozenset())
+        if title_key not in out and abbreviate_title and _is_route_title(title_key):
+            current = abbreviate_title(
+                current, _mt2_phrases, getattr(_mt_cfg2, "rank_separator", "dash"),
+                getattr(_mt_cfg2, "standardize_hauling_names", False),
+            )
         if (title_key not in out and route_enabled(_mt_cfg2)
                 and _is_route_title(title_key)
                 and not _title_has_route_token(base_title)):
@@ -6013,10 +6385,10 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             )
             if _route and apply_mission_title:
                 current = apply_mission_title(current, _route, _mt_cfg2)
-        unique_xp = sorted(set(xps))
+        unique_xp = sorted(set(xps)) if _show_title_tag("rep") else []
         if len(unique_xp) == 1:
             current += f" <EM4>[{unique_xp[0]:,} {rep_xp_label}]</EM4>"
-        else:
+        elif len(unique_xp) > 1:
             current += f" <EM4>[{min(unique_xp):,}\u2013{max(unique_xp):,} {rep_xp_label}]</EM4>"
         out[title_key] = current
         mission_titles_augmented += 1
@@ -6094,6 +6466,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
          mission_headers: dict[str, str] | None = None,
          mission_header_em_tag: str = _DEFAULT_MISSION_HEADER_EM_TAG,
          mission_detail_fields: dict | None = None,
+         mission_title_tags: dict | None = None,
          stats_prepend: bool = False,
          standardize_earnable_ship_names: bool = False,
          english_base_ini_path: Path | None = None) -> None:
@@ -6164,6 +6537,11 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             logger.info(f"Loaded {len(en_loc):,} English keys for annotation lookups")
 
     # ── Check DataForge cache ─────────────────────────────────────────────────
+    # Long-path-prefix once here so every downstream path derived from
+    # forge_dir/records (the whole rest of this function, plus every helper
+    # it calls with forge_dir/records) inherits long-path safety — see the
+    # win_long_path import comment near the top of this file.
+    forge_dir = Path(win_long_path(forge_dir))
     records = forge_dir / "raw" / "libs" / "foundry" / "records"
     if not forge_dir.exists() or not records.exists():
         raise FileNotFoundError(
@@ -6199,6 +6577,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         + (2 if _want("ship_descs") else 0)  # controller+armor lookup, scan
         + (4 if _want("mission_rewards") else 0)  # rep lookup, scan, bp pools, contractgen+XP
         + (1 if _want("commodity_crafting") or _want("journal") else 0)
+        + (1 if _want("medical_consumables") else 0)
         + 1  # write files
     )
     if _sink is not None:
@@ -6221,6 +6600,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
     armor_lookup: dict = {}
     reputation_lookup: dict[str, int] = {}
     standings_lookup: dict[str, str] = {}
+    standing_track_lookup: dict[str, str] = {}
 
     # Components Tag Builder config — drives the [CLASS-Sx-grade] tags that
     # get baked into both scitem_lookups (entity_name_tags) and the pickle
@@ -6278,24 +6658,59 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         lookup_jobs["reputation"] = _build_reputation
 
     def _build_standings():
+        """Single walk over reputation/standings XMLs building two dicts at
+        once: UUID -> rank display name (e.g. "Security Trainee") and UUID ->
+        the reputation TRACK that rank belongs to (e.g. "Security",
+        "Contractor", "Bounty Hunting") — two derived views of the same
+        displayName attribute. Used to be two separate _cached_lookup jobs
+        that each walked and parsed every standings XML on their own; same
+        UUID/displayName pair read twice per cache build for no reason, and
+        two independent dicts built from the same source risked drifting
+        apart. Mirrors _build_scitem_pair below for the same "one XML walk,
+        several derived dicts" shape.
+
+        Some factions have multiple reputation tracks (Foxwell Enforcement
+        shows separate "Security" and "Standing" columns in-game); which
+        track a mission feeds isn't obvious from its type or name alone (a
+        ship-combat "Security Patrol" contract actually feeds the generic
+        Contractor/Standing track, while the satellite-scan "Destroy Data
+        Skimmers" contract feeds Security) — see issue #161.
+
+        Every standing rank's ``displayName`` loc key encodes its track as
+        the token right after the ``RepStanding_``/``RepScope_`` prefix
+        (``RepStanding_Security_Rank0``, ``RepScope_Contractor_Rank3``);
+        that token's ``RepScope_<track>_Name`` key gives the clean label
+        already used by the in-game Reputation Manager UI.
+        """
         standings_dir = records / "reputation" / "standings"
-        def _builder() -> dict[str, str]:
-            out: dict[str, str] = {}
+        def _builder() -> tuple[dict[str, str], dict[str, str]]:
+            rank_out: dict[str, str] = {}
+            track_out: dict[str, str] = {}
             if not standings_dir.exists():
-                return out
+                return rank_out, track_out
             for xml_file in standings_dir.rglob("*.xml"):
                 try:
                     root = ET.parse(xml_file).getroot()
                     uuid = root.get("__ref")
                     display_name = root.get("displayName", "")
-                    if uuid and display_name.startswith("@"):
-                        loc_key = display_name.lstrip("@")
-                        resolved = (en_loc or {}).get(loc_key, "")
-                        if resolved:
-                            out[uuid] = resolved
+                    if not uuid or not display_name.startswith("@"):
+                        continue
+                    loc_key = display_name.lstrip("@")
+                    resolved = (en_loc or {}).get(loc_key, "")
+                    if resolved:
+                        rank_out[uuid] = resolved
+                    m = _REP_TRACK_PREFIX_RE.match(loc_key)
+                    if m:
+                        family = m.group(1)
+                        track_name = (
+                            (en_loc or {}).get(f"RepScope_{family}_Name")
+                            or (en_loc or {}).get(f"RepScope_{family}_Name,P")
+                            or family
+                        )
+                        track_out[uuid] = track_name
                 except ET.ParseError:
                     continue
-            return out
+            return rank_out, track_out
         return _cached_lookup(forge_dir, "standings", _builder)
 
     if _want("mission_rewards"):
@@ -6333,9 +6748,12 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             logger.info(f"Loaded {len(reputation_lookup)} reputation reward definitions")
             _tick("Built reputation lookup")
         if "standings" in results:
-            standings_lookup = results["standings"]
-            logger.info(f"Loaded {len(standings_lookup)} reputation standing definitions")
-            _tick("Built standings lookup")
+            standings_lookup, standing_track_lookup = results["standings"]
+            logger.info(
+                f"Loaded {len(standings_lookup)} reputation standing definitions, "
+                f"{len(standing_track_lookup)} reputation track definitions"
+            )
+            _tick("Built standings + track lookups")
 
     # ── Output-file generators (parallel wave) ────────────────────────────────
     # Generators run in a ThreadPoolExecutor. Each is a module-level function
@@ -6363,6 +6781,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         "armor_lookup":      armor_lookup,
         "reputation_lookup": reputation_lookup,
         "standings_lookup":  standings_lookup,
+        "standing_track_lookup": standing_track_lookup,
         "xml_path_index":    xml_path_index,
         "tag_configs":       tag_configs or {},
         "_components_cfg_key": _components_cfg_key,
@@ -6371,6 +6790,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         "mission_headers":   mission_headers or dict(_DEFAULT_MISSION_HEADERS),
         "mission_header_em": mission_header_em_tag or _DEFAULT_MISSION_HEADER_EM_TAG,
         "mission_detail_fields": mission_detail_fields or {},
+        "mission_title_tags": mission_title_tags or {},
         "stats_prepend":     bool(stats_prepend),
     }
 
@@ -6383,6 +6803,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
     if _want("mission_rewards"):      gen_jobs["missions"]          = _run_gen_missions
     if _want("commodity_crafting") or _want("journal"):
                                       gen_jobs["commodity_journal"] = _run_gen_commodity_journal
+    if _want("medical_consumables"): gen_jobs["medical_consumables"] = enhancements_medical_consumables
 
     out_components:  dict[str, str] = {}
     out_missiles:    dict[str, str] = {}
@@ -6392,6 +6813,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
     out_missions:    dict[str, str] = {}
     out_commodities: dict[str, str] = {}
     out_journal:     dict[str, str] = {}
+    out_medical_consumables: dict[str, str] = {}
 
     if gen_jobs:
         n_workers = min(max_workers, len(gen_jobs))
@@ -6410,6 +6832,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                 elif name == "ships":             out_ships        = result
                 elif name == "missions":          out_missions     = result
                 elif name == "commodity_journal": out_commodities, out_journal = result
+                elif name == "medical_consumables": out_medical_consumables = result
 
     # ── Apply loc-string workarounds for CIG data bugs ────────────────────────
     # XML patches we ran before this script realigned the enhancement
@@ -6429,7 +6852,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                 total_applied = 0
                 for out_dict in (out_missions, out_components, out_ship_weapons,
                                  out_fps_weapons, out_ships, out_missiles,
-                                 out_commodities, out_journal):
+                                 out_commodities, out_journal, out_medical_consumables):
                     total_applied += apply_locstring_workarounds(out_dict, workarounds)
                 logger.info(
                     f"Loc-string workarounds: {total_applied}/{len(workarounds)} applied"
@@ -6461,10 +6884,12 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         write_ini(output_dir / "journal_enhancements.ini", out_journal)
     if _want("missile_enhancements"):
         write_ini(output_dir / "missile_enhancements.ini", out_missiles)
+    if _want("medical_consumables"):
+        write_ini(output_dir / "medical_consumables_enhancements.ini", out_medical_consumables)
 
     total = (len(out_ships) + len(out_components) + len(out_ship_weapons) +
              len(out_fps_weapons) + len(out_missions) + len(out_commodities) +
-             len(out_journal) + len(out_missiles))
+             len(out_journal) + len(out_missiles) + len(out_medical_consumables))
     logger.info(f"Done — {total:,} total stat entries written to {output_dir}")
     _tick("Wrote all output files")
     if _sink is not None:

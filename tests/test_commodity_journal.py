@@ -261,3 +261,63 @@ class TestCompendiumLocations:
 
     def test_empty_content_is_empty(self, gen_module):
         assert gen_module._parse_compendium_locations("") == {}
+
+
+class TestMiningCompendiumRSTagging:
+    """Base Resource Signature line added to each ore's block in the
+    "Mining Fundamentals #2: Where to Mine" journal entry (from
+    MINEABLE_RS_VALUES) when a confirmed value exists; silently omitted
+    otherwise. Community reference: starminersdepot.com's Alpha 4.8 scanner
+    table, cross-checked against the pre-existing Battaglia RS values."""
+
+    def test_known_ore_gets_rs_line(self, gen_module, tmp_path):
+        content = "Aluminium - Aaron Halo, ARC-L1"
+        bp_dir = tmp_path / "bp"
+        bp_dir.mkdir()
+        _commodities, journal = gen_module.scan_crafting_blueprints(
+            bp_dir=bp_dir,
+            carryables_dir=tmp_path / "carryables",
+            entity_names={},
+            loc={
+                "Journal_General_Mining_Compendium_Title": "Mining Fundamentals #2: Where to Mine",
+                "Journal_General_Mining_Compendium_Content": content,
+            },
+        )
+        result = journal["Journal_General_Mining_Compendium_Content"]
+        assert "Base Resource Signature: <EM4>4285</EM4>" in result
+        assert "<EM4>Locations:</EM4>" in result
+
+    def test_unknown_ore_has_no_rs_line(self, gen_module, tmp_path):
+        content = "Aphorite - All Moons/Planets/Caves"
+        bp_dir = tmp_path / "bp"
+        bp_dir.mkdir()
+        _commodities, journal = gen_module.scan_crafting_blueprints(
+            bp_dir=bp_dir,
+            carryables_dir=tmp_path / "carryables",
+            entity_names={},
+            loc={
+                "Journal_General_Mining_Compendium_Title": "Mining Fundamentals #2: Where to Mine",
+                "Journal_General_Mining_Compendium_Content": content,
+            },
+        )
+        result = journal["Journal_General_Mining_Compendium_Content"]
+        assert "Base Resource Signature" not in result
+
+    def test_savrilium_typo_spelling_still_matches(self, gen_module, tmp_path):
+        """The journal's own prose spells it "Savrilium" (single L), but the
+        DataForge loc key and MINEABLE_RS_VALUES both use "savrillium" —
+        _MINING_COMPENDIUM_ORE_ALIASES must bridge the two."""
+        content = "Savrilium - Glaciem Ring, Keeger Belt"
+        bp_dir = tmp_path / "bp"
+        bp_dir.mkdir()
+        _commodities, journal = gen_module.scan_crafting_blueprints(
+            bp_dir=bp_dir,
+            carryables_dir=tmp_path / "carryables",
+            entity_names={},
+            loc={
+                "Journal_General_Mining_Compendium_Title": "Mining Fundamentals #2: Where to Mine",
+                "Journal_General_Mining_Compendium_Content": content,
+            },
+        )
+        result = journal["Journal_General_Mining_Compendium_Content"]
+        assert "Base Resource Signature: <EM4>3200</EM4>" in result

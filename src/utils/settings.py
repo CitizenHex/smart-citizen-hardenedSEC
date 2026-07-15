@@ -121,9 +121,12 @@ class AppSettings:
     # 2.1 (route arrow / placement / location detail live there now), so it is
     # no longer a mission-detail toggle. migrate_route_toggle_to_mission_titles()
     # carries a user's old off-state into the new config.
+    # "blueprint_tag" moved out entirely (2.2.0) — it never controlled a body
+    # line, only the [BP]/[BP?] title tag, so it now lives under
+    # MISSION_TITLE_TAG_KEYS below with the other title-only toggles.
     MISSION_FIELD_KEYS = (
         "mission_type", "difficulty", "spawns", "reputation",
-        "blueprints", "blueprint_tag", "ace",
+        "blueprints", "ace",
     )
     _MISSION_FIELD_SETTING = {
         "mission_type":  "mission_field/mission_type",
@@ -131,9 +134,39 @@ class AppSettings:
         "spawns":        "mission_field/spawns",
         "reputation":    "mission_field/reputation",
         "blueprints":    "mission_field/blueprints",
-        "blueprint_tag": "mission_field/blueprint_tag",
-        # #158: [ACE]/[ACE?] title tag for missions that spawn an ace pilot.
+        # #158, split from the title tag in 2.2.0 (see MISSION_TITLE_TAG_KEYS):
+        # this key now controls ONLY the "Ace Pilot: Yes" body line.
         "ace":           "mission_field/ace",
+    }
+
+    # Mission TITLE tags (2.2.0, "General Tags" section): independent of the
+    # mission-detail body fields above — these gate the [BP]/[ACE]/[REP]
+    # markers appended to the mission TITLE only. All default on (prior
+    # behaviour: blueprint_tag was already title-only and on by default; the
+    # ace title tag and the rep/xp title tag were both unconditionally shown
+    # before this split). migrate_title_tag_settings() carries a user's prior
+    # blueprint_tag / ace choice forward once.
+    MISSION_TITLE_TAG_KEYS = ("rep", "blueprint", "ace", "rs", "rep_track")
+    _MISSION_TITLE_TAG_SETTING = {
+        "rep":       "mission_title_tag/rep",
+        "blueprint": "mission_title_tag/blueprint",
+        "ace":       "mission_title_tag/ace",
+        # RS ("resonance signature") tag for Recco Battaglia's Scan/Mining
+        # contracts (4.9+) — see MINEABLE_RS_VALUES in generate_enhancements_ini.py.
+        "rs":        "mission_title_tag/rs",
+        # Reputation TRACK suffix (e.g. "(Security)"/"(Contractor)") on the
+        # title's Rep tag — see issue #161. Off by default (see
+        # _MISSION_TITLE_TAG_DEFAULTS below): unlike the other title tags,
+        # this one is new to a lot of titles at once and can make an already
+        # busy title noisier, so it's opt-in. The equivalent body-line
+        # suffix (MISSION DETAILS' Reputation field) is unconditional and
+        # always on, independent of this toggle.
+        "rep_track": "mission_title_tag/rep_track",
+    }
+    # Per-field default for get_mission_title_tags() — every title tag
+    # defaults on except where overridden here.
+    _MISSION_TITLE_TAG_DEFAULTS = {
+        "rep_track": False,
     }
     MISSION_HEADER_DEFAULTS = {
         "details": "MISSION DETAILS",
@@ -214,6 +247,7 @@ class AppSettings:
         "commodity_crafting":  "commodity_crafting_enhancements.ini",
         "journal":            "journal_enhancements.ini",
         "missile_enhancements": "missile_enhancements.ini",
+        "medical_consumables": "medical_consumables_enhancements.ini",
     }
 
     # User-facing category labels — match the filter categories on the main page
@@ -224,6 +258,7 @@ class AppSettings:
         "missions":    "Missions",
         "commodities": "Commodities",
         "journal":     "Journal",
+        "medical_consumables": "Medical Consumables",
     }
 
     # Maps each checkbox key to the enhancement file keys it controls
@@ -234,6 +269,7 @@ class AppSettings:
         "missions":    ["mission_rewards"],
         "commodities": ["commodity_crafting"],
         "journal":     ["journal"],
+        "medical_consumables": ["medical_consumables"],
     }
 
     # Settings keys - Legacy (kept for migration)
@@ -272,6 +308,17 @@ class AppSettings:
     STATS_PREPEND = "stats_prepend"  # #153: stats block above the description
     STANDARDIZE_EARNABLE_SHIP_NAMES = "standardize_earnable_ship_names"
     OWNED_ITEMS = "owned_items"      # #157: blueprint items the user owns (JSON list of names)
+    # #222: newest "Received Blueprint" log event a BP Scan has already
+    # consumed, so a re-scan only imports genuinely new blueprints. Per-channel
+    # (each SC channel has its own LogBackups), stored as an ISO-8601 string
+    # under "{BLUEPRINT_LOG_WATERMARK}/{channel}".
+    BLUEPRINT_LOG_WATERMARK = "blueprint_log_watermark"
+    # #221: whether the Blueprints tracker's Available/Owned lists show each
+    # item's Tag Builder tag (e.g. "Norfield [MIL-S1-A]") instead of the bare
+    # name. Off by default — the bare name is the list's long-standing
+    # display; this only affects the app's own list, never the in-game
+    # mission text, which always shows the tag regardless of this setting.
+    BLUEPRINT_SHOW_TAGS = "blueprints/show_tags"
 
     # Settings keys - Data sources (new)
     # Prefix: data_sources/{source_name}/
@@ -701,6 +748,60 @@ class AppSettings:
             AppSettings.settings().setValue(reg_key, enabled)
 
     @staticmethod
+    def get_mission_title_tags() -> dict:
+        """Return {field: enabled} for the mission TITLE tags (2.2.0, "General
+        Tags"): rep/xp, blueprint, ace, rep_track. Independent of
+        get_mission_detail_fields() — see MISSION_TITLE_TAG_KEYS. Every field
+        defaults to True (matching prior, unsplit behaviour) except where
+        overridden in _MISSION_TITLE_TAG_DEFAULTS (currently just
+        "rep_track", off by default — see issue #161)."""
+        s = AppSettings.settings()
+        return {
+            field: bool(s.value(
+                reg_key, AppSettings._MISSION_TITLE_TAG_DEFAULTS.get(field, True), type=bool
+            ))
+            for field, reg_key in AppSettings._MISSION_TITLE_TAG_SETTING.items()
+        }
+
+    @staticmethod
+    def set_mission_title_tag(field: str, enabled: bool) -> None:
+        """Persist one mission-title-tag toggle. Unknown keys are ignored."""
+        reg_key = AppSettings._MISSION_TITLE_TAG_SETTING.get(field)
+        if reg_key:
+            AppSettings.settings().setValue(reg_key, enabled)
+
+    @staticmethod
+    def get_mission_title_tag_default(field: str) -> bool:
+        """The out-of-the-box value for one mission-title-tag field — True
+        unless overridden in _MISSION_TITLE_TAG_DEFAULTS. Lets callers (e.g.
+        the Enhancements tab's "Reset to defaults") restore the correct
+        per-field default instead of assuming every tag defaults on."""
+        return AppSettings._MISSION_TITLE_TAG_DEFAULTS.get(field, True)
+
+    @staticmethod
+    def migrate_title_tag_settings() -> None:
+        """One-shot (2.2.0): the [BP]/[ACE] title tags used to share a
+        toggle with mission-detail-body settings — "blueprint_tag" already
+        controlled only the title (just lived in the wrong group);
+        "ace" controlled BOTH a body line and the title tag together. The
+        new independent "General Tags" toggles need a starting value that
+        respects whatever the user had already chosen, so this copies the
+        old blueprint_tag/ace values into the new keys once. Reading the old
+        key with its own default (True) makes this a safe no-op for anyone
+        who never touched those checkboxes — only an explicit prior "off"
+        carries forward. After this runs, the two evolve independently."""
+        s = AppSettings.settings()
+        marker = "mission_title_tag/migrated"
+        if s.value(marker, False, type=bool):
+            return
+        old_bp = s.value("mission_field/blueprint_tag", True, type=bool)
+        old_ace = s.value("mission_field/ace", True, type=bool)
+        s.setValue(AppSettings._MISSION_TITLE_TAG_SETTING["blueprint"], bool(old_bp))
+        s.setValue(AppSettings._MISSION_TITLE_TAG_SETTING["ace"], bool(old_ace))
+        s.setValue(marker, True)
+        s.sync()
+
+    @staticmethod
     def get_tag_config(category: str):
         """Return the user's TagConfig for *category*, or the default if absent/bad.
 
@@ -910,6 +1011,25 @@ class AppSettings:
         AppSettings.settings().sync()
 
     @staticmethod
+    def get_blueprint_show_tags() -> bool:
+        """Whether the Blueprints tracker shows each item's Tag Builder tag
+        inline (e.g. "Norfield [MIL-S1-A]") instead of the bare name (#221).
+        Default False. Purely a display toggle for the app's own Available/
+        Owned lists — matching, filtering, and Owned tracking always use the
+        bare, tag-free name regardless of this setting."""
+        return bool(AppSettings.settings().value(
+            AppSettings.BLUEPRINT_SHOW_TAGS, False, type=bool
+        ))
+
+    @staticmethod
+    def set_blueprint_show_tags(enabled: bool) -> None:
+        """Persist the Blueprints tracker's show-tags display toggle (#221)."""
+        AppSettings.settings().setValue(
+            AppSettings.BLUEPRINT_SHOW_TAGS, bool(enabled)
+        )
+        AppSettings.settings().sync()
+
+    @staticmethod
     def toggle_owned_item(name: str) -> bool:
         """Add/remove *name* from the owned set; return the new owned state."""
         owned = AppSettings.get_owned_items()
@@ -921,6 +1041,44 @@ class AppSettings:
             new_state = True
         AppSettings.set_owned_items(owned)
         return new_state
+
+    @staticmethod
+    def _blueprint_watermark_key() -> str:
+        """Per-channel storage key for the BP Scan watermark (#222)."""
+        return (f"{AppSettings.BLUEPRINT_LOG_WATERMARK}/"
+                f"{AppSettings.get_active_channel()}")
+
+    @staticmethod
+    def get_blueprint_log_watermark():
+        """Return the active channel's BP Scan watermark, or ``None`` (#222).
+
+        The watermark is the newest received-blueprint event a prior scan
+        consumed. Returns a timezone-aware ``datetime`` (the stored ISO string
+        carries the ``+00:00`` offset); ``None`` when unset or unparseable, in
+        which case the scanner falls back to the March-2026 blueprint epoch.
+        """
+        from datetime import datetime
+        raw = AppSettings.settings().value(
+            AppSettings._blueprint_watermark_key(), "", type=str
+        )
+        if not raw:
+            return None
+        try:
+            return datetime.fromisoformat(raw)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def set_blueprint_log_watermark(when) -> None:
+        """Persist the active channel's BP Scan watermark (#222).
+
+        *when* is a ``datetime`` (the scanner emits timezone-aware UTC); stored
+        as its ISO-8601 string so it round-trips through both settings backends.
+        """
+        AppSettings.settings().setValue(
+            AppSettings._blueprint_watermark_key(), when.isoformat()
+        )
+        AppSettings.settings().sync()
 
     @staticmethod
     def get_tutorial_completed_version() -> str:
@@ -980,6 +1138,26 @@ class AppSettings:
         AppSettings.settings().setValue(AppSettings.LAST_OVERRIDES_PATH, path)
 
     @staticmethod
+    def _read_legacy_installer_sc_directory() -> "str | None":
+        """Return the raw ``sc_directory`` value the older installer flow
+        wrote to the registry, or ``None`` if the key is absent/unreadable.
+
+        Shared by `get_game_install_path()` and `get_sc_install_root()` —
+        both used to carry their own copy of this same registry read
+        (identical path + value name), each interpreting the raw value
+        differently (one keeps a channel-suffixed path as-is, the other
+        strips to the root). ``WindowsError`` is just an alias of `OSError`
+        in Python 3, so catching the latter covers both.
+        """
+        try:
+            reg_path = r'Software\Osiris DevWorks\SC Localization Editor'
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path) as registry_key:
+                sc_directory, _ = winreg.QueryValueEx(registry_key, 'sc_directory')
+            return sc_directory or None
+        except OSError:
+            return None
+
+    @staticmethod
     def get_game_install_path() -> str:
         """Return the install path of the **active channel**.
 
@@ -1012,21 +1190,14 @@ class AppSettings:
                 return saved
 
         # Installer-written registry key (older flow).
-        try:
-            reg_path = r'Software\Osiris DevWorks\SC Localization Editor'
-            registry_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path)
-            sc_directory, _ = winreg.QueryValueEx(registry_key, 'sc_directory')
-            winreg.CloseKey(registry_key)
-            if sc_directory:
-                sc_path = Path(sc_directory)
-                if _path_ends_in_channel(sc_directory):
-                    AppSettings.settings().setValue(AppSettings.GAME_INSTALL_PATH, sc_directory)
-                    return sc_directory
-                if _is_valid_sc_root(sc_directory):
-                    AppSettings.settings().setValue(AppSettings.GAME_INSTALL_PATH, sc_directory)
-                    return sc_directory
-        except (WindowsError, OSError):
-            pass
+        sc_directory = AppSettings._read_legacy_installer_sc_directory()
+        if sc_directory:
+            if _path_ends_in_channel(sc_directory):
+                AppSettings.settings().setValue(AppSettings.GAME_INSTALL_PATH, sc_directory)
+                return sc_directory
+            if _is_valid_sc_root(sc_directory):
+                AppSettings.settings().setValue(AppSettings.GAME_INSTALL_PATH, sc_directory)
+                return sc_directory
 
         for candidate in [
             r"C:\Program Files\Roberts Space Industries\StarCitizen\LIVE",
@@ -1969,7 +2140,8 @@ class AppSettings:
           1. QSettings value for :data:`SC_INSTALL_ROOT`
           2. Derived from legacy ``GAME_INSTALL_PATH`` (strip trailing
              ``\LIVE`` if present)
-          3. Auto-detected from the common RSI install locations
+          3. The old installer's registry key (``sc_directory``)
+          4. Auto-detected from the common RSI install locations
 
         Returns an empty string when nothing resolves — the Config tab shows
         a placeholder in that case.
@@ -2005,6 +2177,24 @@ class AppSettings:
                 return str(legacy_path.parent)
             if _is_valid_sc_root(legacy):
                 return legacy
+
+        # Installer-written registry key (older flow) — same source
+        # get_game_install_path() falls back to. Without this, a fresh
+        # profile whose only trace of the install is this key sees
+        # get_game_install_path() (and thus extraction) resolve correctly
+        # while the Config tab, which reads only this method, stayed blank
+        # until some other code path happened to call get_game_install_path()
+        # first and persist GAME_INSTALL_PATH as a side effect.
+        sc_directory = AppSettings._read_legacy_installer_sc_directory()
+        if sc_directory:
+            root = None
+            if _path_ends_in_channel(sc_directory):
+                root = str(Path(sc_directory).parent)
+            elif _is_valid_sc_root(sc_directory):
+                root = sc_directory
+            if root:
+                AppSettings.settings().setValue(AppSettings.SC_INSTALL_ROOT, root)
+                return root
 
         for candidate in [
             r"C:\Program Files\Roberts Space Industries\StarCitizen",

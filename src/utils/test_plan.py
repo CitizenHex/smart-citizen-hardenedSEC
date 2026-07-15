@@ -19,147 +19,81 @@ import json
 
 # Each section is a title plus a flat list of one-line test items. Keep items
 # imperative and self-contained ("do X, confirm Y") so a tester needs no other
-# doc. This plan covers Smart Citizen 2.1.0.
+# doc. This plan covers Smart Citizen 2.2.0 (the diff over its 2.1.2 base).
 TEST_SECTIONS: list[dict] = [
     {
         "title": "Core workflow (smoke)",
         "items": [
             "Launch the app: it opens to the strings table with no crash dialog.",
             "Config tab: extract DataForge from Data.p4k; the progress bar runs start to finish and the table reloads.",
-            "Edit a string's Custom Value, then Apply Enhancements; confirm the change shows in-game.",
+            "Generate Enhancements, edit a string's Custom Value, then Apply to Game; confirm the change shows in-game.",
             "Restore Backup (More menu): a previous global.ini is offered and restores cleanly.",
-            "Switch language on the Config tab and back; the table reloads without error.",
         ],
     },
     {
-        "title": "Test-build fix (#186, still under test)",
+        "title": "Blueprint Tracker tab (#223, #233, #244, #245, #246)",
         "items": [
-            "Regenerate, then filter a security-threat / destroy-satellite mission; confirm its Hostiles line shows only that mission's own encounter, not a merged sibling roster (#186).",
+            "A Blueprint Tracker tab exists with Available blueprints on the left and Owned on the right; move items both ways with the arrow buttons and confirm the Owned list survives an app restart.",
+            "Use the search box and the Mission / Type / Class / Size / Grade filters; confirm the Available list narrows as expected and the filter note explains what each facet applies to.",
+            "Type filter: armor torso pieces like \"Antium Core\" and \"Carnifex Armor Core\" appear under Armor, and the crossbow under FPS Weapon; nothing obviously misfiled sits in Other.",
+            "Click \"Scan Logs for Owned Blueprints\" with a valid game path set: a progress dialog runs the log files, then a summary reports how many blueprints were added and how many are visible.",
+            "After the scan, the Owned list contains only real blueprint names: no stray text like \"Stows\" or currency rewards like \"Council Scrip\" / \"MG Scrip\".",
+            "Run the scan again immediately: it reports no new blueprints since the last scan (the watermark skips already-imported events).",
+            "With no Star Citizen install path set, run the scan: it tells you to set the game folder instead of scanning.",
+            "Change the Owned list, then click \"Apply Owned Tags\" (red until clicked): mission POTENTIAL BLUEPRINTS bullets show the blue [Owned] tag on your owned items, and the button turns green.",
         ],
     },
     {
-        "title": "Blueprints ownership shuttle (Enhancements tab)",
+        "title": "Mission Titles redesign + new title data (#232, #238, #239, #243)",
         "items": [
-            "Generate Enhancements, then open the Enhancements tab: the Blueprints section lists ownable items on the left and owned items on the right.",
-            "Select items on the left, click the right arrow: they move to Owned and gain a blue [Owned] tag in mission POTENTIAL BLUEPRINTS lists.",
-            "Use the search box and the Mission / Type / Class / Size / Grade filters; confirm the available list narrows as expected.",
-            "Move items back with the left arrow; restart the app and confirm the owned list persisted.",
-            "Strings table Owned column: still shows a star and sorts owned-first, but is now read-only (no click-to-toggle).",
+            "Tag Builder > Mission Titles: \"Shorten original titles\" and \"Shorten cargo sizes\" are independent, with per-word checkboxes underneath; the live preview tracks each toggle.",
+            "With every shorten checkbox off, generate and check a stock \"... Rank, ...\" hauling title in-game: the rank separator renders as a dash by default (e.g. \"Master Rank - ...\").",
+            "Toggle \"Standardize hauling mission names\", regenerate, and confirm hauling titles use the standardized name form.",
+            "The General Tags checkboxes ([BP], [ACE], rep, RS, rep track) live in their own group; changing one marks Save Tag Changes dirty (red) and the tag appears/disappears on regen.",
+            "Find a Recco Battaglia scan or mining contract: its title carries an [RS ####] tag with the target ore's resource signature (multiple ores slash-joined).",
+            "Open a mission with an XP reward: the XP line names the reputation track it feeds (e.g. \"750 XP (Hauling)\").",
+            "Open the \"Mining Fundamentals #2: Where to Mine\" journal entry: each covered ore shows a \"Base Resource Signature\" line above its Locations block; ores without a known value show no placeholder.",
         ],
     },
     {
-        "title": "Commodity craft-usage tag + legend",
+        "title": "Dirty-state buttons & exit guard (#233)",
         "items": [
-            "Generate Enhancements; open a crafting commodity in-game and confirm it carries a craft-usage tag between CF and Collection, e.g. [CF|QDRV|SHLD].",
-            "Tag Builder > Commodities: change the \"Used To Craft\" style (Short/Medium/Long) and the craft-usage separator; regenerate and confirm the tag updates.",
-            "Confirm the Mining Compendium journal starts with a \"Crafting Tag Key\" legend decoding the codes.",
+            "Generate Enhancements, Save Tag Changes, and Apply Enhancements turn red when a relevant change is pending and green (disabled) after running; hovering each explains its state.",
+            "After a game patch (or with a stale cache), the Extract from Data.p4k button text turns red to signal a newer build is available.",
+            "Close the app while Apply Enhancements is red: a dialog offers Apply Now / Exit Without Applying; Apply Now runs the apply and the app stays open.",
         ],
     },
     {
-        "title": "Commodity tag separator \"None\" (#97 follow-up)",
+        "title": "Medical Consumables (#235)",
         "items": [
-            "Tag Builder > Commodities: set Separator to None, regenerate; confirm a two-flag commodity renders as [CFCollection] and the choice persists across a restart.",
+            "Enable the Medical Consumables category, generate, and check MedPen or OxyPen in-game: the description carries an EFFECT block with a plain-language effect line under the lore.",
+            "Xtra variants, BoostPen, and VitalityPen are untouched (no EFFECT block).",
         ],
     },
     {
-        "title": "Mining Compendium journal revamp",
+        "title": "Installer language page (#236, #242)",
         "items": [
-            "In-game Journal > \"Mining Fundamentals #2: Where to Mine\": each mineral shows an underlined name, a blue \"Locations:\" list, and a blue \"Used To Craft:\" list.",
-            "Confirm locations and craft items are one-per-line with dash bullets, alphabetized, with blank lines above each subheader.",
-            "Confirm craft categories read as friendly names (e.g. \"Power Plants\", \"Quantum Drives: 7 items (S1-S3)\"), not raw paths.",
+            "Run the installer fresh: a Select Language page (English / French / Portuguese (Brazil) / Spanish) appears first, and the app opens in the picked language after install.",
+            "Reinstall over an existing install: the page pre-selects your previously saved language, and finishing keeps it.",
+            "Guard check (regedit): set selected_language to a made-up value; a /SILENT install leaves it untouched, and an interactive install where you pick French writes french.",
         ],
     },
     {
-        "title": "Commodity descriptions",
+        "title": "Languages (#237 + 2.2.0 backfill)",
         "items": [
-            "Filter a mineable commodity (e.g. Agricium); its description shows a blue \"Locations:\" list of mining spots above the BLUEPRINT DATA block.",
-            "Confirm a non-mineable / refined commodity has no Locations block, just BLUEPRINT DATA.",
+            "Switch to French or Portuguese (Brazil) and restart: tooltips, the Blueprint Tracker tab, the scan dialogs, and the Unapplied Changes prompt all show translated text.",
+            "Switch to Spanish and restart, then replay the Tutorial: every tour step is in Spanish.",
+            "Game strings still load for the selected language and Apply writes to the matching Localization folder.",
         ],
     },
     {
-        "title": "Mission Titles route tab (#166)",
+        "title": "Bug-fix bundle spot checks (#231)",
         "items": [
-            "Tag Builder > Mission Titles: confirm Enable, Placement (Prepend/Append/Replace), Route arrow, Title separator, and Location detail controls with a live preview.",
-            "With Prepend + \">\" + Name, regenerate; filter a hauling/delivery/courier mission and confirm the title leads with the route (e.g. \"Area18 > Lorville - <original>\").",
-            "Apply Enhancements and confirm the route resolves to real place names in-game, not raw ~mission(...) text.",
-            "Switch Placement to Replace, regenerate; confirm the title becomes just the route and still keeps its [BP]/[REP] tags.",
-            "Set Location detail to Full address; confirm A-to-B titles show fuller addresses (courier \"from X\" is unaffected).",
-        ],
-    },
-    {
-        "title": "SC install root retention (#150)",
-        "items": [
-            "Set the Star Citizen install path, then change it to a different valid location.",
-            "Confirm the newly chosen root sticks and does NOT revert to the previous location.",
-            "Restart the app and confirm the chosen install root persisted.",
-        ],
-    },
-    {
-        "title": "Mission titles (#151)",
-        "items": [
-            "Filter the table on \"Stop Attack\".",
-            "Confirm each matching mission shows an enhanced TITLE (with its [BP]/XP tags), not the full MISSION DETAILS / BLUEPRINTS body.",
-            "Confirm other blueprint missions still show their full detail body where expected.",
-        ],
-    },
-    {
-        "title": "Ship sort order for ASOP (#142)",
-        "items": [
-            "On a Ship row, set a number in the new # column (a 0-99 spin box); 0 clears it.",
-            "Number two or three favourite ships (e.g. 1, 2, 3) and Apply Enhancements; in-game the name reads like \"01-ShipName\" (number, dash, name).",
-            "In-game ASOP: confirm the numbered ships sort in that order (01 before 02 before 10).",
-            "Click the # column header to sort: numbered ships come first, ascending.",
-            "On a ship whose name starts with digits (e.g. 300i, 600i, 890 Jump), confirm the # column is BLANK until you set a number (no phantom order).",
-            "Set an order on that numeric-named ship, then clear it: the base name is never altered (300i stays 300i, not 0i).",
-            "Set a number then clear it (back to 0): the row returns to Unmodified.",
-        ],
-    },
-    {
-        "title": "Test Plan panel (#144)",
-        "items": [
-            "Open this panel from the More menu; it docks on the right like the Help panel.",
-            "Check and uncheck items: the progress counter and bar update live.",
-            "Close and reopen the app: your check-marks persisted.",
-            "Use Copy Report and confirm a readable checklist lands on the clipboard.",
-            "If a webhook is configured, Submit and confirm the report arrives in Discord.",
-        ],
-    },
-    {
-        "title": "Header style label (#164)",
-        "items": [
-            "Enhancements tab: the mission header style dropdown reads \"Underline\" / \"Blue text\" (not EM3 / EM4).",
-            "Pick each option, Generate Enhancements, and confirm section headers render underlined vs blue in-game as labelled.",
-        ],
-    },
-    {
-        "title": "Blueprint mission filters (#156)",
-        "items": [
-            "Strings table: tick \"BP Titles\" and confirm only mission-title rows carrying [BP]/[BP?] remain.",
-            "Tick \"BP Descriptions\" only and confirm only rows with a POTENTIAL BLUEPRINTS body remain.",
-            "Tick both and confirm titles AND descriptions show; Clear Filters resets both.",
-        ],
-    },
-    {
-        "title": "FAQ tab (#152)",
-        "items": [
-            "Open the new FAQ tab (between About and Legal); it renders four Q&As without error.",
-            "Switch theme (light/dark) and confirm the FAQ re-renders with matching colours.",
-        ],
-    },
-    {
-        "title": "Stats above description (#153)",
-        "items": [
-            "Enhancements tab: tick \"Show stats above description\", Generate Enhancements.",
-            "Open a ship or component (e.g. a shield generator); confirm the stats block now sits ABOVE the prose blurb, separated by a divider.",
-            "Untick it and regenerate; confirm stats return below the description under \"--- STATS ---\".",
-        ],
-    },
-    {
-        "title": "Ace-pilot tag (#158)",
-        "items": [
-            "Generate Enhancements with the \"Ace Pilot Tag\" toggle on.",
-            "Filter for ambush/strike missions (e.g. Foxwell) and confirm ace-spawning missions carry an [ACE] title tag (or [ACE?] where only some variants spawn one), alongside [BP]/XP.",
-            "Turn the Ace Pilot Tag toggle off, regenerate, and confirm the [ACE] tags disappear.",
+            "Config tab > Star Citizen Installation > Browse: the dialog opens at your current install path, not a default drive location.",
+            "Extract from Data.p4k: the progress dialog runs as one continuous bar without closing early at a phase boundary or sitting frozen at 100% during the cache snapshot.",
+            "Mining laser and salvage tool descriptions show clean stat text (no literal <EM4> tags or box characters).",
+            "On a fresh profile with an auto-detected install, the Config tab shows the detected SC path instead of a blank field.",
+            "The String Editor filter row and preview pane sit in the table area, not inside the shared toolbar, and the Enhancements category grid packs left without horizontal scrolling.",
         ],
     },
 ]

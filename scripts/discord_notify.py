@@ -33,6 +33,12 @@ load_dotenv(env_path)
 WEBHOOK_URL = os.getenv("DISCORD_RELEASE_WEBHOOK_URL")
 GITHUB_REPO = "Osiris-DevWorks/smart-citizen"
 
+# The "Smart Citizen Watcher" role: members opt in to release pings. The
+# mention must live in the top-level `content` field (mentions inside an
+# embed description render but never notify), and the role must be listed
+# in allowed_mentions for the ping to fire.
+WATCHER_ROLE_ID = "1510988542845911242"
+
 
 def create_embed(version: str, release_notes: str = "") -> dict:
     """Create a Discord embed for the release announcement."""
@@ -78,8 +84,13 @@ def send_discord_notification(version: str, release_notes: str = "") -> bool:
     embed = create_embed(version, release_notes)
 
     payload = {
+        "content": f"<@&{WATCHER_ROLE_ID}>",
         "embeds": [embed],
         "username": "Smart Citizen",
+        # Explicit allowlist: ping exactly the Watcher role and nothing the
+        # release notes happen to contain (an @everyone or user mention in
+        # pasted notes must never fire).
+        "allowed_mentions": {"roles": [WATCHER_ROLE_ID]},
     }
 
     data = json.dumps(payload).encode('utf-8')

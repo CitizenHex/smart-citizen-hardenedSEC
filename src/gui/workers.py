@@ -8,6 +8,7 @@ Contents:
 - FileLoaderWorker        — loads sources, builds StringEntry list, sort keys
 - StartupSyncWorker       — refreshes URL-backed sources on startup
 - EnhancementsGeneratorWorker — runs scripts/generate_enhancements_ini.py
+- BlueprintLogScanWorker  — scans SC logs for received-blueprint events (#222)
 - P4kExtractWorker        — unp4k extraction of global.ini
 - DataForgeExtractWorker  — unp4k + unforge + patch pipeline
 - SelectAllDelegate       — Custom Value cell delegate (auto-select, EM3/EM4 wrap)
@@ -47,6 +48,15 @@ class AnimatedProgressDialog(QProgressDialog):
         self.setWindowTitle(title)
         self.setModal(True)
         self.setMinimumWidth(400)
+        # QProgressDialog defaults to autoClose=True/autoReset=True, which
+        # hides the dialog the instant setValue() hits maximum() — e.g. the
+        # DataForge cache-snapshot phase ends with completed == total, so
+        # the dialog vanished right there while later phases (patching,
+        # enhancement generation) kept running and updating the status bar.
+        # Callers own the dialog lifecycle explicitly via .close(), so
+        # reaching 100% on one phase must not close it out from under them.
+        self.setAutoClose(False)
+        self.setAutoReset(False)
         self._bar = self.findChild(QProgressBar)
         if self._bar is not None:
             # Start indeterminate — bar text hidden until set_progress flips
@@ -229,6 +239,48 @@ class LanguageBaseDownloadWorker(QThread):
             self.finished.emit(False)
 
 
+class BlueprintLogScanWorker(QThread):
+    """Scan a channel's SC logs for received-blueprint events (#222).
+
+    Thin wrapper over ``blueprint_log_scanner.scan_channel``: it does the I/O
+    (reading up to hundreds of log files, some tens of MB) off the main thread
+    and reports per-file progress. It intentionally does *not* touch the owned
+    set or the watermark — the main-thread slot normalizes the returned raw
+    names, unions them into the owned set, and advances the watermark, so all
+    settings mutation stays on one thread.
+    """
+
+    progress = pyqtSignal(str)
+    progress_pct = pyqtSignal(int, int, str)  # (completed, total, message)
+    finished = pyqtSignal(object)             # ScanResult, or None on error
+    error = pyqtSignal(str)
+
+    def __init__(self, channel_dir, since):
+        super().__init__()
+        self._channel_dir = channel_dir
+        self._since = since  # datetime watermark, or None to use the epoch floor
+
+    def run(self):
+        from src.utils.blueprint_log_scanner import scan_channel
+        try:
+            def _cb(done, total, name):
+                msg = (tr("enhancements.bp_scan_progress", file=name)
+                       if name else tr("enhancements.bp_scan_finishing"))
+                self.progress.emit(msg)
+                self.progress_pct.emit(done, total, msg)
+
+            result = scan_channel(self._channel_dir, since=self._since, progress=_cb)
+            logger.info(
+                "BP Scan: %d new names across %d files (latest=%s)",
+                len(result.names), result.files_scanned, result.latest_timestamp,
+            )
+            self.finished.emit(result)
+        except Exception as e:
+            logger.exception(f"Blueprint log scan failed: {e}")
+            self.error.emit(str(e))
+            self.finished.emit(None)
+
+
 class EnhancementsGeneratorWorker(QThread):
     """Worker thread for generating enhancements INI files via generate_enhancements_ini.py."""
 
@@ -244,6 +296,7 @@ class EnhancementsGeneratorWorker(QThread):
                  mission_headers: dict[str, str] | None = None,
                  mission_header_em_tag: str = AppSettings.DEFAULT_MISSION_HEADER_EM_TAG,
                  mission_detail_fields: dict | None = None,
+                 mission_title_tags: dict | None = None,
                  stats_prepend: bool = False,
                  standardize_earnable_ship_names: bool = False,
                  language: str | None = None):
@@ -255,6 +308,7 @@ class EnhancementsGeneratorWorker(QThread):
         self.mission_headers = mission_headers
         self.mission_header_em_tag = mission_header_em_tag
         self.mission_detail_fields = mission_detail_fields
+        self.mission_title_tags = mission_title_tags
         self.stats_prepend = stats_prepend
         self.standardize_earnable_ship_names = standardize_earnable_ship_names
         # Which language's base.ini to generate against. None resolves to the
@@ -351,6 +405,7 @@ class EnhancementsGeneratorWorker(QThread):
                      mission_headers=self.mission_headers,
                      mission_header_em_tag=self.mission_header_em_tag,
                      mission_detail_fields=self.mission_detail_fields,
+                     mission_title_tags=self.mission_title_tags,
                      stats_prepend=self.stats_prepend,
                      standardize_earnable_ship_names=self.standardize_earnable_ship_names,
                      english_base_ini_path=AppSettings.get_base_ini_path(

@@ -24,6 +24,20 @@ _DESC = (
     "\\n\\n<EM3>MISSION DETAILS</EM3>\\n<EM4>Difficulty:</EM4> 3"
 )
 
+# A mission body reproducing the real false-positive bug: a stray "- Stows"
+# bullet in the prose BEFORE the header, multi-region sub-headers WITHIN the
+# blueprints section (which must still work), and a real bullet in a LATER
+# section (ITEM REWARDS' "- Council Scrip") that isn't a blueprint either.
+_DESC_WITH_FALSE_POSITIVES = (
+    "Handle this right and I'll give the main contractor Council Scrip."
+    "\\n\\n- Stows"
+    "\\n\\n<EM3>POTENTIAL BLUEPRINTS</EM3>"
+    "\\n<EM4>[Nyx]</EM4>\\n- Cryo-Star SL\\n- Kelvid"
+    "\\n\\n<EM4>[Pyro]</EM4>\\n- DuraJet\\n- ZapJet"
+    "\\n\\n<EM3>ITEM REWARDS</EM3>\\n- Council Scrip"
+    "\\n\\n<EM3>MISSION DETAILS</EM3>\\n<EM4>Difficulty:</EM4> 3"
+)
+
 
 class TestNormalize:
     def test_strips_leading_component_tag(self):
@@ -39,6 +53,32 @@ class TestNormalize:
         # The whole point: a tagged bullet and the bare item row normalize equal.
         assert normalize_item_name("[Mil-S1-A] Norfield") == normalize_item_name("Norfield")
 
+    # ── #222: fold log-imported blueprint names onto the same identity ────────
+    def test_strips_trailing_component_tag(self):
+        # SC's blueprint log puts the tag after some ship-component names.
+        assert normalize_item_name("Barbican [IND-S3-B]") == "Barbican"
+
+    def test_nfkc_folds_non_breaking_space(self):
+        # Log names arrive with U+00A0 where loc data has a plain space.
+        assert normalize_item_name("Lynx" + chr(0xA0) + "Legs") == "Lynx Legs"
+
+    def test_collapses_internal_whitespace(self):
+        assert normalize_item_name("F55  LMG   Magazine") == "F55 LMG Magazine"
+
+    def test_leading_and_trailing_tag_together(self):
+        assert normalize_item_name("[E-S2] Omnisky VI Cannon") == "Omnisky VI Cannon"
+
+    def test_empty_value(self):
+        assert normalize_item_name("") == ""
+
+    def test_log_name_matches_mission_bullet(self):
+        # The #222 contract: a raw log name folds to the same key a mission
+        # bullet does, so importing the log name lights up the bullet.
+        nbsp = normalize_item_name("Lynx" + chr(0xA0) + "Legs")
+        assert nbsp == normalize_item_name("- Lynx Legs".lstrip("- "))
+        assert normalize_item_name("Barbican [IND-S3-B]") == \
+            normalize_item_name("[IND-S3-B] Barbican")
+
 
 class TestExtract:
     def test_finds_normalized_bullet_names(self):
@@ -50,6 +90,24 @@ class TestExtract:
 
     def test_empty_value(self):
         assert extract_bp_item_names("") == set()
+
+    def test_excludes_prose_bullet_before_header_and_later_section_bullet(self):
+        """A stray "- Stows" line in the mission's flavor-text prose (before
+        the POTENTIAL BLUEPRINTS header) and a real bullet in a later ITEM
+        REWARDS section ("- Council Scrip") must not be picked up as
+        blueprint items — only bullets between the header and the next real
+        section boundary count."""
+        names = extract_bp_item_names(_DESC_WITH_FALSE_POSITIVES)
+        assert names == {"Cryo-Star SL", "Kelvid", "DuraJet", "ZapJet"}
+        assert "Stows" not in names
+        assert "Council Scrip" not in names
+
+    def test_multi_region_sub_headers_still_included(self):
+        """<EM4>[System]</EM4> per-region sub-headers inside the blueprints
+        section must not be mistaken for a section boundary."""
+        names = extract_bp_item_names(_DESC_WITH_FALSE_POSITIVES)
+        assert {"Cryo-Star SL", "Kelvid"} <= names  # [Nyx] region
+        assert {"DuraJet", "ZapJet"} <= names        # [Pyro] region
 
 
 class TestApply:
@@ -82,6 +140,30 @@ class TestApply:
     def test_empty_owned_set_strips_and_returns(self):
         tagged = apply_owned_to_value(_DESC, {"Antium Core"})
         assert "[Owned]" not in apply_owned_to_value(tagged, set())
+
+    def test_does_not_retag_bullets_outside_the_blueprints_section(self):
+        """Even if a user's owned set happens to contain "Council Scrip" or
+        "Stows" (e.g. imported from a stray log line), retagging must stay
+        scoped to the POTENTIAL BLUEPRINTS section — a prose bullet or a
+        later-section bullet is never a real blueprint slot to tag."""
+        out = apply_owned_to_value(_DESC_WITH_FALSE_POSITIVES, {"Kelvid", "Council Scrip", "Stows"})
+        assert "- Kelvid <EM4>[Owned]</EM4>" in out
+        assert "- Council Scrip <EM4>[Owned]</EM4>" not in out
+        assert "- Stows <EM4>[Owned]</EM4>" not in out
+        # Untouched text still present, just not retagged.
+        assert "- Council Scrip" in out
+        assert "- Stows" in out
+
+    def test_tags_bullets_with_nbsp_and_trailing_tag(self):
+        # #222: a bullet carrying a non-breaking space or a trailing component
+        # tag still matches an owned entry stored in bare/plain form.
+        nl = chr(92) + "n"
+        val = ("POTENTIAL BLUEPRINTS" + nl + "- Lynx" + chr(0xA0) + "Legs"
+               + nl + "- Barbican [IND-S3-B]" + nl + "- Norfield")
+        out = apply_owned_to_value(val, {"Lynx Legs", "Barbican"})
+        assert out.count("<EM4>[Owned]</EM4>") == 2
+        assert "Norfield <EM4>[Owned]" not in out  # not owned
+        assert apply_owned_to_value(out, {"Lynx Legs", "Barbican"}) == out  # idempotent
 
 
 # ── AppSettings owned-set persistence + model rendering ──────────────────────
@@ -119,6 +201,39 @@ class TestOwnedSettings:
         assert "Norfield" in AppSettings.get_owned_items()
         assert AppSettings.toggle_owned_item("Norfield") is False
         assert "Norfield" not in AppSettings.get_owned_items()
+
+
+class TestBlueprintWatermark:
+    """#222: per-channel BP Scan watermark round-trip."""
+
+    def test_default_none(self, isolated_settings):
+        assert AppSettings.get_blueprint_log_watermark() is None
+
+    def test_roundtrip_preserves_utc_instant(self, isolated_settings):
+        from datetime import datetime, timezone
+        when = datetime(2026, 3, 26, 17, 15, 41, 684000, tzinfo=timezone.utc)
+        AppSettings.set_blueprint_log_watermark(when)
+        assert AppSettings.get_blueprint_log_watermark() == when
+
+    def test_per_channel_isolation(self, isolated_settings, monkeypatch):
+        from datetime import datetime, timezone
+        live = datetime(2026, 4, 1, tzinfo=timezone.utc)
+        ptu = datetime(2026, 5, 1, tzinfo=timezone.utc)
+
+        monkeypatch.setattr(AppSettings, "get_active_channel", staticmethod(lambda: "LIVE"))
+        AppSettings.set_blueprint_log_watermark(live)
+        monkeypatch.setattr(AppSettings, "get_active_channel", staticmethod(lambda: "PTU"))
+        assert AppSettings.get_blueprint_log_watermark() is None  # PTU untouched
+        AppSettings.set_blueprint_log_watermark(ptu)
+
+        monkeypatch.setattr(AppSettings, "get_active_channel", staticmethod(lambda: "LIVE"))
+        assert AppSettings.get_blueprint_log_watermark() == live  # LIVE unchanged by PTU write
+
+    def test_garbage_value_returns_none(self, isolated_settings):
+        AppSettings.settings().setValue(
+            AppSettings._blueprint_watermark_key(), "not-a-timestamp"
+        )
+        assert AppSettings.get_blueprint_log_watermark() is None
 
 
 class TestModelOwnedColumn:
