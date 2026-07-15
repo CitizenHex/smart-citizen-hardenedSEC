@@ -86,7 +86,7 @@ class FilterHeaderView(QHeaderView):
                 continue
             editor = QLineEdit(self)
             editor.setObjectName("columnFilter")
-            editor.setPlaceholderText(f"Filter {name.lower()}…")
+            editor.setPlaceholderText(tr("strings_tab.column_filter_placeholder", column=name.lower()))
             editor.setToolTip(tr("strings_tab.column_filter_tooltip", column=name))
             editor.setClearButtonEnabled(True)
             editor.addAction(self._search_icon, QLineEdit.ActionPosition.LeadingPosition)
@@ -110,7 +110,7 @@ class FilterHeaderView(QHeaderView):
             if editor is None:
                 continue
             name = names[i] if i < len(names) else ""
-            editor.setPlaceholderText(f"Filter {name.lower()}…")
+            editor.setPlaceholderText(tr("strings_tab.column_filter_placeholder", column=name.lower()))
             editor.setToolTip(tr("strings_tab.column_filter_tooltip", column=name))
 
     def clear_all(self):

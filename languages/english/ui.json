@@ -335,6 +335,10 @@
     "column_filter_tooltip": {
       "ht": "Filter the {column} column. Filters across columns combine with AND.",
       "at": ""
+    },
+    "column_filter_placeholder": {
+      "ht": "Filter {column}…",
+      "at": ""
     }
   },
   "config": {

@@ -315,6 +315,10 @@
     "column_filter_tooltip": {
       "ht": "",
       "at": "Filtrer la colonne {column}. Les filtres de plusieurs colonnes se combinent avec un ET."
+    },
+    "column_filter_placeholder": {
+      "ht": "",
+      "at": "Filtrer {column}…"
     }
   },
   "config": {

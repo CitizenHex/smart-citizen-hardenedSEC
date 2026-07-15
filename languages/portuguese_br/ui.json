@@ -315,6 +315,10 @@
     "column_filter_tooltip": {
       "ht": "",
       "at": "Filtrar a coluna {column}. Os filtros entre colunas se combinam com E."
+    },
+    "column_filter_placeholder": {
+      "ht": "",
+      "at": "Filtrar {column}…"
     }
   },
   "config": {
