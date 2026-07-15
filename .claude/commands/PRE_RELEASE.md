@@ -1,10 +1,10 @@
 ---
-description: Pre-release sanity check before merging release/X.Y.Z to main — runs quality checks, security review, a contributor + tester acknowledgement audit, and an issue close-on-verify pass
+description: Pre-release sanity check before merging release/X.Y.Z to main — runs quality checks, a language coverage audit, a tester Test Plan refresh, security review, a contributor + tester acknowledgement audit, and an issue close-on-verify pass
 ---
 
 # /pre_release
 
-Run before merging the active `release/X.Y.Z` integration branch to `main`. This is the final gate before the release ships — it confirms code quality, doc currency, test coverage, that every code contributor is acknowledged in the project's in-app About and the README, that frequent issue reporters are recognized as testers, and that every issue fixed this cycle is closed (when tester-verified) or explicitly held.
+Run before merging the active `release/X.Y.Z` integration branch to `main`. This is the final gate before the release ships — it confirms code quality, doc currency, test coverage, that every activated language covers the release's user-facing strings and docs, that the tester Test Plan reflects this release's scope, that every code contributor is acknowledged in the project's in-app About and the README, that frequent issue reporters are recognized as testers, and that every issue fixed this cycle is closed (when tester-verified) or explicitly held.
 
 Work through every step in order. After each step, stop at the **CHECKPOINT** and wait for the user before continuing.
 
@@ -28,23 +28,49 @@ Follow the procedure in `.claude/commands/docs_sync_check.md`. Present findings 
 
 **CHECKPOINT — ready for the next check?** Wait for the user.
 
-## 3. Standards spot-check
+## 3. Language support check
+
+Follow the procedure in `.claude/commands/language_support_check.md`. Present findings grouped by severity and end with the verdict line.
+
+This is the pre-release docs-sync moment the translation policy points at: with the user's approval at this step's checkpoint, AI backfill of missing translations is in scope here (fill `at` only, never touch a non-empty `ht`, record the work per `languages/TRANSLATIONS.md`). New strings that landed this cycle in `english/ui.json` only are exactly what this step exists to catch.
+
+**CHECKPOINT — ready for the next check?** Wait for the user.
+
+## 4. Test Plan currency check
+
+The tester Test Plan (`TEST_SECTIONS` in `src/utils/test_plan.py`, surfaced by the in-app Test Plan panel, #144) must describe exactly what this release changed, because testers work through it on the preview builds and step 8's close-on-verify relies on their sign-offs.
+
+**Sequencing note: this step is a prerequisite for the tester builds.** The plan ships inside the build, so it must land on the release branch *before* the `build-installer` / `build-portable` labels produce preview artifacts. If preview builds already went out with a stale plan, flag that: those testers are verifying the wrong checklist.
+
+Procedure:
+
+1. Derive the release's user-visible scope: `git log main..HEAD --oneline` (merged PRs and the issues they fix). Keep only changes a tester can observe: new features, changed flows, fixed bugs with reproducible symptoms. Internal refactors with no visible surface don't get plan items.
+2. Compare that scope against the current `TEST_SECTIONS`:
+   - **Missing coverage** — a user-visible change this cycle with no section/items exercising it.
+   - **Stale sections** — items left over from a previous release's scope, or items describing UI that this cycle renamed or removed.
+3. Report both lists. For each missing area, draft the section title and imperative, self-contained items in the module's existing style ("do X, confirm Y" — a tester needs no other doc).
+
+Mechanics to remember: `plan_hash()` changes automatically with the content, dropping testers' stale check-marks, so no manual versioning is needed. The plan content must land via a normal PR to the release branch (branch protection blocks direct pushes).
+
+**CHECKPOINT — present the proposed Test Plan additions/removals and ask before editing `test_plan.py`.** On approval, apply them and remind the user to re-trigger the preview builds (re-add the label or run the workflow manually) so testers get the updated plan.
+
+## 5. Standards spot-check
 
 Follow the procedure in `.claude/commands/standards_check.md`. Present findings grouped by severity and end with the verdict line.
 
 **CHECKPOINT — ready for the next check?** Wait for the user.
 
-## 4. Security review
+## 6. Security review
 
 Run `/security-review` on the pending changes. Present findings grouped by severity and end with the verdict line.
 
 **CHECKPOINT — ready for the contributor audit?** Wait for the user.
 
-## 5. Contributor & tester acknowledgement audit
+## 7. Contributor & tester acknowledgement audit
 
 Verify every code contributor is acknowledged in `docs/ABOUT.md` and `README.md`, and surface frequent issue reporters who should be recognized as testers.
 
-### 5a. Build the contributor list
+### 7a. Build the contributor list
 
 Pull every author who has committed code:
 
@@ -66,7 +92,7 @@ gh api "repos/Osiris-DevWorks/smart-citizen/contributors" --paginate --jq '.[] |
 
 Normalize: when a person has committed under multiple display-name/email combinations, merge them into one entry. If unsure, surface the duplicates and let the user decide.
 
-### 5b. Pull the current acknowledgement set
+### 7b. Pull the current acknowledgement set
 
 Read both:
 
@@ -75,7 +101,7 @@ Read both:
 
 Build two normalized sets: **acknowledged contributors** (the Contributors list) and **acknowledged testers** (the names in the Acknowledgements/testers list). Match against the people lists using both display name and GitHub login where known.
 
-### 5c. Categorize each missing contributor
+### 7c. Categorize each missing contributor
 
 For every contributor not currently acknowledged in **both** files (ABOUT.md and README.md):
 
@@ -85,7 +111,7 @@ For every contributor not currently acknowledged in **both** files (ABOUT.md and
   - **Substantial code contributor**: ≥3 commits OR touched non-trivial source files (anything under `src/`, `scripts/`, or `tests/`).
   - **Drive-by fixer**: 1–2 commits, only trivial files (README typo, comment fix, whitespace).
 
-### 5d. Tester candidates from issue reporters
+### 7d. Tester candidates from issue reporters
 
 Frequent issue reporters who aren't developers are the people testing the app in the wild. Surface them so they can be acknowledged as testers (and invited to the tester group).
 
@@ -104,12 +130,12 @@ gh issue list --state all --limit 1000 --json number,author,title,body --jq '.[]
 Flag every person with **3 or more** reported issues as a **candidate tester**, then filter out:
 - The repo owner / maintainer (`Osiris-DevWorks`).
 - Bot accounts themselves (`*[bot]`, `app/*`) — they are the transport, not a reporter.
-- **Anyone who is also a code contributor** (appears in the 5a contributor list, by login or known identity). Developers are credited under **Contributors**, not Testers — never list the same person as both.
-- Anyone already in the tester acknowledgement set from 5b.
+- **Anyone who is also a code contributor** (appears in the 7a contributor list, by login or known identity). Developers are credited under **Contributors**, not Testers — never list the same person as both.
+- Anyone already in the tester acknowledgement set from 7b.
 
 If a report can't be confidently attributed to a named human, list it as unattributed rather than guessing a count.
 
-### 5e. Report
+### 7e. Report
 
 Group missing **contributors** by significance:
 
@@ -147,18 +173,18 @@ Add a second line if there are tester candidates: *"Tester candidates to conside
 
 **CHECKPOINT — pause and ask the user whether to draft additions to `docs/ABOUT.md` and `README.md`** (mirrored in both so they stay in sync): contributor names into the **Contributors** section, and any approved tester candidates into the **Acknowledgements** tester list. Do not edit either file without confirmation.
 
-## 6. Issue close-on-verify pass
+## 8. Issue close-on-verify pass
 
 Every issue fixed this cycle should be resolved in the tracker before the merge. An open "fixed" issue at merge time means either a missed close or an unverified fix riding into the release. Close the ones a tester has confirmed; explicitly hold the ones still awaiting a test pass.
 
-### 6a. Gather the release's issues
+### 8a. Gather the release's issues
 
 Two sources, unioned:
 
 - Issues tagged for this release: `gh issue list --state open --label next-release --json number,title,author`
 - Issues referenced by commits merged since the last release: `git log main..HEAD --oneline` and pull every `#NN` from the messages (these are the fixes that actually landed on the branch).
 
-### 6b. Classify each
+### 8b. Classify each
 
 For each issue, find out whether a tester has confirmed the fix. Look for a confirming comment from the reporter or a tester on a preview build, a Discord-synced follow-up, or a clear "works now" reaction. Pull the conversation when unsure:
 
@@ -172,7 +198,7 @@ Then bucket:
 - **Fixed, awaiting verification** → hold (these carry the "potential fix, please test" comment but no confirmation yet). Do not close on the developer's say-so alone — a passing local test is not a tester sign-off.
 - **Not addressed** → flag. It should not carry `next-release` into the merge if it isn't shipping this cycle; surface it for the user to re-label or defer.
 
-### 6c. Report
+### 8c. Report
 
 ```
 **Verified — close candidates:**
@@ -189,6 +215,6 @@ Then bucket:
 
 ## Final summary
 
-After all six steps complete, give a one-line overall verdict for release readiness — the worst-case verdict across the checks. List any remaining Critical/Major findings the user needs to address before the `release/X.Y.Z` → `main` merge, plus any issues still open that were expected to ship this cycle.
+After all eight steps complete, give a one-line overall verdict for release readiness — the worst-case verdict across the checks. List any remaining Critical/Major findings the user needs to address before the `release/X.Y.Z` → `main` merge, plus any issues still open that were expected to ship this cycle.
 
 Reminder: this command does not ship the release. Merging `release/X.Y.Z` to `main`, tagging, building the installer, and creating the GitHub release are separate steps documented in root `CLAUDE.md` → *Version & Release → Release checklist*.
