@@ -32,16 +32,23 @@ from src.models.string_model import (
 # Extra armour-piece key tokens beyond string_model's set (which is tuned for
 # the strings-table category, not blueprint classification). Armour blueprints
 # are keyed by piece (backpack / undersuit / ...) with no "armor" token, so
-# without these they fell into the "Other" type bucket (#195). "core" covers
-# the torso-platform piece of newer manufacturer-prefixed FPS armor sets
-# (e.g. item_Name_qrt_specialist_heavy_core_01_01_01 -> "Antium Core",
+# without these they fell into the "Other" type bucket (#195). "_core" (with
+# the leading underscore) covers the torso-platform piece of newer
+# manufacturer-prefixed FPS armor sets (e.g.
+# item_Name_qrt_specialist_heavy_core_01_01_01 -> "Antium Core",
 # item_Name_kap_combat_light_core_01_01_01 -> "Geist Armor Core") whose keys
 # carry no "armor" token either — CIG's older sets do (cds_armor_heavy_core_*),
-# so this was inconsistent rather than universally missing. Safe against ship
-# components sharing the "core" word (LuxCore, CoolCore, ThermalCore) since
-# those carry a component-type-code prefix (POWR_/COOL_) resolved earlier by
-# component_type_from_key, which always wins first.
-_ARMOR_EXTRA_WORDS = ("backpack", "undersuit", "flightsuit", "torso", "_legs", "_arms", "core")
+# so this was inconsistent rather than universally missing. Every armor key
+# this targets carries the underscore form (..._core_01_...), so "_core"
+# matches everything the bare word would while ruling out "score"-shaped
+# collisions (bare "core" is a substring of "score") and any future CamelCase
+# component name ("SomethingCore") whose prefix code isn't in the component
+# map yet — same underscore-guard shape already used for "_legs"/"_arms".
+# Ship components sharing the "core" word (LuxCore, CoolCore, ThermalCore)
+# were never actually at risk either way: they carry a component-type-code
+# prefix (POWR_/COOL_) resolved earlier by component_type_from_key, which
+# always wins first.
+_ARMOR_EXTRA_WORDS = ("backpack", "undersuit", "flightsuit", "torso", "_legs", "_arms", "_core")
 from src.utils.owned_items import (
     BP_SECTION_HEADER,
     extract_bp_item_names,
