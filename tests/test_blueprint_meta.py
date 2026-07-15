@@ -125,6 +125,17 @@ def test_blueprint_type_armor_core_pieces():
     assert blueprint_type_from_key("item_Name_gys_highscore_01_01_01") is None
 
 
+def test_blueprint_type_gys_jacket_and_pants():
+    """Carnifex set torso/leg pieces reported showing up in "Other" — the
+    "gys" manufacturer keys these as jacket/pants, not core/legs/armor."""
+    assert blueprint_type_from_key("item_Name_gys_jacket_01_01_01") == "Armor"
+    assert blueprint_type_from_key("item_Name_gys_pants_01_01_01") == "Armor"
+    # Scoped to "gys_" specifically — a bare "jacket"/"pants" match would also
+    # catch unrelated civilian wardrobe items from other manufacturers.
+    assert blueprint_type_from_key("item_Desc_987_Jacket_01_01_01") is None
+    assert blueprint_type_from_key("item_Desc_DMC_Pants_01_01_01") is None
+
+
 def test_clean_mission_title_strips_reward_tags():
     raw = ("Salvager Needed (Lrg. Special Order) "
            "<EM4>[BP]</EM4> <EM4>[150 REP]</EM4>")

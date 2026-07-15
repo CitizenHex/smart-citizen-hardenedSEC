@@ -24,6 +24,20 @@ _DESC = (
     "\\n\\n<EM3>MISSION DETAILS</EM3>\\n<EM4>Difficulty:</EM4> 3"
 )
 
+# A mission body reproducing the real false-positive bug: a stray "- Stows"
+# bullet in the prose BEFORE the header, multi-region sub-headers WITHIN the
+# blueprints section (which must still work), and a real bullet in a LATER
+# section (ITEM REWARDS' "- Council Scrip") that isn't a blueprint either.
+_DESC_WITH_FALSE_POSITIVES = (
+    "Handle this right and I'll give the main contractor Council Scrip."
+    "\\n\\n- Stows"
+    "\\n\\n<EM3>POTENTIAL BLUEPRINTS</EM3>"
+    "\\n<EM4>[Nyx]</EM4>\\n- Cryo-Star SL\\n- Kelvid"
+    "\\n\\n<EM4>[Pyro]</EM4>\\n- DuraJet\\n- ZapJet"
+    "\\n\\n<EM3>ITEM REWARDS</EM3>\\n- Council Scrip"
+    "\\n\\n<EM3>MISSION DETAILS</EM3>\\n<EM4>Difficulty:</EM4> 3"
+)
+
 
 class TestNormalize:
     def test_strips_leading_component_tag(self):
@@ -77,6 +91,24 @@ class TestExtract:
     def test_empty_value(self):
         assert extract_bp_item_names("") == set()
 
+    def test_excludes_prose_bullet_before_header_and_later_section_bullet(self):
+        """A stray "- Stows" line in the mission's flavor-text prose (before
+        the POTENTIAL BLUEPRINTS header) and a real bullet in a later ITEM
+        REWARDS section ("- Council Scrip") must not be picked up as
+        blueprint items — only bullets between the header and the next real
+        section boundary count."""
+        names = extract_bp_item_names(_DESC_WITH_FALSE_POSITIVES)
+        assert names == {"Cryo-Star SL", "Kelvid", "DuraJet", "ZapJet"}
+        assert "Stows" not in names
+        assert "Council Scrip" not in names
+
+    def test_multi_region_sub_headers_still_included(self):
+        """<EM4>[System]</EM4> per-region sub-headers inside the blueprints
+        section must not be mistaken for a section boundary."""
+        names = extract_bp_item_names(_DESC_WITH_FALSE_POSITIVES)
+        assert {"Cryo-Star SL", "Kelvid"} <= names  # [Nyx] region
+        assert {"DuraJet", "ZapJet"} <= names        # [Pyro] region
+
 
 class TestApply:
     def test_tags_only_owned_bullets(self):
@@ -108,6 +140,19 @@ class TestApply:
     def test_empty_owned_set_strips_and_returns(self):
         tagged = apply_owned_to_value(_DESC, {"Antium Core"})
         assert "[Owned]" not in apply_owned_to_value(tagged, set())
+
+    def test_does_not_retag_bullets_outside_the_blueprints_section(self):
+        """Even if a user's owned set happens to contain "Council Scrip" or
+        "Stows" (e.g. imported from a stray log line), retagging must stay
+        scoped to the POTENTIAL BLUEPRINTS section — a prose bullet or a
+        later-section bullet is never a real blueprint slot to tag."""
+        out = apply_owned_to_value(_DESC_WITH_FALSE_POSITIVES, {"Kelvid", "Council Scrip", "Stows"})
+        assert "- Kelvid <EM4>[Owned]</EM4>" in out
+        assert "- Council Scrip <EM4>[Owned]</EM4>" not in out
+        assert "- Stows <EM4>[Owned]</EM4>" not in out
+        # Untouched text still present, just not retagged.
+        assert "- Council Scrip" in out
+        assert "- Stows" in out
 
     def test_tags_bullets_with_nbsp_and_trailing_tag(self):
         # #222: a bullet carrying a non-breaking space or a trailing component
