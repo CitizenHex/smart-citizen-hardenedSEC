@@ -69,6 +69,7 @@ def test_blueprint_type_buckets():
     # FPS weapon and armor by key tokens.
     assert blueprint_type_from_key("item_Name_rifle_behr_p4ar") == "FPS Weapon"
     assert blueprint_type_from_key("item_Name_pistol_gmni") == "FPS Weapon"
+    assert blueprint_type_from_key("item_Nameutfl_crossbow_ballistic_01") == "FPS Weapon"
     assert blueprint_type_from_key("item_Name_armor_rsi_torso") == "Armor"
     assert blueprint_type_from_key("item_Name_helmet_xyz") == "Armor"
     # Ship weapons (#212): uppercase manufacturer + weapon size designator,

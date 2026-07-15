@@ -12,7 +12,7 @@ from functools import lru_cache
 
 _FPS_WEAPON_WORDS = (
     "_rifle_", "_pistol_", "_smg_", "_shotgun_", "_sniper_",
-    "_launcher_", "_lmg_", "_hmg_", "_knife_", "_multi_",
+    "_launcher_", "_lmg_", "_hmg_", "_knife_", "_multi_", "_crossbow_",
 )
 _ARMOR_GEAR_WORDS = (
     "armor", "helmet", "suit", "vest", "glasses", "_optics_", "_barrel_",
