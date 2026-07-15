@@ -147,12 +147,9 @@ def update_manifest(
     SHA-256 of ~28k files — so wiring this in is the difference between
     a frozen progress bar and a moving one.
     """
-    # DataForge paths under a deep portable/tester install directory can
-    # exceed the 260-char MAX_PATH; os.walk/stat here raise a raw WinError 3
-    # ("cannot find the path specified") even though the file exists. The
-    # \\?\ long-path prefix sidesteps it — see win_paths.win_long_path
-    # (originally added for pak_extractor.py's copy/cleanup step, #221;
-    # this module hits the same limit during the post-extraction snapshot).
+    # Long-path safety for the hash sweep below — see win_paths.win_long_path
+    # (#221; this is the post-extraction snapshot pass where the crash was
+    # originally reported).
     cache_dir = Path(win_long_path(cache_dir))
     snapshot = _build_snapshot(cache_dir, progress_callback=progress_callback)
     # The hash sweep above reports 100% the instant it finishes, but writing

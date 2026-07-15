@@ -9,9 +9,10 @@ supported version with no machine-wide configuration needed (unlike the
 inbox "Enable Win32 long paths" policy, which requires admin rights and
 isn't guaranteed to be on for any given user).
 
-This module already covered ``pak_extractor.py``'s copy/cleanup step and
-``dataforge_patcher.py``'s patch target reads. This file locks the
-follow-up fix: ``dataforge_diff.py`` (where a real crash was reported —
+The ``win_paths.win_long_path`` helper (#221) already covered
+``pak_extractor.py``'s copy/cleanup step and ``dataforge_patcher.py``'s
+patch target reads. This file locks the follow-up fix: ``dataforge_diff.py``
+(where a real crash was reported —
 the post-extraction snapshot/hash pass had no long-path protection at all),
 ``pak_extractor.py``'s ``extract_dataforge``/``dataforge_cache_is_fresh``
 entry points, and ``generate_enhancements_ini.py``'s ``main()`` (20+

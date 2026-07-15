@@ -182,19 +182,15 @@ def sync_key_variants(
             # distinct, never-enhanced sibling CIG ships with just the bare
             # stock name) both canonicalize to "itemnameshldbehrs017sa".
             # Picking an arbitrary "first" variant let the short, unenhanced
-            # sibling silently overwrite the correctly tagged one.
-            #
-            # An earlier version of this fix pre-filtered to non-_SCItem
-            # variants before picking the longest, on the theory that
-            # _SCItem-suffixed keys are always the "internal" duplicate. That
-            # broke the Taiga cooler case: item_NameCOOL_WCPR_S02_Taiga_SCItem
-            # held the correctly tagged value while its non-_SCItem sibling
-            # item_Name_COOL_WCPR_S02_Taiga was the never-enhanced bare one —
-            # so pre-filtering to "non-_SCItem only" picked the bare one every
-            # time. Comparing length across *all* variants with no pre-filter
-            # is a no-op for the genuine same-entity variant case this
-            # function targets (the generator's own sibling mirroring already
-            # gives those matching values, so length ties and either wins).
+            # sibling silently overwrite the correctly tagged one. A
+            # non-_SCItem pre-filter doesn't work either: the Taiga cooler
+            # case has item_NameCOOL_WCPR_S02_Taiga_SCItem holding the
+            # correctly tagged value while its non-_SCItem sibling is the
+            # bare one, so "prefer non-_SCItem" picks the wrong side there.
+            # Comparing length across *all* variants with no pre-filter is a
+            # no-op for the genuine same-entity variant case this function
+            # targets (the generator's own sibling mirroring already gives
+            # those matching values, so length ties and either wins).
             #
             # A user-edited variant is excluded from that "arbitrary first
             # duplicate" problem entirely — it's a deliberate choice, not a

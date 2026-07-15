@@ -49,6 +49,21 @@ def test_parse_component_tag_robust_to_config(gen_module=None):
     assert parse_component_tag("[E-S2] Gun")[1] == "S2"
 
 
+def test_parse_component_tag_trailing_placement():
+    """A category configured to append (tag after the name) must still
+    extract class/size/grade — pre-fix this lost the facets entirely for
+    any append-placed category."""
+    assert parse_component_tag("Balandin [MIL-S3-B]") == ("MIL", "S3", "B")
+    assert parse_component_tag("Palisade [ind-s1-a]") == ("IND", "S1", "A")
+
+
+def test_parse_component_tag_leading_wins_when_both_present():
+    """Extremely unlikely in real data (a name can't legitimately carry two
+    tags), but pins that a leading match short-circuits before the trailing
+    regex ever runs."""
+    assert parse_component_tag("[MIL-S3-B] Balandin [IND-S1-A]") == ("MIL", "S3", "B")
+
+
 def test_size_from_key():
     assert size_from_key("item_NamePOWR_ACOM_S01_StarHeart") == "S1"
     assert size_from_key("item_NameQDRV_RSI_S02_Hemera") == "S2"

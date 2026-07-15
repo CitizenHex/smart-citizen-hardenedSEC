@@ -121,6 +121,14 @@ def parse_component_tag(value: str):
     Limitation: a single-letter (Short-style) class code can't be told apart from
     a grade letter, so class may be missed under a Short class style — size still
     comes from the loc key and grade still resolves.
+
+    Limitation: the class token itself is unvalidated against any known class
+    list, so a stock component name that happens to end in a bracket that
+    isn't actually a tag (e.g. a name literally ending in "[Prototype]")
+    would parse a bogus class facet now that trailing brackets are matched
+    too, not just leading ones. The call-site gate (only components actually
+    routed through the Tag Builder reach this function) makes it unlikely in
+    practice; the leading-only version of this regex had the same weakness.
     """
     m = _TAG_BRACKET_RE.match(value or "") or _TRAILING_TAG_BRACKET_RE.search(value or "")
     if not m:
