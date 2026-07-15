@@ -726,16 +726,22 @@ begin
     the chosen language rather than relying on the app's English fallback.
     Values here must stay in sync with the folder names under languages/.
 
-    Exception: skip the write entirely when the saved value didn't match any
-    option this page knows about (LanguageChoiceUnknownSaved) — the page
-    falls back to displaying English in that case, and an always-write would
+    Exception: skip the write when the saved value didn't match any option
+    this page knows about (LanguageChoiceUnknownSaved) AND the selection is
+    still sitting at the pre-selected default (index 0) — the page falls
+    back to displaying English in that case, and an always-write would
     silently downgrade the user's real (just-unrecognized) language back to
     English, both on an interactive upgrade and on a silent auto-update
-    install where nobody sees the page to correct it. Worst case with the
-    guard: the page shows English pre-selected but the saved value is left
-    untouched. }
-  if LanguageChoiceUnknownSaved then
-    Log('Skipped rewriting selected_language: saved value matched no known option, left unchanged.')
+    install where nobody sees the page to correct it. The index-0 check
+    matters: on an INTERACTIVE upgrade the user still sees the page and can
+    actively move the selection off English to a real choice, and that
+    explicit pick must win — the flag only describes the pre-selection
+    state, not anything the user did afterward. Worst case with the guard:
+    a user who deliberately re-picks English while their saved value is
+    unknown stays on the unknown value (the safe direction — they can
+    switch in-app, and this never destroys a value it doesn't understand). }
+  if LanguageChoiceUnknownSaved and (LanguageChoicePage.SelectedValueIndex = 0) then
+    Log('Skipped rewriting selected_language: saved value matched no known option and selection was left at the default, left unchanged.')
   else
   begin
     case LanguageChoicePage.SelectedValueIndex of
