@@ -22,7 +22,7 @@
     {
       "id": "enh_categories",
       "title": "3. Enhancements: Categories",
-      "description": "Toggle which enhancement categories run when you Generate. Ships, components, ship weapons, FPS weapons, missions, and commodity crafting can each be enabled independently.",
+      "description": "Toggle which enhancement categories run when you Generate. Ships, components, ship weapons, FPS weapons, missions, mission rewards, commodity crafting, and medical consumables can each be enabled independently.",
       "preferred_side": "right"
     },
     {
