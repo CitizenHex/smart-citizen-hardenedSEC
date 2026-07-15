@@ -1074,20 +1074,22 @@ def _title_has_route_token(title: str) -> bool:
 _CARGO_GRADE_KEY_PREFIXES = ("HaulCargo_CargoGrade_", "HaulCargo_CargoScale_")
 
 
-def _size_abbreviation_overrides(loc) -> dict:
+def _size_abbreviation_overrides(loc, shortened_sizes: frozenset = frozenset()) -> dict:
     """Loc-key overrides that shorten cargo-grade size words (#200 follow-up).
 
-    When the Shorten-original-titles toggle is on, the grade words a haul
-    title's ``~mission(CargoGradeToken)`` resolves through are abbreviated at
-    the source ("Extra Small" -> "XS") by overriding the
-    ``HaulCargo_CargoGrade_*`` / ``CargoScale_*`` loc keys. Exact value match
-    only, so an unmapped grade passes through untouched.
+    Opted in via the single "Shorten cargo sizes" master checkbox
+    (`TagConfig.shortened_sizes` — all-or-nothing, not per-size). For sizes
+    in *shortened_sizes*, the grade words a haul title's
+    ``~mission(CargoGradeToken)`` resolves through are abbreviated at the
+    source ("Extra Small" -> "XS") by overriding the
+    ``HaulCargo_CargoGrade_*`` / ``CargoScale_*`` loc keys. Exact value
+    match only, so an unmapped grade passes through untouched.
     """
     out: dict = {}
-    if not SIZE_ABBREV_BY_WORD:
+    if not shortened_sizes:
         return out
     for key, value in (loc or {}).items():
-        if key.startswith(_CARGO_GRADE_KEY_PREFIXES):
+        if key.startswith(_CARGO_GRADE_KEY_PREFIXES) and value in shortened_sizes:
             short = SIZE_ABBREV_BY_WORD.get(value)
             if short:
                 out[key] = short
@@ -5533,6 +5535,13 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
 
     def _show(_field: str) -> bool:
         return bool(_mdf.get(_field, True))
+    # 2.2.0 ("General Tags"): independent show/hide for the [BP]/[ACE]/rep-xp
+    # markers appended to the mission TITLE, separate from the body fields
+    # above. Missing/unknown keys default to True (prior, unsplit behaviour).
+    _mtt = ctx.get("mission_title_tags") or {}
+
+    def _show_title_tag(_field: str) -> bool:
+        return bool(_mtt.get(_field, True))
     tag_configs       = ctx.get("tag_configs") or {}
     # User toggle (Enhancements tab) for the inline component annotation
     # in mission descriptions. Default True preserves v1.4.0 behavior. When
@@ -5753,10 +5762,18 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         _mt_cfg = tag_configs.get("mission_titles") or DEFAULT_TAG_CONFIGS.get("mission_titles")
         # #200 follow-up: optional stock-title shortening so the route plus
         # [BP]/XP tags don't overflow the contract list. Independent of the
-        # route toggle; same key-family scope.
-        if (abbreviate_title and _is_route_title(title_key)
-                and getattr(_mt_cfg, "abbreviate_title", False)):
-            base_title = abbreviate_title(base_title)
+        # route toggle; same key-family scope. Generalized to per-word/phrase
+        # checkboxes (Cargo/Haul/Rank, Rank merged to one checkbox for both
+        # contexts). Always called (not gated on any checkbox) because the
+        # separator-after-Rank normalization is itself an independent,
+        # always-on feature — the word/phrase toggles inside abbreviate_title
+        # are what stay individually gated on `abbreviated_phrases`.
+        _mt_phrases = getattr(_mt_cfg, "abbreviated_phrases", frozenset())
+        if abbreviate_title and _is_route_title(title_key):
+            base_title = abbreviate_title(
+                base_title, _mt_phrases, getattr(_mt_cfg, "rank_separator", "dash"),
+                getattr(_mt_cfg, "standardize_hauling_names", False),
+            )
         augmented_title = base_title
         if (route_enabled(_mt_cfg) and _is_route_title(title_key)
                 and not _title_has_route_token(base_title)):
@@ -5768,7 +5785,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             )
             if _route and apply_mission_title:
                 augmented_title = apply_mission_title(base_title, _route, _mt_cfg)
-        if _show("blueprint_tag"):
+        if _show_title_tag("blueprint"):
             if _all_have_bp and not _surviving_no_bp_cargo:
                 augmented_title += " <EM4>[BP]</EM4>"
             elif _bp_partial or (_all_have_bp and _surviving_no_bp_cargo):
@@ -5779,7 +5796,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         # (mirrors [BP]/[BP?] for shared/ambiguous titles). The ace always
         # spawns when its group is present — there is no probability in the
         # data — so there is no percentage to show.
-        if _show("ace"):
+        if _show_title_tag("ace"):
             _ace_flags = [
                 "Ace Pilots" in (v[5] or {}).get(SPAWN_HOSTILE, {}) for v in variants
             ]
@@ -5787,7 +5804,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
                 augmented_title += " <EM4>[ACE]</EM4>"
             elif any(_ace_flags):
                 augmented_title += " <EM4>[ACE?]</EM4>"
-        nonzero_xp = [x for x in unique_xp if x > 0]
+        nonzero_xp = [x for x in unique_xp if x > 0] if _show_title_tag("rep") else []
         if len(nonzero_xp) == 1:
             augmented_title += f" <EM4>[{nonzero_xp[0]:,} {rep_xp_label}]</EM4>"
         elif len(nonzero_xp) > 1:
@@ -6027,10 +6044,13 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
 
     xp_tag_re = re.compile(r"<EM4>\[\d[\d,]*(?:[–\-]\d[\d,]*)?\s*\w+\]</EM4>")
     _mt_cfg2 = tag_configs.get("mission_titles") or DEFAULT_TAG_CONFIGS.get("mission_titles")
-    # #200 follow-up: with Shorten on, abbreviate the cargo-grade size words
-    # haul titles resolve through ("Extra Small" -> "XS") at the loc-key level.
-    if getattr(_mt_cfg2, "abbreviate_title", False):
-        _size_overrides = _size_abbreviation_overrides(loc)
+    # #200 follow-up: cargo-size abbreviation, independent of the word/phrase
+    # removal checkboxes — one "Shorten cargo sizes" master checkbox, not
+    # per-size. Overrides the cargo-grade size words haul titles resolve
+    # through ("Extra Small" -> "XS") at the loc-key level.
+    _mt_sizes = getattr(_mt_cfg2, "shortened_sizes", frozenset())
+    if _mt_sizes:
+        _size_overrides = _size_abbreviation_overrides(loc, _mt_sizes)
         if _size_overrides:
             out.update(_size_overrides)
             logger.info(
@@ -6048,10 +6068,15 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         # get the same route + shortening treatment as the contractgen loop
         # above. Guarded to pure pu titles (not already in out) so a desc
         # entry sharing the key is never mangled.
-        if (title_key not in out and abbreviate_title
-                and _is_route_title(title_key)
-                and getattr(_mt_cfg2, "abbreviate_title", False)):
-            current = abbreviate_title(current)
+        # Same "always call" rationale as the contractgen loop above — the
+        # Rank separator is an independent always-on feature, not gated on
+        # any checkbox.
+        _mt2_phrases = getattr(_mt_cfg2, "abbreviated_phrases", frozenset())
+        if title_key not in out and abbreviate_title and _is_route_title(title_key):
+            current = abbreviate_title(
+                current, _mt2_phrases, getattr(_mt_cfg2, "rank_separator", "dash"),
+                getattr(_mt_cfg2, "standardize_hauling_names", False),
+            )
         if (title_key not in out and route_enabled(_mt_cfg2)
                 and _is_route_title(title_key)
                 and not _title_has_route_token(base_title)):
@@ -6061,10 +6086,10 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             )
             if _route and apply_mission_title:
                 current = apply_mission_title(current, _route, _mt_cfg2)
-        unique_xp = sorted(set(xps))
+        unique_xp = sorted(set(xps)) if _show_title_tag("rep") else []
         if len(unique_xp) == 1:
             current += f" <EM4>[{unique_xp[0]:,} {rep_xp_label}]</EM4>"
-        else:
+        elif len(unique_xp) > 1:
             current += f" <EM4>[{min(unique_xp):,}\u2013{max(unique_xp):,} {rep_xp_label}]</EM4>"
         out[title_key] = current
         mission_titles_augmented += 1
@@ -6142,6 +6167,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
          mission_headers: dict[str, str] | None = None,
          mission_header_em_tag: str = _DEFAULT_MISSION_HEADER_EM_TAG,
          mission_detail_fields: dict | None = None,
+         mission_title_tags: dict | None = None,
          stats_prepend: bool = False,
          standardize_earnable_ship_names: bool = False,
          english_base_ini_path: Path | None = None) -> None:
@@ -6420,6 +6446,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         "mission_headers":   mission_headers or dict(_DEFAULT_MISSION_HEADERS),
         "mission_header_em": mission_header_em_tag or _DEFAULT_MISSION_HEADER_EM_TAG,
         "mission_detail_fields": mission_detail_fields or {},
+        "mission_title_tags": mission_title_tags or {},
         "stats_prepend":     bool(stats_prepend),
     }
 
