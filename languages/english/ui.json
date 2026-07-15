@@ -76,6 +76,14 @@
       "ht": "Apply Enhancements",
       "at": ""
     },
+    "apply_btn_enabled_tooltip": {
+      "ht": "Write the merged table contents to the game's global.ini. A timestamped backup of the current global.ini is created first.",
+      "at": ""
+    },
+    "apply_btn_disabled_tooltip": {
+      "ht": "Already applied — nothing has changed since the last Apply to Game.",
+      "at": ""
+    },
     "restore_backup_btn": {
       "ht": "Restore Backup",
       "at": ""
@@ -1130,6 +1138,22 @@
     },
     "copy_error_body": {
       "ht": "Failed to copy to clipboard: {error}",
+      "at": ""
+    },
+    "unapplied_changes_title": {
+      "ht": "Unapplied Changes",
+      "at": ""
+    },
+    "unapplied_changes_body": {
+      "ht": "You have changes that haven't been applied to the game yet (the Apply Enhancements button is still showing red).\n\nApply them now, or exit without applying?",
+      "at": ""
+    },
+    "unapplied_changes_apply_now": {
+      "ht": "Apply Now",
+      "at": ""
+    },
+    "unapplied_changes_exit": {
+      "ht": "Exit Without Applying",
       "at": ""
     }
   },

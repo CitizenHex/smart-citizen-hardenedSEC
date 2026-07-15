@@ -457,6 +457,7 @@ class MainWindow(QMainWindow):
             self.blueprint_tracker_tab, tr("tabs.blueprint_tracker")
         )
         self._bp_log_scan_worker = None
+        self._bp_log_scan_progress = None
 
         self.log_tab = LogTab()
         self._log_tab_index = self.tabs.addTab(self.log_tab, tr("tabs.log"))
@@ -1500,27 +1501,21 @@ class MainWindow(QMainWindow):
         else:
             logger.debug(f"Cache file not found: {cache_file}. Default values will be empty until sources are downloaded.")
 
-    # Same enabled/disabled tooltip pattern as the Enhancements tab's
-    # Generate Enhancements / Save Tag Changes buttons.
-    _APPLY_ENABLED_TOOLTIP = (
-        "Write the merged table contents to the game's global.ini. "
-        "A timestamped backup of the current global.ini is created first."
-    )
-    _APPLY_DISABLED_TOOLTIP = (
-        "Already applied — nothing has changed since the last Apply to Game."
-    )
-
     def _set_apply_btn_dirty(self, dirty: bool) -> None:
         """Single chokepoint for the button's enabled state, tooltip, and
         color so none of the three can drift apart. Red (needs_apply) means
         a change is waiting to be applied; green (apply) means the game
         already matches what's loaded. The :disabled selector is set
         explicitly so Qt's native greyed-out look doesn't wash out the
-        color — the color itself is the signal here, not the enabled state."""
+        color — the color itself is the signal here, not the enabled state.
+
+        Same enabled/disabled tooltip pattern as the Enhancements tab's
+        Generate Enhancements / Save Tag Changes buttons."""
         self._apply_dirty = dirty
         self.apply_btn.setEnabled(dirty)
         self.apply_btn.setToolTip(
-            self._APPLY_ENABLED_TOOLTIP if dirty else self._APPLY_DISABLED_TOOLTIP
+            tr("toolbar.apply_btn_enabled_tooltip") if dirty
+            else tr("toolbar.apply_btn_disabled_tooltip")
         )
         color = get_button_color("needs_apply" if dirty else "apply")
         text = get_button_text_color()
@@ -4480,14 +4475,14 @@ class MainWindow(QMainWindow):
         if self._session_has_unapplied_edit:
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Icon.Warning)
-            box.setWindowTitle("Unapplied Changes")
-            box.setText(
-                "You have changes that haven't been applied to the game yet "
-                "(the Apply Enhancements button is still showing red).\n\n"
-                "Apply them now, or exit without applying?"
+            box.setWindowTitle(tr("dialogs.unapplied_changes_title"))
+            box.setText(tr("dialogs.unapplied_changes_body"))
+            apply_btn = box.addButton(
+                tr("dialogs.unapplied_changes_apply_now"), QMessageBox.ButtonRole.AcceptRole
             )
-            apply_btn = box.addButton("Apply Now", QMessageBox.ButtonRole.AcceptRole)
-            exit_btn = box.addButton("Exit Without Applying", QMessageBox.ButtonRole.DestructiveRole)
+            exit_btn = box.addButton(
+                tr("dialogs.unapplied_changes_exit"), QMessageBox.ButtonRole.DestructiveRole
+            )
             cancel_btn = box.addButton(QMessageBox.StandardButton.Cancel)
             box.setDefaultButton(apply_btn)
             box.exec()
@@ -4863,76 +4858,109 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("[Owned] tags refreshed to match your current Owned list.")
 
     def _run_blueprint_log_scan(self):
-        """Launch BlueprintLogScanWorker with a progress dialog; merge any
-        blueprints it finds into the owned set on success.
+        """Scan the active channel's SC logs for received-blueprint events and
+        fold them into the owned set. Launched by the Blueprint Tracker tab's
+        "BP Scan" button; runs in a background worker with a progress dialog.
 
         Reads Game.log + logbackups/*.log from the active channel's install
         dir for "Received Blueprint" reward notifications — the game's own
         record of every blueprint the player has actually earned, independent
-        of whether it's shown up in a loaded mission's reward text yet.
+        of whether it's shown up in a loaded mission's reward text yet. Only
+        events newer than the last scan's watermark are imported (#222), so
+        re-running the scan against a still-growing Game.log doesn't re-walk
+        the player's whole history every time.
         """
-        from src.utils.blueprint_log_scanner import find_log_files
+        if self._bp_log_scan_worker is not None:
+            return  # already scanning
 
         channel_path = AppSettings.get_channel_install_path()
-        if not channel_path:
+        if not channel_path or not Path(channel_path).is_dir():
             QMessageBox.warning(
-                self, "Scan Logs",
-                "Star Citizen install path isn't configured yet. "
-                "Set it on the Config tab first.",
+                self,
+                tr("enhancements.bp_scan_title"),
+                tr("enhancements.bp_scan_no_path"),
             )
             return
 
-        log_paths = find_log_files(Path(channel_path))
-        if not log_paths:
-            QMessageBox.information(
-                self, "Scan Logs",
-                f"No log files found under:\n{Path(channel_path) / 'logbackups'}\n\n"
-                "Play a session first, or check your Star Citizen install path "
-                "on the Config tab.",
-            )
-            return
-
-        self._bp_log_scan_worker = BlueprintLogScanWorker(log_paths)
+        since = AppSettings.get_blueprint_log_watermark()
+        self._bp_log_scan_worker = BlueprintLogScanWorker(channel_path, since)
         self._bp_log_scan_progress = AnimatedProgressDialog(
-            f"Scanning {len(log_paths)} log file(s) for owned blueprints...",
+            tr("enhancements.bp_scan_starting"),
             parent=self,
-            title="Scanning Logs",
+            title=tr("enhancements.bp_scan_title"),
         )
+        self._bp_log_scan_worker.progress.connect(self.statusBar().showMessage)
+        self._bp_log_scan_worker.progress.connect(self._bp_log_scan_progress.setLabelText)
         self._bp_log_scan_worker.progress_pct.connect(self._bp_log_scan_progress.set_progress)
-        self._bp_log_scan_worker.error.connect(
-            lambda err: QMessageBox.warning(self, "Scan Logs", f"Log scan failed:\n{err}")
-        )
+        self._bp_log_scan_worker.error.connect(self._on_blueprint_log_scan_error)
         self._bp_log_scan_worker.finished.connect(self._on_blueprint_log_scan_finished)
         self._bp_log_scan_worker.start()
 
-    def _on_blueprint_log_scan_finished(self, found: set):
-        """Merge newly-found blueprint names into the owned set and report
-        the result. `found` is empty (not None) on both a clean "nothing
-        found" run and a worker-side error, so the error dialog (connected
-        separately) is what distinguishes the two to the user."""
-        self._bp_log_scan_progress.close()
+    def _on_blueprint_log_scan_error(self, message: str):
+        logger.error(f"BP Scan failed: {message}")
+        if self._bp_log_scan_progress is not None:
+            self._bp_log_scan_progress.close()
+            self._bp_log_scan_progress = None
+
+    def _on_blueprint_log_scan_finished(self, result):
+        """Fold a completed scan's names into the owned set and report.
+
+        Owns all owned-set / watermark mutation (the worker stays read-only),
+        so every settings write happens on the main thread. ``result`` is a
+        ``ScanResult`` or ``None`` when the scan errored (already surfaced via
+        ``_on_blueprint_log_scan_error``)."""
+        if self._bp_log_scan_progress is not None:
+            self._bp_log_scan_progress.close()
+            self._bp_log_scan_progress = None
         self._reap_worker(self._bp_log_scan_worker)
         self._bp_log_scan_worker = None
 
+        if result is None:
+            return
+
+        from src.utils.owned_items import normalize_item_name
+
+        # Normalize raw log names to the shared owned-set identity; drop blanks.
+        scanned = {normalize_item_name(n) for n in result.names}
+        scanned.discard("")
+
         owned = AppSettings.get_owned_items()
-        new_names = found - owned
-        if new_names:
-            AppSettings.set_owned_items(owned | found)
-            self._recompute_owned()
-            self.blueprint_tracker_tab.mark_owned_dirty()
-            preview = "\n".join(f"• {n}" for n in sorted(new_names, key=str.lower)[:20])
-            more = f"\n… and {len(new_names) - 20} more" if len(new_names) > 20 else ""
+        new_names = sorted(scanned - owned)
+
+        # Advance the watermark even when nothing new was imported, so a
+        # growing Game.log's already-seen events aren't reparsed next time.
+        if result.latest_timestamp is not None:
+            prev = AppSettings.get_blueprint_log_watermark()
+            newest = result.latest_timestamp if prev is None else max(prev, result.latest_timestamp)
+            AppSettings.set_blueprint_log_watermark(newest)
+
+        if not new_names:
             QMessageBox.information(
-                self, "Scan Logs",
-                f"Added {len(new_names)} newly-owned blueprint(s) from your logs:\n\n"
-                f"{preview}{more}",
+                self,
+                tr("enhancements.bp_scan_title"),
+                tr("enhancements.bp_scan_none"),
             )
-        else:
-            QMessageBox.information(
-                self, "Scan Logs",
-                "No new owned blueprints found in your logs "
-                f"({len(found)} already tracked).",
-            )
+            return
+
+        AppSettings.set_owned_items(owned | set(new_names))
+        self._recompute_owned()
+        self.blueprint_tracker_tab.mark_owned_dirty()
+
+        # How many of the newly-added names are visible right now (i.e. appear
+        # as a blueprint bullet in the currently-loaded data). The rest light up
+        # automatically whenever their item next appears in a blueprint list.
+        visible_now = len(set(new_names) & getattr(self, "_bp_item_names", set()))
+        summary = tr(
+            "enhancements.bp_scan_summary",
+            count=len(new_names),
+            visible=visible_now,
+        )
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setWindowTitle(tr("enhancements.bp_scan_title"))
+        box.setText(summary)
+        box.setDetailedText("\n".join(new_names))
+        box.exec()
 
     def toggle_favorite(self, proxy_row: int):
         """Add or remove the sort prefix from a ship's custom value."""
