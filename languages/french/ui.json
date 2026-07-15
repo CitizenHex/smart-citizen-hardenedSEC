@@ -61,6 +61,14 @@
     "legal": {
       "ht": "Juridique",
       "at": "Juridique"
+    },
+    "blueprint_tracker": {
+      "ht": "",
+      "at": "Suivi des plans"
+    },
+    "faq": {
+      "ht": "",
+      "at": "FAQ"
     }
   },
   "toolbar": {
@@ -253,6 +261,14 @@
     "copy_filtered_tooltip": {
       "ht": "",
       "at": "Copier toutes les lignes filtrées visibles dans le presse-papiers (séparées par des tabulations)"
+    },
+    "bp_titles_only": {
+      "ht": "",
+      "at": "Titres BP"
+    },
+    "bp_descs_only": {
+      "ht": "",
+      "at": "Descriptions BP"
     }
   },
   "strings_tab": {
@@ -319,6 +335,10 @@
     "column_filter_placeholder": {
       "ht": "",
       "at": "Filtrer {column}…"
+    },
+    "col_owned": {
+      "ht": "",
+      "at": "Possédé"
     }
   },
   "config": {
@@ -803,6 +823,106 @@
     "extracting_dataforge_tooltip": {
       "ht": "",
       "at": "Extraction de DataForge depuis Data.p4k…"
+    },
+    "blueprints_group": {
+      "ht": "",
+      "at": "Plans de fabrication"
+    },
+    "blueprints_desc": {
+      "ht": "",
+      "at": "Marquez les plans que vous possédez déjà. Les éléments possédés reçoivent une étiquette [Owned] partout où ils apparaissent dans les récompenses de plans potentielles d'une mission, pour voir d'un coup d'œil ce qui vaut la peine d'être chassé. Sélectionnez des éléments à gauche et utilisez les flèches pour les déplacer vers votre liste."
+    },
+    "blueprints_empty_note": {
+      "ht": "",
+      "at": "Générez d'abord les enrichissements de missions pour remplir cette liste. Les plans proviennent des données de récompenses de mission."
+    },
+    "blueprints_search_placeholder": {
+      "ht": "",
+      "at": "Rechercher un plan par nom…"
+    },
+    "blueprints_show_tags_checkbox": {
+      "ht": "",
+      "at": "Afficher les étiquettes sur les noms de plans"
+    },
+    "blueprints_mission_label": {
+      "ht": "",
+      "at": "Mission :"
+    },
+    "blueprints_facet_any": {
+      "ht": "",
+      "at": "Tous"
+    },
+    "blueprints_facet_type": {
+      "ht": "",
+      "at": "Type :"
+    },
+    "blueprints_facet_class": {
+      "ht": "",
+      "at": "Classe :"
+    },
+    "blueprints_facet_size": {
+      "ht": "",
+      "at": "Taille :"
+    },
+    "blueprints_facet_grade": {
+      "ht": "",
+      "at": "Grade :"
+    },
+    "blueprints_filter_note": {
+      "ht": "",
+      "at": "Type classe tout en composants, armes FPS, armures ou Autre. Classe, Taille et Grade ne s'appliquent qu'aux composants de vaisseau."
+    },
+    "blueprints_tooltip_missions": {
+      "ht": "",
+      "at": "Missions : {missions}"
+    },
+    "blueprints_available_label": {
+      "ht": "",
+      "at": "Plans disponibles"
+    },
+    "blueprints_owned_label": {
+      "ht": "",
+      "at": "Plans possédés"
+    },
+    "blueprints_add_tooltip": {
+      "ht": "",
+      "at": "Marquer les plans sélectionnés comme possédés"
+    },
+    "blueprints_remove_tooltip": {
+      "ht": "",
+      "at": "Retirer les plans sélectionnés des possédés"
+    },
+    "bp_scan_title": {
+      "ht": "",
+      "at": "Analyse BP"
+    },
+    "bp_scan_starting": {
+      "ht": "",
+      "at": "Analyse des journaux Star Citizen à la recherche de plans reçus…"
+    },
+    "bp_scan_progress": {
+      "ht": "",
+      "at": "Analyse de {file}…"
+    },
+    "bp_scan_finishing": {
+      "ht": "",
+      "at": "Finalisation…"
+    },
+    "bp_scan_no_path": {
+      "ht": "",
+      "at": "Aucun chemin d'installation de Star Citizen n'est configuré, il n'y a donc aucun journal à analyser. Définissez d'abord le dossier du jeu dans l'onglet Config."
+    },
+    "bp_scan_none": {
+      "ht": "",
+      "at": "Aucun nouveau plan trouvé depuis la dernière analyse."
+    },
+    "bp_scan_summary": {
+      "ht": "",
+      "at": "{count} plan(s) ajouté(s) à votre liste de possédés.\n\n{visible} sont visibles dans vos listes de plans actuelles ; les autres afficheront [Owned] automatiquement dès que leur objet réapparaîtra dans les récompenses de plans d'une mission."
+    },
+    "cat_desc_medical_consumables": {
+      "ht": "",
+      "at": "Résumés en clair des effets des stylos médicaux CureLife"
     }
   },
   "log": {
@@ -1269,6 +1389,22 @@
     "skip_generate_tooltip": {
       "ht": "",
       "at": "Continuer sans générer les enrichissements. Vous pourrez le faire plus tard depuis l'onglet Enrichissements."
+    },
+    "unapplied_changes_title": {
+      "ht": "",
+      "at": "Modifications non appliquées"
+    },
+    "unapplied_changes_body": {
+      "ht": "",
+      "at": "Certaines modifications n'ont pas encore été appliquées au jeu (le bouton Appliquer les enrichissements est toujours rouge).\n\nLes appliquer maintenant, ou quitter sans appliquer ?"
+    },
+    "unapplied_changes_apply_now": {
+      "ht": "",
+      "at": "Appliquer maintenant"
+    },
+    "unapplied_changes_exit": {
+      "ht": "",
+      "at": "Quitter sans appliquer"
     }
   },
   "progress": {
@@ -1369,6 +1505,10 @@
     "open_release_page_tooltip": {
       "ht": "",
       "at": "Ouvrir la page de version pour la v{version}"
+    },
+    "no_strings_loaded": {
+      "ht": "",
+      "at": "Aucune chaîne chargée : extrayez d'abord depuis Data.p4k dans l'onglet Config"
     }
   },
   "tutorial": {
@@ -1409,7 +1549,7 @@
       },
       "description": {
         "ht": "",
-        "at": "Choisissez les catégories d'enrichissements exécutées lors de la génération. Vaisseaux, composants, armes de vaisseau, armes FPS, missions et fabrication de marchandises peuvent être activés indépendamment."
+        "at": "Choisissez les catégories d'enrichissements exécutées lors de la génération. Vaisseaux, composants, armes de vaisseau, armes FPS, missions, récompenses de mission, fabrication de marchandises et consommables médicaux peuvent être activés indépendamment."
       }
     },
     "enh_favorites": {
@@ -1551,6 +1691,42 @@
         "ht": "",
         "at": "Le bouton Aide ouvre un panneau latéral avec le guide complet, la liste des problèmes connus et un lien vers le canal Discord de Smart Citizen pour vos retours. Vous avez tout ce qu'il faut pour démarrer : bonne chance, citoyen."
       }
+    },
+    "blueprint_tracker": {
+      "title": {
+        "ht": "",
+        "at": "7. Suivi des plans"
+      },
+      "description": {
+        "ht": "",
+        "at": "Marquez les plans que vous possédez. Cherchez dans la liste de gauche par nom ou par mission, ou affinez par Type, Classe, Taille et Grade de composant, puis utilisez les flèches pour déplacer des éléments vers votre liste de possédés. Les plans possédés reçoivent une étiquette [Owned] partout où ils apparaissent dans les récompenses potentielles d'une mission, pour voir d'un coup d'œil ce qui vaut la peine d'être chassé."
+      }
+    }
+  },
+  "blueprint_tracker": {
+    "title": {
+      "ht": "",
+      "at": "Suivi des plans"
+    },
+    "scan_logs_btn": {
+      "ht": "",
+      "at": "Rechercher les plans possédés dans les journaux"
+    },
+    "scan_logs_tooltip": {
+      "ht": "",
+      "at": "Analyse les fichiers journaux de Star Citizen (Game.log et logbackups) à la recherche des notifications de récompense « Received Blueprint » et marque automatiquement ces plans comme possédés."
+    },
+    "apply_owned_tag_btn": {
+      "ht": "",
+      "at": "Appliquer les étiquettes [Owned]"
+    },
+    "apply_owned_tag_tooltip": {
+      "ht": "",
+      "at": "Met à jour l'étiquette [Owned] sur les noms de plans dans la table des chaînes pour refléter votre liste actuelle de plans possédés."
+    },
+    "apply_owned_tag_tooltip_disabled": {
+      "ht": "",
+      "at": "Déjà à jour : votre liste de plans possédés n'a pas changé depuis la dernière application."
     }
   }
 }

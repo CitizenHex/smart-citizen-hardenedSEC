@@ -61,6 +61,14 @@
     "legal": {
       "ht": "Legal",
       "at": "Legal"
+    },
+    "blueprint_tracker": {
+      "ht": "",
+      "at": "Rastreador de Blueprints"
+    },
+    "faq": {
+      "ht": "",
+      "at": "FAQ"
     }
   },
   "toolbar": {
@@ -253,6 +261,14 @@
     "copy_filtered_tooltip": {
       "ht": "",
       "at": "Copiar todas as linhas filtradas visíveis para a área de transferência (separadas por tabulação)"
+    },
+    "bp_titles_only": {
+      "ht": "",
+      "at": "Títulos de BP"
+    },
+    "bp_descs_only": {
+      "ht": "",
+      "at": "Descrições de BP"
     }
   },
   "strings_tab": {
@@ -319,6 +335,10 @@
     "column_filter_placeholder": {
       "ht": "",
       "at": "Filtrar {column}…"
+    },
+    "col_owned": {
+      "ht": "",
+      "at": "Adquirido"
     }
   },
   "config": {
@@ -803,6 +823,106 @@
     "extracting_dataforge_tooltip": {
       "ht": "",
       "at": "Extraindo o DataForge do Data.p4k…"
+    },
+    "blueprints_group": {
+      "ht": "",
+      "at": "Blueprints"
+    },
+    "blueprints_desc": {
+      "ht": "",
+      "at": "Marque os blueprints que você já possui. Itens adquiridos recebem uma tag [Owned] onde quer que apareçam nas recompensas potenciais de blueprint de uma missão, para você ver de relance o que ainda vale caçar. Selecione itens à esquerda e use as setas para movê-los para a sua lista."
+    },
+    "blueprints_empty_note": {
+      "ht": "",
+      "at": "Gere os aprimoramentos de missão primeiro para preencher esta lista. Os blueprints vêm dos dados de recompensa de missão."
+    },
+    "blueprints_search_placeholder": {
+      "ht": "",
+      "at": "Buscar blueprints por nome…"
+    },
+    "blueprints_show_tags_checkbox": {
+      "ht": "",
+      "at": "Mostrar tags nos nomes de blueprints"
+    },
+    "blueprints_mission_label": {
+      "ht": "",
+      "at": "Missão:"
+    },
+    "blueprints_facet_any": {
+      "ht": "",
+      "at": "Qualquer"
+    },
+    "blueprints_facet_type": {
+      "ht": "",
+      "at": "Tipo:"
+    },
+    "blueprints_facet_class": {
+      "ht": "",
+      "at": "Classe:"
+    },
+    "blueprints_facet_size": {
+      "ht": "",
+      "at": "Tamanho:"
+    },
+    "blueprints_facet_grade": {
+      "ht": "",
+      "at": "Grau:"
+    },
+    "blueprints_filter_note": {
+      "ht": "",
+      "at": "Tipo classifica tudo em componentes, armas FPS, armaduras ou Outros. Classe, Tamanho e Grau se aplicam apenas a componentes de nave."
+    },
+    "blueprints_tooltip_missions": {
+      "ht": "",
+      "at": "Missões: {missions}"
+    },
+    "blueprints_available_label": {
+      "ht": "",
+      "at": "Blueprints disponíveis"
+    },
+    "blueprints_owned_label": {
+      "ht": "",
+      "at": "Blueprints adquiridos"
+    },
+    "blueprints_add_tooltip": {
+      "ht": "",
+      "at": "Marcar os blueprints selecionados como adquiridos"
+    },
+    "blueprints_remove_tooltip": {
+      "ht": "",
+      "at": "Remover os blueprints selecionados dos adquiridos"
+    },
+    "bp_scan_title": {
+      "ht": "",
+      "at": "Escaneamento de BP"
+    },
+    "bp_scan_starting": {
+      "ht": "",
+      "at": "Escaneando os logs do Star Citizen em busca de blueprints recebidos…"
+    },
+    "bp_scan_progress": {
+      "ht": "",
+      "at": "Escaneando {file}…"
+    },
+    "bp_scan_finishing": {
+      "ht": "",
+      "at": "Finalizando…"
+    },
+    "bp_scan_no_path": {
+      "ht": "",
+      "at": "Nenhum caminho de instalação do Star Citizen está configurado, então não há logs para escanear. Defina a pasta do jogo na aba Config primeiro."
+    },
+    "bp_scan_none": {
+      "ht": "",
+      "at": "Nenhum blueprint novo encontrado desde o último escaneamento."
+    },
+    "bp_scan_summary": {
+      "ht": "",
+      "at": "{count} blueprint(s) adicionado(s) à sua lista de adquiridos.\n\n{visible} já estão visíveis nas suas listas de blueprints atuais; os demais mostrarão [Owned] automaticamente sempre que o item aparecer nas recompensas de blueprint de uma missão."
+    },
+    "cat_desc_medical_consumables": {
+      "ht": "",
+      "at": "Resumos em linguagem simples dos efeitos das canetas médicas CureLife"
     }
   },
   "log": {
@@ -1269,6 +1389,22 @@
     "skip_generate_tooltip": {
       "ht": "",
       "at": "Continuar sem gerar aprimoramentos. Você pode executá-lo depois na aba Aprimoramentos."
+    },
+    "unapplied_changes_title": {
+      "ht": "",
+      "at": "Alterações Não Aplicadas"
+    },
+    "unapplied_changes_body": {
+      "ht": "",
+      "at": "Você tem alterações que ainda não foram aplicadas ao jogo (o botão Aplicar Aprimoramentos ainda está vermelho).\n\nAplicar agora, ou sair sem aplicar?"
+    },
+    "unapplied_changes_apply_now": {
+      "ht": "",
+      "at": "Aplicar Agora"
+    },
+    "unapplied_changes_exit": {
+      "ht": "",
+      "at": "Sair Sem Aplicar"
     }
   },
   "progress": {
@@ -1369,6 +1505,10 @@
     "open_release_page_tooltip": {
       "ht": "",
       "at": "Abrir a página de lançamento da v{version}"
+    },
+    "no_strings_loaded": {
+      "ht": "",
+      "at": "Nenhuma string carregada: extraia do Data.p4k na aba Config primeiro"
     }
   },
   "tutorial": {
@@ -1409,7 +1549,7 @@
       },
       "description": {
         "ht": "",
-        "at": "Escolha quais categorias de aprimoramento são executadas ao Gerar. Naves, componentes, armas de nave, armas de FPS, missões e fabricação de commodities podem ser ativadas de forma independente."
+        "at": "Escolha quais categorias de aprimoramentos rodam ao Gerar. Naves, componentes, armas de nave, armas FPS, missões, recompensas de missão, fabricação de mercadorias e consumíveis médicos podem ser ativados de forma independente."
       }
     },
     "enh_favorites": {
@@ -1551,6 +1691,42 @@
         "ht": "",
         "at": "O botão Ajuda abre um painel lateral com o guia completo, a lista de Problemas Conhecidos e um link para o canal do Smart Citizen no Discord. Isso é tudo o que você precisa para começar: boa sorte, cidadão."
       }
+    },
+    "blueprint_tracker": {
+      "title": {
+        "ht": "",
+        "at": "7. Rastreador de Blueprints"
+      },
+      "description": {
+        "ht": "",
+        "at": "Marque os blueprints que você possui. Busque na lista da esquerda por nome ou missão, ou refine por Tipo, Classe, Tamanho e Grau de componente, e então use as setas para mover itens para a sua lista de adquiridos. Blueprints adquiridos recebem uma tag [Owned] onde quer que apareçam nas recompensas potenciais de uma missão, para você ver de relance o que ainda vale caçar."
+      }
+    }
+  },
+  "blueprint_tracker": {
+    "title": {
+      "ht": "",
+      "at": "Rastreador de Blueprints"
+    },
+    "scan_logs_btn": {
+      "ht": "",
+      "at": "Escanear Logs por Blueprints Adquiridos"
+    },
+    "scan_logs_tooltip": {
+      "ht": "",
+      "at": "Escaneia os arquivos de log do Star Citizen (Game.log e logbackups) em busca de notificações de recompensa \"Received Blueprint\" e marca esses blueprints automaticamente como adquiridos."
+    },
+    "apply_owned_tag_btn": {
+      "ht": "",
+      "at": "Aplicar Tags [Owned]"
+    },
+    "apply_owned_tag_tooltip": {
+      "ht": "",
+      "at": "Atualiza a tag [Owned] nos nomes de blueprints na tabela de strings para refletir sua lista atual de adquiridos."
+    },
+    "apply_owned_tag_tooltip_disabled": {
+      "ht": "",
+      "at": "Já está atualizado: sua lista de adquiridos não mudou desde a última aplicação."
     }
   }
 }
