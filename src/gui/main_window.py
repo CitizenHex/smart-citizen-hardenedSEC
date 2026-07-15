@@ -19,6 +19,7 @@ from PyQt6.QtGui import QColor, QFont, QCursor, QPixmap, QIcon, QPalette
 from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices
 
+from src.gui.blueprint_tracker_tab import BlueprintTrackerTab
 from src.gui.coach_mark import CoachMarkStep, TutorialTour
 from src.gui.config_tab import ConfigTab
 from src.gui.error_dialog import ErrorDialogHandler, _ErrorDialogEmitter
@@ -289,12 +290,26 @@ class MainWindow(QMainWindow):
         self._enhancements_worker: Optional[EnhancementsGeneratorWorker] = None
         self._enhancements_progress_dialog: Optional[AnimatedProgressDialog] = None
 
+        # Apply-to-game dirty tracking (same grey-until-changed pattern as
+        # Generate Enhancements / Save Tag Changes / Apply Owned Tags).
+        # Starts True (clickable) — we can't cheaply verify at launch whether
+        # the loaded state already matches what's live in the game's
+        # global.ini, and wrongly greying out the app's one write-to-disk
+        # action would be a much worse failure than an occasional redundant
+        # enabled state. See _mark_apply_dirty / _clear_apply_dirty.
+        self._apply_dirty = True
+
+        # Tracks whether *this session* has produced a genuine unapplied
+        # change, as opposed to _apply_dirty's conservative "we can't verify
+        # at boot" default above. Used only to decide whether closeEvent
+        # should warn about unapplied changes — _initial_load_done gates it
+        # so the very first (startup) load doesn't itself count as a
+        # user-made change; see _mark_apply_dirty and _on_loading_finished.
+        self._initial_load_done = False
+        self._session_has_unapplied_edit = False
+
         # DataForge extraction worker
         self._forge_worker: Optional[DataForgeExtractWorker] = None
-
-        # #222: BP Scan — reads SC logs for received-blueprint events
-        self._bp_scan_worker: Optional[BlueprintLogScanWorker] = None
-        self._bp_scan_progress: Optional[AnimatedProgressDialog] = None
 
         # #180: when True, the Simple-mode one-button flow is running and the
         # enhancements-generation-finished slot should continue into
@@ -400,9 +415,18 @@ class MainWindow(QMainWindow):
         self.enhancements_tab.merge_requested.connect(self.perform_merge_and_reload)
         self.enhancements_tab.enhancements_pipeline_requested.connect(self._run_enhancements_pipeline)
         self.enhancements_tab.favorite_prefix_changed.connect(self._on_favorite_prefix_changed)
-        self.enhancements_tab.owned_items_changed.connect(self._recompute_owned)
-        self.enhancements_tab.blueprint_scan_requested.connect(self._run_blueprint_log_scan)
         self._enhancements_tab_index = self.tabs.addTab(self.enhancements_tab, tr("tabs.enhancements"))
+
+        # Blueprint Tracker tab (#222: split out of the Enhancements tab)
+        self.blueprint_tracker_tab = BlueprintTrackerTab()
+        self.blueprint_tracker_tab.owned_items_changed.connect(self._recompute_owned)
+        self.blueprint_tracker_tab.scan_logs_requested.connect(self._run_blueprint_log_scan)
+        self.blueprint_tracker_tab.apply_owned_requested.connect(self._on_apply_owned_tags_clicked)
+        self._blueprint_tracker_tab_index = self.tabs.addTab(
+            self.blueprint_tracker_tab, tr("tabs.blueprint_tracker")
+        )
+        self._bp_log_scan_worker = None
+        self._bp_log_scan_progress = None
 
         self.log_tab = LogTab()
         self._log_tab_index = self.tabs.addTab(self.log_tab, tr("tabs.log"))
@@ -550,12 +574,12 @@ class MainWindow(QMainWindow):
         # Button row
         button_layout = QHBoxLayout()
 
-        # Green — commit
+        # Green when up to date, red when a change needs applying — color
+        # itself is set by _set_apply_btn_dirty below.
         self.apply_btn = QPushButton(tr("toolbar.apply_btn"))
-        self.apply_btn.setStyleSheet(f"background-color: {get_button_color('apply')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
-        self.apply_btn.setToolTip("Write the merged table contents to the game's global.ini. A timestamped backup of the current global.ini is created first.")
         self.apply_btn.clicked.connect(self.apply_to_game)
         button_layout.addWidget(self.apply_btn)
+        self._set_apply_btn_dirty(self._apply_dirty)
 
         # Editor: toggles the side-docked String Editor for editing long
         # values comfortably. Shares the 'open' info-action role so it pairs
@@ -1481,6 +1505,42 @@ class MainWindow(QMainWindow):
         else:
             logger.debug(f"Cache file not found: {cache_file}. Default values will be empty until sources are downloaded.")
 
+    def _set_apply_btn_dirty(self, dirty: bool) -> None:
+        """Single chokepoint for the button's enabled state, tooltip, and
+        color so none of the three can drift apart. Red (needs_apply) means
+        a change is waiting to be applied; green (apply) means the game
+        already matches what's loaded. The :disabled selector is set
+        explicitly so Qt's native greyed-out look doesn't wash out the
+        color — the color itself is the signal here, not the enabled state.
+
+        Same enabled/disabled tooltip pattern as the Enhancements tab's
+        Generate Enhancements / Save Tag Changes buttons."""
+        self._apply_dirty = dirty
+        self.apply_btn.setEnabled(dirty)
+        self.apply_btn.setToolTip(
+            tr("toolbar.apply_btn_enabled_tooltip") if dirty
+            else tr("toolbar.apply_btn_disabled_tooltip")
+        )
+        color = get_button_color("needs_apply" if dirty else "apply")
+        text = get_button_text_color()
+        self.apply_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {color}; color: {text}; "
+            f"font-weight: bold; padding: 6px; }}"
+            f"QPushButton:disabled {{ background-color: {color}; color: {text}; }}"
+        )
+
+    def _mark_apply_dirty(self, *_args):
+        """Something that Apply to Game would pick up changed — light the
+        button back up. Wired to: any table edit (via the model's
+        dataChanged chokepoint), every entries reload (covers Apply Category
+        Changes / Generate Enhancements / Save Tag Changes / language+channel
+        switches / import / restore, which all funnel through a reload), and
+        the Owned-tag re-weave (which doesn't reload but does change what
+        Apply would write)."""
+        self._set_apply_btn_dirty(True)
+        if self._initial_load_done:
+            self._session_has_unapplied_edit = True
+
     @pyqtSlot()
     @timed
     def apply_to_game(self):
@@ -1749,6 +1809,8 @@ class MainWindow(QMainWindow):
                 f"  User edits: {user_count:,}\n\n"
                 f"{enhancement_block}"
             )
+            self._set_apply_btn_dirty(False)
+            self._session_has_unapplied_edit = False
         except Exception as e:
             QMessageBox.critical(self, tr("dialogs.error_title"), f"Failed to apply to game: {e}")
             logger.error(f"Error applying to game: {e}")
@@ -2102,7 +2164,7 @@ class MainWindow(QMainWindow):
         self._apply_branding_styles()
         base = "font-weight: bold; padding: 6px;"
         text = get_button_text_color()
-        self.apply_btn.setStyleSheet(f"background-color: {get_button_color('apply')}; color: {text}; {base}")
+        self._set_apply_btn_dirty(self._apply_dirty)  # re-picks green/red for the new theme
         self.more_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {text}; {base}")
         self.editor_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {text}; {base}")
         self.help_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {text}; {base}")
@@ -2846,6 +2908,7 @@ class MainWindow(QMainWindow):
         strings_tab = getattr(self, "_strings_tab_index", 0)
         config_tab = getattr(self, "_config_tab_index", 1)
         enh_tab = getattr(self, "_enhancements_tab_index", 2)
+        bp_tab = getattr(self, "_blueprint_tracker_tab_index", 3)
 
         return {
             "welcome":               {"target": lambda: None,                                                  "pre_action": None},
@@ -2861,7 +2924,7 @@ class MainWindow(QMainWindow):
             "enh_favorites":         {"target": lambda: self.enhancements_tab._favorites_group,                "pre_action": _switch_to(enh_tab)},
             "enh_mission_labels":    {"target": lambda: self.enhancements_tab.mission_labels_group,            "pre_action": _switch_to(enh_tab)},
             "enh_tag_builder":       {"target": lambda: self.enhancements_tab._tag_builder_group,              "pre_action": _switch_to(enh_tab)},
-            "enh_blueprints":        {"target": lambda: self.enhancements_tab._blueprints_group,               "pre_action": _switch_to(enh_tab)},
+            "blueprint_tracker":     {"target": lambda: self.blueprint_tracker_tab._blueprints_available_list, "pre_action": _switch_to(bp_tab)},
             # Config tab section deep-dive
             "cfg_appearance":        {"target": lambda: self.config_tab._appearance_group,                     "pre_action": _switch_to(config_tab)},
             "cfg_sc_install":        {"target": lambda: self.config_tab._loc_group,                            "pre_action": _switch_to(config_tab)},
@@ -3307,6 +3370,7 @@ class MainWindow(QMainWindow):
         self.tabs.setTabText(self._strings_tab_index, tr("tabs.string_editor"))
         self.tabs.setTabText(self._config_tab_index, tr("tabs.config"))
         self.tabs.setTabText(self._enhancements_tab_index, tr("tabs.enhancements"))
+        self.tabs.setTabText(self._blueprint_tracker_tab_index, tr("tabs.blueprint_tracker"))
         self.tabs.setTabText(self._log_tab_index, tr("tabs.log"))
         self.tabs.setTabText(self._about_tab_index, tr("tabs.about"))
         self.tabs.setTabText(self._faq_tab_index, tr("tabs.faq"))
@@ -3382,6 +3446,7 @@ class MainWindow(QMainWindow):
         # Cascade to child tabs
         self.config_tab.retranslate_ui()
         self.enhancements_tab.retranslate_ui()
+        self.blueprint_tracker_tab.retranslate_ui()
 
         # Status-bar version indicator + Config-tab update status hold the
         # last update-check result; re-render them in the new language
@@ -4100,6 +4165,10 @@ class MainWindow(QMainWindow):
             self._check_enhancements_after_loading = False
             self._check_enhancements_freshness()
 
+        # From here on, dirty-marking reflects a real in-session change —
+        # see _mark_apply_dirty / _session_has_unapplied_edit.
+        self._initial_load_done = True
+
     @pyqtSlot(str)
     def _on_loading_error(self, error_msg: str):
         """Handle file loading error."""
@@ -4272,7 +4341,7 @@ class MainWindow(QMainWindow):
         self._enhancements_worker.quit()
         self._enhancements_worker.wait()
         self._enhancements_worker = None
-        self.enhancements_tab.set_operation_idle()
+        self.enhancements_tab.set_operation_idle(success)
         self.enhancements_tab.refresh_enhancements_status()
 
         if success:
@@ -4357,7 +4426,7 @@ class MainWindow(QMainWindow):
             if getattr(self, "_forge_progress_dialog", None) is not None:
                 self._forge_progress_dialog.close()
                 self._forge_progress_dialog = None
-            self.enhancements_tab.set_operation_idle()
+            self.enhancements_tab.set_operation_idle(success=False)
             self.statusBar().showMessage("DataForge extraction failed — check the Log tab for details")
 
     def _run_p4k_extraction(self):
@@ -4395,6 +4464,13 @@ class MainWindow(QMainWindow):
             # Refresh the config tab P4K status
             self.config_tab._refresh_p4k_status()
 
+            # A fresh base.ini can change item names/descriptions (e.g. CIG
+            # adding flavor text in a patch) without touching the DataForge
+            # XML cache our dirty-check keys off — so a stale cached
+            # enhancement entry for a changed item would otherwise never
+            # prompt a re-run even after re-extracting global.ini.
+            self.enhancements_tab.mark_enhancements_dirty()
+
             # Defer enhancements check until after file loading completes (avoid I/O contention)
             self._check_enhancements_after_loading = True
 
@@ -4403,6 +4479,47 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         """Save state and overrides before closing."""
+        # Warn if something changed this session that Apply Enhancements
+        # hasn't picked up yet (the button is still showing red) — e.g. the
+        # user clicked Apply Tag Changes but never followed up with Apply
+        # Enhancements. Gated on _session_has_unapplied_edit rather than
+        # _apply_dirty directly since the latter also starts True at launch
+        # (see its comment) — that boot-time uncertainty shouldn't nag a user
+        # who hasn't touched anything this session.
+        if self._session_has_unapplied_edit:
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle(tr("dialogs.unapplied_changes_title"))
+            box.setText(tr("dialogs.unapplied_changes_body"))
+            apply_btn = box.addButton(
+                tr("dialogs.unapplied_changes_apply_now"), QMessageBox.ButtonRole.AcceptRole
+            )
+            exit_btn = box.addButton(
+                tr("dialogs.unapplied_changes_exit"), QMessageBox.ButtonRole.DestructiveRole
+            )
+            cancel_btn = box.addButton(QMessageBox.StandardButton.Cancel)
+            box.setDefaultButton(apply_btn)
+            box.exec()
+            clicked = box.clickedButton()
+
+            if clicked is cancel_btn:
+                event.ignore()
+                return
+            if clicked is apply_btn:
+                # Apply, then stay open — Apply to Game only updates
+                # _apply_dirty in memory for this run; closing immediately
+                # after would still start the *next* launch red regardless
+                # (that boot-time default can't cheaply verify the game file
+                # already matches — see _apply_dirty's comment), which read
+                # as "my apply didn't work." Leaving the window open lets the
+                # user see the button turn green and close normally whenever
+                # they're ready.
+                self.apply_to_game()
+                event.ignore()
+                return
+            # exit_btn: fall through to the normal close sequence below,
+            # exiting without applying.
+
         # Auto-save overrides if there are unsaved edits
         if self.entries and not (self._loader_worker and self._loader_worker.isRunning()):
             try:
@@ -4486,6 +4603,8 @@ class MainWindow(QMainWindow):
         """
         if not self.entries or not top_left.isValid():
             return
+
+        self._mark_apply_dirty()
 
         # Preview: refresh if the selected row falls inside the changed range.
         sel_model = self.table.selectionModel() if hasattr(self, "table") else None
@@ -4683,8 +4802,7 @@ class MainWindow(QMainWindow):
         """Handle cell clicks — COL_STAR toggles favorite (Ships).
 
         The Owned column (COL_OWNED) is a read-only indicator: ownership is now
-        managed by the Blueprints shuttle on the Enhancements tab, not by
-        clicking the star here.
+        managed by the Blueprint Tracker tab, not by clicking the star here.
         """
         col = proxy_index.column()
         if col == COL_STAR:
@@ -4737,22 +4855,40 @@ class MainWindow(QMainWindow):
             if new_val != e.original_value:
                 e.original_value = new_val
         self._model.set_owned_state(self._bp_item_names, owned)
-        # Feed the blueprint metadata to the Enhancements tab's Blueprints
-        # shuttle (it can't see the loaded strings the data is derived from).
-        if hasattr(self, "enhancements_tab"):
-            self.enhancements_tab.set_blueprint_items(self._blueprint_meta)
+        # Feed the blueprint metadata to the Blueprint Tracker tab (it can't
+        # see the loaded strings the data is derived from).
+        if hasattr(self, "blueprint_tracker_tab"):
+            self.blueprint_tracker_tab.set_blueprint_items(self._blueprint_meta)
+        # Called after every reload (category/tag/enhancements apply, channel
+        # and language switches, import, restore) and every Owned-set change
+        # — in every case Apply to Game's output could now differ.
+        self._mark_apply_dirty()
 
-    # ── BP Scan: populate ownership from SC logs (#222) ──────────────────────
+    def _on_apply_owned_tags_clicked(self):
+        """Manual "Apply Owned Tags" button: force a re-weave on demand
+        instead of relying on it happening as a side effect of moving an
+        item between the Available/Owned lists or a log scan."""
+        self._recompute_owned()
+        self.statusBar().showMessage("[Owned] tags refreshed to match your current Owned list.")
 
     def _run_blueprint_log_scan(self):
         """Scan the active channel's SC logs for received-blueprint events and
-        fold them into the owned set. Launched by the Enhancements tab's
-        "BP Scan" button; runs in a background worker with a progress dialog."""
-        if self._bp_scan_worker is not None:
+        fold them into the owned set. Launched by the Blueprint Tracker tab's
+        "BP Scan" button; runs in a background worker with a progress dialog.
+
+        Reads Game.log + logbackups/*.log from the active channel's install
+        dir for "Received Blueprint" reward notifications — the game's own
+        record of every blueprint the player has actually earned, independent
+        of whether it's shown up in a loaded mission's reward text yet. Only
+        events newer than the last scan's watermark are imported (#222), so
+        re-running the scan against a still-growing Game.log doesn't re-walk
+        the player's whole history every time.
+        """
+        if self._bp_log_scan_worker is not None:
             return  # already scanning
 
-        channel_dir = AppSettings.get_channel_install_path()
-        if not channel_dir or not Path(channel_dir).is_dir():
+        channel_path = AppSettings.get_channel_install_path()
+        if not channel_path or not Path(channel_path).is_dir():
             QMessageBox.warning(
                 self,
                 tr("enhancements.bp_scan_title"),
@@ -4761,41 +4897,40 @@ class MainWindow(QMainWindow):
             return
 
         since = AppSettings.get_blueprint_log_watermark()
-        self._bp_scan_worker = BlueprintLogScanWorker(channel_dir, since)
-        self._bp_scan_progress = AnimatedProgressDialog(
+        self._bp_log_scan_worker = BlueprintLogScanWorker(channel_path, since)
+        self._bp_log_scan_progress = AnimatedProgressDialog(
             tr("enhancements.bp_scan_starting"),
             parent=self,
             title=tr("enhancements.bp_scan_title"),
         )
-        self._bp_scan_worker.progress.connect(self.statusBar().showMessage)
-        self._bp_scan_worker.progress.connect(self._bp_scan_progress.setLabelText)
-        self._bp_scan_worker.progress_pct.connect(self._bp_scan_progress.set_progress)
-        self._bp_scan_worker.error.connect(self._on_bp_scan_error)
-        self._bp_scan_worker.finished.connect(self._on_bp_scan_finished)
-        self._bp_scan_worker.start()
+        self._bp_log_scan_worker.progress.connect(self.statusBar().showMessage)
+        self._bp_log_scan_worker.progress.connect(self._bp_log_scan_progress.setLabelText)
+        self._bp_log_scan_worker.progress_pct.connect(self._bp_log_scan_progress.set_progress)
+        self._bp_log_scan_worker.error.connect(self._on_blueprint_log_scan_error)
+        self._bp_log_scan_worker.finished.connect(self._on_blueprint_log_scan_finished)
+        self._bp_log_scan_worker.start()
 
-    def _on_bp_scan_error(self, message: str):
+    def _on_blueprint_log_scan_error(self, message: str):
         logger.error(f"BP Scan failed: {message}")
-        if self._bp_scan_progress is not None:
-            self._bp_scan_progress.close()
-            self._bp_scan_progress = None
+        if self._bp_log_scan_progress is not None:
+            self._bp_log_scan_progress.close()
+            self._bp_log_scan_progress = None
 
-    def _on_bp_scan_finished(self, result):
+    def _on_blueprint_log_scan_finished(self, result):
         """Fold a completed scan's names into the owned set and report.
 
-        Owns all owned-set / watermark mutation (the worker stays read-only), so
-        every settings write happens on the main thread. ``result`` is a
-        ``ScanResult`` or ``None`` when the scan errored."""
-        if self._bp_scan_progress is not None:
-            self._bp_scan_progress.close()
-            self._bp_scan_progress = None
-        if self._bp_scan_worker is not None:
-            self._bp_scan_worker.quit()
-            self._bp_scan_worker.wait()
-            self._bp_scan_worker = None
+        Owns all owned-set / watermark mutation (the worker stays read-only),
+        so every settings write happens on the main thread. ``result`` is a
+        ``ScanResult`` or ``None`` when the scan errored (already surfaced via
+        ``_on_blueprint_log_scan_error``)."""
+        if self._bp_log_scan_progress is not None:
+            self._bp_log_scan_progress.close()
+            self._bp_log_scan_progress = None
+        self._reap_worker(self._bp_log_scan_worker)
+        self._bp_log_scan_worker = None
 
         if result is None:
-            return  # error already surfaced via _on_bp_scan_error
+            return
 
         from src.utils.owned_items import normalize_item_name
 
@@ -4806,8 +4941,8 @@ class MainWindow(QMainWindow):
         owned = AppSettings.get_owned_items()
         new_names = sorted(scanned - owned)
 
-        # Advance the watermark even when nothing new was imported, so a growing
-        # Game.log's already-seen events aren't reparsed next time.
+        # Advance the watermark even when nothing new was imported, so a
+        # growing Game.log's already-seen events aren't reparsed next time.
         if result.latest_timestamp is not None:
             prev = AppSettings.get_blueprint_log_watermark()
             newest = result.latest_timestamp if prev is None else max(prev, result.latest_timestamp)
@@ -4822,8 +4957,8 @@ class MainWindow(QMainWindow):
             return
 
         AppSettings.set_owned_items(owned | set(new_names))
-        # Re-weave [Owned] tags + refresh the shuttle against the new set.
         self._recompute_owned()
+        self.blueprint_tracker_tab.mark_owned_dirty()
 
         # How many of the newly-added names are visible right now (i.e. appear
         # as a blueprint bullet in the currently-loaded data). The rest light up

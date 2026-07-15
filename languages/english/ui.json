@@ -50,6 +50,10 @@
       "ht": "Enhancements",
       "at": ""
     },
+    "blueprint_tracker": {
+      "ht": "Blueprint Tracker",
+      "at": ""
+    },
     "log": {
       "ht": "Log",
       "at": ""
@@ -70,6 +74,14 @@
   "toolbar": {
     "apply_btn": {
       "ht": "Apply Enhancements",
+      "at": ""
+    },
+    "apply_btn_enabled_tooltip": {
+      "ht": "Write the merged table contents to the game's global.ini. A timestamped backup of the current global.ini is created first.",
+      "at": ""
+    },
+    "apply_btn_disabled_tooltip": {
+      "ht": "Already applied: nothing has changed since the last Apply to Game.",
       "at": ""
     },
     "restore_backup_btn": {
@@ -588,6 +600,10 @@
       "ht": "Search blueprints by name…",
       "at": ""
     },
+    "blueprints_show_tags_checkbox": {
+      "ht": "Show tags on blueprint names",
+      "at": ""
+    },
     "blueprints_mission_label": {
       "ht": "Mission:",
       "at": ""
@@ -670,6 +686,32 @@
     },
     "bp_scan_summary": {
       "ht": "Added {count} blueprint(s) to your owned list.\n\n{visible} are visible in your current blueprint lists now; the rest will show [Owned] automatically whenever their item next appears in a mission's blueprint rewards.",
+      "at": ""
+    }
+  },
+  "blueprint_tracker": {
+    "title": {
+      "ht": "Blueprint Tracker",
+      "at": ""
+    },
+    "scan_logs_btn": {
+      "ht": "Scan Logs for Owned Blueprints",
+      "at": ""
+    },
+    "scan_logs_tooltip": {
+      "ht": "Scan your Star Citizen log files (Game.log and logbackups) for \"Received Blueprint\" reward notifications and automatically mark them as owned.",
+      "at": ""
+    },
+    "apply_owned_tag_btn": {
+      "ht": "Apply Owned Tags",
+      "at": ""
+    },
+    "apply_owned_tag_tooltip": {
+      "ht": "Refresh the [Owned] tag on blueprint names in the strings table to match your current Owned list.",
+      "at": ""
+    },
+    "apply_owned_tag_tooltip_disabled": {
+      "ht": "Already up to date — your Owned list hasn't changed since the last apply.",
       "at": ""
     }
   },
@@ -1096,6 +1138,22 @@
     },
     "copy_error_body": {
       "ht": "Failed to copy to clipboard: {error}",
+      "at": ""
+    },
+    "unapplied_changes_title": {
+      "ht": "Unapplied Changes",
+      "at": ""
+    },
+    "unapplied_changes_body": {
+      "ht": "You have changes that haven't been applied to the game yet (the Apply Enhancements button is still showing red).\n\nApply them now, or exit without applying?",
+      "at": ""
+    },
+    "unapplied_changes_apply_now": {
+      "ht": "Apply Now",
+      "at": ""
+    },
+    "unapplied_changes_exit": {
+      "ht": "Exit Without Applying",
       "at": ""
     }
   },

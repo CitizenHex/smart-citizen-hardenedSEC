@@ -1,4 +1,5 @@
-"""Blueprint log scanner core (#222).
+"""Blueprint log scanner core (#222). Regex/parsing verified against real
+Game.log / logbackups output (2026-07).
 
 Pure parsing / filtering over fabricated log text and files — no SC install or
 Qt needed. The worker (``BlueprintLogScanWorker``) and the MainWindow slot that
@@ -18,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from src.utils.blueprint_log_scanner import (  # noqa: E402
     BLUEPRINT_EPOCH,
-    iter_log_files,
+    find_log_files,
     parse_events,
     scan_channel,
     scan_files,
@@ -29,10 +30,10 @@ pytestmark = [pytest.mark.unit, pytest.mark.regression]
 NBSP = chr(0xA0)
 
 
-def _event(ts_iso: str, name: str) -> str:
+def _event(ts_iso: str, name: str, notif_id: int = 1) -> str:
     """One authoritative received-blueprint line, as SC writes it."""
     return (f"<{ts_iso}> [Notice] <SHUDEvent_OnNotification> Added notification "
-            f'"Received Blueprint: {name}: " [1] to queue. New queue size: 2, '
+            f'"Received Blueprint: {name}: " [{notif_id}] to queue. New queue size: 2, '
             "MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] "
             "[Team_CoreGameplayFeatures][Missions][Comms]")
 
@@ -49,12 +50,15 @@ class TestParseEvents:
         assert evs[0].timestamp == _dt("2026-03-26T17:15:41.684Z")
 
     def test_embedded_quotes_survive(self):
-        name = 'Parallax "Shock Trooper" Energy Assault Rifle'
+        # Paint/skin variant names carry their own literal quotes — a naive
+        # capture-to-next-quote would truncate at "Demeco.
+        name = 'Demeco "Purgatory Camo" LMG'
         evs = list(parse_events(_event("2026-03-27T00:18:06.320Z", name)))
         assert evs[0].name == name  # non-greedy stops at the trailing `: "`
 
     def test_nbsp_preserved_raw(self):
-        # The scanner returns raw names; nbsp folding is the normalizer's job.
+        # The scanner returns raw names; nbsp folding is the normalizer's job
+        # (owned_items.normalize_item_name).
         evs = list(parse_events(_event("2026-03-26T23:59:59.272Z", "Lynx" + NBSP + "Legs")))
         assert NBSP in evs[0].name
 
@@ -69,6 +73,15 @@ class TestParseEvents:
         bare = '<2026-03-26T17:15:41.684Z>    "Received Blueprint: Coda Pistol: " [23]'
         assert list(parse_events(bare)) == []
 
+    def test_unrelated_blueprint_mentions_ignored(self):
+        text = (
+            '<2026-06-07T04:27:45.846Z> [Notice] <ReuseChannel> Reusing channel '
+            "for 'sc.external.services.blueprint_library.v1.BlueprintLibraryService' "
+            "to endpoint pub-sc-alpha.example.com:443 (transport security: 1) "
+            "[Team_OnlineTech][gRPC]"
+        )
+        assert list(parse_events(text)) == []
+
     def test_no_fractional_seconds(self):
         evs = list(parse_events(_event("2026-03-26T17:15:41Z", "F55 LMG")))
         assert evs[0].timestamp == _dt("2026-03-26T17:15:41Z")
@@ -76,6 +89,9 @@ class TestParseEvents:
     def test_malformed_timestamp_skipped(self):
         bad = _event("2026-13-99T99:99:99Z", "Nope")
         assert list(parse_events(bad)) == []
+
+    def test_empty_text(self):
+        assert list(parse_events("")) == []
 
 
 class TestScanFiles:
@@ -118,6 +134,21 @@ class TestScanFiles:
         assert res.names == {"Coda Pistol"}
         assert res.events_matched == 2  # both events counted, one unique name
 
+    def test_repeated_notification_events_dedupe(self, tmp_path):
+        # A single earned blueprint fires 4 log lines (queued + Next/
+        # StartFade/Remove), all with identical notification text; only the
+        # authoritative SHUDEvent_OnNotification line counts.
+        p = self._write(tmp_path, "a.log", [
+            _event("2026-03-09T07:54:03.720Z", "Torrez", notif_id=5),
+            '<2026-03-09T07:54:18.830Z> [Notice] <UpdateNotificationItem> '
+            'Notification "Received Blueprint: Torrez: " [5], Action: Next',
+            '<2026-03-09T07:54:23.847Z> [Notice] <UpdateNotificationItem> '
+            'Notification "Received Blueprint: Torrez: " [5], Action: StartFade',
+        ])
+        res = scan_files([p])
+        assert res.names == {"Torrez"}
+        assert res.events_matched == 1
+
     def test_latest_timestamp_is_max(self, tmp_path):
         p = self._write(tmp_path, "a.log", [
             _event("2026-03-05T10:00:00Z", "A"),
@@ -146,42 +177,55 @@ class TestScanFiles:
         res = scan_files([tmp_path / "gone.log", good])
         assert res.names == {"A"}
 
+    def test_empty_paths_yields_empty_result(self):
+        res = scan_files([])
+        assert res.names == set()
+        assert res.files_scanned == 0
 
-class TestIterLogFiles:
+
+class TestFindLogFiles:
     def _touch(self, path, when: datetime, body="x"):
         path.write_text(body, encoding="utf-8")
         os.utime(path, (when.timestamp(), when.timestamp()))
 
     def test_discovers_logbackups_and_live_game_log(self, tmp_path):
-        backups = tmp_path / "LogBackups"
+        backups = tmp_path / "logbackups"
         backups.mkdir()
         self._touch(backups / "old.log", _dt("2026-03-10T00:00:00Z"))
         self._touch(tmp_path / "Game.log", _dt("2026-03-20T00:00:00Z"))
-        names = [p.name for p in iter_log_files(tmp_path)]
+        names = [p.name for p in find_log_files(tmp_path)]
         assert names == ["old.log", "Game.log"]  # oldest-first
 
+    def test_no_live_log_present(self, tmp_path):
+        backups = tmp_path / "logbackups"
+        backups.mkdir()
+        self._touch(backups / "x.log", _dt("2026-03-10T00:00:00Z"))
+        assert [p.name for p in find_log_files(tmp_path)] == ["x.log"]
+
     def test_mtime_prefilter_drops_pre_epoch_files(self, tmp_path):
-        backups = tmp_path / "LogBackups"
+        backups = tmp_path / "logbackups"
         backups.mkdir()
         self._touch(backups / "ancient.log", _dt("2026-01-01T00:00:00Z"))  # < epoch
         self._touch(backups / "recent.log", _dt("2026-03-15T00:00:00Z"))
-        names = [p.name for p in iter_log_files(tmp_path)]
+        names = [p.name for p in find_log_files(tmp_path)]
         assert names == ["recent.log"]
 
     def test_mtime_prefilter_uses_watermark_when_later(self, tmp_path):
-        backups = tmp_path / "LogBackups"
+        backups = tmp_path / "logbackups"
         backups.mkdir()
         self._touch(backups / "before.log", _dt("2026-03-05T00:00:00Z"))
         self._touch(backups / "after.log", _dt("2026-05-01T00:00:00Z"))
         since = _dt("2026-04-01T00:00:00Z")
-        names = [p.name for p in iter_log_files(tmp_path, since=since)]
+        names = [p.name for p in find_log_files(tmp_path, since=since)]
         assert names == ["after.log"]
 
-    def test_no_logs_dir_returns_empty(self, tmp_path):
-        assert iter_log_files(tmp_path) == []
+    def test_missing_directory_yields_empty(self, tmp_path):
+        assert find_log_files(tmp_path / "nonexistent") == []
 
+
+class TestScanChannel:
     def test_scan_channel_end_to_end(self, tmp_path):
-        backups = tmp_path / "LogBackups"
+        backups = tmp_path / "logbackups"
         backups.mkdir()
         (backups / "a.log").write_text(_event("2026-03-05T10:00:00Z", "Coda Pistol") + "\n",
                                        encoding="utf-8")

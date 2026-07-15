@@ -313,6 +313,12 @@ class AppSettings:
     # (each SC channel has its own LogBackups), stored as an ISO-8601 string
     # under "{BLUEPRINT_LOG_WATERMARK}/{channel}".
     BLUEPRINT_LOG_WATERMARK = "blueprint_log_watermark"
+    # #221: whether the Blueprints tracker's Available/Owned lists show each
+    # item's Tag Builder tag (e.g. "Norfield [MIL-S1-A]") instead of the bare
+    # name. Off by default — the bare name is the list's long-standing
+    # display; this only affects the app's own list, never the in-game
+    # mission text, which always shows the tag regardless of this setting.
+    BLUEPRINT_SHOW_TAGS = "blueprints/show_tags"
 
     # Settings keys - Data sources (new)
     # Prefix: data_sources/{source_name}/
@@ -1001,6 +1007,25 @@ class AppSettings:
         import json
         AppSettings.settings().setValue(
             AppSettings.OWNED_ITEMS, json.dumps(sorted(names))
+        )
+        AppSettings.settings().sync()
+
+    @staticmethod
+    def get_blueprint_show_tags() -> bool:
+        """Whether the Blueprints tracker shows each item's Tag Builder tag
+        inline (e.g. "Norfield [MIL-S1-A]") instead of the bare name (#221).
+        Default False. Purely a display toggle for the app's own Available/
+        Owned lists — matching, filtering, and Owned tracking always use the
+        bare, tag-free name regardless of this setting."""
+        return bool(AppSettings.settings().value(
+            AppSettings.BLUEPRINT_SHOW_TAGS, False, type=bool
+        ))
+
+    @staticmethod
+    def set_blueprint_show_tags(enabled: bool) -> None:
+        """Persist the Blueprints tracker's show-tags display toggle (#221)."""
+        AppSettings.settings().setValue(
+            AppSettings.BLUEPRINT_SHOW_TAGS, bool(enabled)
         )
         AppSettings.settings().sync()
 

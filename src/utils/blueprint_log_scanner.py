@@ -2,7 +2,7 @@
 
 Star Citizen records every blueprint the player receives as a client
 notification line in its rolling ``Game.log``; rotated copies pile up under
-``<channel>\\LogBackups\\``. The authoritative event looks like::
+``<channel>\\logbackups\\``. The authoritative event looks like::
 
     <2026-03-26T17:15:41.684Z> [Notice] <SHUDEvent_OnNotification> Added
     notification "Received Blueprint: Defiance Helmet Tactical: " [23] to
@@ -10,14 +10,19 @@ notification line in its rolling ``Game.log``; rotated copies pile up under
 
 The same blueprint also spawns ``<UpdateNotificationItem>`` lines and bare
 continuation lines quoting the notification; those are UI echoes, so we key
-only on the ``<SHUDEvent_OnNotification> Added notification`` line and de-dup by
-display name.
+only on the ``<SHUDEvent_OnNotification> Added notification`` line and de-dup
+by display name.
 
 This module is Qt-free and settings-free: it takes explicit paths and returns
 plain data so it unit-tests with fixture strings. Name *normalization* and the
 watermark *persistence* live elsewhere (``owned_items.normalize_item_name`` and
-``AppSettings``) — the scanner deliberately returns raw display names so the one
-canonical normalizer does the matching.
+``AppSettings``) — the scanner deliberately returns raw display names so the
+one canonical normalizer does the matching (mirrors ``owned_items.py``'s own
+Qt-free/settings-free design). The caller (a QThread worker, ``workers.py``'s
+``BlueprintLogScanWorker``) resolves the actual log directory via
+``AppSettings.get_channel_install_path()`` and reports progress to the UI
+(#223 moved the button + result UI onto their own Blueprint Tracker tab; the
+scanning internals here are unchanged by that move).
 
 Two filters bound the work:
 
@@ -45,7 +50,11 @@ BLUEPRINT_EPOCH = datetime(2026, 3, 1, tzinfo=timezone.utc)
 
 # The one authoritative "you received a blueprint" line. The name is captured
 # non-greedily up to the trailing ``: "`` so embedded quotes survive intact
-# (e.g. ``Parallax "Shock Trooper" Energy Assault Rifle``).
+# (e.g. ``Demeco "Purgatory Camo" LMG``). Anchored on the
+# ``<SHUDEvent_OnNotification> Added notification`` prefix (not just the
+# ``Received Blueprint: ...`` text) so the ``<UpdateNotificationItem>`` echo
+# lines and bare continuation lines that quote the same notification are
+# never mistaken for a second, distinct event.
 _EVENT_RE = re.compile(
     r"<(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)>"
     r".*?<SHUDEvent_OnNotification> Added notification "
@@ -55,11 +64,11 @@ _EVENT_RE = re.compile(
 # The live (current-session) log at the channel install root, plus the rotated
 # copies beside it.
 LIVE_LOG_NAME = "Game.log"
-LOGBACKUPS_DIRNAME = "LogBackups"
+LOGBACKUPS_DIRNAME = "logbackups"
 _LOG_GLOB = "*.log"
 
 # A progress reporter: (files_completed, files_total, current_filename).
-ProgressFn = Callable[[int, int, str], None]
+ProgressCallback = Callable[[int, int, str], None]
 
 
 @dataclass(frozen=True)
@@ -114,26 +123,30 @@ def parse_events(text: str) -> Iterator[BlueprintEvent]:
             yield BlueprintEvent(ts, name)
 
 
-def iter_log_files(
-    channel_dir, *, since: Optional[datetime] = None
+def find_log_files(
+    channel_install_path, *, since: Optional[datetime] = None
 ) -> List[Path]:
-    """Return the SC log files worth scanning under *channel_dir*, oldest first.
+    """Return the SC log files worth scanning under *channel_install_path*,
+    oldest first.
 
-    Covers ``LogBackups\\*.log`` plus the live ``Game.log`` at the channel root.
-    A file whose mtime predates the effective floor (``since`` or the epoch) is
-    dropped: its last write — hence its newest line — is already older than
-    anything we care about. Oldest-first ordering makes progress read naturally
-    and lets ``latest_timestamp`` grow as the scan proceeds.
+    Covers ``logbackups\\*.log`` plus the live ``Game.log`` at the channel
+    root. A file whose mtime predates the effective floor (``since`` or the
+    epoch) is dropped: its last write — hence its newest line — is already
+    older than anything we care about, so a re-scan skips reading it at all
+    instead of just filtering its events out afterward. Oldest-first ordering
+    makes progress read naturally and lets ``latest_timestamp`` grow as the
+    scan proceeds. Returns an empty list if neither location exists
+    (uninitialized or misconfigured install path).
     """
-    channel_dir = Path(channel_dir)
+    channel_install_path = Path(channel_install_path)
     floor = since or BLUEPRINT_EPOCH
     floor_posix = floor.timestamp()
 
     candidates: List[Path] = []
-    backups = channel_dir / LOGBACKUPS_DIRNAME
+    backups = channel_install_path / LOGBACKUPS_DIRNAME
     if backups.is_dir():
         candidates.extend(backups.glob(_LOG_GLOB))
-    live = channel_dir / LIVE_LOG_NAME
+    live = channel_install_path / LIVE_LOG_NAME
     if live.is_file():
         candidates.append(live)
 
@@ -155,15 +168,18 @@ def scan_files(
     paths: Sequence[Path],
     *,
     since: Optional[datetime] = None,
-    progress: Optional[ProgressFn] = None,
+    progress: Optional[ProgressCallback] = None,
 ) -> ScanResult:
     """Scan *paths* for received-blueprint names, applying both time filters.
 
     A name is collected when its event is at/after ``BLUEPRINT_EPOCH`` and
     strictly after ``since`` (the watermark). ``latest_timestamp`` tracks the
     newest at/after-epoch event regardless of the watermark, so re-scans never
-    lose ground on the mark. Files are read line by line — some live logs run to
-    tens of MB.
+    lose ground on the mark. Files are read line by line — some live logs run
+    to tens of MB — rather than loaded whole, and unreadable files (permission
+    errors, a mid-write live ``Game.log``) are skipped, not fatal:
+    ``logbackups/`` can hold hundreds of rotated session logs and one bad file
+    shouldn't abort the whole scan.
     """
     names: Set[str] = set()
     latest: Optional[datetime] = None
@@ -208,8 +224,8 @@ def scan_channel(
     channel_dir,
     *,
     since: Optional[datetime] = None,
-    progress: Optional[ProgressFn] = None,
+    progress: Optional[ProgressCallback] = None,
 ) -> ScanResult:
     """Discover and scan a channel's logs in one call (the worker entry point)."""
-    paths = iter_log_files(channel_dir, since=since)
+    paths = find_log_files(channel_dir, since=since)
     return scan_files(paths, since=since, progress=progress)
