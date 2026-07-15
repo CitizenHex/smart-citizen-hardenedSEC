@@ -1878,8 +1878,8 @@ class MainWindow(QMainWindow):
                 # Shared helper — retries with backoff, clears read-only bits,
                 # and outlasts OneDrive/Defender/indexer locks that commonly
                 # reject the first attempt with WinError 5.
-                from src.utils.pak_extractor import _robust_rmtree
-                _robust_rmtree(dataforge_dir)
+                from src.utils.pak_extractor import robust_rmtree
+                robust_rmtree(dataforge_dir)
                 deleted.append("dataforge/")
                 logger.info("Deleted DataForge cache directory")
             except Exception as e:
@@ -3599,12 +3599,12 @@ class MainWindow(QMainWindow):
             logger.info(f"Queued cache cleanup target already absent: {old_path}")
             return
         try:
-            # _robust_rmtree (not a raw shutil.rmtree) so this survives both
+            # robust_rmtree (not a raw shutil.rmtree) so this survives both
             # transient Windows locks and a deep old cache path past the
             # 260-char MAX_PATH (long-path-wraps internally — see
             # win_paths.win_long_path).
-            from src.utils.pak_extractor import _robust_rmtree
-            _robust_rmtree(old_path)
+            from src.utils.pak_extractor import robust_rmtree
+            robust_rmtree(old_path)
             logger.info(f"Removed old DataForge cache at {old_path}")
         except Exception as e:
             logger.warning(
@@ -3764,9 +3764,7 @@ class MainWindow(QMainWindow):
         # would just fail with "file not found" — skip it instead of
         # surfacing error popups for a state the user just chose to leave.
         if not base_ini.exists():
-            self.statusBar().showMessage(
-                "No strings loaded — extract from Data.p4k on the Config tab first"
-            )
+            self.statusBar().showMessage(tr("status_bar.no_strings_loaded"))
             return
 
         # Base.ini is fine. Separately check the DataForge XML cache, which
@@ -4079,9 +4077,7 @@ class MainWindow(QMainWindow):
             # are missing on disk. Surface this so the user isn't left with a
             # silently blank table and no indication of why.
             logger.warning("Load completed with 0 entries — source files may be missing; try extracting from Data.p4k")
-            self.statusBar().showMessage(
-                "No strings loaded — extract from Data.p4k on the Config tab first"
-            )
+            self.statusBar().showMessage(tr("status_bar.no_strings_loaded"))
         self.update_category_combo()
 
         # Push data into the model — the view renders only visible rows, so this is instant

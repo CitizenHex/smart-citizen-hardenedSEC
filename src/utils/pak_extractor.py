@@ -30,7 +30,7 @@ P4K_SIZE_STAMP = ".p4k_size"
 _RMTREE_CB_KWARG = "onexc" if sys.version_info >= (3, 12) else "onerror"
 
 
-def _robust_rmtree(path: Path, attempts: int = 6) -> None:
+def robust_rmtree(path: Path, attempts: int = 6) -> None:
     """Delete *path* recursively, surviving transient Windows locks.
 
     On Windows — especially when the target lives under OneDrive — rmtree
@@ -100,7 +100,7 @@ _GLOBAL_INI_RELATIVE = Path("data/Localization/english/global.ini")
 #   * cuts the temp → cache copy step to ~50% of its old wall-clock (OneDrive
 #     / Defender / Indexer fire hooks per-file-close, which dominates copy
 #     time on typical Windows installs);
-#   * makes ``_robust_rmtree`` on the old cache roughly 2x faster and less
+#   * makes ``robust_rmtree`` on the old cache roughly 2x faster and less
 #     prone to transient WinError 5 retries, since there are half as many
 #     files for the AV/indexer stack to hold open briefly.
 #
@@ -416,7 +416,7 @@ def extract_dataforge(
         # just-exited unforge.exe or from the OneDrive/Defender/indexer
         # stack can reject the first few rmdir attempts with WinError 5.
         if dataforge_cache_dir.exists():
-            _robust_rmtree(dataforge_cache_dir)
+            robust_rmtree(dataforge_cache_dir)
         dataforge_cache_dir.mkdir(parents=True, exist_ok=True)
 
         # Cache only the subtrees the enhancement generator actually reads.

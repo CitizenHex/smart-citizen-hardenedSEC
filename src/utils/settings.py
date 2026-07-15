@@ -1023,6 +1023,26 @@ class AppSettings:
         AppSettings.settings().setValue(AppSettings.LAST_OVERRIDES_PATH, path)
 
     @staticmethod
+    def _read_legacy_installer_sc_directory() -> "str | None":
+        """Return the raw ``sc_directory`` value the older installer flow
+        wrote to the registry, or ``None`` if the key is absent/unreadable.
+
+        Shared by `get_game_install_path()` and `get_sc_install_root()` —
+        both used to carry their own copy of this same registry read
+        (identical path + value name), each interpreting the raw value
+        differently (one keeps a channel-suffixed path as-is, the other
+        strips to the root). ``WindowsError`` is just an alias of `OSError`
+        in Python 3, so catching the latter covers both.
+        """
+        try:
+            reg_path = r'Software\Osiris DevWorks\SC Localization Editor'
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path) as registry_key:
+                sc_directory, _ = winreg.QueryValueEx(registry_key, 'sc_directory')
+            return sc_directory or None
+        except OSError:
+            return None
+
+    @staticmethod
     def get_game_install_path() -> str:
         """Return the install path of the **active channel**.
 
@@ -1055,21 +1075,14 @@ class AppSettings:
                 return saved
 
         # Installer-written registry key (older flow).
-        try:
-            reg_path = r'Software\Osiris DevWorks\SC Localization Editor'
-            registry_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path)
-            sc_directory, _ = winreg.QueryValueEx(registry_key, 'sc_directory')
-            winreg.CloseKey(registry_key)
-            if sc_directory:
-                sc_path = Path(sc_directory)
-                if _path_ends_in_channel(sc_directory):
-                    AppSettings.settings().setValue(AppSettings.GAME_INSTALL_PATH, sc_directory)
-                    return sc_directory
-                if _is_valid_sc_root(sc_directory):
-                    AppSettings.settings().setValue(AppSettings.GAME_INSTALL_PATH, sc_directory)
-                    return sc_directory
-        except (WindowsError, OSError):
-            pass
+        sc_directory = AppSettings._read_legacy_installer_sc_directory()
+        if sc_directory:
+            if _path_ends_in_channel(sc_directory):
+                AppSettings.settings().setValue(AppSettings.GAME_INSTALL_PATH, sc_directory)
+                return sc_directory
+            if _is_valid_sc_root(sc_directory):
+                AppSettings.settings().setValue(AppSettings.GAME_INSTALL_PATH, sc_directory)
+                return sc_directory
 
         for candidate in [
             r"C:\Program Files\Roberts Space Industries\StarCitizen\LIVE",
@@ -2057,22 +2070,16 @@ class AppSettings:
         # while the Config tab, which reads only this method, stayed blank
         # until some other code path happened to call get_game_install_path()
         # first and persist GAME_INSTALL_PATH as a side effect.
-        try:
-            reg_path = r'Software\Osiris DevWorks\SC Localization Editor'
-            registry_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path)
-            sc_directory, _ = winreg.QueryValueEx(registry_key, 'sc_directory')
-            winreg.CloseKey(registry_key)
-            if sc_directory:
-                root = None
-                if _path_ends_in_channel(sc_directory):
-                    root = str(Path(sc_directory).parent)
-                elif _is_valid_sc_root(sc_directory):
-                    root = sc_directory
-                if root:
-                    AppSettings.settings().setValue(AppSettings.SC_INSTALL_ROOT, root)
-                    return root
-        except (WindowsError, OSError):
-            pass
+        sc_directory = AppSettings._read_legacy_installer_sc_directory()
+        if sc_directory:
+            root = None
+            if _path_ends_in_channel(sc_directory):
+                root = str(Path(sc_directory).parent)
+            elif _is_valid_sc_root(sc_directory):
+                root = sc_directory
+            if root:
+                AppSettings.settings().setValue(AppSettings.SC_INSTALL_ROOT, root)
+                return root
 
         for candidate in [
             r"C:\Program Files\Roberts Space Industries\StarCitizen",
