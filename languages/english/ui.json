@@ -1166,6 +1166,10 @@
     }
   },
   "status_bar": {
+    "no_strings_loaded": {
+      "ht": "No strings loaded: extract from Data.p4k on the Config tab first",
+      "at": ""
+    },
     "update_checking": {
       "ht": "Checking…",
       "at": ""

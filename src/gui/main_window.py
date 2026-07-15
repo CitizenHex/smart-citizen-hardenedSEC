@@ -370,43 +370,12 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.tagline_label)
         self._apply_branding_styles()
 
-        # Toolbar on the left; rendered-preview pane on the right. The
-        # preview renders the currently-selected row's effective value
-        # (custom override if present, else the merged baseline) with the
-        # game's EM3/EM4/~mission(...) tokens translated into styled HTML
-        # so mission and journal blocks read like in-game text instead of
-        # wall-of-tag. Stays wired across all tabs — it just reflects the
-        # last row you selected in the String Editor.
         toolbar_layout = self.create_toolbar()
 
-        self.preview_pane = QTextBrowser()
-        self.preview_pane.setReadOnly(True)
-        self.preview_pane.setOpenExternalLinks(False)
-        self.preview_pane.setPlaceholderText(tr("strings_tab.preview_placeholder"))
-        self.preview_pane.setMinimumWidth(420)
-        # Capped to keep the toolbar QHBoxLayout from inflating when the
-        # active tab has slack vertical space to redistribute (the
-        # post-1.3.0 Config / Enhancements gap bug — QTextBrowser's
-        # default Expanding vertical sizePolicy let the pane grow to
-        # its old 200px ceiling, dragging the buttons down ~40px below
-        # the tagline). The Preferred sizePolicy prevents the greedy
-        # expansion; the cap is a belt-and-braces upper bound and
-        # answers "how many lines of preview do I want at most." 120
-        # comfortably fits ~5–6 lines of rendered HTML — long mission
-        # journals overflow into the built-in scrollbar.
-        from PyQt6.QtWidgets import QSizePolicy
-        self.preview_pane.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-        self.preview_pane.setMaximumHeight(120)
-
-        toolbar_row = QHBoxLayout()
-        toolbar_row.setSpacing(12)
-        toolbar_row.setContentsMargins(0, 0, 12, 0)
-        toolbar_row.addLayout(toolbar_layout, stretch=2)
-        toolbar_row.addWidget(self.preview_pane, stretch=1)
         # Wrapped in a container so Simple mode (#180) can hide the whole
-        # advanced toolbar + preview as a unit (a layout can't be hidden).
+        # advanced toolbar as a unit (a layout can't be hidden).
         self.toolbar_container = QWidget()
-        self.toolbar_container.setLayout(toolbar_row)
+        self.toolbar_container.setLayout(toolbar_layout)
         main_layout.addWidget(self.toolbar_container)
 
         self.tabs = QTabWidget()
@@ -665,7 +634,12 @@ class MainWindow(QMainWindow):
 
         layout.addLayout(button_layout)
 
-        # Filter row
+        return layout
+
+    def create_string_filter_row(self) -> QHBoxLayout:
+        """Create the String Editor's filter row (category/status/search
+        toggles). Lives on the strings tab itself (not the shared toolbar)
+        so it's only visible while that tab is active."""
         filter_layout = QHBoxLayout()
 
         self._category_label = QLabel(tr("filters.category_label"))
@@ -742,9 +716,7 @@ class MainWindow(QMainWindow):
         filter_layout.addWidget(self.copy_filtered_btn)
 
         filter_layout.addStretch()
-        layout.addLayout(filter_layout)
-
-        return layout
+        return filter_layout
 
     def create_footer(self) -> QHBoxLayout:
         """Create footer with Osiris DevWorks branding and donation buttons."""
@@ -1176,6 +1148,38 @@ class MainWindow(QMainWindow):
         """Create strings table tab."""
         widget = QWidget()
         layout = QVBoxLayout(widget)
+
+        # Rendered-preview pane: shows the currently-selected row's effective
+        # value (custom override if present, else the merged baseline) with
+        # the game's EM3/EM4/~mission(...) tokens translated into styled HTML
+        # so mission and journal blocks read like in-game text instead of
+        # wall-of-tag. Lives here (not the shared toolbar) so it's only
+        # visible while the String Editor tab is active.
+        self.preview_pane = QTextBrowser()
+        self.preview_pane.setReadOnly(True)
+        self.preview_pane.setOpenExternalLinks(False)
+        self.preview_pane.setPlaceholderText(tr("strings_tab.preview_placeholder"))
+        self.preview_pane.setMinimumWidth(420)
+        # Capped so the row doesn't inflate when there's slack vertical space
+        # to redistribute (the post-1.3.0 Config / Enhancements gap bug —
+        # QTextBrowser's default Expanding vertical sizePolicy let the pane
+        # grow to its old 200px ceiling). The Preferred sizePolicy prevents
+        # the greedy expansion; the cap is a belt-and-braces upper bound and
+        # answers "how many lines of preview do I want at most." 60 fits
+        # ~2–3 lines of rendered HTML; anything longer (mission journals,
+        # multi-line descriptions) overflows into the built-in scrollbar
+        # rather than growing the pane.
+        from PyQt6.QtWidgets import QSizePolicy
+        self.preview_pane.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        self.preview_pane.setMaximumHeight(60)
+
+        # Filter row: category/status/search toggles. Lives here (not the
+        # shared toolbar) so it's only visible while this tab is active.
+        filter_and_preview_row = QHBoxLayout()
+        filter_and_preview_row.setSpacing(12)
+        filter_and_preview_row.addLayout(self.create_string_filter_row(), 2)
+        filter_and_preview_row.addWidget(self.preview_pane, 1)
+        layout.addLayout(filter_and_preview_row)
 
         # Model
         self._model = StringTableModel(self)
@@ -1874,8 +1878,8 @@ class MainWindow(QMainWindow):
                 # Shared helper — retries with backoff, clears read-only bits,
                 # and outlasts OneDrive/Defender/indexer locks that commonly
                 # reject the first attempt with WinError 5.
-                from src.utils.pak_extractor import _robust_rmtree
-                _robust_rmtree(dataforge_dir)
+                from src.utils.pak_extractor import robust_rmtree
+                robust_rmtree(dataforge_dir)
                 deleted.append("dataforge/")
                 logger.info("Deleted DataForge cache directory")
             except Exception as e:
@@ -3595,8 +3599,12 @@ class MainWindow(QMainWindow):
             logger.info(f"Queued cache cleanup target already absent: {old_path}")
             return
         try:
-            import shutil
-            shutil.rmtree(old_path, ignore_errors=False)
+            # robust_rmtree (not a raw shutil.rmtree) so this survives both
+            # transient Windows locks and a deep old cache path past the
+            # 260-char MAX_PATH (long-path-wraps internally — see
+            # win_paths.win_long_path).
+            from src.utils.pak_extractor import robust_rmtree
+            robust_rmtree(old_path)
             logger.info(f"Removed old DataForge cache at {old_path}")
         except Exception as e:
             logger.warning(
@@ -3749,6 +3757,14 @@ class MainWindow(QMainWindow):
         # If P4K extraction was started, don't load files yet.
         # The P4K extraction finished handler will do the loading.
         if p4k_extraction_started:
+            return
+
+        # User declined the extraction prompt (or it didn't fire, e.g. unp4k
+        # missing) and there's still no cached base.ini. Loading sources now
+        # would just fail with "file not found" — skip it instead of
+        # surfacing error popups for a state the user just chose to leave.
+        if not base_ini.exists():
+            self.statusBar().showMessage(tr("status_bar.no_strings_loaded"))
             return
 
         # Base.ini is fine. Separately check the DataForge XML cache, which
@@ -4061,9 +4077,7 @@ class MainWindow(QMainWindow):
             # are missing on disk. Surface this so the user isn't left with a
             # silently blank table and no indication of why.
             logger.warning("Load completed with 0 entries — source files may be missing; try extracting from Data.p4k")
-            self.statusBar().showMessage(
-                "No strings loaded — extract from Data.p4k on the Config tab first"
-            )
+            self.statusBar().showMessage(tr("status_bar.no_strings_loaded"))
         self.update_category_combo()
 
         # Push data into the model — the view renders only visible rows, so this is instant

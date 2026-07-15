@@ -52,6 +52,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
+from src.utils.win_paths import win_long_path
+
 logger = logging.getLogger(__name__)
 
 
@@ -120,7 +122,11 @@ def apply_patches(
         logger.info(f"No patches directory at {patch_root}; skipping")
         return report
 
-    records_root = dataforge_cache_dir / _DATAFORGE_RECORDS_SUBPATH
+    # Wrap once here (not per patch file below) so every path derived from
+    # records_root inherits long-path safety — see win_paths.win_long_path
+    # (#221; this module hits the same 260-char MAX_PATH limit as
+    # pak_extractor's copy/cleanup step).
+    records_root = Path(win_long_path(dataforge_cache_dir / _DATAFORGE_RECORDS_SUBPATH))
     if not records_root.exists():
         msg = f"DataForge records dir not found: {records_root}"
         logger.warning(msg)
@@ -163,6 +169,8 @@ def _apply_single_patch(
         report.errors.append(msg)
         return
 
+    # records_root is already long-path-prefixed (apply_patches wraps it
+    # once at entry), so this join inherits long-path safety for free.
     target_path = records_root / target_rel
     if not target_path.exists():
         msg = f"Patch target missing: {target_rel}"
@@ -177,7 +185,7 @@ def _apply_single_patch(
     if progress_callback:
         progress_callback(f"Patching {Path(target_rel).name}")
 
-    tree = ET.parse(target_path)
+    tree = ET.parse(str(target_path))
     root = tree.getroot()
     file_changed = False
 
@@ -196,7 +204,7 @@ def _apply_single_patch(
     if file_changed:
         # Preserve the original XML declaration Python's ElementTree emits by
         # default (short_empty_elements=True matches how unforge writes files).
-        tree.write(target_path, encoding="utf-8", xml_declaration=True)
+        tree.write(str(target_path), encoding="utf-8", xml_declaration=True)
         report.files_rewritten += 1
 
 
