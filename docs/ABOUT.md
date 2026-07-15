@@ -21,6 +21,7 @@ All Osiris DevWorks tools will be either **completely free** or have a **free ti
 
 Thanks to those who've contributed code to Smart Citizen:
 
+- **Stealrull**
 - **Ishikudeska**
 - **jonigirl**
 - **Coerwyn**
@@ -34,6 +35,7 @@ Thanks to those who've translated Smart Citizen's interface:
 
 - **Akwa** (Français)
 - **Nxzzin** (Português brasileiro)
+- **Thord82** (Español)
 
 ## Acknowledgements
 
@@ -47,6 +49,8 @@ Thanks to the testers who helped shape Smart Citizen with their feedback:
 - **Apolleon Phoibos**
 - **Epiq**
 - **Narull**
+- **XaileiShiv**
+- **Mindbulletz**
 
 ### Supporters
 
@@ -91,13 +95,14 @@ The non-English game strings are community translations:
 - **Ship Stats**: SCM speed, hydrogen/quantum fuel, cargo capacity, full weapon loadouts, and armor multipliers (physical / energy / distortion / thermal) appended to ship descriptions
 - **Component Stats**: Shield HP, power draw, cooling rate, regen, and similar stats for shields, coolers, power plants, quantum drives, and radars — with `[MIL-S2-A]`-style name tags by default (fully customizable in the Tag Builder)
 - **Weapon Stats**: DPS, fire rate, range, and damage on ship guns and turrets from S1 through capital. Ship weapons get a `[E-S2]`-style damage+size tag, missiles `[IR-S1] Arrester III`, and bombs `[S5] 500SCB Cluster`
-- **Mission Annotations**: `[BP]` / `[BP?]` blueprint reward tags on titles, plus structured *MISSION DETAILS*, *POTENTIAL BLUEPRINTS*, and *ITEM REWARDS* blocks in descriptions. Reputation tier lines show actual rank names (Rookie, Jr. Contractor, etc.) instead of generic numbering
-- **Journal Cross-References**: Mining Compendium entries get crafting cross-references; commodities used in crafting get a customizable `[CF]` name tag and a list of every blueprint that calls for them
+- **Mission Annotations**: `[BP]` / `[BP?]` blueprint reward tags on titles, plus structured *MISSION DETAILS*, *POTENTIAL BLUEPRINTS*, and *ITEM REWARDS* blocks in descriptions. Reputation tier lines show actual rank names (Rookie, Jr. Contractor, etc.) instead of generic numbering. Mission XP names the reputation track it feeds, and Battaglia scan/mine titles carry `[RS ####]` resource-signature tags
+- **Journal Cross-References**: Mining Compendium entries get crafting cross-references and each ore's base resource signature; commodities used in crafting get a customizable `[CF]` name tag and a list of every blueprint that calls for them
+- **Medical Consumable Effects**: The base CureLife pens (MedPen, OxyPen, AdrenaPen, and friends) get a plain-language effect line, so the description says what the pen does instead of just its lore
 - **Ship Favorites**: Star a ship to prepend a configurable prefix (default `*`) so favorites sort to the top of the in-game ASOP terminal
 - **Tag Builder**: Customize the bracketed tags on components, missiles, ship weapons, and commodities — reorder elements, change abbreviation length (M / MIL / Military), pick separators and brackets, or place the tag after the name instead of before. Components have an optional Type element (Shield, Cooler, etc.); commodities have a Usage element showing what their crafting materials feed into
 - **Mission Titles**: Lead hauling titles with their route (e.g. `Area18 > Lorville`) — configurable placement, arrow, separator, and location detail, plus optional stock-title shortening, with a live preview
 - **Stats Above or Below**: Choose whether a stat block sits at the top or the bottom of the description
-- **Blueprints Ownership**: Mark the crafting blueprints you already own — owned items get a star in an **Owned** column, and blueprint-title / blueprint-description filters help you find and tag them quickly, so you can see at a glance what you still need
+- **Blueprint Tracker**: A dedicated tab for marking the crafting blueprints you already own. Shuttle items between Available and Owned, filter by Mission / Type / Class / Size / Grade, and owned items get a blue `[Owned]` tag in mission blueprint lists. **Scan Logs for Owned Blueprints** populates ownership automatically from your Star Citizen log files, importing only what's new since the last scan
 - **Mission Labels**: Rename the section headers (MISSION DETAILS, POTENTIAL BLUEPRINTS, etc.), the XP label, and the emphasis tag used for headers
 - **Declarative CIG Data-Bug Patches**: A patch system applies fixes to known DataForge bugs at extraction time so in-game text reads correctly without waiting on CIG
 - **Selective Categories**: Enable or disable each enhancement category independently from the Enhancements tab

@@ -48,6 +48,18 @@ them against the new source.
   Changes" to "Save Tag Changes" (#214, 2.1.2). Affects french,
   portuguese_br, spanish (all three still translate "Apply...").
 
+## Backfill log
+
+- **2.2.0 pre-release (2026-07-15, Claude Fable 5):** AI backfill of the keys
+  this cycle added in English only. french and portuguese_br each gained 43
+  `at`-only keys (Blueprint Tracker tab, blueprint shuttle/facets, log-scan
+  dialogs, Unapplied Changes dialog, medical consumables description, plus the
+  tour's new `blueprint_tracker` step); spanish gained 75, including its first
+  full guided-tour translation (`tutorial.*`, all 19 steps). The stale
+  `tutorial.enh_categories.description` `at` in french/portuguese_br was
+  refreshed for the two categories added this cycle (it had no `ht`). All new
+  strings are `ht: ""` so translators can find them the usual way.
+
 ## Per-language notes
 
 - **english** — source language. All strings authored by the maintainer.

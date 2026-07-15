@@ -19,8 +19,10 @@ from src.utils.blueprint_meta import (  # noqa: E402
     build_blueprint_metadata,
     clean_mission_title,
     component_type_from_key,
+    expand_class_full_word,
     parse_component_tag,
     size_from_key,
+    strip_size_prefix,
 )
 
 pytestmark = [pytest.mark.unit, pytest.mark.regression]
@@ -49,6 +51,21 @@ def test_parse_component_tag_robust_to_config(gen_module=None):
     assert parse_component_tag("[E-S2] Gun")[1] == "S2"
 
 
+def test_parse_component_tag_trailing_placement():
+    """A category configured to append (tag after the name) must still
+    extract class/size/grade — pre-fix this lost the facets entirely for
+    any append-placed category."""
+    assert parse_component_tag("Balandin [MIL-S3-B]") == ("MIL", "S3", "B")
+    assert parse_component_tag("Palisade [ind-s1-a]") == ("IND", "S1", "A")
+
+
+def test_parse_component_tag_leading_wins_when_both_present():
+    """Extremely unlikely in real data (a name can't legitimately carry two
+    tags), but pins that a leading match short-circuits before the trailing
+    regex ever runs."""
+    assert parse_component_tag("[MIL-S3-B] Balandin [IND-S1-A]") == ("MIL", "S3", "B")
+
+
 def test_size_from_key():
     assert size_from_key("item_NamePOWR_ACOM_S01_StarHeart") == "S1"
     assert size_from_key("item_NameQDRV_RSI_S02_Hemera") == "S2"
@@ -63,12 +80,40 @@ def test_component_type_from_key():
     assert component_type_from_key("item_NameAEGS_Eclipse_BombRack_S03") is None
 
 
+def test_expand_class_full_word():
+    # Medium (default Tag Builder style) and Short both expand to the same
+    # full word; already-full and unrecognized tokens pass through.
+    assert expand_class_full_word("MIL") == "Military"
+    assert expand_class_full_word("mil") == "Military"
+    assert expand_class_full_word("M") == "Military"
+    assert expand_class_full_word("IND") == "Industrial"
+    assert expand_class_full_word("I") == "Industrial"
+    assert expand_class_full_word("CIV") == "Civilian"
+    assert expand_class_full_word("STH") == "Stealth"
+    assert expand_class_full_word("CMP") == "Competition"
+    assert expand_class_full_word("Military") == "Military"
+    assert expand_class_full_word("CustomLabel") == "CustomLabel"
+    assert expand_class_full_word(None) is None
+    assert expand_class_full_word("") == ""
+
+
+def test_strip_size_prefix():
+    assert strip_size_prefix("S3") == "3"
+    assert strip_size_prefix("s10") == "10"
+    assert strip_size_prefix("S0") == "0"
+    assert strip_size_prefix(None) is None
+    assert strip_size_prefix("") == ""
+    # Already bare — left alone.
+    assert strip_size_prefix("3") == "3"
+
+
 def test_blueprint_type_buckets():
     # Ship component type wins.
     assert blueprint_type_from_key("item_NameSHLD_Aspirum") == "Shield"
     # FPS weapon and armor by key tokens.
     assert blueprint_type_from_key("item_Name_rifle_behr_p4ar") == "FPS Weapon"
     assert blueprint_type_from_key("item_Name_pistol_gmni") == "FPS Weapon"
+    assert blueprint_type_from_key("item_Nameutfl_crossbow_ballistic_01") == "FPS Weapon"
     assert blueprint_type_from_key("item_Name_armor_rsi_torso") == "Armor"
     assert blueprint_type_from_key("item_Name_helmet_xyz") == "Armor"
     # Ship weapons (#212): uppercase manufacturer + weapon size designator,
@@ -85,6 +130,39 @@ def test_blueprint_type_buckets():
     # BombRack has no _Sx / _XL size designator, so it stays None.
     assert blueprint_type_from_key("item_NameAEGS_Eclipse_BombRack") is None
     assert blueprint_type_from_key(None) is None
+
+
+def test_blueprint_type_armor_core_pieces():
+    """FPS armor torso-platform pieces ("Core") reported showing up in the
+    Blueprint Tracker's "Other" bucket instead of "Armor". Newer
+    manufacturer-prefixed armor lines carry no "armor" token in the key at
+    all (unlike CIG's older sets, which do), only "core"."""
+    assert blueprint_type_from_key("item_Name_qrt_specialist_heavy_core_01_01_01") == "Armor"
+    assert blueprint_type_from_key("item_Name_kap_combat_light_core_01_01_01") == "Armor"
+    assert blueprint_type_from_key("item_Name_GRIN_utility_medium_core_01_01_01") == "Armor"
+    # Older sets that DO carry "armor" in the key still work (no regression).
+    assert blueprint_type_from_key("item_Name_cds_armor_heavy_core_01_02_01") == "Armor"
+    # Ship components sharing the bare "core" word must not be reclassified —
+    # their component-type-code prefix (POWR_/COOL_) wins first.
+    assert blueprint_type_from_key("item_NamePOWR_ACOM_S02_LuxCore_SCItem") == "Power Plant"
+    assert blueprint_type_from_key("item_NameCOOL_JUST_S02_CoolCore") == "Cooler"
+    # The word is "_core" (underscore-prefixed), not bare "core" — a bare
+    # substring match would misclassify anything with "score"/"scoreboard" in
+    # the key ("score" contains "core"), and no armor set actually needs the
+    # bare form since every real armor "core" piece carries the underscore.
+    assert blueprint_type_from_key("item_Name_gys_scoreboard_01_01_01") is None
+    assert blueprint_type_from_key("item_Name_gys_highscore_01_01_01") is None
+
+
+def test_blueprint_type_gys_jacket_and_pants():
+    """Carnifex set torso/leg pieces reported showing up in "Other" — the
+    "gys" manufacturer keys these as jacket/pants, not core/legs/armor."""
+    assert blueprint_type_from_key("item_Name_gys_jacket_01_01_01") == "Armor"
+    assert blueprint_type_from_key("item_Name_gys_pants_01_01_01") == "Armor"
+    # Scoped to "gys_" specifically — a bare "jacket"/"pants" match would also
+    # catch unrelated civilian wardrobe items from other manufacturers.
+    assert blueprint_type_from_key("item_Desc_987_Jacket_01_01_01") is None
+    assert blueprint_type_from_key("item_Desc_DMC_Pants_01_01_01") is None
 
 
 def test_clean_mission_title_strips_reward_tags():
@@ -110,7 +188,7 @@ def test_build_joins_component_attributes():
     meta = build_blueprint_metadata(_sample_entries())
     assert set(meta) == {"Balandin", "Abrade Scraper Module"}
     bal = meta["Balandin"]
-    assert (bal.type, bal.cls, bal.size, bal.grade) == ("Quantum Drive", "MIL", "S3", "B")
+    assert (bal.type, bal.cls, bal.size, bal.grade) == ("Quantum Drive", "Military", "3", "B")
     # Plain item with no matching name entry -> "Other" type, no class/size/grade.
     scraper = meta["Abrade Scraper Module"]
     assert (scraper.type, scraper.cls, scraper.size, scraper.grade) == ("Other", None, None, None)

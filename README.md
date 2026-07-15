@@ -16,9 +16,9 @@ A Windows desktop app for customizing Star Citizen's localization strings. Layer
 - **Sourced from Data.p4k**: All stock localization and DataForge entity data is extracted directly from your installed game — no community mirrors, no version drift, no network required after install.
 - **Inline Editing & Live Preview**: Double-click any cell in the *Custom Value* column to edit. A preview pane next to the toolbar renders the selected string with the game's loc-tokens (line breaks, EM3/EM4 emphasis, mission placeholders) translated to styled HTML so you see roughly how it will appear in-game.
 - **Persistent Edits**: Your customizations are saved to `user.ini` per channel and automatically re-applied across game updates.
-- **Auto-Generated Enhancements**: Stat overlays for ships, ship components, ship weapons, FPS weapons, missions (with `[BP]`/`[BP?]` blueprint reward tags + structured detail blocks), journal entries, and commodity crafting cross-references — all togglable per category in the Enhancements tab. Stat blocks can sit above or below the description.
+- **Auto-Generated Enhancements**: Stat overlays for ships, ship components, ship weapons, FPS weapons, missions (with `[BP]`/`[BP?]` blueprint reward tags + structured detail blocks), journal entries, commodity crafting cross-references, and medical consumable effects — all togglable per category in the Enhancements tab. Stat blocks can sit above or below the description. Mission XP names the reputation track it feeds, Battaglia scan/mine titles carry `[RS ####]` resource-signature tags, and the Mining Compendium journal lists each ore's base RS.
 - **Tag Builder & Mission Titles**: Customize the bracketed name tags on components, missiles, ship weapons, and commodities, and lead hauling mission titles with their route (e.g. `Area18 > Lorville`) — configurable placement, arrow, separator, and location detail, plus optional stock-title shortening, with a live preview.
-- **Blueprints Ownership**: Mark the crafting blueprints you already own — owned items get a star in an **Owned** column, and blueprint-title / blueprint-description filters help you find and tag them, so you can see at a glance what you still need.
+- **Blueprint Tracker**: A dedicated tab for marking the crafting blueprints you already own. Shuttle items between Available and Owned, narrow the list with search and Mission / Type / Class / Size / Grade filters, and owned items get a blue `[Owned]` tag in mission blueprint lists. **Scan Logs for Owned Blueprints** reads your Star Citizen log files to populate ownership automatically, importing only what's new since the last scan.
 - **Declarative CIG Data-Bug Patches**: A patch system applies fixes to known DataForge bugs at extraction time so the in-game text reads correctly without waiting on CIG.
 - **Search & Filter**: Free-text search, category filter (Ships, Ship Items, Missions, Gear, Commodities, Journal, Other), modified/unmodified status, plus per-column filter rows under every header.
 - **Ship Favorites**: Star a ship to prepend a configurable prefix (default `*`) so your favorites sort to the top of the in-game ASOP terminal.
@@ -202,6 +202,7 @@ StarCitizen/
 
 Thanks to those who've contributed code to Smart Citizen:
 
+- [**Stealrull**](https://github.com/Stealrull)
 - [**Ishikudeska**](https://github.com/Ishikudeska)
 - **jonigirl**
 - [**Coerwyn**](https://github.com/Coerwyn)
@@ -211,9 +212,10 @@ Thanks to those who've contributed code to Smart Citizen:
 
 ## Acknowledgments
 
-- **Boogie Man, Perseuscz, Flat Earth, Lord Valium, Zero, Apolleon Phoibos, Epiq, Narull** — testers who helped shape Smart Citizen with their feedback
+- **Boogie Man, Perseuscz, Flat Earth, Lord Valium, Zero, Apolleon Phoibos, Epiq, Narull, XaileiShiv, Mindbulletz** — testers who helped shape Smart Citizen with their feedback
 - **Akwa** — French interface translation
 - **Nxzzin** — Brazilian Portuguese interface translation
+- [**Thord82**](https://github.com/Thord82) — Spanish interface translation, plus the [Spanish `global.ini` source](https://github.com/Thord82/Star_citizen_ES) that powers the Spanish game strings
 - [**Osiris-DevWorks/odw-fast-unp4k**](https://github.com/Osiris-DevWorks/odw-fast-unp4k) — Bundled `unp4k.exe` / `unforge.exe` used to unpack `Data.p4k` and convert DataForge to XML; our parallelized fork of the original [dolkensp/unp4k](https://github.com/dolkensp/unp4k)
 - [**Dymerz/StarCitizen-Localization**](https://github.com/Dymerz/StarCitizen-Localization) — Community-maintained `global.ini` translations that power the non-English language options
 - [**ExoAE**](https://github.com/ExoAE/ScCompLangPack) — Original ScCompLangPack concept and merge logic that inspired Smart Citizen's foundation

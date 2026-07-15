@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, asdict, field
 from typing import Any
 
@@ -168,39 +169,152 @@ TITLE_SEPARATORS: tuple[tuple[str, str, str], ...] = (
     ("space", "Space",       " "),
 )
 # How much of a location the route shows — the only game-backed lever
-# (‘name’ = ~mission(...|name), ‘address’ = ~mission(...|Address)).
+# (‘name’ = ~mission(...|name), ‘address’ = ~mission(...|Address)). "address"
+# listed first — it's the default (dropdown order should put the default on
+# top so it's the first thing a user sees).
 LOCATION_DETAILS: tuple[tuple[str, str], ...] = (
-    ("name",    "Name"),
     ("address", "Full address"),
+    ("name",    "Name"),
 )
 # Placement options for the mission-title route (prepend/append/replace). Kept
 # separate from PLACEMENTS (which other tabs use) because "replace" only makes
-# sense for a whole title, never for a component name tag.
+# sense for a whole title, never for a component name tag. "append" listed
+# first — it's the default.
 MISSION_TITLE_PLACEMENTS: tuple[tuple[str, str], ...] = (
-    ("prepend", "Before title"),
     ("append",  "After title"),
+    ("prepend", "Before title"),
     ("replace", "Replace title"),
 )
 
 _ROUTE_ARROW_BY_KEY = {k: s for k, _, s in ROUTE_ARROWS}
 _TITLE_SEP_BY_KEY = {k: s for k, _, s in TITLE_SEPARATORS}
 
-# Curated phrase map for the "shorten original titles" toggle (#200 follow-up).
-# Applied to the LITERAL text of stock hauling titles; ~mission(...) tokens are
-# never touched. Ordered longest-first so specific phrases win over fragments.
-# Unmapped titles pass through unchanged, so a new CIG title can never break.
-TITLE_ABBREVIATIONS: tuple[tuple[str, str], ...] = (
-    ("Opportunity for Independent Cargo Hauler", "Intro"),
-    ("Hauler Needed for", "-"),
-    ("Local Shipment Route", "Route"),
-    ("Cargo Haul", ""),
-    (" Rank -", " -"),
-    (" Rank,", ","),
+# Curated phrase toggles that SHORTEN a specific stock phrase to something
+# shorter (#200 follow-up, generalized to per-phrase checkboxes). Applied to
+# the LITERAL text of stock hauling titles; ~mission(...) tokens are never
+# touched — these phrases all contain a space, which never appears inside a
+# token (e.g. "CargoGradeToken" has no space). Each entry:
+# (key, label, phrase, replacement). Unmapped titles pass through unchanged,
+# so a new CIG title can never break.
+SHORTEN_PHRASE_OPTIONS: tuple[tuple[str, str, str, str], ...] = (
+    ("intro", 'Shorten "Opportunity for Independent Cargo Hauler" to "Intro"',
+     "Opportunity for Independent Cargo Hauler", "Intro"),
+    # "-" here is a fallback only — abbreviate_title() overrides it with the
+    # live rank_separator at render time (see the special-case there).
+    ("hauler_needed_for", 'Shorten "Hauler Needed for" to the Rank separator',
+     "Hauler Needed for", "-"),
+    ("local_shipment_route", 'Shorten "Local Shipment Route" to "Route"',
+     "Local Shipment Route", "Route"),
+    # Ling Family haul titles ("Ling Family ~mission(ReputationRank) Cargo
+    # Haul - ...") put "Cargo" directly after the rank token with no "Rank"
+    # word and no separator at all — a third stock phrasing distinct from
+    # both the dash/comma RANK_TRIGGERS and "Hauler Needed for". Fallback
+    # text here is unused — abbreviate_title() overrides it with the live
+    # word + rank_separator at render time (see the special-case there).
+    ("ling_family_rank", 'Add the Rank separator to Ling Family haul titles',
+     "~mission(ReputationRank) Cargo", "~mission(ReputationRank) Rank Cargo"),
+    ("ling_family_prefix", 'Shorten "Ling Family" by removing it',
+     "Ling Family ", ""),
+)
+
+# Curated word toggles that REMOVE a word outright rather than shortening a
+# phrase. "cargo"/"haul" use \b-bounded regex so a bare word can't match
+# mid-token (e.g. "Cargo" has no boundary before the "G" in
+# "CargoGradeToken"). "rank" is handled separately below (see RANK_TRIGGERS)
+# since its removal is context-sensitive, but shares this same key/label/
+# phrase/replacement shape for a uniform checkbox list in the UI.
+REMOVE_WORD_OPTIONS: tuple[tuple[str, str, str, str], ...] = (
+    ("cargo", 'Remove "Cargo"', "Cargo", ""),
+    ("haul", 'Remove "Haul"', "Haul", ""),
+    ("rank", 'Remove "Rank"', "", ""),  # phrase/replacement unused — see RANK_TRIGGERS
+)
+
+# Word transform (not a removal) that wraps "Direct" in EM3 emphasis and
+# uppercases it, so direct (single pickup/drop-off) hauls stand out in the
+# contract list. Same key/label/phrase/replacement shape as the option
+# tables above so it plugs into the same abbreviate_title() loop and UI
+# checkbox mechanism; \b-bounded like "cargo"/"haul" for the same
+# token-safety reason.
+UNDERLINE_OPTIONS: tuple[tuple[str, str, str, str], ...] = (
+    # Label is UI-facing and deliberately doesn't expose the raw <EM3> tag
+    # syntax — the UI renders the effect as an actual underline instead.
+    ("underline_direct", 'Underline "Direct"', "Direct", "<EM3>DIRECT</EM3>"),
+)
+
+# The two known literal contexts where "Rank" appears in stock titles,
+# distinguished by the punctuation CIG's text uses right after it (leading
+# space protects tokens like "~mission(ReputationRank)", which has no space
+# before "Rank"). Both share the single "rank" checkbox; the punctuation
+# itself always re-renders per `TagConfig.rank_separator` regardless of
+# whether "Rank" is removed (see `abbreviate_title`).
+RANK_TRIGGERS: tuple[str, ...] = (" Rank -", " Rank,")
+
+# Separator rendered after the "Rank" position, independent of whether Rank
+# itself was removed. Aliased to TITLE_SEPARATORS rather than a second copy
+# of the same four options (dash listed first — it's the default) so the
+# two option sets can't drift apart; "space" collapses to the same visible
+# result a dedicated "none" option would after whitespace normalization, so
+# there's no need for a separate "none" entry either.
+# tests/test_mission_title_tag.py::test_rank_separator_matches_title_separator_options
+# locks the alias.
+RANK_SEPARATORS = TITLE_SEPARATORS
+_RANK_SEP_BY_KEY = {k: s for k, _, s in RANK_SEPARATORS}
+
+# "Standardize hauling mission names" (top-of-page toggle, separate from the
+# per-word/phrase checkboxes): rewrites a stock haul title into ONE canonical
+# shape instead of shortening whatever CIG happened to write. Only titles
+# carrying BOTH tokens below are eligible — the procedural Covalex/DeadSaints/
+# RedWind/Ling Family archetypes. Fixed one-off titles (region-link specials,
+# GoblinG's resource-drive chain, intro/rehire text) have no rank or size to
+# build a template from, so they pass through untouched.
+_HAUL_RANK_TOKEN = "~mission(ReputationRank)"
+_HAUL_SIZE_TOKEN = "~mission(CargoGradeToken)"
+_HAUL_DIRECT_RE = re.compile(r"\bDirect\b")
+_HAUL_CIRCUIT_RE = re.compile(r"\bCircuit\b")
+
+
+def _standardize_hauling_title(title: str, remove_rank: bool, sep: str) -> str:
+    """Rewrite *title* into the canonical "Rank <sep> [Direct] Size Cargo
+    Haul [Circuit]" shape when it carries both the rank and size tokens.
+
+    Ignores whatever wording/order/company-prefix the stock title used
+    (e.g. Ling Family's "Ling Family Rank Size Cargo - Size Scale" or
+    RedWind's "Rank Hauler Needed for Size Shipment") and rebuilds from
+    scratch, preserving only the Direct/Circuit flags detected in the
+    original text. `remove_rank` mirrors the same "rank" checkbox the
+    RANK_TRIGGERS block below honors, so Standardize composes with it
+    instead of always forcing the word "Rank" in.
+    """
+    if _HAUL_RANK_TOKEN not in title or _HAUL_SIZE_TOKEN not in title:
+        return title
+    direct = "Direct " if _HAUL_DIRECT_RE.search(title) else ""
+    circuit = " Circuit" if _HAUL_CIRCUIT_RE.search(title) else ""
+    word = "" if remove_rank else "Rank"
+    return (
+        f"{_HAUL_RANK_TOKEN} {word}{sep} {direct}{_HAUL_SIZE_TOKEN} "
+        f"Cargo Haul{circuit}"
+    )
+
+
+# Keys covered by the legacy `abbreviate_title: true` bool migration — scoped
+# to the original shortening feature only. UNDERLINE_OPTIONS is a distinct,
+# newer feature and deliberately excluded so upgrading users don't get a
+# visual change (EM3 emphasis) they never opted into.
+_LEGACY_MIGRATION_KEYS: frozenset[str] = (
+    frozenset(k for k, *_ in SHORTEN_PHRASE_OPTIONS)
+    | frozenset(k for k, *_ in REMOVE_WORD_OPTIONS)
+)
+
+# All valid keys for TagConfig.abbreviated_phrases — used to filter stale
+# entries out of persisted config.
+_ABBREVIATION_OPTION_KEYS: frozenset[str] = (
+    _LEGACY_MIGRATION_KEYS | frozenset(k for k, *_ in UNDERLINE_OPTIONS)
 )
 
 
-# Cargo-grade size words → abbreviations, applied with the Shorten toggle
-# (#200 follow-up). The ~mission(CargoGradeToken) title token resolves through
+# Cargo-grade size words → abbreviations, each independently selectable via
+# its own dropdown (None / the preset abbreviation) rather than a single
+# bundled toggle. The ~mission(CargoGradeToken) title token resolves through
 # the HaulCargo_CargoGrade_* / HaulCargo_CargoScale_* loc keys, so the
 # generator overrides those VALUES (exact match only; an unmapped grade passes
 # through untouched). Ordered longest-first for literal-text use (preview).
@@ -212,20 +326,75 @@ SIZE_ABBREVIATIONS: tuple[tuple[str, str], ...] = (
     ("Large", "L"),
 )
 SIZE_ABBREV_BY_WORD: dict[str, str] = dict(SIZE_ABBREVIATIONS)
+_SIZE_WORDS: frozenset[str] = frozenset(SIZE_ABBREV_BY_WORD)
 
 
-def abbreviate_title(title: str) -> str:
-    """Shorten a stock mission title via the curated phrase map.
+def _replace_word(text: str, word: str, replacement: str) -> str:
+    """Replace *word* with *replacement*, \\b-bounded so it can't match
+    inside a longer token (e.g. "Cargo" must not match "CargoGradeToken")."""
+    return re.sub(rf"\b{re.escape(word)}\b", replacement, text)
 
-    Plain literal replacement plus whitespace collapse and a trailing
-    separator trim (a removed phrase can leave a dangling " -"); game tokens
-    pass through untouched. Single source for the generator and the tab
-    preview.
+
+def abbreviate_title(title: str, enabled: frozenset[str] = frozenset(),
+                      rank_separator: str = "dash",
+                      standardize_hauling: bool = False) -> str:
+    """Shorten a stock mission title per the *enabled* option keys.
+
+    Each `SHORTEN_PHRASE_OPTIONS` / `REMOVE_WORD_OPTIONS` entry (other than
+    "rank") applies only when its key is in *enabled*. The `RANK_TRIGGERS`
+    contexts are handled separately and UNCONDITIONALLY on *enabled* — the
+    punctuation after "Rank" always re-renders as `rank_separator` on its
+    own, whether or not any checkbox is ticked (only the word "Rank" itself
+    is conditional on the shared "rank" key). Plain literal / word-boundary
+    replacement plus whitespace collapse and a trailing-separator trim (a
+    removed phrase can leave a dangling " -"); game tokens pass through
+    untouched. Single source for the generator and the tab preview.
+
+    `standardize_hauling` runs FIRST, ahead of every other option — it's a
+    template rewrite (see `_standardize_hauling_title`), not a shorten/
+    remove pass, so the word/phrase checkboxes below still apply on top of
+    its output (e.g. "Remove Cargo" still strips "Cargo" from the freshly
+    standardized text).
     """
     out = title
-    for phrase, short in TITLE_ABBREVIATIONS:
-        out = out.replace(phrase, short)
-    return " ".join(out.split()).rstrip(" -,")
+    sep = _RANK_SEP_BY_KEY.get(rank_separator, "")
+    remove_rank = "rank" in enabled
+    if standardize_hauling:
+        out = _standardize_hauling_title(out, remove_rank, sep)
+    for key, _label, phrase, short in (*SHORTEN_PHRASE_OPTIONS, *REMOVE_WORD_OPTIONS, *UNDERLINE_OPTIONS):
+        if key not in enabled or key == "rank":
+            continue
+        if key == "hauler_needed_for":
+            # CIG's "Hauler Needed for" phrasing (RedWind haul titles) sits
+            # in the exact same slot as the literal " Rank -"/" Rank,"
+            # triggers below — a separator between the reputation rank and
+            # the mission subject — but never spells out the word "Rank"
+            # itself. Render it the same way those triggers do: keep the
+            # word "Rank" (so "Rookie" reads as "Rookie Rank", matching
+            # every other haul title) unless the shared "rank" removal
+            # checkbox is also on, then track rank_separator either way
+            # instead of the fixed dash the option used to hardcode
+            # (whitespace collapse below absorbs the extra padding).
+            short = sep if remove_rank else f"Rank{sep}"
+        elif key == "ling_family_rank":
+            # Ling Family haul titles put "Cargo" directly after the rank
+            # token with no "Rank" word and no separator at all — insert
+            # both here the same way the dash/comma RANK_TRIGGERS do,
+            # anchored on the literal token text since there's no existing
+            # word/punctuation to key off of.
+            word = "" if remove_rank else "Rank"
+            fragment = f" {word}{sep}" if word else f" {sep}"
+            short = f"~mission(ReputationRank){fragment}Cargo"
+        out = out.replace(phrase, short) if " " in phrase else _replace_word(out, phrase, short)
+
+    for trigger in RANK_TRIGGERS:
+        if trigger not in out:
+            continue
+        word = "" if remove_rank else "Rank"
+        fragment = f" {word}{sep}" if word else f" {sep}"
+        out = out.replace(trigger, fragment)
+
+    return " ".join(out.split()).rstrip(" -,|:")
 
 
 # ── Built-in class/ordinance/damage variant mappings ─────────────────────────
@@ -382,14 +551,33 @@ class TagConfig:
     # mission bodies themselves resolve, so it never falls back to raw variable
     # text in-game; |name fails for some mission instances (#200).
     location_detail: str = "address"
-    # Shorten stock hauling titles via TITLE_ABBREVIATIONS so the route plus
-    # tags don't overflow the contract list (#200 follow-up). Off by default.
-    abbreviate_title: bool = False
+    # Which SHORTEN_PHRASE_OPTIONS / REMOVE_WORD_OPTIONS keys are active for
+    # the "shorten original titles" feature, so the route plus tags don't
+    # overflow the contract list (#200 follow-up; generalized to per-word
+    # checkboxes). Empty by default — off until the user opts in.
+    abbreviated_phrases: frozenset[str] = field(default_factory=frozenset)
+    # Separator rendered after the "Rank" position — key from RANK_SEPARATORS.
+    # Independent feature: always applied when a Rank context is detected,
+    # regardless of whether the "rank" word-removal checkbox — or any other
+    # checkbox on this page — is on. Defaults to "dash" so it's on by itself
+    # out of the box, matching what stock dash-led titles already show.
+    rank_separator: str = "dash"
+    # Which SIZE_ABBREVIATIONS words get shortened. All-or-nothing via the
+    # single "Shorten cargo sizes" master checkbox, not per-size. Empty by
+    # default — off until the user opts in.
+    shortened_sizes: frozenset[str] = field(default_factory=frozenset)
+    # "Standardize hauling mission names" (top-of-page toggle, sibling of the
+    # route-enable checkbox — not part of `abbreviated_phrases` since it's a
+    # template rewrite, not a shorten/remove pass; see
+    # `_standardize_hauling_title`). Off by default.
+    standardize_hauling_names: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         # asdict turns tuple values into lists — keep them as lists in JSON.
         d["class_mapping"] = {k: list(v) for k, v in self.class_mapping.items()}
+        d["abbreviated_phrases"] = sorted(self.abbreviated_phrases)
+        d["shortened_sizes"] = sorted(self.shortened_sizes)
         return d
 
     def to_json(self) -> str:
@@ -417,6 +605,28 @@ class TagConfig:
         placement = data.get("placement", "prepend") or "prepend"
         if placement not in ("prepend", "append", "replace"):
             placement = "prepend"
+        raw_phrases = data.get("abbreviated_phrases")
+        legacy_on = bool(data.get("abbreviate_title", False))
+        if raw_phrases is None:
+            # Backward compat: pre-redesign blobs stored a single bool. A
+            # user who had opted in (`abbreviate_title: true`) gets a
+            # superset of the old behavior — every current option key turns
+            # on, including the new Ling Family handling ("ling_family_rank"
+            # / "ling_family_prefix") that didn't exist to opt into before.
+            abbreviated_phrases = frozenset(_LEGACY_MIGRATION_KEYS) if legacy_on else frozenset()
+        else:
+            abbreviated_phrases = frozenset(
+                k for k in raw_phrases if k in _ABBREVIATION_OPTION_KEYS
+            )
+        rank_separator = data.get("rank_separator", "dash") or "dash"
+        if rank_separator not in _RANK_SEP_BY_KEY:
+            rank_separator = "dash"
+        raw_sizes = data.get("shortened_sizes")
+        if raw_sizes is None:
+            # Same legacy bool covered per-size shortening pre-redesign too.
+            shortened_sizes = frozenset(_SIZE_WORDS) if legacy_on else frozenset()
+        else:
+            shortened_sizes = frozenset(w for w in raw_sizes if w in _SIZE_WORDS)
         return cls(
             elements=elements,
             separator=data.get("separator", "hyphen") or "hyphen",
@@ -427,7 +637,10 @@ class TagConfig:
             route_arrow=data.get("route_arrow", "gt") or "gt",
             title_separator=data.get("title_separator", "dash") or "dash",
             location_detail=data.get("location_detail", "address") or "address",
-            abbreviate_title=bool(data.get("abbreviate_title", False)),
+            abbreviated_phrases=abbreviated_phrases,
+            rank_separator=rank_separator,
+            shortened_sizes=shortened_sizes,
+            standardize_hauling_names=bool(data.get("standardize_hauling_names", False)),
         )
 
     @classmethod
@@ -503,11 +716,12 @@ DEFAULT_TAG_CONFIGS: dict[str, TagConfig] = {
 DEFAULT_TAG_CONFIGS["mission_titles"] = TagConfig(
     # A single "route" element whose enabled-flag is the feature on/off. The
     # look is driven by route_arrow / title_separator / location_detail +
-    # placement, not by element styles. Default: route-led (prepend), ">",
-    # " - " join, full address (2.1.1, #200: short |name can fail to resolve
-    # for some mission instances). Absorbs the #166 route-in-title toggle.
+    # placement, not by element styles. Default: route AFTER the title
+    # ("append"), ">", " - " join, full address (2.1.1, #200: short |name
+    # can fail to resolve for some mission instances). Absorbs the #166
+    # route-in-title toggle.
     elements=[ElementSpec("route", True, "")],
-    placement="prepend",
+    placement="append",
     route_arrow="gt",
     title_separator="dash",
     location_detail="address",
@@ -574,7 +788,10 @@ def default_config(category: str) -> TagConfig:
         route_arrow=src.route_arrow,
         title_separator=src.title_separator,
         location_detail=src.location_detail,
-        abbreviate_title=src.abbreviate_title,
+        abbreviated_phrases=frozenset(src.abbreviated_phrases),
+        rank_separator=src.rank_separator,
+        shortened_sizes=frozenset(src.shortened_sizes),
+        standardize_hauling_names=src.standardize_hauling_names,
     )
 
 

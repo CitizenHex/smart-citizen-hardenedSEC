@@ -4,21 +4,27 @@ from dataclasses import replace as dc_replace
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QFrame, QGridLayout, QGroupBox,
-    QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
-    QPushButton, QScrollArea, QSizePolicy, QTabWidget, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QFrame, QGridLayout, QGroupBox,
+    QHBoxLayout, QLabel, QLineEdit, QMessageBox,
+    QPushButton, QScrollArea, QSizePolicy, QTabBar, QTabWidget, QVBoxLayout,
+    QWidget,
 )
 
 from src.gui.tag_mapping_dialog import TagMappingDialog
+from src.gui.theme import get_button_color
 from src.utils.i18n import tr
 from src.utils.settings import AppSettings
 from src.utils.tag_builder import (
     CATEGORIES, ELEMENT_LABELS, ENCLOSINGS, LOCATION_DETAILS,
-    MAPPED_KIND_NAMES, MISSION_TITLE_PLACEMENTS, PLACEMENTS, ROUTE_ARROWS,
-    SEPARATORS, SIZE_ABBREVIATIONS, STYLES_BY_KIND, TITLE_SEPARATORS, TagConfig,
-    USAGE_INPUT_SEP, abbreviate_title, apply_mission_title, default_config,
-    render_route, render_tag, route_enabled,
+    MAPPED_KIND_NAMES, MISSION_TITLE_PLACEMENTS, PLACEMENTS, RANK_SEPARATORS,
+    REMOVE_WORD_OPTIONS, ROUTE_ARROWS, SEPARATORS, SHORTEN_PHRASE_OPTIONS,
+    SIZE_ABBREV_BY_WORD, STYLES_BY_KIND, TITLE_SEPARATORS, TagConfig,
+    UNDERLINE_OPTIONS, USAGE_INPUT_SEP, abbreviate_title, apply_mission_title,
+    default_config, render_route, render_tag, route_enabled,
 )
+
+# All cargo-size words, for the single "Shorten cargo sizes" master toggle.
+_ALL_SIZE_WORDS: frozenset[str] = frozenset(SIZE_ABBREV_BY_WORD)
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +47,39 @@ class _NoScrollComboBox(QComboBox):
             super().wheelEvent(event)
         else:
             event.ignore()
+
+    def showPopup(self):  # noqa: N802 (Qt override)
+        # Qt's default popup placement flips the list above the box when it
+        # judges there isn't room below (common in this tab's scroll area,
+        # even when there visually is room) — force it below whenever that
+        # actually fits on-screen, so the option list is where the user
+        # expects it. A combo near the bottom of the screen is the case Qt's
+        # flip logic exists for; forcing "below" there would run the popup
+        # off the bottom of the display, so only override when there's room.
+        super().showPopup()
+        popup = self.view().window()
+        below_point = self.mapToGlobal(self.rect().bottomLeft())
+        screen = self.screen()
+        fits_below = (
+            screen is None
+            or below_point.y() + popup.height() <= screen.availableGeometry().bottom()
+        )
+        if fits_below:
+            popup.move(below_point)
+
+
+class _NoScrollTabBar(QTabBar):
+    """A tab bar that never switches tabs on mouse wheel scroll.
+
+    Unlike a combo box (_NoScrollComboBox above), there's no legitimate case
+    for wheel-scrolling through tabs here — a hover-scroll over the Tag
+    Builder's category tabs (Components/Missiles/.../Mission Titles) should
+    scroll the page, not silently jump categories. Always ignores the wheel
+    event so it bubbles up to the enclosing scroll area instead.
+    """
+
+    def wheelEvent(self, event):  # noqa: N802 (Qt override)
+        event.ignore()
 
 
 # Sample values used by the live preview so the user can see what their
@@ -73,9 +112,6 @@ class EnhancementsTab(QWidget):
 
     merge_requested = pyqtSignal()
     enhancements_pipeline_requested = pyqtSignal()   # extract DataForge if needed, then generate enhancements
-    # The owned-blueprint set changed via the Blueprints shuttle (#157 follow-up).
-    # MainWindow re-weaves [Owned] tags into the strings table and refreshes it.
-    owned_items_changed = pyqtSignal()
     # (old_prefix, new_prefix) — the favourite sort prefix changed. MainWindow
     # re-prefixes in-memory favourites to match the migrated user.ini before
     # reloading, so the reload's pending-edit snapshot doesn't clobber the new
@@ -85,6 +121,13 @@ class EnhancementsTab(QWidget):
     def __init__(self):
         super().__init__()
         self._loaded_prefix = AppSettings.get_favorite_prefix()
+        # Dirty flags gate the Generate Enhancements / Save Tag Changes
+        # buttons: disabled until something in their own section changes,
+        # so a grey button tells the user "already up to date" instead of
+        # inviting a redundant multi-minute regen (see _mark_*_dirty below).
+        self._enhancements_dirty = False
+        self._tag_dirty = False
+        self._prefix_dirty = False
         self.setup_ui()
 
     def setup_ui(self):
@@ -114,9 +157,6 @@ class EnhancementsTab(QWidget):
 
         self._tag_builder_group = self._build_tag_builder_group()
         layout.addWidget(self._tag_builder_group, 1)
-
-        self._blueprints_group = self._build_blueprints_group()
-        layout.addWidget(self._blueprints_group)
         layout.addStretch()
 
         scroll = QScrollArea()
@@ -151,6 +191,7 @@ class EnhancementsTab(QWidget):
             "missions":    tr("enhancements.cat_desc_missions"),
             "commodities": tr("enhancements.cat_desc_commodities"),
             "journal":     tr("enhancements.cat_desc_journal"),
+            "medical_consumables": tr("enhancements.cat_desc_medical_consumables"),
         }
 
         self._enhancements_status_labels: dict = {}
@@ -160,7 +201,7 @@ class EnhancementsTab(QWidget):
         # stack down the left column and the next three down the right —
         # reads top-to-bottom-then-right rather than left-to-right.
         categories_layout = QGridLayout()
-        categories_layout.setHorizontalSpacing(24)
+        categories_layout.setHorizontalSpacing(12)
         categories_layout.setVerticalSpacing(4)
         column_height = 2
         for idx, (key, label) in enumerate(AppSettings.ENHANCEMENT_LABELS.items()):
@@ -180,6 +221,7 @@ class EnhancementsTab(QWidget):
             cb.setChecked(AppSettings.get_enhancement_category_enabled(key))
             cb.setStyleSheet("font-size: 11px;")
             cb.toggled.connect(self._on_category_checkbox_changed)
+            cb.toggled.connect(self._mark_enhancements_dirty)
             row.addWidget(cb)
             self._enhancements_checkboxes[key] = cb
 
@@ -197,8 +239,16 @@ class EnhancementsTab(QWidget):
         categories_layout.setColumnStretch(0, 0)
         categories_layout.setColumnStretch(1, 0)
         categories_layout.setColumnStretch(2, 0)
-        categories_layout.setColumnStretch(3, 1)
-        gl.addLayout(categories_layout)
+        categories_layout.setColumnStretch(3, 0)
+        # Pack the grid to its natural (left-hugging) width and let a
+        # trailing stretch absorb the rest of the row — previously column 3
+        # itself carried the stretch, which spread the categories out across
+        # the full tab width and forced horizontal scrolling.
+        categories_row = QHBoxLayout()
+        categories_row.setContentsMargins(0, 0, 0, 0)
+        categories_row.addLayout(categories_layout)
+        categories_row.addStretch()
+        gl.addLayout(categories_row)
 
         # ── Mission detail fields (#121) ───────────────────────────────────
         # Granular show/hide for each line the generator adds to a mission
@@ -209,49 +259,34 @@ class EnhancementsTab(QWidget):
         mf_heading.setStyleSheet("font-size: 11px; font-weight: bold;")
         gl.addWidget(mf_heading)
 
-        _MISSION_FIELD_LABELS = [
+        # Stored on self (not a local) so retranslate_ui can rebuild each
+        # checkbox's tooltip after a language switch without duplicating
+        # this list.
+        self._mission_field_labels = [
             ("mission_type",  "Mission Type"),
             ("difficulty",    "Difficulty"),
             ("spawns",        "Hostiles"),
             ("reputation",    "Reputation"),
             ("blueprints",    "Blueprints"),
-            ("blueprint_tag", "Blueprint Tag"),
-            ("ace",           "Ace Pilot Tag"),
+            ("ace",           "Ace Pilot"),
         ]
-        # The blueprint_tag field controls the [BP]/[BP?] marker on the mission
-        # TITLE, not a body line — it gets its own tooltip. Turning the body
-        # section off while leaving the title tag on is intentional (compact
-        # at-a-glance signal); the two are independent so the user picks.
-        _MISSION_FIELD_TOOLTIPS = {
-            "blueprint_tag": (
-                "Show the [BP] / [BP?] marker on the mission title. "
-                "Independent of the Blueprints body section. "
-                "Takes effect on the next Generate Enhancements."
-            ),
-            "ace": (
-                "Flag missions that spawn an ace pilot with an [ACE] title tag "
-                "([ACE?] when only some variants of that mission do). "
-                "Takes effect on the next Generate Enhancements."
-            ),
-        }
+        # 2.2.0: the [BP]/[ACE]/rep-xp mission-TITLE markers moved to their own
+        # "General Tags" section (independent of this body-fields group) —
+        # see AppSettings.get_mission_title_tags(). "ace" here now controls
+        # ONLY the "Ace Pilot: Yes" body line.
         self._mission_field_checkboxes: dict = {}
         _mf_saved = AppSettings.get_mission_detail_fields()
         mf_row = QHBoxLayout()
         mf_row.setContentsMargins(0, 0, 0, 0)
-        for _field, _label in _MISSION_FIELD_LABELS:
+        for _field, _label in self._mission_field_labels:
             cb = QCheckBox(_label)
             cb.setChecked(_mf_saved.get(_field, True))
             cb.setStyleSheet("font-size: 11px;")
-            cb.setToolTip(
-                _MISSION_FIELD_TOOLTIPS.get(
-                    _field,
-                    f"Show the {_label} line in generated mission bodies. "
-                    "Takes effect on the next Generate Enhancements.",
-                )
-            )
+            cb.setToolTip(self._mission_field_tooltip(_field, _label))
             cb.toggled.connect(
                 lambda checked, f=_field: self._on_mission_field_toggled(f, checked)
             )
+            cb.toggled.connect(self._mark_enhancements_dirty)
             mf_row.addWidget(cb)
             self._mission_field_checkboxes[_field] = cb
         mf_row.addStretch()
@@ -272,14 +307,11 @@ class EnhancementsTab(QWidget):
         self._stats_prepend_check = QCheckBox("Show stats above description")
         self._stats_prepend_check.setChecked(AppSettings.get_stats_prepend())
         self._stats_prepend_check.setStyleSheet("font-size: 11px;")
-        self._stats_prepend_check.setToolTip(
-            "Put the generated stats block above the manufacturer/PR description "
-            "instead of below it (ships, components, weapons). Takes effect on "
-            "the next Generate Enhancements."
-        )
+        self._stats_prepend_check.setToolTip(tr("enhancements.stats_prepend_tooltip"))
         self._stats_prepend_check.toggled.connect(
             lambda checked: AppSettings.set_stats_prepend(checked)
         )
+        self._stats_prepend_check.toggled.connect(self._mark_enhancements_dirty)
         gl.addWidget(self._stats_prepend_check)
 
         self._standardize_ship_names_check = QCheckBox("Standardize earnable ship names")
@@ -287,14 +319,11 @@ class EnhancementsTab(QWidget):
             AppSettings.get_standardize_earnable_ship_names()
         )
         self._standardize_ship_names_check.setStyleSheet("font-size: 11px;")
-        self._standardize_ship_names_check.setToolTip(
-            "Rename exec-hangar (PYX) and Wikelo (WIK) ship variants to include "
-            "a suffix that distinguishes them from the standard pledge-store version "
-            "(e.g. \"Anvil F8C Lightning PYX\"). Takes effect on the next Generate Enhancements."
-        )
+        self._standardize_ship_names_check.setToolTip(tr("enhancements.standardize_ship_names_tooltip"))
         self._standardize_ship_names_check.toggled.connect(
             lambda checked: AppSettings.set_standardize_earnable_ship_names(checked)
         )
+        self._standardize_ship_names_check.toggled.connect(self._mark_enhancements_dirty)
         gl.addWidget(self._standardize_ship_names_check)
 
         btn_row = QHBoxLayout()
@@ -302,19 +331,12 @@ class EnhancementsTab(QWidget):
         self._apply_categories_btn = QPushButton(tr("enhancements.apply_btn"))
         self._apply_categories_btn.setMaximumWidth(100)
         self._apply_categories_btn.setEnabled(False)
-        self._apply_categories_btn.setToolTip(
-            "Save category selection. Unchecked categories will be disabled."
-        )
+        self._apply_categories_btn.setToolTip(tr("enhancements.apply_categories_tooltip"))
         self._apply_categories_btn.clicked.connect(self._apply_category_changes)
         btn_row.addWidget(self._apply_categories_btn)
 
         self._generate_enhancements_btn = QPushButton(tr("enhancements.generate_btn"))
         self._generate_enhancements_btn.setMaximumWidth(160)
-        self._generate_enhancements_btn.setToolTip(
-            "Generate enhanced localization files from your game's Data.p4k.\n"
-            "DataForge data will be extracted automatically if not already cached\n"
-            "(first run takes a few minutes; subsequent runs are fast)."
-        )
         self._generate_enhancements_btn.clicked.connect(self._on_generate_enhancements_clicked)
         btn_row.addWidget(self._generate_enhancements_btn)
 
@@ -327,7 +349,74 @@ class EnhancementsTab(QWidget):
         gl.addWidget(self._forge_status_label)
 
         self.refresh_enhancements_status()
+        # Start dirty (button clickable) when there's nothing generated yet
+        # or the DataForge cache is stale — otherwise start clean, since the
+        # loaded checkbox/field state matches what's already on disk.
+        self._set_generate_btn_dirty(self._compute_initial_enhancements_dirty())
         return group
+
+    @staticmethod
+    def _mission_field_tooltip(field: str, label: str) -> str:
+        """Tooltip for one mission-detail-field checkbox. "ace" gets a
+        dedicated string (it shares its settings key with the unrelated
+        [ACE] title tag under General Tags, so the distinction needs
+        spelling out); every other field gets the generic template. Shared
+        by setup_ui() and retranslate_ui() so the two can't drift apart."""
+        if field == "ace":
+            return tr("enhancements.mission_field_ace_tooltip")
+        return tr("enhancements.mission_field_default_tooltip", label=label)
+
+    def _set_generate_btn_dirty(self, dirty: bool) -> None:
+        """Single chokepoint for the button's enabled state, tooltip, and
+        text color so none of the three can drift apart. Red text signals
+        "click me — something changed"; clean/disabled reverts to Qt's
+        default look. The two tooltip variants are resolved via tr() here
+        (not cached class constants) so they always reflect the active
+        language — the disabled-state text is what a user hovering a
+        gone-grey button most wants to know: "why can't I click this?" """
+        self._enhancements_dirty = dirty
+        self._generate_enhancements_btn.setEnabled(dirty)
+        self._generate_enhancements_btn.setToolTip(
+            tr("enhancements.generate_enabled_tooltip") if dirty
+            else tr("enhancements.generate_disabled_tooltip")
+        )
+        self._generate_enhancements_btn.setStyleSheet(
+            f"color: {get_button_color('needs_apply')};" if dirty else ""
+        )
+
+    def _compute_initial_enhancements_dirty(self) -> bool:
+        """True if Generate Enhancements has work to do right now: the
+        DataForge cache was never extracted or is stale vs. Data.p4k, or an
+        enabled category's output file doesn't exist yet."""
+        from src.utils.pak_extractor import P4K_MTIME_STAMP, dataforge_cache_is_fresh
+        forge_dir = AppSettings.get_dataforge_cache_dir()
+        p4k_path = AppSettings.get_p4k_path()
+        if not (forge_dir / P4K_MTIME_STAMP).exists():
+            return True
+        if p4k_path.exists() and not dataforge_cache_is_fresh(p4k_path, forge_dir):
+            return True
+        cache_dir = AppSettings.get_cache_dir()
+        for key, cb in self._enhancements_checkboxes.items():
+            if cb.isChecked() and any(
+                not (cache_dir / fn).exists() for fn in self._files_for_category(key)
+            ):
+                return True
+        return False
+
+    def _mark_enhancements_dirty(self, *_args):
+        """A setting that feeds Generate Enhancements changed since the last
+        run — light the button back up."""
+        self._set_generate_btn_dirty(True)
+
+    def mark_enhancements_dirty(self) -> None:
+        """Public entrypoint for external callers (MainWindow) to flag that
+        something outside this tab affects Generate Enhancements — e.g. a
+        fresh base.ini extraction. A pure loc-string change (CIG renaming or
+        adding flavor text to an item) doesn't touch the DataForge XML cache
+        the freshness check above looks at, so without this a stale cached
+        enhancement entry for that item could sit indefinitely with the
+        button never lighting up to prompt a re-run."""
+        self._mark_enhancements_dirty()
 
     def _on_category_checkbox_changed(self):
         """Enable Apply button if any checkbox differs from saved settings."""
@@ -405,7 +494,7 @@ class EnhancementsTab(QWidget):
         prefix_row.addWidget(self._sort_prefix_label)
 
         self.favorite_prefix_combo = _NoScrollComboBox()
-        self.favorite_prefix_combo.setToolTip("Character prepended to favorited ship names so they sort to the top of the in-game ship list. Click Apply Prefix after changing to update all existing favorites.")
+        self.favorite_prefix_combo.setToolTip(tr("enhancements.favorite_prefix_tooltip"))
         self.favorite_prefix_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToContents
         )
@@ -417,6 +506,7 @@ class EnhancementsTab(QWidget):
             if self.favorite_prefix_combo.itemData(i) == self._loaded_prefix:
                 self.favorite_prefix_combo.setCurrentIndex(i)
                 break
+        self.favorite_prefix_combo.currentIndexChanged.connect(self._mark_prefix_dirty)
 
         self.favorite_prefix_combo.view().setMinimumWidth(
             self.favorite_prefix_combo.sizeHint().width() + 20
@@ -424,11 +514,9 @@ class EnhancementsTab(QWidget):
         prefix_row.addWidget(self.favorite_prefix_combo)
 
         self._apply_prefix_btn = QPushButton(tr("enhancements.apply_btn"))
-        self._apply_prefix_btn.setToolTip(
-            "Save the selected prefix and update all existing favorites to use it"
-        )
         self._apply_prefix_btn.clicked.connect(self._apply_favorite_prefix)
         prefix_row.addWidget(self._apply_prefix_btn)
+        self._set_prefix_btn_dirty(False)
 
         prefix_row.addStretch()
         gl.addLayout(prefix_row)
@@ -473,7 +561,7 @@ class EnhancementsTab(QWidget):
         self._rep_xp_label_input = QLineEdit()
         self._rep_xp_label_input.setText(AppSettings.get_rep_xp_label())
         self._rep_xp_label_input.setMaximumWidth(100)
-        self._rep_xp_label_input.setToolTip("Label for missions without a rank name (e.g. 'Rep: +100 XP')")
+        self._rep_xp_label_input.setToolTip(tr("enhancements.rep_xp_label_tooltip"))
         self._rep_xp_label_input.editingFinished.connect(self._save_rep_xp_label)
         grid.addWidget(self._rep_xp_label_input, 0, 5)
 
@@ -490,7 +578,7 @@ class EnhancementsTab(QWidget):
             if self._header_em_combo.itemData(i) == current_em:
                 self._header_em_combo.setCurrentIndex(i)
                 break
-        self._header_em_combo.setToolTip("Style for section headers: Underline (EM3) or Blue text (EM4)")
+        self._header_em_combo.setToolTip(tr("enhancements.header_em_tooltip"))
         self._header_em_combo.currentIndexChanged.connect(self._save_header_em_tag)
         grid.addWidget(self._header_em_combo, 1, 5)
 
@@ -503,6 +591,7 @@ class EnhancementsTab(QWidget):
             label = AppSettings.DEFAULT_REP_XP_LABEL
             self._rep_xp_label_input.setText(label)
         AppSettings.set_rep_xp_label(label)
+        self._mark_enhancements_dirty()
 
     def _save_mission_header(self, key: str):
         inp = self._header_inputs.get(key)
@@ -510,11 +599,34 @@ class EnhancementsTab(QWidget):
             val = inp.text().strip()
             if val:
                 AppSettings.set_mission_header(key, val)
+                self._mark_enhancements_dirty()
 
     def _save_header_em_tag(self):
         tag = self._header_em_combo.currentData()
         if tag:
             AppSettings.set_mission_header_em_tag(tag)
+            self._mark_enhancements_dirty()
+
+    def _set_prefix_btn_dirty(self, dirty: bool) -> None:
+        """Single chokepoint for the button's enabled state, tooltip, and
+        text color so none of the three can drift apart. Same enabled/
+        disabled tooltip + red-text pattern as the other dirty-tracked
+        buttons on this tab; resolved via tr() here (not cached class
+        constants) so they always reflect the active language."""
+        self._prefix_dirty = dirty
+        self._apply_prefix_btn.setEnabled(dirty)
+        self._apply_prefix_btn.setToolTip(
+            tr("enhancements.prefix_enabled_tooltip") if dirty
+            else tr("enhancements.prefix_disabled_tooltip")
+        )
+        self._apply_prefix_btn.setStyleSheet(
+            f"color: {get_button_color('needs_apply')};" if dirty else ""
+        )
+
+    def _mark_prefix_dirty(self, *_args) -> None:
+        """Recompute dirty state whenever the prefix combo selection
+        changes — dirty only when it actually differs from what's saved."""
+        self._set_prefix_btn_dirty(self.favorite_prefix_combo.currentData() != self._loaded_prefix)
 
     def _apply_favorite_prefix(self):
         new_prefix = self.favorite_prefix_combo.currentData()
@@ -548,6 +660,7 @@ class EnhancementsTab(QWidget):
 
         AppSettings.set_favorite_prefix(new_prefix)
         self._loaded_prefix = new_prefix
+        self._set_prefix_btn_dirty(False)
         # Hand the old/new prefix to MainWindow so it can re-prefix in-memory
         # favourites before the reload (see signal doc). Emitting merge_requested
         # alone would let the pending-edit snapshot restore the old prefix.
@@ -557,9 +670,17 @@ class EnhancementsTab(QWidget):
 
     def set_operation_running(self, message: str):
         self._generate_enhancements_btn.setEnabled(False)
+        self._generate_enhancements_btn.setToolTip(message)
 
-    def set_operation_idle(self):
-        self._generate_enhancements_btn.setEnabled(True)
+    def set_operation_idle(self, success: bool = True):
+        """Re-enable after a background run. A successful run means the
+        button's own click already cleared the dirty flag, so leave it grey
+        unless something changed mid-run; a failed run re-enables
+        unconditionally so the user has a way to retry without first having
+        to touch an unrelated setting."""
+        if not success:
+            self._enhancements_dirty = True
+        self._set_generate_btn_dirty(self._enhancements_dirty)
 
     # ── Status refresh ────────────────────────────────────────────────────────
 
@@ -614,10 +735,12 @@ class EnhancementsTab(QWidget):
         gl.addWidget(self._tag_builder_desc_label)
 
         self._tag_builder_tabs = QTabWidget()
+        self._tag_builder_tabs.setTabBar(_NoScrollTabBar())
         self._tag_builder_pages: dict[str, _TagBuilderPage] = {}
         for cat in CATEGORIES:
             cfg = AppSettings.get_tag_config(cat)
             page = _TagBuilderPage(cat, cfg)
+            page.config_changed.connect(self._mark_tag_dirty)
             self._tag_builder_pages[cat] = page
             self._tag_builder_tabs.addTab(page, _CATEGORY_LABELS[cat])
         gl.addWidget(self._tag_builder_tabs)
@@ -637,31 +760,18 @@ class EnhancementsTab(QWidget):
         self._annotate_mission_descs_cb.setChecked(
             AppSettings.get_tag_annotate_mission_descs()
         )
-        self._annotate_mission_descs_cb.setToolTip(
-            "When checked, the configured [CLASS-Sx-grade] tag is added "
-            "to component names inside the POTENTIAL BLUEPRINTS list of "
-            "mission descriptions. Uncheck for a cleaner mission body "
-            "while keeping the tag on the actual component names elsewhere."
-        )
+        self._annotate_mission_descs_cb.toggled.connect(self._mark_tag_dirty)
+        self._annotate_mission_descs_cb.setToolTip(tr("enhancements.annotate_mission_descs_tooltip"))
         gl.addWidget(self._annotate_mission_descs_cb)
 
         btn_row = QHBoxLayout()
         self._apply_tag_btn = QPushButton(tr("enhancements.apply_tag_changes_btn"))
-        self._apply_tag_btn.setToolTip(
-            "Save the Components / Missiles / Ship Weapons tag configs and "
-            "re-run the enhancement generator. New tags appear in-game after "
-            "the next Apply Enhancements."
-        )
         self._apply_tag_btn.clicked.connect(self._apply_tag_builder)
         btn_row.addWidget(self._apply_tag_btn)
+        self._set_tag_btn_dirty(False)
 
         self._reset_tag_btn = QPushButton(tr("enhancements.reset_defaults_btn"))
-        self._reset_tag_btn.setToolTip(
-            "Restore the default pattern, mapping, and ordering for every "
-            "category (Components / Missiles / Ship Weapons). Does not save "
-            "or regenerate until you click Save Tag Changes or Generate "
-            "Enhancements."
-        )
+        self._reset_tag_btn.setToolTip(tr("enhancements.reset_tag_tooltip"))
         self._reset_tag_btn.clicked.connect(self._reset_all_tag_builder_pages)
         btn_row.addWidget(self._reset_tag_btn)
 
@@ -678,7 +788,9 @@ class EnhancementsTab(QWidget):
         self._enhancements_group_box.setTitle(tr("enhancements.enhancements_group"))
         self._enhancements_desc_label.setText(tr("enhancements.enhancements_desc"))
         self._apply_categories_btn.setText(tr("enhancements.apply_btn"))
+        self._apply_categories_btn.setToolTip(tr("enhancements.apply_categories_tooltip"))
         self._generate_enhancements_btn.setText(tr("enhancements.generate_btn"))
+        self._set_generate_btn_dirty(self._enhancements_dirty)
         _CAT_KEYS = {
             "ships":       "enhancements.cat_desc_ships",
             "ship_items":  "enhancements.cat_desc_ship_items",
@@ -686,31 +798,32 @@ class EnhancementsTab(QWidget):
             "missions":    "enhancements.cat_desc_missions",
             "commodities": "enhancements.cat_desc_commodities",
             "journal":     "enhancements.cat_desc_journal",
+            "medical_consumables": "enhancements.cat_desc_medical_consumables",
         }
         for key, lbl in self._cat_desc_labels.items():
             if key in _CAT_KEYS:
                 lbl.setText(tr(_CAT_KEYS[key]))
+        for field, cb in self._mission_field_checkboxes.items():
+            label = dict(self._mission_field_labels).get(field, field)
+            cb.setToolTip(self._mission_field_tooltip(field, label))
+        self._stats_prepend_check.setToolTip(tr("enhancements.stats_prepend_tooltip"))
+        self._standardize_ship_names_check.setToolTip(tr("enhancements.standardize_ship_names_tooltip"))
         self._favorites_group_box.setTitle(tr("enhancements.favorites_group"))
         self._favorites_desc_label.setText(tr("enhancements.favorites_desc"))
         self._sort_prefix_label.setText(tr("enhancements.sort_prefix_label"))
+        self.favorite_prefix_combo.setToolTip(tr("enhancements.favorite_prefix_tooltip"))
         self._apply_prefix_btn.setText(tr("enhancements.apply_btn"))
+        self._set_prefix_btn_dirty(self._prefix_dirty)
+        self._rep_xp_label_input.setToolTip(tr("enhancements.rep_xp_label_tooltip"))
+        self._header_em_combo.setToolTip(tr("enhancements.header_em_tooltip"))
         self._tag_builder_group_box.setTitle(tr("enhancements.tag_builder_group"))
         self._tag_builder_desc_label.setText(tr("enhancements.tag_builder_desc"))
         self._annotate_mission_descs_cb.setText(tr("enhancements.annotate_mission_descs_cb"))
+        self._annotate_mission_descs_cb.setToolTip(tr("enhancements.annotate_mission_descs_tooltip"))
         self._apply_tag_btn.setText(tr("enhancements.apply_tag_changes_btn"))
+        self._set_tag_btn_dirty(self._tag_dirty)
         self._reset_tag_btn.setText(tr("enhancements.reset_defaults_btn"))
-        self._blueprints_group_box.setTitle(tr("enhancements.blueprints_group"))
-        self._blueprints_desc_label.setText(tr("enhancements.blueprints_desc"))
-        self._blueprints_empty_note.setText(tr("enhancements.blueprints_empty_note"))
-        self._blueprints_search.setPlaceholderText(tr("enhancements.blueprints_search_placeholder"))
-        self._blueprints_mission_label.setText(tr("enhancements.blueprints_mission_label"))
-        self._blueprints_filter_note.setText(tr("enhancements.blueprints_filter_note"))
-        self._blueprints_available_label.setText(tr("enhancements.blueprints_available_label"))
-        self._blueprints_owned_label.setText(tr("enhancements.blueprints_owned_label"))
-        self._blueprints_add_btn.setToolTip(tr("enhancements.blueprints_add_tooltip"))
-        self._blueprints_remove_btn.setToolTip(tr("enhancements.blueprints_remove_tooltip"))
-        for label_key, lbl in self._blueprints_facet_labels.items():
-            lbl.setText(tr(label_key))
+        self._reset_tag_btn.setToolTip(tr("enhancements.reset_tag_tooltip"))
 
     def _persist_tag_builder_state(self) -> None:
         """Save every Tag Builder page's TagConfig plus the annotate-descs
@@ -732,12 +845,34 @@ class EnhancementsTab(QWidget):
             AppSettings.set_tag_annotate_mission_descs(annotate_cb.isChecked())
         logger.info("Tag Builder: saved configs for %s", ", ".join(pages))
 
+    def _set_tag_btn_dirty(self, dirty: bool) -> None:
+        """Single chokepoint for the button's enabled state, tooltip, and
+        text color so none of the three can drift apart. Same enabled/
+        disabled tooltip pattern as Generate Enhancements; resolved via
+        tr() here (not cached class constants) so they always reflect
+        the active language."""
+        self._tag_dirty = dirty
+        self._apply_tag_btn.setEnabled(dirty)
+        self._apply_tag_btn.setToolTip(
+            tr("enhancements.tag_enabled_tooltip") if dirty
+            else tr("enhancements.tag_disabled_tooltip")
+        )
+        self._apply_tag_btn.setStyleSheet(
+            f"color: {get_button_color('needs_apply')};" if dirty else ""
+        )
+
+    def _mark_tag_dirty(self, *_args):
+        """A Tag Builder config changed since the last save — light the
+        Save Tag Changes button back up."""
+        self._set_tag_btn_dirty(True)
+
     def _apply_tag_builder(self):
         """Persist every page's TagConfig and kick off enhancement regen."""
         self._persist_tag_builder_state()
         # Re-run the generator so the new tags show up in the output INIs;
         # MainWindow handles the worker lifecycle + progress UI.
         self.enhancements_pipeline_requested.emit()
+        self._set_tag_btn_dirty(False)
 
     def _on_generate_enhancements_clicked(self):
         """Generate Enhancements entry point.
@@ -749,6 +884,11 @@ class EnhancementsTab(QWidget):
         """
         self._persist_tag_builder_state()
         self.enhancements_pipeline_requested.emit()
+        self._set_generate_btn_dirty(False)
+        # Generate also persists Tag Builder edits (see docstring above), so
+        # it satisfies Save Tag Changes too — otherwise that button would
+        # stay lit for a save that already happened.
+        self._set_tag_btn_dirty(False)
 
     def _reset_all_tag_builder_pages(self):
         """Reset every category's tag config back to its built-in default.
@@ -759,311 +899,6 @@ class EnhancementsTab(QWidget):
         """
         for page in self._tag_builder_pages.values():
             page._reset_to_defaults()
-
-    # ── Blueprints (#157 follow-up) ──────────────────────────────────────────
-
-    def _build_blueprints_group(self) -> QGroupBox:
-        """Construct the Blueprints shuttle shown below Tag Builder.
-
-        A search-filtered list of every item that appears in a mission's
-        POTENTIAL BLUEPRINTS reward on the left, the items the user owns on the
-        right, and arrow buttons to move multi-selected items between them.
-        This replaces toggling the Owned star in the strings table; the table's
-        Owned column is now a read-only indicator. The available universe is
-        fed in by MainWindow via ``set_blueprint_items`` (it is computed from
-        the loaded mission strings, which this tab can't see).
-        """
-        group = QGroupBox(tr("enhancements.blueprints_group"))
-        self._blueprints_group_box = group
-        gl = QVBoxLayout(group)
-
-        self._blueprints_desc_label = QLabel(tr("enhancements.blueprints_desc"))
-        self._blueprints_desc_label.setProperty("role", "secondary")
-        self._blueprints_desc_label.setStyleSheet("font-size: 11px;")
-        self._blueprints_desc_label.setWordWrap(True)
-        gl.addWidget(self._blueprints_desc_label)
-
-        # Shown instead of the lists when no blueprint items exist yet (mission
-        # enhancements not generated) — the same precondition the stars had.
-        self._blueprints_empty_note = QLabel(tr("enhancements.blueprints_empty_note"))
-        self._blueprints_empty_note.setProperty("role", "secondary")
-        self._blueprints_empty_note.setStyleSheet("font-size: 11px; font-style: italic;")
-        self._blueprints_empty_note.setWordWrap(True)
-        gl.addWidget(self._blueprints_empty_note)
-
-        self._blueprints_search = QLineEdit()
-        self._blueprints_search.setPlaceholderText(
-            tr("enhancements.blueprints_search_placeholder")
-        )
-        self._blueprints_search.setClearButtonEnabled(True)
-        self._blueprints_search.textChanged.connect(self._refilter_blueprints_available)
-        gl.addWidget(self._blueprints_search)
-
-        mission_row = QHBoxLayout()
-        self._blueprints_mission_label = QLabel(tr("enhancements.blueprints_mission_label"))
-        self._blueprints_mission_label.setProperty("role", "secondary")
-        mission_row.addWidget(self._blueprints_mission_label)
-        self._blueprints_mission_combo = _NoScrollComboBox()
-        self._blueprints_mission_combo.addItem(tr("enhancements.blueprints_facet_any"), None)
-        self._blueprints_mission_combo.currentIndexChanged.connect(
-            self._refilter_blueprints_available
-        )
-        mission_row.addWidget(self._blueprints_mission_combo, 1)
-        gl.addLayout(mission_row)
-
-        # Component-attribute facets. Each combo's first row is "Any" (data
-        # None); the rest are enumerated from the loaded metadata. Attributes
-        # exist only for ship components, so the coverage note sets expectations.
-        facet_row = QHBoxLayout()
-        self._blueprints_facet_combos = {}
-        for attr, label_key in (
-            ("type", "enhancements.blueprints_facet_type"),
-            ("cls", "enhancements.blueprints_facet_class"),
-            ("size", "enhancements.blueprints_facet_size"),
-            ("grade", "enhancements.blueprints_facet_grade"),
-        ):
-            lbl = QLabel(tr(label_key))
-            lbl.setProperty("role", "secondary")
-            combo = _NoScrollComboBox()
-            combo.addItem(tr("enhancements.blueprints_facet_any"), None)
-            combo.currentIndexChanged.connect(self._refilter_blueprints_available)
-            self._blueprints_facet_combos[attr] = combo
-            self._blueprints_facet_labels = getattr(self, "_blueprints_facet_labels", {})
-            self._blueprints_facet_labels[label_key] = lbl
-            facet_row.addWidget(lbl)
-            facet_row.addWidget(combo, 1)
-        gl.addLayout(facet_row)
-
-        self._blueprints_filter_note = QLabel(tr("enhancements.blueprints_filter_note"))
-        self._blueprints_filter_note.setProperty("role", "secondary")
-        self._blueprints_filter_note.setStyleSheet("font-size: 10px;")
-        self._blueprints_filter_note.setWordWrap(True)
-        gl.addWidget(self._blueprints_filter_note)
-
-        lists_row = QHBoxLayout()
-
-        avail_col = QVBoxLayout()
-        self._blueprints_available_label = QLabel(
-            tr("enhancements.blueprints_available_label")
-        )
-        avail_col.addWidget(self._blueprints_available_label)
-        self._blueprints_available_list = QListWidget()
-        self._blueprints_available_list.setSelectionMode(
-            QAbstractItemView.SelectionMode.ExtendedSelection
-        )
-        self._blueprints_available_list.itemDoubleClicked.connect(
-            lambda _it: self._own_selected_blueprints()
-        )
-        avail_col.addWidget(self._blueprints_available_list)
-        lists_row.addLayout(avail_col, 1)
-
-        arrows = QVBoxLayout()
-        arrows.addStretch()
-        self._blueprints_add_btn = QPushButton("→")  # →
-        self._blueprints_add_btn.setToolTip(tr("enhancements.blueprints_add_tooltip"))
-        self._blueprints_add_btn.clicked.connect(self._own_selected_blueprints)
-        arrows.addWidget(self._blueprints_add_btn)
-        self._blueprints_remove_btn = QPushButton("←")  # ←
-        self._blueprints_remove_btn.setToolTip(tr("enhancements.blueprints_remove_tooltip"))
-        self._blueprints_remove_btn.clicked.connect(self._unown_selected_blueprints)
-        arrows.addWidget(self._blueprints_remove_btn)
-        arrows.addStretch()
-        lists_row.addLayout(arrows)
-
-        owned_col = QVBoxLayout()
-        self._blueprints_owned_label = QLabel(
-            tr("enhancements.blueprints_owned_label")
-        )
-        owned_col.addWidget(self._blueprints_owned_label)
-        self._blueprints_owned_list = QListWidget()
-        self._blueprints_owned_list.setSelectionMode(
-            QAbstractItemView.SelectionMode.ExtendedSelection
-        )
-        self._blueprints_owned_list.itemDoubleClicked.connect(
-            lambda _it: self._unown_selected_blueprints()
-        )
-        owned_col.addWidget(self._blueprints_owned_list)
-        lists_row.addLayout(owned_col, 1)
-
-        gl.addLayout(lists_row)
-
-        # name -> BlueprintItem (or None for a bare name), set by MainWindow.
-        # Owned state itself lives in AppSettings (single source of truth).
-        self._blueprint_meta: dict = {}
-        self._render_blueprint_lists()
-        return group
-
-    @staticmethod
-    def _available_blueprints(all_names, owned) -> list:
-        """Blueprint items not yet owned, sorted case-insensitively.
-
-        Pure (Qt-free) so the available/owned split is unit-testable. Accepts a
-        name iterable or a ``{name: meta}`` mapping (dict keys are the names).
-        """
-        return sorted(set(all_names) - set(owned), key=str.lower)
-
-    def set_blueprint_items(self, meta) -> None:
-        """Receive the blueprint-item metadata from MainWindow.
-
-        *meta* is ``{name: BlueprintItem}`` (a bare name set/list is tolerated
-        too — items then carry no filter attributes). Called after every load
-        and every owned-set change, so the lists track the loaded strings.
-        """
-        if isinstance(meta, dict):
-            self._blueprint_meta = dict(meta)
-        else:
-            self._blueprint_meta = {n: None for n in (meta or ())}
-        self._populate_filter_combos()
-        self._render_blueprint_lists()
-
-    def _facet_value(self, name: str, attr: str):
-        """The value of one facet attribute for *name*, or None if unknown."""
-        item = self._blueprint_meta.get(name)
-        return getattr(item, attr, None) if item is not None else None
-
-    @staticmethod
-    def _facet_sort_key(value: str):
-        """Sort facet values alphabetically but keep "Other" pinned last."""
-        return (value == "Other", value)
-
-    def _populate_filter_combos(self) -> None:
-        """Refill the mission and facet combos with the values present in the
-        metadata, preserving each current selection where it still exists."""
-        # Mission combo: the union of every item's mission names.
-        missions = sorted({
-            m for item in self._blueprint_meta.values()
-            for m in getattr(item, "missions", ()) or ()
-        }, key=str.lower)
-        self._refill_combo(self._blueprints_mission_combo, missions)
-        # Scalar facet combos.
-        for attr, combo in self._blueprints_facet_combos.items():
-            values = sorted({
-                v for name in self._blueprint_meta
-                if (v := self._facet_value(name, attr)) is not None
-            }, key=self._facet_sort_key)
-            self._refill_combo(combo, values)
-
-    @staticmethod
-    def _refill_combo(combo, values) -> None:
-        """Rebuild *combo* as [Any, *values] preserving the prior selection."""
-        prior = combo.currentData()
-        combo.blockSignals(True)
-        combo.clear()
-        combo.addItem(tr("enhancements.blueprints_facet_any"), None)
-        for v in values:
-            combo.addItem(v, v)
-        idx = combo.findData(prior)
-        combo.setCurrentIndex(idx if idx >= 0 else 0)
-        combo.blockSignals(False)
-
-    def _make_blueprint_item(self, name: str) -> QListWidgetItem:
-        """A list row whose display text is the name, canonical name in
-        UserRole (so filters/moves never depend on display text), and a tooltip
-        summarizing the item's mission(s) and component attributes."""
-        item = QListWidgetItem(name)
-        item.setData(Qt.ItemDataRole.UserRole, name)
-        meta = self._blueprint_meta.get(name)
-        if meta is not None:
-            bits = []
-            attrs = " ".join(p for p in (meta.type, meta.cls, meta.size, meta.grade) if p)
-            if attrs:
-                bits.append(attrs)
-            if meta.missions:
-                bits.append(tr("enhancements.blueprints_tooltip_missions",
-                               missions=", ".join(sorted(meta.missions))))
-            if bits:
-                item.setToolTip("\n".join(bits))
-        return item
-
-    def _render_blueprint_lists(self) -> None:
-        """Repopulate both lists from the metadata + the persisted owned set,
-        preserving the filters and not re-entering the move handlers."""
-        owned = AppSettings.get_owned_items()
-        available = self._available_blueprints(self._blueprint_meta, owned)
-        owned_sorted = sorted(owned, key=str.lower)
-
-        for lst, names in (
-            (self._blueprints_available_list, available),
-            (self._blueprints_owned_list, owned_sorted),
-        ):
-            lst.blockSignals(True)
-            lst.clear()
-            for name in names:
-                lst.addItem(self._make_blueprint_item(name))
-            lst.blockSignals(False)
-
-        self._refilter_blueprints_available()
-
-        # Empty state: no metadata and nothing owned -> guide the user to
-        # generate mission enhancements first; hide the (useless) controls.
-        has_content = bool(self._blueprint_meta) or bool(owned)
-        self._blueprints_empty_note.setVisible(not has_content)
-        for w in (
-            self._blueprints_search,
-            self._blueprints_mission_label, self._blueprints_mission_combo,
-            self._blueprints_filter_note,
-            self._blueprints_available_list, self._blueprints_owned_list,
-            self._blueprints_add_btn, self._blueprints_remove_btn,
-            self._blueprints_available_label, self._blueprints_owned_label,
-            *self._blueprints_facet_combos.values(),
-            *self._blueprints_facet_labels.values(),
-        ):
-            w.setVisible(has_content)
-
-    def _blueprint_item_visible(self, name: str) -> bool:
-        """True if *name* passes the keyword, mission, and facet filters.
-
-        An item with no value for a facet is hidden only when that facet is set
-        to a specific value (not "Any") — so untyped items stay visible until a
-        component facet is actually chosen.
-        """
-        kw = self._blueprints_search.text().strip().lower()
-        if kw and kw not in name.lower():
-            return False
-        mission = self._blueprints_mission_combo.currentData()
-        if mission is not None:
-            item = self._blueprint_meta.get(name)
-            missions = getattr(item, "missions", ()) if item is not None else ()
-            if mission not in missions:
-                return False
-        for attr, combo in self._blueprints_facet_combos.items():
-            sel = combo.currentData()
-            if sel is not None and self._facet_value(name, attr) != sel:
-                return False
-        return True
-
-    def _refilter_blueprints_available(self, *_args) -> None:
-        """Hide available rows that don't pass the current filters."""
-        lst = self._blueprints_available_list
-        for i in range(lst.count()):
-            item = lst.item(i)
-            name = item.data(Qt.ItemDataRole.UserRole)
-            item.setHidden(not self._blueprint_item_visible(name))
-
-    def _selected_names(self, lst) -> list:
-        return [it.data(Qt.ItemDataRole.UserRole) for it in lst.selectedItems()]
-
-    def _own_selected_blueprints(self) -> None:
-        """Move every selected available item into the owned set (one write)."""
-        names = self._selected_names(self._blueprints_available_list)
-        if not names:
-            return
-        owned = AppSettings.get_owned_items()
-        owned.update(names)
-        AppSettings.set_owned_items(owned)
-        self._render_blueprint_lists()
-        self.owned_items_changed.emit()
-
-    def _unown_selected_blueprints(self) -> None:
-        """Move every selected owned item back to available (one write)."""
-        names = self._selected_names(self._blueprints_owned_list)
-        if not names:
-            return
-        owned = AppSettings.get_owned_items()
-        owned.difference_update(names)
-        AppSettings.set_owned_items(owned)
-        self._render_blueprint_lists()
-        self.owned_items_changed.emit()
 
 
 # ── Tag Builder helpers ──────────────────────────────────────────────────────
@@ -1230,6 +1065,10 @@ class _TagBuilderPage(QWidget):
     """One category's Tag Builder page (element list + separator/enclosing
     dropdowns + live preview + Reset button)."""
 
+    # Fired on every user-driven config mutation (never during construction)
+    # so the tab can light up its Save Tag Changes button.
+    config_changed = pyqtSignal()
+
     def __init__(self, category: str, config: TagConfig, parent: QWidget | None = None):
         super().__init__(parent)
         self.category = category
@@ -1356,6 +1195,7 @@ class _TagBuilderPage(QWidget):
             row_widget = _ElementRow(spec, mapping=self.config.class_mapping)
             row_widget.setFixedHeight(self._ROW_H)
             row_widget.changed.connect(self._refresh_preview)
+            row_widget.changed.connect(self.config_changed.emit)
             row_widget.edit_mapping_requested.connect(
                 lambda _checked=False, k=spec.kind: self._open_mapping_dialog(k)
             )
@@ -1394,6 +1234,7 @@ class _TagBuilderPage(QWidget):
         elems[index], elems[target] = elems[target], elems[index]
         self._repopulate_list()
         self._refresh_preview()
+        self.config_changed.emit()
 
     # ── Separator/Enclosing change handlers ──────────────────────────────
 
@@ -1402,24 +1243,28 @@ class _TagBuilderPage(QWidget):
         if data is not None:
             self.config.separator = data
             self._refresh_preview()
+            self.config_changed.emit()
 
     def _on_enc_changed(self, _idx: int):
         data = self.enc_combo.currentData()
         if data is not None:
             self.config.enclosing = data
             self._refresh_preview()
+            self.config_changed.emit()
 
     def _on_placement_changed(self, _idx: int):
         data = self.placement_combo.currentData()
         if data is not None:
             self.config.placement = data
             self._refresh_preview()
+            self.config_changed.emit()
 
     def _on_usage_sep_changed(self, _idx: int):
         data = self.usage_sep_combo.currentData()
         if data is not None:
             self.config.usage_separator = data
             self._refresh_preview()
+            self.config_changed.emit()
 
     # ── Mapping editor ───────────────────────────────────────────────────
 
@@ -1457,21 +1302,45 @@ class _TagBuilderPage(QWidget):
             self.config.class_mapping.update(result)
             self._repopulate_list()
             self._refresh_preview()
+            self.config_changed.emit()
 
     # ── Mission Titles page (route controls) ─────────────────────────────
 
     def _build_mission_titles_page(self) -> None:
         """Purpose-built page for the mission-title route: an enable toggle plus
         placement / arrow / separator / location-detail combos and a preview."""
-        col = QVBoxLayout(self)
-        col.setContentsMargins(10, 6, 10, 6)
-        col.setSpacing(6)
+        # Hauling missions get their own titled box rather than filling the
+        # whole page, so future mission types (bounty, delivery, etc.) can
+        # sit as sibling boxes in the empty space to the right without a
+        # layout rework later.
+        page = QHBoxLayout(self)
+        page.setContentsMargins(10, 6, 10, 6)
+        page.setSpacing(12)
 
+        group = QGroupBox("Hauling Missions")
+        col = QVBoxLayout(group)
+        col.setContentsMargins(10, 10, 10, 10)
+        col.setSpacing(6)
+        page.addWidget(group)
+
+        top_row = QHBoxLayout()
         self._mt_enable = QCheckBox("Add route to hauling mission titles")
         route_el = next((e for e in self.config.elements if e.kind == "route"), None)
         self._mt_enable.setChecked(bool(route_el and route_el.enabled))
         self._mt_enable.toggled.connect(self._on_mt_enable)
-        col.addWidget(self._mt_enable)
+        top_row.addWidget(self._mt_enable)
+
+        self._mt_standardize = QCheckBox(
+            'Standardize hauling mission names (e.g. "Medium Cargo Haul" '
+            'for every company, instead of "Large Shipment" / "Haul - Small Scale")'
+        )
+        self._mt_standardize.setChecked(
+            getattr(self.config, "standardize_hauling_names", False)
+        )
+        self._mt_standardize.toggled.connect(self._on_mt_standardize_toggle)
+        top_row.addWidget(self._mt_standardize)
+        top_row.addStretch()
+        col.addLayout(top_row)
 
         hint = QLabel("The game fills in the real pickup and drop-off locations "
                       "when the mission is accepted.")
@@ -1480,45 +1349,113 @@ class _TagBuilderPage(QWidget):
         hint.setWordWrap(True)
         col.addWidget(hint)
 
-        # #200 follow-up: shorten the stock title so the route + tags fit.
-        self._mt_abbrev = QCheckBox("Shorten original titles (drops \"Rank\", \"Cargo Haul\", ...)")
-        self._mt_abbrev.setChecked(bool(getattr(self.config, "abbreviate_title", False)))
-        self._mt_abbrev.toggled.connect(self._on_mt_abbrev)
-        col.addWidget(self._mt_abbrev)
-
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(6)
-        grid.setVerticalSpacing(4)
-
         def _combo(items) -> QComboBox:
             c = _NoScrollComboBox()
             for entry in items:
                 c.addItem(entry[1], userData=entry[0])
+            # AdjustToContents (rather than the default
+            # AdjustToContentsOnFirstShow) so sizeHint() below reflects every
+            # item's width immediately, before the widget is ever shown.
+            c.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
             return c
 
+        enabled_phrases = set(getattr(self.config, "abbreviated_phrases", frozenset()))
+        shortened_sizes = set(getattr(self.config, "shortened_sizes", frozenset()))
+        _shorten_phrase_keys = frozenset(k for k, *_ in SHORTEN_PHRASE_OPTIONS)
+
+        # #200 follow-up, generalized: one grid pairs each dropdown with a
+        # checkbox on the same row (label | combo | gap | checkbox), so the
+        # page reads as 5 aligned rows instead of separate blocks. Column 2
+        # is a deliberately empty spacer — tight label-to-combo spacing plus
+        # one wider gap before the checkboxes, rather than uniform spacing
+        # everywhere. Rank separator moved in here (after Title separator)
+        # instead of its own row. Each checkbox's example lives in
+        # parentheses in its own label (one line) instead of a separate
+        # description widget. "Underline Direct" doesn't pair with a
+        # dropdown, so it sits as its own row below the grid.
         self._mt_placement = _combo(MISSION_TITLE_PLACEMENTS)
         self._mt_arrow = _combo(ROUTE_ARROWS)
         self._mt_sep = _combo(TITLE_SEPARATORS)
+        self._mt_rank_sep = _combo(RANK_SEPARATORS)
         self._mt_detail = _combo(LOCATION_DETAILS)
         self._select_combo(self._mt_placement, self.config.placement)
         self._select_combo(self._mt_arrow, self.config.route_arrow)
         self._select_combo(self._mt_sep, self.config.title_separator)
+        self._select_combo(self._mt_rank_sep, self.config.rank_separator)
         self._select_combo(self._mt_detail, self.config.location_detail)
-        rows = [
-            ("Placement:", self._mt_placement),
-            ("Route arrow:", self._mt_arrow),
-            ("Title separator:", self._mt_sep),
-            ("Location detail:", self._mt_detail),
-        ]
-        for r, (lbl, combo) in enumerate(rows):
-            grid.addWidget(QLabel(lbl), r, 0)
+        for combo in (self._mt_placement, self._mt_arrow, self._mt_sep, self._mt_detail):
             combo.currentIndexChanged.connect(self._on_mt_changed)
+        self._mt_rank_sep.currentIndexChanged.connect(self._on_mt_rank_sep_changed)
+
+        self._mt_shorten_titles = QCheckBox(
+            'Shorten original titles (Shortens stock phrases, e.g. "Local Shipment Route" → "Route")'
+        )
+        self._mt_shorten_titles.setChecked(_shorten_phrase_keys <= enabled_phrases)
+        self._mt_shorten_titles.toggled.connect(self._on_mt_shorten_titles_toggle)
+
+        self._mt_shorten_sizes = QCheckBox(
+            'Shorten cargo sizes (Abbreviates cargo sizes, e.g. "Extra Small" → "XS")'
+        )
+        self._mt_shorten_sizes.setChecked(_ALL_SIZE_WORDS <= shortened_sizes)
+        self._mt_shorten_sizes.toggled.connect(self._on_mt_shorten_sizes_toggle)
+
+        self._mt_abbrev_boxes: dict[str, QCheckBox] = {}
+        for key, label, *_rest in REMOVE_WORD_OPTIONS:
+            box = QCheckBox(label)
+            box.setChecked(key in enabled_phrases)
+            box.toggled.connect(lambda checked, k=key: self._on_mt_abbrev_toggle(k, checked))
+            self._mt_abbrev_boxes[key] = box
+
+        # Explicit fixed widths instead of leaving it to Qt's auto-sizing —
+        # sharing a plain grid column let one combo's natural sizeHint (e.g.
+        # Route arrow's "Route shape ( ->- / ->= / =>- / =>= )") inflate
+        # every other row too, pushing dropdowns much further right than
+        # their own label needed. Uniform width here instead sized to
+        # whichever of the 5 combos actually needs the most room, via Qt's
+        # own sizeHint (accounts for the widest item's text plus the
+        # dropdown arrow and frame padding) — so the longest option always
+        # displays in full, in whichever combo it belongs to.
+        _LABEL_WIDTH = 110
+        _mt_combos = (self._mt_placement, self._mt_arrow, self._mt_sep,
+                      self._mt_rank_sep, self._mt_detail)
+        _COMBO_WIDTH = max(c.sizeHint().width() for c in _mt_combos) + 10  # small safety margin
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(4)
+        grid.setColumnMinimumWidth(2, 24)  # gap between dropdowns and checkboxes
+        grid_rows = [
+            ("Placement:", self._mt_placement, self._mt_shorten_titles),
+            ("Route arrow:", self._mt_arrow, self._mt_shorten_sizes),
+            ("Title separator:", self._mt_sep, self._mt_abbrev_boxes["cargo"]),
+            ("Rank separator:", self._mt_rank_sep, self._mt_abbrev_boxes["haul"]),
+            ("Location detail:", self._mt_detail, self._mt_abbrev_boxes["rank"]),
+        ]
+        for r, (lbl, combo, box) in enumerate(grid_rows):
+            lbl_widget = QLabel(lbl)
+            lbl_widget.setFixedWidth(_LABEL_WIDTH)
+            combo.setFixedWidth(_COMBO_WIDTH)
+            grid.addWidget(lbl_widget, r, 0)
             grid.addWidget(combo, r, 1)
+            grid.addWidget(box, r, 3)
         col.addLayout(grid)
+
+        underline_row = QHBoxLayout()
+        self._mt_underline_direct = QCheckBox(
+            'Underline "Direct" (Adds emphasis to "Direct" hauls in-game)'
+        )
+        self._mt_underline_direct.setChecked("underline_direct" in enabled_phrases)
+        self._mt_underline_direct.toggled.connect(
+            lambda checked: self._on_mt_abbrev_toggle("underline_direct", checked)
+        )
+        self._mt_abbrev_boxes["underline_direct"] = self._mt_underline_direct
+        underline_row.addWidget(self._mt_underline_direct)
+        underline_row.addStretch()
+        col.addLayout(underline_row)
 
         self.preview_label = QLabel()
         self.preview_label.setMinimumHeight(28)
         self.preview_label.setWordWrap(True)
+        self.preview_label.setTextFormat(Qt.TextFormat.RichText)
         self.preview_label.setStyleSheet(
             "font-family: Consolas, 'Courier New', monospace; "
             "font-size: 12px; padding: 4px; "
@@ -1528,6 +1465,77 @@ class _TagBuilderPage(QWidget):
         col.addStretch()
         self._set_mt_controls_enabled(self._mt_enable.isChecked())
         self._refresh_preview()
+
+        # "General Tags" (2.2.0): show/hide the [REP]/[BP]/[ACE] markers on
+        # the mission TITLE only, across every mission type — independent of
+        # the "Mission detail fields" body toggles above (which is per-
+        # category, per-#121) and independent of the Hauling Missions
+        # TagConfig to its left. Persisted directly via AppSettings, same
+        # pattern as the mission-detail-field checkboxes.
+        tags_group = QGroupBox("General Tags")
+        tags_col = QVBoxLayout(tags_group)
+        tags_col.setContentsMargins(10, 10, 10, 10)
+        tags_col.setSpacing(6)
+        tags_hint = QLabel(
+            "Show or hide these tags on the mission title only"
+        )
+        tags_hint.setProperty("role", "secondary")
+        tags_hint.setStyleSheet("font-size: 11px;")
+        tags_hint.setWordWrap(True)
+        tags_col.addWidget(tags_hint)
+
+        _TITLE_TAG_LABELS = [
+            ("rep",       'Rep Tag (adds "[500 REP]")'),
+            ("blueprint", 'BP Tag (adds "[BP]" / "[BP?]")'),
+            ("ace",       'ACE Tag (adds "[ACE]" / "[ACE?]")'),
+            ("rep_track", 'Rep Track Tag (adds "(Security)" / "(Contractor)" to the Rep tag)'),
+        ]
+        self._title_tag_checkboxes: dict = {}
+        _tt_saved = AppSettings.get_mission_title_tags()
+        for _field, _label in _TITLE_TAG_LABELS:
+            cb = QCheckBox(_label)
+            cb.setChecked(_tt_saved.get(_field, True))
+            cb.toggled.connect(
+                lambda checked, f=_field: AppSettings.set_mission_title_tag(f, checked)
+            )
+            cb.toggled.connect(self.config_changed.emit)
+            tags_col.addWidget(cb)
+            self._title_tag_checkboxes[_field] = cb
+        tags_col.addStretch()
+        page.addWidget(tags_group)
+
+        # "Scanning/Mining Missions" (4.9+): its own box next to General Tags
+        # rather than folded into it, since it's specific to one mission
+        # family (Recco Battaglia's Scan/Mining contracts) rather than a
+        # tag shown across every mission type. Same immediate-persist
+        # pattern as the General Tags checkboxes above (shares
+        # self._title_tag_checkboxes so Reset-to-defaults picks it up too).
+        scanning_group = QGroupBox("Scanning/Mining Missions")
+        scanning_col = QVBoxLayout(scanning_group)
+        scanning_col.setContentsMargins(10, 10, 10, 10)
+        scanning_col.setSpacing(6)
+        scanning_hint = QLabel(
+            "Recco Battaglia's Scanning/Mining missions target specific "
+            "mineable ores, show each ore's Resource Signature value on "
+            "the mission title."
+        )
+        scanning_hint.setProperty("role", "secondary")
+        scanning_hint.setStyleSheet("font-size: 11px;")
+        scanning_hint.setWordWrap(True)
+        scanning_col.addWidget(scanning_hint)
+
+        _rs_cb = QCheckBox("Show Resource Signature (RS) Tags")
+        _rs_cb.setChecked(_tt_saved.get("rs", True))
+        _rs_cb.toggled.connect(
+            lambda checked: AppSettings.set_mission_title_tag("rs", checked)
+        )
+        _rs_cb.toggled.connect(self.config_changed.emit)
+        scanning_col.addWidget(_rs_cb)
+        self._title_tag_checkboxes["rs"] = _rs_cb
+        scanning_col.addStretch()
+        page.addWidget(scanning_group)
+
+        page.addStretch()
 
     def _set_mt_controls_enabled(self, on: bool) -> None:
         for c in (self._mt_placement, self._mt_arrow, self._mt_sep, self._mt_detail):
@@ -1539,10 +1547,36 @@ class _TagBuilderPage(QWidget):
                 e.enabled = checked
         self._set_mt_controls_enabled(checked)
         self._refresh_preview()
+        self.config_changed.emit()
 
-    def _on_mt_abbrev(self, checked: bool) -> None:
-        self.config.abbreviate_title = checked
+    def _on_mt_standardize_toggle(self, checked: bool) -> None:
+        self.config.standardize_hauling_names = checked
         self._refresh_preview()
+
+    def _on_mt_abbrev_toggle(self, key: str, checked: bool) -> None:
+        phrases = set(getattr(self.config, "abbreviated_phrases", frozenset()))
+        if checked:
+            phrases.add(key)
+        else:
+            phrases.discard(key)
+        self.config.abbreviated_phrases = frozenset(phrases)
+        self._refresh_preview()
+
+    def _on_mt_shorten_titles_toggle(self, checked: bool) -> None:
+        phrases = set(getattr(self.config, "abbreviated_phrases", frozenset()))
+        keys = {k for k, *_ in SHORTEN_PHRASE_OPTIONS}
+        phrases = (phrases | keys) if checked else (phrases - keys)
+        self.config.abbreviated_phrases = frozenset(phrases)
+        self._refresh_preview()
+
+    def _on_mt_shorten_sizes_toggle(self, checked: bool) -> None:
+        self.config.shortened_sizes = frozenset(_ALL_SIZE_WORDS) if checked else frozenset()
+        self._refresh_preview()
+
+    def _on_mt_rank_sep_changed(self, _idx: int) -> None:
+        self.config.rank_separator = self._mt_rank_sep.currentData() or self.config.rank_separator
+        self._refresh_preview()
+        self.config_changed.emit()
 
     def _on_mt_changed(self, _idx: int) -> None:
         self.config.placement = self._mt_placement.currentData() or self.config.placement
@@ -1550,17 +1584,36 @@ class _TagBuilderPage(QWidget):
         self.config.title_separator = self._mt_sep.currentData() or self.config.title_separator
         self.config.location_detail = self._mt_detail.currentData() or self.config.location_detail
         self._refresh_preview()
+        self.config_changed.emit()
+
+    # In-game emphasis tag written to the real generated INI — must stay
+    # exactly this for _EM3_DISPLAY_MARKUP below to find and swap it.
+    _EM3_DIRECT = "<EM3>DIRECT</EM3>"
 
     def _refresh_mt_preview(self) -> None:
         sample_title = "Master Rank - Direct Medium Cargo Haul"
-        if getattr(self.config, "abbreviate_title", False):
-            sample_title = abbreviate_title(sample_title)
-            # In-game the size comes from the CargoGradeToken loc keys the
-            # generator overrides; mirror that on the literal sample here.
-            for word, short in SIZE_ABBREVIATIONS:
+        enabled_phrases = getattr(self.config, "abbreviated_phrases", frozenset())
+        # Always applied — the Rank separator is an independent, always-on
+        # feature and doesn't need any checkbox ticked; the word/phrase
+        # toggles inside abbreviate_title stay individually gated. This is
+        # the SAME function the generator calls, so when "underline_direct"
+        # is on, sample_title genuinely contains the real <EM3>DIRECT</EM3>
+        # in-game emphasis tag — swapped for a visual underline only when
+        # displayed below, never in the data itself.
+        sample_title = abbreviate_title(
+            sample_title, enabled_phrases, self.config.rank_separator,
+            getattr(self.config, "standardize_hauling_names", False)
+        )
+        # In-game the size comes from the CargoGradeToken loc keys the
+        # generator overrides; mirror that on the literal sample here, per
+        # size, independent of the word/phrase removal checkboxes above.
+        for word in getattr(self.config, "shortened_sizes", frozenset()):
+            short = SIZE_ABBREV_BY_WORD.get(word)
+            if short:
                 sample_title = sample_title.replace(word, short)
         if not route_enabled(self.config):
-            self.preview_label.setText(f"Preview:  {sample_title} [50 REP]  (route off)")
+            display = sample_title.replace(self._EM3_DIRECT, "<u>DIRECT</u>")
+            self.preview_label.setText(f"Preview:  {display} [50 REP]  (route off)")
             return
         if self.config.location_detail == "address":
             frm, to = "Area18, Crusader", "Lorville, Hurston"
@@ -1568,7 +1621,8 @@ class _TagBuilderPage(QWidget):
             frm, to = "Area18", "Lorville"
         route = render_route(frm, to, self.config.route_arrow)
         title = apply_mission_title(sample_title, route, self.config)
-        self.preview_label.setText(f"Preview:  {title} [50 REP]")
+        display = title.replace(self._EM3_DIRECT, "<u>DIRECT</u>")
+        self.preview_label.setText(f"Preview:  {display} [50 REP]")
 
     # ── Preview ──────────────────────────────────────────────────────────
 
@@ -1596,13 +1650,35 @@ class _TagBuilderPage(QWidget):
         if self.category == "mission_titles":
             route_el = next((e for e in fresh.elements if e.kind == "route"), None)
             self._mt_enable.setChecked(bool(route_el and route_el.enabled))
-            self._mt_abbrev.setChecked(bool(fresh.abbreviate_title))
+            self._mt_standardize.setChecked(fresh.standardize_hauling_names)
+            _shorten_phrase_keys = frozenset(k for k, *_ in SHORTEN_PHRASE_OPTIONS)
+            self._mt_shorten_titles.setChecked(_shorten_phrase_keys <= fresh.abbreviated_phrases)
+            self._mt_shorten_sizes.setChecked(_ALL_SIZE_WORDS <= fresh.shortened_sizes)
+            for key, box in self._mt_abbrev_boxes.items():
+                box.setChecked(key in fresh.abbreviated_phrases)
+            self._select_combo(self._mt_rank_sep, fresh.rank_separator)
             self._select_combo(self._mt_placement, fresh.placement)
             self._select_combo(self._mt_arrow, fresh.route_arrow)
             self._select_combo(self._mt_sep, fresh.title_separator)
             self._select_combo(self._mt_detail, fresh.location_detail)
+            # General Tags (Rep/BP/ACE/Rep Track) aren't part of TagConfig —
+            # they're their own settings domain
+            # (AppSettings.set_mission_title_tag), persisted immediately on
+            # toggle rather than staged until Apply Tag Changes like the rest
+            # of this page. Reset explicitly persists each field's own
+            # default (get_mission_title_tag_default — all on except Rep
+            # Track, which defaults off) to match that immediate-save
+            # behavior, rather than relying solely on setChecked's toggled
+            # signal (a checkbox already at its default wouldn't fire it,
+            # leaving a stale saved value if one had somehow drifted out of
+            # sync).
+            for field, box in self._title_tag_checkboxes.items():
+                default = AppSettings.get_mission_title_tag_default(field)
+                box.setChecked(default)
+                AppSettings.set_mission_title_tag(field, default)
             self._set_mt_controls_enabled(self._mt_enable.isChecked())
             self._refresh_preview()
+            self.config_changed.emit()
             return
         self._select_combo(self.sep_combo, fresh.separator)
         self._select_combo(self.enc_combo, fresh.enclosing)
@@ -1611,6 +1687,7 @@ class _TagBuilderPage(QWidget):
             self._select_combo(self.usage_sep_combo, fresh.usage_separator)
         self._repopulate_list()
         self._refresh_preview()
+        self.config_changed.emit()
 
     @staticmethod
     def _select_combo(combo: QComboBox, key: str) -> None:

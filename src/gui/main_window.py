@@ -19,6 +19,7 @@ from PyQt6.QtGui import QColor, QFont, QCursor, QPixmap, QIcon, QPalette
 from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices
 
+from src.gui.blueprint_tracker_tab import BlueprintTrackerTab
 from src.gui.coach_mark import CoachMarkStep, TutorialTour
 from src.gui.config_tab import ConfigTab
 from src.gui.error_dialog import ErrorDialogHandler, _ErrorDialogEmitter
@@ -38,6 +39,7 @@ from src.gui.theme import (
 )
 from src.gui.workers import (
     AnimatedProgressDialog,
+    BlueprintLogScanWorker,
     DataForgeExtractWorker,
     EnhancementsGeneratorWorker,
     FileLoaderWorker,
@@ -288,6 +290,24 @@ class MainWindow(QMainWindow):
         self._enhancements_worker: Optional[EnhancementsGeneratorWorker] = None
         self._enhancements_progress_dialog: Optional[AnimatedProgressDialog] = None
 
+        # Apply-to-game dirty tracking (same grey-until-changed pattern as
+        # Generate Enhancements / Save Tag Changes / Apply Owned Tags).
+        # Starts True (clickable) — we can't cheaply verify at launch whether
+        # the loaded state already matches what's live in the game's
+        # global.ini, and wrongly greying out the app's one write-to-disk
+        # action would be a much worse failure than an occasional redundant
+        # enabled state. See _mark_apply_dirty / _clear_apply_dirty.
+        self._apply_dirty = True
+
+        # Tracks whether *this session* has produced a genuine unapplied
+        # change, as opposed to _apply_dirty's conservative "we can't verify
+        # at boot" default above. Used only to decide whether closeEvent
+        # should warn about unapplied changes — _initial_load_done gates it
+        # so the very first (startup) load doesn't itself count as a
+        # user-made change; see _mark_apply_dirty and _on_loading_finished.
+        self._initial_load_done = False
+        self._session_has_unapplied_edit = False
+
         # DataForge extraction worker
         self._forge_worker: Optional[DataForgeExtractWorker] = None
 
@@ -365,43 +385,12 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.tagline_label)
         self._apply_branding_styles()
 
-        # Toolbar on the left; rendered-preview pane on the right. The
-        # preview renders the currently-selected row's effective value
-        # (custom override if present, else the merged baseline) with the
-        # game's EM3/EM4/~mission(...) tokens translated into styled HTML
-        # so mission and journal blocks read like in-game text instead of
-        # wall-of-tag. Stays wired across all tabs — it just reflects the
-        # last row you selected in the String Editor.
         toolbar_layout = self.create_toolbar()
 
-        self.preview_pane = QTextBrowser()
-        self.preview_pane.setReadOnly(True)
-        self.preview_pane.setOpenExternalLinks(False)
-        self.preview_pane.setPlaceholderText(tr("strings_tab.preview_placeholder"))
-        self.preview_pane.setMinimumWidth(420)
-        # Capped to keep the toolbar QHBoxLayout from inflating when the
-        # active tab has slack vertical space to redistribute (the
-        # post-1.3.0 Config / Enhancements gap bug — QTextBrowser's
-        # default Expanding vertical sizePolicy let the pane grow to
-        # its old 200px ceiling, dragging the buttons down ~40px below
-        # the tagline). The Preferred sizePolicy prevents the greedy
-        # expansion; the cap is a belt-and-braces upper bound and
-        # answers "how many lines of preview do I want at most." 120
-        # comfortably fits ~5–6 lines of rendered HTML — long mission
-        # journals overflow into the built-in scrollbar.
-        from PyQt6.QtWidgets import QSizePolicy
-        self.preview_pane.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-        self.preview_pane.setMaximumHeight(120)
-
-        toolbar_row = QHBoxLayout()
-        toolbar_row.setSpacing(12)
-        toolbar_row.setContentsMargins(0, 0, 12, 0)
-        toolbar_row.addLayout(toolbar_layout, stretch=2)
-        toolbar_row.addWidget(self.preview_pane, stretch=1)
         # Wrapped in a container so Simple mode (#180) can hide the whole
-        # advanced toolbar + preview as a unit (a layout can't be hidden).
+        # advanced toolbar as a unit (a layout can't be hidden).
         self.toolbar_container = QWidget()
-        self.toolbar_container.setLayout(toolbar_row)
+        self.toolbar_container.setLayout(toolbar_layout)
         main_layout.addWidget(self.toolbar_container)
 
         self.tabs = QTabWidget()
@@ -426,8 +415,18 @@ class MainWindow(QMainWindow):
         self.enhancements_tab.merge_requested.connect(self.perform_merge_and_reload)
         self.enhancements_tab.enhancements_pipeline_requested.connect(self._run_enhancements_pipeline)
         self.enhancements_tab.favorite_prefix_changed.connect(self._on_favorite_prefix_changed)
-        self.enhancements_tab.owned_items_changed.connect(self._recompute_owned)
         self._enhancements_tab_index = self.tabs.addTab(self.enhancements_tab, tr("tabs.enhancements"))
+
+        # Blueprint Tracker tab (#222: split out of the Enhancements tab)
+        self.blueprint_tracker_tab = BlueprintTrackerTab()
+        self.blueprint_tracker_tab.owned_items_changed.connect(self._recompute_owned)
+        self.blueprint_tracker_tab.scan_logs_requested.connect(self._run_blueprint_log_scan)
+        self.blueprint_tracker_tab.apply_owned_requested.connect(self._on_apply_owned_tags_clicked)
+        self._blueprint_tracker_tab_index = self.tabs.addTab(
+            self.blueprint_tracker_tab, tr("tabs.blueprint_tracker")
+        )
+        self._bp_log_scan_worker = None
+        self._bp_log_scan_progress = None
 
         self.log_tab = LogTab()
         self._log_tab_index = self.tabs.addTab(self.log_tab, tr("tabs.log"))
@@ -575,12 +574,12 @@ class MainWindow(QMainWindow):
         # Button row
         button_layout = QHBoxLayout()
 
-        # Green — commit
+        # Green when up to date, red when a change needs applying — color
+        # itself is set by _set_apply_btn_dirty below.
         self.apply_btn = QPushButton(tr("toolbar.apply_btn"))
-        self.apply_btn.setStyleSheet(f"background-color: {get_button_color('apply')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
-        self.apply_btn.setToolTip("Write the merged table contents to the game's global.ini. A timestamped backup of the current global.ini is created first.")
         self.apply_btn.clicked.connect(self.apply_to_game)
         button_layout.addWidget(self.apply_btn)
+        self._set_apply_btn_dirty(self._apply_dirty)
 
         # Editor: toggles the side-docked String Editor for editing long
         # values comfortably. Shares the 'open' info-action role so it pairs
@@ -588,20 +587,20 @@ class MainWindow(QMainWindow):
         self.editor_btn = QPushButton(tr("toolbar.editor_btn"))
         self.editor_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
         self.editor_btn.setCheckable(True)
-        self.editor_btn.setToolTip("Toggle the side-docked String Editor, a larger canvas for editing the selected row's custom value")
+        self.editor_btn.setToolTip(tr("toolbar.editor_tooltip"))
         self.editor_btn.clicked.connect(self.show_editor_dock)
         button_layout.addWidget(self.editor_btn)
 
         self.help_btn = QPushButton(tr("toolbar.help_btn"))
         self.help_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
         self.help_btn.setCheckable(True)
-        self.help_btn.setToolTip("Toggle the Help side-panel")
+        self.help_btn.setToolTip(tr("toolbar.help_tooltip"))
         self.help_btn.clicked.connect(self.show_help)
         button_layout.addWidget(self.help_btn)
 
         self.tutorial_btn = QPushButton(tr("toolbar.tutorial_btn"))
         self.tutorial_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
-        self.tutorial_btn.setToolTip("Start the guided tour of Smart Citizen's workflow. Runs automatically on first launch; click here anytime to replay.")
+        self.tutorial_btn.setToolTip(tr("toolbar.tutorial_tooltip"))
         self.tutorial_btn.clicked.connect(self._start_tutorial)
         button_layout.addWidget(self.tutorial_btn)
 
@@ -613,10 +612,7 @@ class MainWindow(QMainWindow):
         self._action_restore_backup = more_menu.addAction(
             tr("toolbar.restore_backup_btn"), self.restore_backup
         )
-        self._action_restore_backup.setToolTip(
-            "Restore a previous global.ini from the backups folder. Up to 5 "
-            "timestamped backups are kept; the oldest is pruned when a new one is created."
-        )
+        self._action_restore_backup.setToolTip(tr("toolbar.restore_backup_tooltip"))
         more_menu.addSeparator()
         self._action_clear_loc = more_menu.addAction(tr("toolbar.menu_clear_localization"), self.clear_localization)
         self._action_clear_cache = more_menu.addAction(tr("toolbar.menu_clear_cache"), self.clear_cache)
@@ -631,10 +627,7 @@ class MainWindow(QMainWindow):
         self._action_test_plan = more_menu.addAction(
             tr("toolbar.menu_test_plan"), self.show_test_plan
         )
-        self._action_test_plan.setToolTip(
-            "Open the tester Test Plan: a checklist of what changed in this "
-            "release, with progress tracking and a report you can submit."
-        )
+        self._action_test_plan.setToolTip(tr("toolbar.test_plan_tooltip"))
         more_menu.addSeparator()
         # #180: jump to the simplified one-button view. Lives in the toolbar
         # (Advanced-only); the way back is the Simple page's own button.
@@ -642,16 +635,11 @@ class MainWindow(QMainWindow):
             tr("toolbar.menu_switch_to_simple"),
             lambda: self._apply_ui_mode(AppSettings.UI_MODE_SIMPLE),
         )
-        self._action_switch_to_simple.setToolTip(
-            "Switch to the simplified one-button view."
-        )
+        self._action_switch_to_simple.setToolTip(tr("toolbar.switch_to_simple_tooltip"))
 
         self.more_btn = QPushButton(tr("toolbar.more_btn"))
         self.more_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {get_button_text_color()}; font-weight: bold; padding: 6px;")
-        self.more_btn.setToolTip(
-            "More actions: restore a backup, clear localization or cache, "
-            "import or export, open the localization folder"
-        )
+        self.more_btn.setToolTip(tr("toolbar.more_tooltip"))
         self.more_btn.setMenu(more_menu)
         button_layout.addWidget(self.more_btn)
 
@@ -659,14 +647,19 @@ class MainWindow(QMainWindow):
 
         layout.addLayout(button_layout)
 
-        # Filter row
+        return layout
+
+    def create_string_filter_row(self) -> QHBoxLayout:
+        """Create the String Editor's filter row (category/status/search
+        toggles). Lives on the strings tab itself (not the shared toolbar)
+        so it's only visible while that tab is active."""
         filter_layout = QHBoxLayout()
 
         self._category_label = QLabel(tr("filters.category_label"))
         filter_layout.addWidget(self._category_label)
         self.category_combo = QComboBox()
         self.category_combo.setMinimumWidth(200)
-        self.category_combo.setToolTip("Filter rows by domain (Ships, Ship Items, Missions, Gear, Commodities, Journal, Other). Categories are derived from the loc-key prefix.")
+        self.category_combo.setToolTip(tr("filters.category_tooltip"))
         self.category_combo.currentTextChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.category_combo)
 
@@ -684,23 +677,17 @@ class MainWindow(QMainWindow):
         ]:
             self.status_combo.addItem(tr(_key), userData=_internal)
         self.status_combo.setMaximumWidth(120)
-        self.status_combo.setToolTip(
-            "Filter by status. "
-            "Modified = you've set a Custom Value; "
-            "Enhanced = produced by Smart Citizen's enhancements pipeline (ship stats, mission rewards, etc.); "
-            "Unmodified = default text only; "
-            "New = key exists only in enhancements/user.ini, not in the base file."
-        )
+        self.status_combo.setToolTip(tr("filters.status_tooltip"))
         self.status_combo.currentTextChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.status_combo)
 
         self.hide_unmodified_check = QCheckBox(tr("filters.hide_unmodified"))
-        self.hide_unmodified_check.setToolTip("Show only rows where you've set a Custom Value. Same as the Status filter's Modified option but togglable on its own.")
+        self.hide_unmodified_check.setToolTip(tr("filters.hide_unmodified_tooltip"))
         self.hide_unmodified_check.stateChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.hide_unmodified_check)
 
         self.favorites_only_check = QCheckBox(tr("filters.favorites_only"))
-        self.favorites_only_check.setToolTip("Show only rows you've starred as favorites. Favorites get a configurable prefix prepended to their name so they sort to the top of the in-game list.")
+        self.favorites_only_check.setToolTip(tr("filters.favorites_only_tooltip"))
         self.favorites_only_check.stateChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.favorites_only_check)
 
@@ -708,37 +695,35 @@ class MainWindow(QMainWindow):
         # [BP]/[BP?]; BP Descriptions keeps bodies with a POTENTIAL BLUEPRINTS
         # section. Checking both shows either.
         self.bp_titles_check = QCheckBox(tr("filters.bp_titles_only"))
-        self.bp_titles_check.setToolTip("Show only mission titles carrying the [BP] / [BP?] blueprint tag.")
+        self.bp_titles_check.setToolTip(tr("filters.bp_titles_only_tooltip"))
         self.bp_titles_check.stateChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.bp_titles_check)
 
         self.bp_descs_check = QCheckBox(tr("filters.bp_descs_only"))
-        self.bp_descs_check.setToolTip("Show only mission descriptions containing a POTENTIAL BLUEPRINTS section.")
+        self.bp_descs_check.setToolTip(tr("filters.bp_descs_only_tooltip"))
         self.bp_descs_check.stateChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.bp_descs_check)
 
         self.grouped_sort_btn = QPushButton(tr("filters.group_sort_btn"))
-        self.grouped_sort_btn.setToolTip("Sort titles and descriptions together for the same entity")
+        self.grouped_sort_btn.setToolTip(tr("filters.group_sort_tooltip"))
         self.grouped_sort_btn.setMaximumWidth(100)
         self.grouped_sort_btn.clicked.connect(self._on_grouped_sort)
         filter_layout.addWidget(self.grouped_sort_btn)
 
         self.clear_filters_btn = QPushButton(tr("filters.clear_filters_btn"))
         self.clear_filters_btn.setMaximumWidth(100)
-        self.clear_filters_btn.setToolTip("Reset every filter (category, status, search, per-column boxes, checkboxes) so the full table is shown.")
+        self.clear_filters_btn.setToolTip(tr("filters.clear_filters_tooltip"))
         self.clear_filters_btn.clicked.connect(self.clear_filters)
         filter_layout.addWidget(self.clear_filters_btn)
 
         self.copy_filtered_btn = QPushButton(tr("filters.copy_filtered_btn"))
         self.copy_filtered_btn.setMaximumWidth(100)
-        self.copy_filtered_btn.setToolTip("Copy all visible filtered rows to clipboard (tab-separated)")
+        self.copy_filtered_btn.setToolTip(tr("filters.copy_filtered_tooltip"))
         self.copy_filtered_btn.clicked.connect(self.copy_filtered_to_clipboard)
         filter_layout.addWidget(self.copy_filtered_btn)
 
         filter_layout.addStretch()
-        layout.addLayout(filter_layout)
-
-        return layout
+        return filter_layout
 
     def create_footer(self) -> QHBoxLayout:
         """Create footer with Osiris DevWorks branding and donation buttons."""
@@ -802,7 +787,7 @@ class MainWindow(QMainWindow):
             self.osiris_button.setFixedSize(base_pixmap.size())
 
             self.osiris_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-            self.osiris_button.setToolTip("Open the Osiris DevWorks GitHub organization")
+            self.osiris_button.setToolTip(tr("toolbar.osiris_github_tooltip"))
             self.osiris_button.mousePressEvent = self.open_osiris_github
             footer_layout.addWidget(self.osiris_button)
 
@@ -833,7 +818,7 @@ class MainWindow(QMainWindow):
             self._eye_glow = None
             self._eye_fadeout = None
             self.osiris_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-            self.osiris_button.setToolTip("Open the Osiris DevWorks GitHub organization")
+            self.osiris_button.setToolTip(tr("toolbar.osiris_github_tooltip"))
             self.osiris_button.mousePressEvent = self.open_osiris_github
             footer_layout.addWidget(self.osiris_button)
 
@@ -852,10 +837,7 @@ class MainWindow(QMainWindow):
         else:
             self.feedback_label.setText("Feedback, Bugs, & Feature Voting")
             self.feedback_label.setStyleSheet("font-size: 12px;")
-        self.feedback_label.setToolTip(
-            "Open the Smart Citizen Discord channel for feedback, bug reports, and voting on "
-            "upcoming features (requires joining the Osiris DevWorks Discord)."
-        )
+        self.feedback_label.setToolTip(tr("toolbar.feedback_tooltip"))
         self.feedback_label.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.feedback_label.mousePressEvent = self.open_feedback_link
         footer_layout.addWidget(self.feedback_label)
@@ -991,7 +973,7 @@ class MainWindow(QMainWindow):
             "font-size: 11px; padding: 0 8px; color: #c9a961; font-weight: bold;"
         )
         self._app_version_indicator.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self._app_version_indicator.setToolTip(f"Open release page for v{latest}")
+        self._app_version_indicator.setToolTip(tr("status_bar.open_release_page_tooltip", version=latest))
         self._refresh_update_indicator_texts()
 
         # Auto-update needs an installer asset on the release and a registry
@@ -1170,6 +1152,38 @@ class MainWindow(QMainWindow):
         """Create strings table tab."""
         widget = QWidget()
         layout = QVBoxLayout(widget)
+
+        # Rendered-preview pane: shows the currently-selected row's effective
+        # value (custom override if present, else the merged baseline) with
+        # the game's EM3/EM4/~mission(...) tokens translated into styled HTML
+        # so mission and journal blocks read like in-game text instead of
+        # wall-of-tag. Lives here (not the shared toolbar) so it's only
+        # visible while the String Editor tab is active.
+        self.preview_pane = QTextBrowser()
+        self.preview_pane.setReadOnly(True)
+        self.preview_pane.setOpenExternalLinks(False)
+        self.preview_pane.setPlaceholderText(tr("strings_tab.preview_placeholder"))
+        self.preview_pane.setMinimumWidth(420)
+        # Capped so the row doesn't inflate when there's slack vertical space
+        # to redistribute (the post-1.3.0 Config / Enhancements gap bug —
+        # QTextBrowser's default Expanding vertical sizePolicy let the pane
+        # grow to its old 200px ceiling). The Preferred sizePolicy prevents
+        # the greedy expansion; the cap is a belt-and-braces upper bound and
+        # answers "how many lines of preview do I want at most." 60 fits
+        # ~2–3 lines of rendered HTML; anything longer (mission journals,
+        # multi-line descriptions) overflows into the built-in scrollbar
+        # rather than growing the pane.
+        from PyQt6.QtWidgets import QSizePolicy
+        self.preview_pane.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        self.preview_pane.setMaximumHeight(60)
+
+        # Filter row: category/status/search toggles. Lives here (not the
+        # shared toolbar) so it's only visible while this tab is active.
+        filter_and_preview_row = QHBoxLayout()
+        filter_and_preview_row.setSpacing(12)
+        filter_and_preview_row.addLayout(self.create_string_filter_row(), 2)
+        filter_and_preview_row.addWidget(self.preview_pane, 1)
+        layout.addLayout(filter_and_preview_row)
 
         # Model
         self._model = StringTableModel(self)
@@ -1471,6 +1485,42 @@ class MainWindow(QMainWindow):
         else:
             logger.debug(f"Cache file not found: {cache_file}. Default values will be empty until sources are downloaded.")
 
+    def _set_apply_btn_dirty(self, dirty: bool) -> None:
+        """Single chokepoint for the button's enabled state, tooltip, and
+        color so none of the three can drift apart. Red (needs_apply) means
+        a change is waiting to be applied; green (apply) means the game
+        already matches what's loaded. The :disabled selector is set
+        explicitly so Qt's native greyed-out look doesn't wash out the
+        color — the color itself is the signal here, not the enabled state.
+        Same enabled/disabled tooltip pattern as the Enhancements tab's
+        Generate Enhancements / Save Tag Changes buttons; resolved via tr()
+        here (not cached class constants) so it always reflects the active
+        language."""
+        self._apply_dirty = dirty
+        self.apply_btn.setEnabled(dirty)
+        self.apply_btn.setToolTip(
+            tr("toolbar.apply_enabled_tooltip") if dirty else tr("toolbar.apply_disabled_tooltip")
+        )
+        color = get_button_color("needs_apply" if dirty else "apply")
+        text = get_button_text_color()
+        self.apply_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {color}; color: {text}; "
+            f"font-weight: bold; padding: 6px; }}"
+            f"QPushButton:disabled {{ background-color: {color}; color: {text}; }}"
+        )
+
+    def _mark_apply_dirty(self, *_args):
+        """Something that Apply to Game would pick up changed — light the
+        button back up. Wired to: any table edit (via the model's
+        dataChanged chokepoint), every entries reload (covers Apply Category
+        Changes / Generate Enhancements / Save Tag Changes / language+channel
+        switches / import / restore, which all funnel through a reload), and
+        the Owned-tag re-weave (which doesn't reload but does change what
+        Apply would write)."""
+        self._set_apply_btn_dirty(True)
+        if self._initial_load_done:
+            self._session_has_unapplied_edit = True
+
     @pyqtSlot()
     @timed
     def apply_to_game(self):
@@ -1739,6 +1789,8 @@ class MainWindow(QMainWindow):
                 f"  User edits: {user_count:,}\n\n"
                 f"{enhancement_block}"
             )
+            self._set_apply_btn_dirty(False)
+            self._session_has_unapplied_edit = False
         except Exception as e:
             QMessageBox.critical(self, tr("dialogs.error_title"), f"Failed to apply to game: {e}")
             logger.error(f"Error applying to game: {e}")
@@ -1868,8 +1920,8 @@ class MainWindow(QMainWindow):
                 # Shared helper — retries with backoff, clears read-only bits,
                 # and outlasts OneDrive/Defender/indexer locks that commonly
                 # reject the first attempt with WinError 5.
-                from src.utils.pak_extractor import _robust_rmtree
-                _robust_rmtree(dataforge_dir)
+                from src.utils.pak_extractor import robust_rmtree
+                robust_rmtree(dataforge_dir)
                 deleted.append("dataforge/")
                 logger.info("Deleted DataForge cache directory")
             except Exception as e:
@@ -2092,7 +2144,7 @@ class MainWindow(QMainWindow):
         self._apply_branding_styles()
         base = "font-weight: bold; padding: 6px;"
         text = get_button_text_color()
-        self.apply_btn.setStyleSheet(f"background-color: {get_button_color('apply')}; color: {text}; {base}")
+        self._set_apply_btn_dirty(self._apply_dirty)  # re-picks green/red for the new theme
         self.more_btn.setStyleSheet(f"background-color: {get_button_color('clear')}; color: {text}; {base}")
         self.editor_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {text}; {base}")
         self.help_btn.setStyleSheet(f"background-color: {get_button_color('open')}; color: {text}; {base}")
@@ -2419,7 +2471,7 @@ class MainWindow(QMainWindow):
         input_row.addWidget(line_edit)
 
         browse_btn = QPushButton("Browse...")
-        browse_btn.setToolTip("Pick a local .ini file to import.")
+        browse_btn.setToolTip(tr("dialogs.browse_ini_tooltip"))
         def browse():
             path, _ = QFileDialog.getOpenFileName(
                 dialog, "Select INI File", "", "INI Files (*.ini);;All Files (*)")
@@ -2636,11 +2688,11 @@ class MainWindow(QMainWindow):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(4)
         em3_btn = QPushButton("Underline")
-        em3_btn.setToolTip("Underline the selected text (wraps it in <EM3>...</EM3>)")
+        em3_btn.setToolTip(tr("strings_tab.editor_underline_tooltip"))
         em3_btn.clicked.connect(lambda: self._editor_dock_wrap("EM3"))
         btn_row.addWidget(em3_btn)
         em4_btn = QPushButton("Highlight")
-        em4_btn.setToolTip("Highlight the selected text with color emphasis (wraps it in <EM4>...</EM4>)")
+        em4_btn.setToolTip(tr("strings_tab.editor_highlight_tooltip"))
         em4_btn.clicked.connect(lambda: self._editor_dock_wrap("EM4"))
         btn_row.addWidget(em4_btn)
         btn_row.addStretch()
@@ -2836,6 +2888,7 @@ class MainWindow(QMainWindow):
         strings_tab = getattr(self, "_strings_tab_index", 0)
         config_tab = getattr(self, "_config_tab_index", 1)
         enh_tab = getattr(self, "_enhancements_tab_index", 2)
+        bp_tab = getattr(self, "_blueprint_tracker_tab_index", 3)
 
         return {
             "welcome":               {"target": lambda: None,                                                  "pre_action": None},
@@ -2851,7 +2904,7 @@ class MainWindow(QMainWindow):
             "enh_favorites":         {"target": lambda: self.enhancements_tab._favorites_group,                "pre_action": _switch_to(enh_tab)},
             "enh_mission_labels":    {"target": lambda: self.enhancements_tab.mission_labels_group,            "pre_action": _switch_to(enh_tab)},
             "enh_tag_builder":       {"target": lambda: self.enhancements_tab._tag_builder_group,              "pre_action": _switch_to(enh_tab)},
-            "enh_blueprints":        {"target": lambda: self.enhancements_tab._blueprints_group,               "pre_action": _switch_to(enh_tab)},
+            "blueprint_tracker":     {"target": lambda: self.blueprint_tracker_tab._blueprints_available_list, "pre_action": _switch_to(bp_tab)},
             # Config tab section deep-dive
             "cfg_appearance":        {"target": lambda: self.config_tab._appearance_group,                     "pre_action": _switch_to(config_tab)},
             "cfg_sc_install":        {"target": lambda: self.config_tab._loc_group,                            "pre_action": _switch_to(config_tab)},
@@ -3190,6 +3243,7 @@ class MainWindow(QMainWindow):
         state, version = getattr(self, "_update_check_state", (None, None))
         if state == "available":
             label.setText(tr("status_bar.update_indicator_available", current=current))
+            label.setToolTip(tr("status_bar.open_release_page_tooltip", version=version))
             self.config_tab.set_update_status(tr("status_bar.update_available", version=version))
         elif state == "up_to_date":
             label.setText(tr("status_bar.update_indicator_up_to_date", current=current))
@@ -3297,6 +3351,7 @@ class MainWindow(QMainWindow):
         self.tabs.setTabText(self._strings_tab_index, tr("tabs.string_editor"))
         self.tabs.setTabText(self._config_tab_index, tr("tabs.config"))
         self.tabs.setTabText(self._enhancements_tab_index, tr("tabs.enhancements"))
+        self.tabs.setTabText(self._blueprint_tracker_tab_index, tr("tabs.blueprint_tracker"))
         self.tabs.setTabText(self._log_tab_index, tr("tabs.log"))
         self.tabs.setTabText(self._about_tab_index, tr("tabs.about"))
         self.tabs.setTabText(self._faq_tab_index, tr("tabs.faq"))
@@ -3304,34 +3359,55 @@ class MainWindow(QMainWindow):
 
         # Toolbar buttons
         self.apply_btn.setText(tr("toolbar.apply_btn"))
+        self._set_apply_btn_dirty(self._apply_dirty)
         self.editor_btn.setText(tr("toolbar.editor_btn"))
+        self.editor_btn.setToolTip(tr("toolbar.editor_tooltip"))
         self.help_btn.setText(tr("toolbar.help_btn"))
+        self.help_btn.setToolTip(tr("toolbar.help_tooltip"))
         self.tutorial_btn.setText(tr("toolbar.tutorial_btn"))
+        self.tutorial_btn.setToolTip(tr("toolbar.tutorial_tooltip"))
         self.more_btn.setText(tr("toolbar.more_btn"))
+        self.more_btn.setToolTip(tr("toolbar.more_tooltip"))
 
         # More-menu actions
         self._action_restore_backup.setText(tr("toolbar.restore_backup_btn"))
+        self._action_restore_backup.setToolTip(tr("toolbar.restore_backup_tooltip"))
         self._action_clear_loc.setText(tr("toolbar.menu_clear_localization"))
         self._action_clear_cache.setText(tr("toolbar.menu_clear_cache"))
         self._action_import_ini.setText(tr("toolbar.menu_import_ini"))
         self._action_export_ini.setText(tr("toolbar.menu_export_ini"))
         self._action_open_loc_dir.setText(tr("toolbar.open_loc_dir_btn"))
         self._action_test_plan.setText(tr("toolbar.menu_test_plan"))
+        self._action_test_plan.setToolTip(tr("toolbar.test_plan_tooltip"))
         self._action_switch_to_simple.setText(tr("toolbar.menu_switch_to_simple"))
+        self._action_switch_to_simple.setToolTip(tr("toolbar.switch_to_simple_tooltip"))
+
+        # Footer
+        self.osiris_button.setToolTip(tr("toolbar.osiris_github_tooltip"))
+        self.feedback_label.setToolTip(tr("toolbar.feedback_tooltip"))
 
         # Simple-mode page (#180)
         self.simple_page.retranslate_ui()
 
         # Filter row
         self._category_label.setText(tr("filters.category_label"))
+        self.category_combo.setToolTip(tr("filters.category_tooltip"))
         self._status_label.setText(tr("filters.status_label"))
+        self.status_combo.setToolTip(tr("filters.status_tooltip"))
         self.hide_unmodified_check.setText(tr("filters.hide_unmodified"))
+        self.hide_unmodified_check.setToolTip(tr("filters.hide_unmodified_tooltip"))
         self.favorites_only_check.setText(tr("filters.favorites_only"))
+        self.favorites_only_check.setToolTip(tr("filters.favorites_only_tooltip"))
         self.bp_titles_check.setText(tr("filters.bp_titles_only"))
+        self.bp_titles_check.setToolTip(tr("filters.bp_titles_only_tooltip"))
         self.bp_descs_check.setText(tr("filters.bp_descs_only"))
+        self.bp_descs_check.setToolTip(tr("filters.bp_descs_only_tooltip"))
         self.grouped_sort_btn.setText(tr("filters.group_sort_btn"))
+        self.grouped_sort_btn.setToolTip(tr("filters.group_sort_tooltip"))
         self.clear_filters_btn.setText(tr("filters.clear_filters_btn"))
+        self.clear_filters_btn.setToolTip(tr("filters.clear_filters_tooltip"))
         self.copy_filtered_btn.setText(tr("filters.copy_filtered_btn"))
+        self.copy_filtered_btn.setToolTip(tr("filters.copy_filtered_tooltip"))
 
         # Status combo display text (userData internal values are preserved)
         self.status_combo.blockSignals(True)
@@ -3372,6 +3448,7 @@ class MainWindow(QMainWindow):
         # Cascade to child tabs
         self.config_tab.retranslate_ui()
         self.enhancements_tab.retranslate_ui()
+        self.blueprint_tracker_tab.retranslate_ui()
 
         # Status-bar version indicator + Config-tab update status hold the
         # last update-check result; re-render them in the new language
@@ -3589,8 +3666,12 @@ class MainWindow(QMainWindow):
             logger.info(f"Queued cache cleanup target already absent: {old_path}")
             return
         try:
-            import shutil
-            shutil.rmtree(old_path, ignore_errors=False)
+            # robust_rmtree (not a raw shutil.rmtree) so this survives both
+            # transient Windows locks and a deep old cache path past the
+            # 260-char MAX_PATH (long-path-wraps internally — see
+            # win_paths.win_long_path).
+            from src.utils.pak_extractor import robust_rmtree
+            robust_rmtree(old_path)
             logger.info(f"Removed old DataForge cache at {old_path}")
         except Exception as e:
             logger.warning(
@@ -3743,6 +3824,14 @@ class MainWindow(QMainWindow):
         # If P4K extraction was started, don't load files yet.
         # The P4K extraction finished handler will do the loading.
         if p4k_extraction_started:
+            return
+
+        # User declined the extraction prompt (or it didn't fire, e.g. unp4k
+        # missing) and there's still no cached base.ini. Loading sources now
+        # would just fail with "file not found" — skip it instead of
+        # surfacing error popups for a state the user just chose to leave.
+        if not base_ini.exists():
+            self.statusBar().showMessage(tr("status_bar.no_strings_loaded"))
             return
 
         # Base.ini is fine. Separately check the DataForge XML cache, which
@@ -3955,9 +4044,9 @@ class MainWindow(QMainWindow):
         button_row = QHBoxLayout()
         generate_btn = QPushButton("Generate")
         generate_btn.setDefault(True)
-        generate_btn.setToolTip("Run the DataForge extraction + enhancements pipeline now. Takes a few minutes the first time.")
+        generate_btn.setToolTip(tr("dialogs.generate_now_tooltip"))
         skip_btn = QPushButton("Skip")
-        skip_btn.setToolTip("Continue without generating enhancements. You can run it later from the Enhancements tab.")
+        skip_btn.setToolTip(tr("dialogs.skip_generate_tooltip"))
 
         generate_btn.clicked.connect(dialog.accept)
         skip_btn.clicked.connect(dialog.reject)
@@ -4055,9 +4144,7 @@ class MainWindow(QMainWindow):
             # are missing on disk. Surface this so the user isn't left with a
             # silently blank table and no indication of why.
             logger.warning("Load completed with 0 entries — source files may be missing; try extracting from Data.p4k")
-            self.statusBar().showMessage(
-                "No strings loaded — extract from Data.p4k on the Config tab first"
-            )
+            self.statusBar().showMessage(tr("status_bar.no_strings_loaded"))
         self.update_category_combo()
 
         # Push data into the model — the view renders only visible rows, so this is instant
@@ -4079,6 +4166,10 @@ class MainWindow(QMainWindow):
         if self._check_enhancements_after_loading:
             self._check_enhancements_after_loading = False
             self._check_enhancements_freshness()
+
+        # From here on, dirty-marking reflects a real in-session change —
+        # see _mark_apply_dirty / _session_has_unapplied_edit.
+        self._initial_load_done = True
 
     @pyqtSlot(str)
     def _on_loading_error(self, error_msg: str):
@@ -4184,11 +4275,12 @@ class MainWindow(QMainWindow):
             mission_headers=AppSettings.get_mission_headers(),
             mission_header_em_tag=AppSettings.get_mission_header_em_tag(),
             mission_detail_fields=AppSettings.get_mission_detail_fields(),
+            mission_title_tags=AppSettings.get_mission_title_tags(),
             stats_prepend=AppSettings.get_stats_prepend(),
             standardize_earnable_ship_names=AppSettings.get_standardize_earnable_ship_names(),
             language=language,
         )
-        self.enhancements_tab.set_operation_running("Generating enhancements…")
+        self.enhancements_tab.set_operation_running(tr("enhancements.generating_enhancements_tooltip"))
         self.statusBar().showMessage("Generating enhancements in background…")
 
         enhancements_label = (
@@ -4251,7 +4343,7 @@ class MainWindow(QMainWindow):
         self._enhancements_worker.quit()
         self._enhancements_worker.wait()
         self._enhancements_worker = None
-        self.enhancements_tab.set_operation_idle()
+        self.enhancements_tab.set_operation_idle(success)
         self.enhancements_tab.refresh_enhancements_status()
 
         if success:
@@ -4281,7 +4373,7 @@ class MainWindow(QMainWindow):
         forge_dir   = AppSettings.get_dataforge_cache_dir()
 
         self._forge_worker = DataForgeExtractWorker(p4k_path, unp4k_exe, unforge_exe, forge_dir)
-        self.enhancements_tab.set_operation_running("Extracting DataForge from Data.p4k…")
+        self.enhancements_tab.set_operation_running(tr("enhancements.extracting_dataforge_tooltip"))
         self.statusBar().showMessage("Extracting DataForge in background — this takes several minutes…")
 
         self._forge_progress_dialog = AnimatedProgressDialog(
@@ -4336,7 +4428,7 @@ class MainWindow(QMainWindow):
             if getattr(self, "_forge_progress_dialog", None) is not None:
                 self._forge_progress_dialog.close()
                 self._forge_progress_dialog = None
-            self.enhancements_tab.set_operation_idle()
+            self.enhancements_tab.set_operation_idle(success=False)
             self.statusBar().showMessage("DataForge extraction failed — check the Log tab for details")
 
     def _run_p4k_extraction(self):
@@ -4374,6 +4466,13 @@ class MainWindow(QMainWindow):
             # Refresh the config tab P4K status
             self.config_tab._refresh_p4k_status()
 
+            # A fresh base.ini can change item names/descriptions (e.g. CIG
+            # adding flavor text in a patch) without touching the DataForge
+            # XML cache our dirty-check keys off — so a stale cached
+            # enhancement entry for a changed item would otherwise never
+            # prompt a re-run even after re-extracting global.ini.
+            self.enhancements_tab.mark_enhancements_dirty()
+
             # Defer enhancements check until after file loading completes (avoid I/O contention)
             self._check_enhancements_after_loading = True
 
@@ -4382,6 +4481,47 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         """Save state and overrides before closing."""
+        # Warn if something changed this session that Apply Enhancements
+        # hasn't picked up yet (the button is still showing red) — e.g. the
+        # user clicked Apply Tag Changes but never followed up with Apply
+        # Enhancements. Gated on _session_has_unapplied_edit rather than
+        # _apply_dirty directly since the latter also starts True at launch
+        # (see its comment) — that boot-time uncertainty shouldn't nag a user
+        # who hasn't touched anything this session.
+        if self._session_has_unapplied_edit:
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle(tr("dialogs.unapplied_changes_title"))
+            box.setText(tr("dialogs.unapplied_changes_body"))
+            apply_btn = box.addButton(
+                tr("dialogs.unapplied_changes_apply_now"), QMessageBox.ButtonRole.AcceptRole
+            )
+            exit_btn = box.addButton(
+                tr("dialogs.unapplied_changes_exit"), QMessageBox.ButtonRole.DestructiveRole
+            )
+            cancel_btn = box.addButton(QMessageBox.StandardButton.Cancel)
+            box.setDefaultButton(apply_btn)
+            box.exec()
+            clicked = box.clickedButton()
+
+            if clicked is cancel_btn:
+                event.ignore()
+                return
+            if clicked is apply_btn:
+                # Apply, then stay open — Apply to Game only updates
+                # _apply_dirty in memory for this run; closing immediately
+                # after would still start the *next* launch red regardless
+                # (that boot-time default can't cheaply verify the game file
+                # already matches — see _apply_dirty's comment), which read
+                # as "my apply didn't work." Leaving the window open lets the
+                # user see the button turn green and close normally whenever
+                # they're ready.
+                self.apply_to_game()
+                event.ignore()
+                return
+            # exit_btn: fall through to the normal close sequence below,
+            # exiting without applying.
+
         # Auto-save overrides if there are unsaved edits
         if self.entries and not (self._loader_worker and self._loader_worker.isRunning()):
             try:
@@ -4465,6 +4605,8 @@ class MainWindow(QMainWindow):
         """
         if not self.entries or not top_left.isValid():
             return
+
+        self._mark_apply_dirty()
 
         # Preview: refresh if the selected row falls inside the changed range.
         sel_model = self.table.selectionModel() if hasattr(self, "table") else None
@@ -4662,8 +4804,7 @@ class MainWindow(QMainWindow):
         """Handle cell clicks — COL_STAR toggles favorite (Ships).
 
         The Owned column (COL_OWNED) is a read-only indicator: ownership is now
-        managed by the Blueprints shuttle on the Enhancements tab, not by
-        clicking the star here.
+        managed by the Blueprint Tracker tab, not by clicking the star here.
         """
         col = proxy_index.column()
         if col == COL_STAR:
@@ -4716,10 +4857,126 @@ class MainWindow(QMainWindow):
             if new_val != e.original_value:
                 e.original_value = new_val
         self._model.set_owned_state(self._bp_item_names, owned)
-        # Feed the blueprint metadata to the Enhancements tab's Blueprints
-        # shuttle (it can't see the loaded strings the data is derived from).
-        if hasattr(self, "enhancements_tab"):
-            self.enhancements_tab.set_blueprint_items(self._blueprint_meta)
+        # Feed the blueprint metadata to the Blueprint Tracker tab (it can't
+        # see the loaded strings the data is derived from).
+        if hasattr(self, "blueprint_tracker_tab"):
+            self.blueprint_tracker_tab.set_blueprint_items(self._blueprint_meta)
+        # Called after every reload (category/tag/enhancements apply, channel
+        # and language switches, import, restore) and every Owned-set change
+        # — in every case Apply to Game's output could now differ.
+        self._mark_apply_dirty()
+
+    def _on_apply_owned_tags_clicked(self):
+        """Manual "Apply Owned Tags" button: force a re-weave on demand
+        instead of relying on it happening as a side effect of moving an
+        item between the Available/Owned lists or a log scan."""
+        self._recompute_owned()
+        self.statusBar().showMessage("[Owned] tags refreshed to match your current Owned list.")
+
+    def _run_blueprint_log_scan(self):
+        """Scan the active channel's SC logs for received-blueprint events and
+        fold them into the owned set. Launched by the Blueprint Tracker tab's
+        "BP Scan" button; runs in a background worker with a progress dialog.
+
+        Reads Game.log + logbackups/*.log from the active channel's install
+        dir for "Received Blueprint" reward notifications — the game's own
+        record of every blueprint the player has actually earned, independent
+        of whether it's shown up in a loaded mission's reward text yet. Only
+        events newer than the last scan's watermark are imported (#222), so
+        re-running the scan against a still-growing Game.log doesn't re-walk
+        the player's whole history every time.
+        """
+        if self._bp_log_scan_worker is not None:
+            return  # already scanning
+
+        channel_path = AppSettings.get_channel_install_path()
+        if not channel_path or not Path(channel_path).is_dir():
+            QMessageBox.warning(
+                self,
+                tr("enhancements.bp_scan_title"),
+                tr("enhancements.bp_scan_no_path"),
+            )
+            return
+
+        since = AppSettings.get_blueprint_log_watermark()
+        self._bp_log_scan_worker = BlueprintLogScanWorker(channel_path, since)
+        self._bp_log_scan_progress = AnimatedProgressDialog(
+            tr("enhancements.bp_scan_starting"),
+            parent=self,
+            title=tr("enhancements.bp_scan_title"),
+        )
+        self._bp_log_scan_worker.progress.connect(self.statusBar().showMessage)
+        self._bp_log_scan_worker.progress.connect(self._bp_log_scan_progress.setLabelText)
+        self._bp_log_scan_worker.progress_pct.connect(self._bp_log_scan_progress.set_progress)
+        self._bp_log_scan_worker.error.connect(self._on_blueprint_log_scan_error)
+        self._bp_log_scan_worker.finished.connect(self._on_blueprint_log_scan_finished)
+        self._bp_log_scan_worker.start()
+
+    def _on_blueprint_log_scan_error(self, message: str):
+        logger.error(f"BP Scan failed: {message}")
+        if self._bp_log_scan_progress is not None:
+            self._bp_log_scan_progress.close()
+            self._bp_log_scan_progress = None
+
+    def _on_blueprint_log_scan_finished(self, result):
+        """Fold a completed scan's names into the owned set and report.
+
+        Owns all owned-set / watermark mutation (the worker stays read-only),
+        so every settings write happens on the main thread. ``result`` is a
+        ``ScanResult`` or ``None`` when the scan errored (already surfaced via
+        ``_on_blueprint_log_scan_error``)."""
+        if self._bp_log_scan_progress is not None:
+            self._bp_log_scan_progress.close()
+            self._bp_log_scan_progress = None
+        self._reap_worker(self._bp_log_scan_worker)
+        self._bp_log_scan_worker = None
+
+        if result is None:
+            return
+
+        from src.utils.owned_items import normalize_item_name
+
+        # Normalize raw log names to the shared owned-set identity; drop blanks.
+        scanned = {normalize_item_name(n) for n in result.names}
+        scanned.discard("")
+
+        owned = AppSettings.get_owned_items()
+        new_names = sorted(scanned - owned)
+
+        # Advance the watermark even when nothing new was imported, so a
+        # growing Game.log's already-seen events aren't reparsed next time.
+        if result.latest_timestamp is not None:
+            prev = AppSettings.get_blueprint_log_watermark()
+            newest = result.latest_timestamp if prev is None else max(prev, result.latest_timestamp)
+            AppSettings.set_blueprint_log_watermark(newest)
+
+        if not new_names:
+            QMessageBox.information(
+                self,
+                tr("enhancements.bp_scan_title"),
+                tr("enhancements.bp_scan_none"),
+            )
+            return
+
+        AppSettings.set_owned_items(owned | set(new_names))
+        self._recompute_owned()
+        self.blueprint_tracker_tab.mark_owned_dirty()
+
+        # How many of the newly-added names are visible right now (i.e. appear
+        # as a blueprint bullet in the currently-loaded data). The rest light up
+        # automatically whenever their item next appears in a blueprint list.
+        visible_now = len(set(new_names) & getattr(self, "_bp_item_names", set()))
+        summary = tr(
+            "enhancements.bp_scan_summary",
+            count=len(new_names),
+            visible=visible_now,
+        )
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setWindowTitle(tr("enhancements.bp_scan_title"))
+        box.setText(summary)
+        box.setDetailedText("\n".join(new_names))
+        box.exec()
 
     def toggle_favorite(self, proxy_row: int):
         """Add or remove the sort prefix from a ship's custom value."""
