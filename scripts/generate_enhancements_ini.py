@@ -30,7 +30,7 @@ import sys
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, NamedTuple, Optional
 from lxml import etree as ET
 
 logger = logging.getLogger(__name__)
@@ -3296,6 +3296,32 @@ def _variant_label_short(debug_name: str) -> str:
     return debug_name.rsplit("_", 1)[-1]
 
 
+class ContractVariant(NamedTuple):
+    """One mission variant from a contract generator (issue #240 follow-up).
+
+    Was a bare positional tuple that grew to 12 fields (10 -> 11 for
+    rank_name in 1.4.2, 11 -> 12 for rep_track in 2.2.0's reputation-track
+    change, #161); every growth risked an off-by-one at one of the many
+    ``v[N]`` reads and destructures below. A NamedTuple is still a plain
+    tuple — positional unpacking, indexing, and ``len()`` all still work
+    exactly as before (see tests/test_mission_variant_tuple.py, which locks
+    that contract) — so this is purely a self-documenting rename at the call
+    sites that read fields by name instead of by position.
+    """
+    system_name: str
+    success_xp: int
+    failure_xp: int
+    desc_key: str
+    flags: list[str]
+    spawns: dict
+    difficulty: str | None
+    has_bp: bool
+    bp_chance: float
+    bp_variant: str
+    rank_name: str
+    rep_track: str
+
+
 def scan_contract_generators(
     contractgen_dir: Path,
     reputation_lookup: dict[str, int] | None = None,
@@ -3310,7 +3336,7 @@ def scan_contract_generators(
     """Scan contract generator XMLs for mission variants with different systems.
 
     Returns tuple of:
-        - missions: dict mapping title_key → [(system_name, success_xp, failure_xp, desc_key, flags, spawns, difficulty, has_bp, bp_chance, bp_variant, rank_name, rep_track), ...]
+        - missions: dict mapping title_key → [ContractVariant, ...]
         - mission_blueprints: dict title_key → dict system_name → dict pool_label → list of craftable item display names.
           The pool_label dimension preserves rank-tier sub-grouping derived from the
           pool filename (e.g. ``Rank 0–1`` / ``Rank 2–3`` / ``Rank 4`` from Shubin
@@ -3331,8 +3357,7 @@ def scan_contract_generators(
     pool_names = pool_names or {}
     standings_lookup = standings_lookup or {}
     standing_track_lookup = standing_track_lookup or {}
-    # Variant tuple: (system_name, success_xp, failure_xp, desc_key, flags, spawns, difficulty, has_bp, bp_chance, bp_variant, rank_name, rep_track)
-    missions: dict[str, list[tuple[str, int, int, str, list[str], int, int]]] = {}
+    missions: dict[str, list[ContractVariant]] = {}
     # Per-system, per-pool-label item lists. The extra label dimension keeps
     # items from different rank-tier pools separate inside one system so the
     # renderer can show ``[Stanton, Rank 0–1]`` / ``[Stanton, Rank 2–3]`` /
@@ -3637,7 +3662,7 @@ def scan_contract_generators(
                             # Add all missions (not just those with XP/blueprint data)
                             if title_key not in missions:
                                 missions[title_key] = []
-                            missions[title_key].append((system_name, success_xp, failure_xp, desc_key, contract_flags, spawns, contract_difficulty, contract_has_bp, contract_bp_chance, contract_bp_variant, rank_name, rep_track))
+                            missions[title_key].append(ContractVariant(system_name, success_xp, failure_xp, desc_key, contract_flags, spawns, contract_difficulty, contract_has_bp, contract_bp_chance, contract_bp_variant, rank_name, rep_track))
 
                             # Sub-contracts override title/desc but inherit
                             # everything else from the parent contract.
@@ -3652,7 +3677,7 @@ def scan_contract_generators(
                                     sub_desc = ""
                                 if sub_title not in missions:
                                     missions[sub_title] = []
-                                missions[sub_title].append((system_name, success_xp, failure_xp, sub_desc or desc_key, contract_flags, spawns, contract_difficulty, contract_has_bp, contract_bp_chance, contract_bp_variant, rank_name, rep_track))
+                                missions[sub_title].append(ContractVariant(system_name, success_xp, failure_xp, sub_desc or desc_key, contract_flags, spawns, contract_difficulty, contract_has_bp, contract_bp_chance, contract_bp_variant, rank_name, rep_track))
                                 if contract_has_bp and sub_title != title_key:
                                     for bp_elem in contract.iter("BlueprintRewards"):
                                         sub_pool_uuid = bp_elem.get("blueprintPool", "")
@@ -3671,7 +3696,7 @@ def scan_contract_generators(
 
         # Sort variants by system name for consistent output (Stanton first, then others alphabetically)
         for title_key in missions:
-            missions[title_key].sort(key=lambda v: (v[0] != "Stanton", v[0]))
+            missions[title_key].sort(key=lambda v: (v.system_name != "Stanton", v.system_name))
 
     except Exception as e:
         logger.warning(f"Error scanning contract generators: {e}")
@@ -5903,8 +5928,8 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             base_title = _humanize_key(title_key)
 
         seen_tiers: list[tuple[int, int, str, str]] = []
-        for _, sxp, fxp, _, _, _, _, _, _, _, rname, rtrack in variants:
-            tier = (sxp, fxp, rname, rtrack)
+        for v in variants:
+            tier = (v.success_xp, v.failure_xp, v.rank_name, v.rep_track)
             if tier not in seen_tiers:
                 seen_tiers.append(tier)
 
@@ -5916,7 +5941,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         _nonzero_tier_tracks = {rt for sxp, _, _, rt in seen_tiers if sxp > 0 and rt}
         _title_track = next(iter(_nonzero_tier_tracks)) if len(_nonzero_tier_tracks) == 1 else ""
         has_blueprints = title_key in mission_blueprints
-        _bp_variants = [v[7] for v in variants]  # v[7] = contract_has_bp
+        _bp_variants = [v.has_bp for v in variants]
         _all_have_bp = has_blueprints and all(_bp_variants)
 
         # #102 / #31: a haul title's contractgenerator variants (CareerContract
@@ -5928,7 +5953,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         # would sit over blueprint-less haul bodies and read as wrong in-game.
         # Detect the surviving no-BP cargo/delivery descs and demote [BP] to the
         # honest [BP?] (the 9-BP career bodies keep their full list either way).
-        _cg_desc_keys = {v[3] for v in variants if v[3]}
+        _cg_desc_keys = {v.desc_key for v in variants if v.desc_key}
         _surviving_no_bp_cargo = bool(
             (pu_cargo_delivery_descs & pu_title_to_descs.get(title_key, set()))
             - _cg_desc_keys
@@ -5937,10 +5962,10 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         desc_bucket_has_bp: dict[str, bool] = {}
         desc_bucket_count: dict[str, int] = {}
         for v in variants:
-            dk = v[3]
+            dk = v.desc_key
             if not dk:
                 continue
-            desc_bucket_has_bp[dk] = desc_bucket_has_bp.get(dk, False) or v[7]
+            desc_bucket_has_bp[dk] = desc_bucket_has_bp.get(dk, False) or v.has_bp
             desc_bucket_count[dk] = desc_bucket_count.get(dk, 0) + 1
         _total_bucketed = sum(desc_bucket_count.values())
         _any_variant_has_bp = any(_bp_variants)
@@ -5977,7 +6002,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         if (route_enabled(_mt_cfg) and _is_route_title(title_key)
                 and not _title_has_route_token(base_title)):
             _route_descs = pu_title_to_descs.get(title_key, set()) | {
-                v[3] for v in variants if v[3]
+                v.desc_key for v in variants if v.desc_key
             }
             _route = _derive_route_fragment(
                 [loc.get(dk) for dk in _route_descs], _mt_cfg, loc, _route_expand_cache
@@ -5997,7 +6022,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         # data — so there is no percentage to show.
         if _show_title_tag("ace"):
             _ace_flags = [
-                "Ace Pilots" in (v[5] or {}).get(SPAWN_HOSTILE, {}) for v in variants
+                "Ace Pilots" in (v.spawns or {}).get(SPAWN_HOSTILE, {}) for v in variants
             ]
             if _ace_flags and all(_ace_flags):
                 augmented_title += " <EM4>[ACE]</EM4>"
@@ -6020,7 +6045,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
 
         unique_desc_keys: list[str] = []
         for v in variants:
-            dk = v[3]
+            dk = v.desc_key
             # #151: a contract whose Description loc-key collides with its
             # Title key (CIG data quirk, e.g. eckhart_defendship_MRT
             # "Stop Attack") must never have the MISSION DETAILS / blueprint
@@ -6032,12 +6057,12 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
                 unique_desc_keys.append(dk)
 
         for desc_key in unique_desc_keys:
-            desc_variants = [v for v in variants if v[3] == desc_key]
+            desc_variants = [v for v in variants if v.desc_key == desc_key]
             base_desc = loc.get(desc_key)
             if base_desc is None:
                 # Synthesize from contract debug name in variant tuple
                 contract_debug = next(
-                    (v[9] for v in desc_variants if v[9]), ""
+                    (v.bp_variant for v in desc_variants if v.bp_variant), ""
                 )
                 if contract_debug:
                     base_desc = _humanize_key(contract_debug)
@@ -6051,22 +6076,22 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             any_variant_has_bp = False
             variant_bp_chance = 0.0
             desc_seen_tiers: list[tuple[int, int, str, str]] = []
-            for _, vsxp, vfxp, _, vflags, vspawns, vdiff, vhas_bp, vbp_chance, vbp_variant, vrname, vrtrack in desc_variants:
-                for f in vflags:
+            for v in desc_variants:
+                for f in v.flags:
                     if f not in all_flags:
                         all_flags.append(f)
-                _merge_spawn_breakdowns_max(agg_spawns, vspawns)
-                if vdiff and vdiff not in all_difficulties:
-                    all_difficulties.append(vdiff)
-                if vhas_bp:
+                _merge_spawn_breakdowns_max(agg_spawns, v.spawns)
+                if v.difficulty and v.difficulty not in all_difficulties:
+                    all_difficulties.append(v.difficulty)
+                if v.has_bp:
                     any_variant_has_bp = True
-                    variant_bp_chance = max(variant_bp_chance, vbp_chance)
-                    short_name = _variant_label_short(vbp_variant)
+                    variant_bp_chance = max(variant_bp_chance, v.bp_chance)
+                    short_name = _variant_label_short(v.bp_variant)
                     if short_name and short_name not in bp_variant_names:
                         bp_variant_names.append(short_name)
                 else:
                     all_variants_have_bp = False
-                tier = (vsxp, vfxp, vrname, vrtrack)
+                tier = (v.success_xp, v.failure_xp, v.rank_name, v.rep_track)
                 if tier not in desc_seen_tiers:
                     desc_seen_tiers.append(tier)
 
@@ -6109,7 +6134,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
                 details_lines.append(bp_header)
 
                 pools_by_system = mission_blueprints.get(title_key, {})
-                desc_systems = {v[0] for v in desc_variants if v[7]}
+                desc_systems = {v.system_name for v in desc_variants if v.has_bp}
                 desc_pools = {s: by_label for s, by_label in pools_by_system.items() if s in desc_systems}
                 if not desc_pools:
                     desc_pools = pools_by_system
@@ -6210,7 +6235,7 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     for _title_key, _variants in contractgen_missions.items():
         if _title_key not in mission_blueprints:
             continue
-        _cg_descs = {v[3] for v in _variants if v[3]}
+        _cg_descs = {v.desc_key for v in _variants if v.desc_key}
         for _orphan in pu_title_to_descs.get(_title_key, set()) - _cg_descs:
             # #102: keep cargo / delivery haul bodies. A haul awards no
             # blueprints, so under a [BP]-tagged shared title it would be
