@@ -259,10 +259,15 @@ def write_ini(path: Path, entries: dict[str, str]) -> None:
 #     meaningless "[S1-A]" in POTENTIAL BLUEPRINTS. entity_name_tags now keeps
 #     only CLASS/TYPE-qualified tags; both lookups carry the affected names so
 #     both bump to force a rebuild.
+#   standings v3 (#239 review follow-up) — _build_standings now returns a
+#     (rank_lookup, track_lookup) 2-tuple instead of a bare rank dict, folding
+#     in the former standalone standing_tracks job so the standings XMLs are
+#     only walked once. v2 pickles unpack as a bare dict and crash the new
+#     2-tuple consumer, so bump invalidates.
 _LOOKUP_VERSIONS: dict[str, str] = {
     "blueprint_pools": "v12",
     "scitem_lookups": "v8",
-    "standings": "v2",
+    "standings": "v3",
 }
 
 
@@ -3262,7 +3267,7 @@ def _build_battaglia_mineable_rs_tags(
 # A standing rank's displayName loc key encodes its reputation TRACK as the
 # token right after the RepStanding_/RepScope_ prefix (e.g.
 # "RepStanding_Security_Rank0" -> "Security", "RepScope_Contractor_Rank3"
-# -> "Contractor") — see _build_standing_tracks / issue #161.
+# -> "Contractor") — see _build_standings / issue #161.
 _REP_TRACK_PREFIX_RE = re.compile(r"^Rep(?:Standing|Scope)_([A-Za-z]+)_")
 
 
@@ -6558,39 +6563,23 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         lookup_jobs["reputation"] = _build_reputation
 
     def _build_standings():
-        standings_dir = records / "reputation" / "standings"
-        def _builder() -> dict[str, str]:
-            out: dict[str, str] = {}
-            if not standings_dir.exists():
-                return out
-            for xml_file in standings_dir.rglob("*.xml"):
-                try:
-                    root = ET.parse(xml_file).getroot()
-                    uuid = root.get("__ref")
-                    display_name = root.get("displayName", "")
-                    if uuid and display_name.startswith("@"):
-                        loc_key = display_name.lstrip("@")
-                        resolved = (en_loc or {}).get(loc_key, "")
-                        if resolved:
-                            out[uuid] = resolved
-                except ET.ParseError:
-                    continue
-            return out
-        return _cached_lookup(forge_dir, "standings", _builder)
+        """Single walk over reputation/standings XMLs building two dicts at
+        once: UUID -> rank display name (e.g. "Security Trainee") and UUID ->
+        the reputation TRACK that rank belongs to (e.g. "Security",
+        "Contractor", "Bounty Hunting") — two derived views of the same
+        displayName attribute. Used to be two separate _cached_lookup jobs
+        that each walked and parsed every standings XML on their own; same
+        UUID/displayName pair read twice per cache build for no reason, and
+        two independent dicts built from the same source risked drifting
+        apart. Mirrors _build_scitem_pair below for the same "one XML walk,
+        several derived dicts" shape.
 
-    if _want("mission_rewards"):
-        lookup_jobs["standings"] = _build_standings
-
-    def _build_standing_tracks():
-        """Map a standing (min/maxStanding) UUID to its reputation TRACK
-        name (e.g. "Security", "Contractor", "Bounty Hunting") — distinct
-        from the rank NAME (e.g. "Security Trainee") ``_build_standings``
-        resolves. Some factions have multiple reputation tracks (Foxwell
-        Enforcement shows separate "Security" and "Standing" columns
-        in-game); which track a mission feeds isn't obvious from its type or
-        name alone (a ship-combat "Security Patrol" contract actually feeds
-        the generic Contractor/Standing track, while the satellite-scan
-        "Destroy Data Skimmers" contract feeds Security) — see issue #161.
+        Some factions have multiple reputation tracks (Foxwell Enforcement
+        shows separate "Security" and "Standing" columns in-game); which
+        track a mission feeds isn't obvious from its type or name alone (a
+        ship-combat "Security Patrol" contract actually feeds the generic
+        Contractor/Standing track, while the satellite-scan "Destroy Data
+        Skimmers" contract feeds Security) — see issue #161.
 
         Every standing rank's ``displayName`` loc key encodes its track as
         the token right after the ``RepStanding_``/``RepScope_`` prefix
@@ -6599,10 +6588,11 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
         already used by the in-game Reputation Manager UI.
         """
         standings_dir = records / "reputation" / "standings"
-        def _builder() -> dict[str, str]:
-            out: dict[str, str] = {}
+        def _builder() -> tuple[dict[str, str], dict[str, str]]:
+            rank_out: dict[str, str] = {}
+            track_out: dict[str, str] = {}
             if not standings_dir.exists():
-                return out
+                return rank_out, track_out
             for xml_file in standings_dir.rglob("*.xml"):
                 try:
                     root = ET.parse(xml_file).getroot()
@@ -6610,23 +6600,26 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
                     display_name = root.get("displayName", "")
                     if not uuid or not display_name.startswith("@"):
                         continue
-                    m = _REP_TRACK_PREFIX_RE.match(display_name.lstrip("@"))
-                    if not m:
-                        continue
-                    family = m.group(1)
-                    track_name = (
-                        (en_loc or {}).get(f"RepScope_{family}_Name")
-                        or (en_loc or {}).get(f"RepScope_{family}_Name,P")
-                        or family
-                    )
-                    out[uuid] = track_name
+                    loc_key = display_name.lstrip("@")
+                    resolved = (en_loc or {}).get(loc_key, "")
+                    if resolved:
+                        rank_out[uuid] = resolved
+                    m = _REP_TRACK_PREFIX_RE.match(loc_key)
+                    if m:
+                        family = m.group(1)
+                        track_name = (
+                            (en_loc or {}).get(f"RepScope_{family}_Name")
+                            or (en_loc or {}).get(f"RepScope_{family}_Name,P")
+                            or family
+                        )
+                        track_out[uuid] = track_name
                 except ET.ParseError:
                     continue
-            return out
-        return _cached_lookup(forge_dir, "standing_tracks", _builder)
+            return rank_out, track_out
+        return _cached_lookup(forge_dir, "standings", _builder)
 
     if _want("mission_rewards"):
-        lookup_jobs["standing_tracks"] = _build_standing_tracks
+        lookup_jobs["standings"] = _build_standings
 
     if lookup_jobs:
         logger.info(f"Building {len(lookup_jobs)} lookups in parallel (workers={min(max_workers, len(lookup_jobs))})…")
@@ -6660,13 +6653,12 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
             logger.info(f"Loaded {len(reputation_lookup)} reputation reward definitions")
             _tick("Built reputation lookup")
         if "standings" in results:
-            standings_lookup = results["standings"]
-            logger.info(f"Loaded {len(standings_lookup)} reputation standing definitions")
-            _tick("Built standings lookup")
-        if "standing_tracks" in results:
-            standing_track_lookup = results["standing_tracks"]
-            logger.info(f"Loaded {len(standing_track_lookup)} reputation track definitions")
-            _tick("Built standing track lookup")
+            standings_lookup, standing_track_lookup = results["standings"]
+            logger.info(
+                f"Loaded {len(standings_lookup)} reputation standing definitions, "
+                f"{len(standing_track_lookup)} reputation track definitions"
+            )
+            _tick("Built standings + track lookups")
 
     # ── Output-file generators (parallel wave) ────────────────────────────────
     # Generators run in a ThreadPoolExecutor. Each is a module-level function

@@ -4,7 +4,7 @@ in-game) and which track a mission's XP feeds isn't obvious from the mission
 type or name alone. ``_REP_TRACK_PREFIX_RE`` pulls the track token out of a
 standing rank's displayName loc key (``RepStanding_Security_Rank0`` ->
 "Security", ``RepScope_Contractor_Rank3`` -> "Contractor"); the actual
-``_build_standing_tracks`` file-walk (nested inside ``main()``) is exercised
+``_build_standings`` file-walk (nested inside ``main()``) is exercised
 end-to-end in ``test_mission_rep_label.py``'s ``_rep_reward_line`` tests and
 verified separately against real DataForge data.
 """
