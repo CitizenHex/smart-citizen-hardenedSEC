@@ -31,15 +31,69 @@ TEST_SECTIONS: list[dict] = [
         ],
     },
     {
-        "title": "BP Scan — blueprint ownership from logs (#222)",
+        "title": "Blueprint Tracker tab (#223, #233, #244, #245, #246)",
         "items": [
-            "Enhancements tab > Blueprints section: a \"BP Scan\" button is present, and hovering it shows a tooltip explaining it reads your Star Citizen logs.",
-            "Click BP Scan with a valid Star Citizen path set: a progress dialog runs across the log files, then a summary reports how many blueprints were added and how many are visible now.",
-            "After the scan, the Owned blueprints list (right side) is populated, and matching mission POTENTIAL BLUEPRINTS bullets show the blue [Owned] tag.",
-            "Open the summary's \"Show Details\": it lists the newly-added blueprint names.",
-            "Click BP Scan again immediately: it reports \"No new blueprints found since the last scan\" (the watermark skips already-imported events).",
-            "Restart the app and confirm the scanned blueprints stayed in the Owned list.",
-            "On a machine with no Star Citizen install path set, click BP Scan: it warns you to set the game folder instead of scanning.",
+            "A Blueprint Tracker tab exists with Available blueprints on the left and Owned on the right; move items both ways with the arrow buttons and confirm the Owned list survives an app restart.",
+            "Use the search box and the Mission / Type / Class / Size / Grade filters; confirm the Available list narrows as expected and the filter note explains what each facet applies to.",
+            "Type filter: armor torso pieces like \"Antium Core\" and \"Carnifex Armor Core\" appear under Armor, and the crossbow under FPS Weapon; nothing obviously misfiled sits in Other.",
+            "Click \"Scan Logs for Owned Blueprints\" with a valid game path set: a progress dialog runs the log files, then a summary reports how many blueprints were added and how many are visible.",
+            "After the scan, the Owned list contains only real blueprint names: no stray text like \"Stows\" or currency rewards like \"Council Scrip\" / \"MG Scrip\".",
+            "Run the scan again immediately: it reports no new blueprints since the last scan (the watermark skips already-imported events).",
+            "With no Star Citizen install path set, run the scan: it tells you to set the game folder instead of scanning.",
+            "Change the Owned list, then click \"Apply Owned Tags\" (red until clicked): mission POTENTIAL BLUEPRINTS bullets show the blue [Owned] tag on your owned items, and the button turns green.",
+        ],
+    },
+    {
+        "title": "Mission Titles redesign + new title data (#232, #238, #239, #243)",
+        "items": [
+            "Tag Builder > Mission Titles: \"Shorten original titles\" and \"Shorten cargo sizes\" are independent, with per-word checkboxes underneath; the live preview tracks each toggle.",
+            "With every shorten checkbox off, generate and check a stock \"... Rank, ...\" hauling title in-game: the rank separator renders as a dash by default (e.g. \"Master Rank - ...\").",
+            "Toggle \"Standardize hauling mission names\", regenerate, and confirm hauling titles use the standardized name form.",
+            "The General Tags checkboxes ([BP], [ACE], rep, RS, rep track) live in their own group; changing one marks Save Tag Changes dirty (red) and the tag appears/disappears on regen.",
+            "Find a Recco Battaglia scan or mining contract: its title carries an [RS ####] tag with the target ore's resource signature (multiple ores slash-joined).",
+            "Open a mission with an XP reward: the XP line names the reputation track it feeds (e.g. \"750 XP (Hauling)\").",
+            "Open the \"Mining Fundamentals #2: Where to Mine\" journal entry: each covered ore shows a \"Base Resource Signature\" line above its Locations block; ores without a known value show no placeholder.",
+        ],
+    },
+    {
+        "title": "Dirty-state buttons & exit guard (#233)",
+        "items": [
+            "Generate Enhancements, Save Tag Changes, and Apply Enhancements turn red when a relevant change is pending and green (disabled) after running; hovering each explains its state.",
+            "After a game patch (or with a stale cache), the Extract from Data.p4k button text turns red to signal a newer build is available.",
+            "Close the app while Apply Enhancements is red: a dialog offers Apply Now / Exit Without Applying; Apply Now runs the apply and the app stays open.",
+        ],
+    },
+    {
+        "title": "Medical Consumables (#235)",
+        "items": [
+            "Enable the Medical Consumables category, generate, and check MedPen or OxyPen in-game: the description carries an EFFECT block with a plain-language effect line under the lore.",
+            "Xtra variants, BoostPen, and VitalityPen are untouched (no EFFECT block).",
+        ],
+    },
+    {
+        "title": "Installer language page (#236, #242)",
+        "items": [
+            "Run the installer fresh: a Select Language page (English / French / Portuguese (Brazil) / Spanish) appears first, and the app opens in the picked language after install.",
+            "Reinstall over an existing install: the page pre-selects your previously saved language, and finishing keeps it.",
+            "Guard check (regedit): set selected_language to a made-up value; a /SILENT install leaves it untouched, and an interactive install where you pick French writes french.",
+        ],
+    },
+    {
+        "title": "Languages (#237 + 2.2.0 backfill)",
+        "items": [
+            "Switch to French or Portuguese (Brazil) and restart: tooltips, the Blueprint Tracker tab, the scan dialogs, and the Unapplied Changes prompt all show translated text.",
+            "Switch to Spanish and restart, then replay the Tutorial: every tour step is in Spanish.",
+            "Game strings still load for the selected language and Apply writes to the matching Localization folder.",
+        ],
+    },
+    {
+        "title": "Bug-fix bundle spot checks (#231)",
+        "items": [
+            "Config tab > Star Citizen Installation > Browse: the dialog opens at your current install path, not a default drive location.",
+            "Extract from Data.p4k: the progress dialog runs as one continuous bar without closing early at a phase boundary or sitting frozen at 100% during the cache snapshot.",
+            "Mining laser and salvage tool descriptions show clean stat text (no literal <EM4> tags or box characters).",
+            "On a fresh profile with an auto-detected install, the Config tab shows the detected SC path instead of a blank field.",
+            "The String Editor filter row and preview pane sit in the table area, not inside the shared toolbar, and the Enhancements category grid packs left without horizontal scrolling.",
         ],
     },
 ]
