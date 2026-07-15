@@ -24,9 +24,26 @@ pytestmark = pytest.mark.unit
 
 @pytest.fixture
 def json_backend(tmp_path, monkeypatch):
-    """Swap AppSettings._backend for a tmp JsonSettings so each test is hermetic."""
+    """Swap AppSettings._backend for a tmp JsonSettings so each test is hermetic.
+
+    Also stubs _read_legacy_installer_sc_directory() to None so this file's
+    tests aren't at the mercy of the developer machine's actual registry.
+    That helper reads the live HKCU tree with nothing else standing between
+    it and get_sc_install_root() — on a machine that ever ran the pre-0.9
+    installer (a real "SC Localization Editor" registry tree, `sc_directory`
+    still pointing at a real install), get_sc_install_root() picks that up
+    for real, and a test expecting "" (blocking auto-detection by mocking
+    only Path.exists on the RSI default paths) goes red — that mock can't
+    stop this step, since _path_ends_in_channel is a pure string check with
+    no filesystem access. Tests that want to exercise this fallback path
+    on purpose override the stub explicitly (see
+    test_legacy_installer_registry_used_as_last_resort below).
+    """
     saved = AppSettings._backend
     AppSettings._backend = JsonSettings(tmp_path / "config.json")
+    monkeypatch.setattr(
+        AppSettings, "_read_legacy_installer_sc_directory", staticmethod(lambda: None)
+    )
     yield AppSettings._backend
     AppSettings._backend = saved
 
@@ -90,6 +107,31 @@ class TestInstallRootCrossCheck:
 
         result = AppSettings.get_sc_install_root()
         assert result == ""
+
+    @pytest.mark.regression
+    def test_legacy_installer_registry_used_as_last_resort(self, json_backend, monkeypatch):
+        """Neither QSettings key is set, but the old installer's registry key
+        (_read_legacy_installer_sc_directory) resolves to a channel-suffixed
+        path -- get_sc_install_root() derives the root from it and persists
+        SC_INSTALL_ROOT, same as get_game_install_path()'s equivalent step.
+
+        Locks the resolution order: this fallback only fires after both
+        QSettings keys come back empty, and before filesystem auto-detection.
+        """
+        json_backend.remove(AppSettings.SC_INSTALL_ROOT)
+        json_backend.remove(AppSettings.GAME_INSTALL_PATH)
+
+        monkeypatch.setattr(
+            AppSettings, "_read_legacy_installer_sc_directory",
+            staticmethod(lambda: r"D:\Games\StarCitizen\LIVE"),
+        )
+
+        result = AppSettings.get_sc_install_root()
+        assert os.path.normcase(result) == os.path.normcase(r"D:\Games\StarCitizen")
+        # Persisted so the next call doesn't need the registry again.
+        assert os.path.normcase(
+            json_backend.value(AppSettings.SC_INSTALL_ROOT, "")
+        ) == os.path.normcase(r"D:\Games\StarCitizen")
 
     def test_ptu_channel_recognized(self, json_backend):
         """GAME_INSTALL_PATH ending in PTU is recognized as a channel folder."""
