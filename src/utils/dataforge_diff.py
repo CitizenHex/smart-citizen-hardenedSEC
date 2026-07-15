@@ -28,6 +28,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Callable, Optional
 
+from src.utils.win_paths import win_long_path
+
 MANIFEST_FILE = ".diff_manifest.json"
 
 # Default parallel workers for the per-file hash sweep. ~28k tiny XMLs on
@@ -145,10 +147,22 @@ def update_manifest(
     SHA-256 of ~28k files — so wiring this in is the difference between
     a frozen progress bar and a moving one.
     """
-    cache_dir = Path(cache_dir)
+    # Long-path safety for the hash sweep below — see win_paths.win_long_path
+    # (#221; this is the post-extraction snapshot pass where the crash was
+    # originally reported).
+    cache_dir = Path(win_long_path(cache_dir))
     snapshot = _build_snapshot(cache_dir, progress_callback=progress_callback)
+    # The hash sweep above reports 100% the instant it finishes, but writing
+    # ~28k entries out is itself not instantaneous — without this the bar
+    # sat pinned at "100%"/full width while the JSON write was still going,
+    # reading as frozen. Drop back to indeterminate with a distinct label so
+    # it's visibly still doing something until the write actually completes.
+    if progress_callback:
+        progress_callback(0, 0, "Writing diff manifest…")
     with open(_manifest_path(cache_dir), "w", encoding="utf-8") as f:
-        json.dump(snapshot, f, indent=2)
+        # Compact (no indent) — this file is machine-read only, and skipping
+        # pretty-printing cuts the write time for ~28k entries noticeably.
+        json.dump(snapshot, f)
 
 
 def dirty_categories(cache_dir: Path) -> Optional[set[str]]:
@@ -161,7 +175,7 @@ def dirty_categories(cache_dir: Path) -> Optional[set[str]]:
         set()       — nothing changed; all generators can be skipped
         {"ships", …} — only these categories need to re-run
     """
-    cache_dir = Path(cache_dir)
+    cache_dir = Path(win_long_path(cache_dir))
     manifest_file = _manifest_path(cache_dir)
 
     if not manifest_file.exists():

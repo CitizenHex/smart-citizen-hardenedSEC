@@ -32,8 +32,35 @@ from src.models.string_model import (
 # Extra armour-piece key tokens beyond string_model's set (which is tuned for
 # the strings-table category, not blueprint classification). Armour blueprints
 # are keyed by piece (backpack / undersuit / ...) with no "armor" token, so
-# without these they fell into the "Other" type bucket (#195).
-_ARMOR_EXTRA_WORDS = ("backpack", "undersuit", "flightsuit", "torso", "_legs", "_arms")
+# without these they fell into the "Other" type bucket (#195). "_core" (with
+# the leading underscore) covers the torso-platform piece of newer
+# manufacturer-prefixed FPS armor sets (e.g.
+# item_Name_qrt_specialist_heavy_core_01_01_01 -> "Antium Core",
+# item_Name_kap_combat_light_core_01_01_01 -> "Geist Armor Core") whose keys
+# carry no "armor" token either — CIG's older sets do (cds_armor_heavy_core_*),
+# so this was inconsistent rather than universally missing. Every armor key
+# this targets carries the underscore form (..._core_01_...), so "_core"
+# matches everything the bare word would while ruling out "score"-shaped
+# collisions (bare "core" is a substring of "score") and any future CamelCase
+# component name ("SomethingCore") whose prefix code isn't in the component
+# map yet — same underscore-guard shape already used for "_legs"/"_arms".
+# Ship components sharing the "core" word (LuxCore, CoolCore, ThermalCore)
+# were never actually at risk either way: they carry a component-type-code
+# prefix (POWR_/COOL_) resolved earlier by component_type_from_key, which
+# always wins first.
+#
+# "gys_jacket" / "gys_pants" cover the Carnifex set's torso/leg pieces
+# (item_Name_gys_jacket_01_01_01 -> "Carnifex Armor Core",
+# item_Name_gys_pants_01_01_01 -> "Carnifex Armor Legs") — yet another
+# manufacturer-specific naming scheme with no "armor" token. Scoped to the
+# "gys_" prefix rather than bare "jacket"/"pants": those bare words match
+# hundreds of unrelated civilian wardrobe items (987/ALB/CTL/DMC fashion
+# lines) elsewhere in item_Name space, none of which are ever real blueprint
+# rewards today — but there's no need to gamble on that staying true.
+_ARMOR_EXTRA_WORDS = (
+    "backpack", "undersuit", "flightsuit", "torso", "_legs", "_arms", "_core",
+    "gys_jacket", "gys_pants",
+)
 from src.utils.owned_items import (
     BP_SECTION_HEADER,
     extract_bp_item_names,
@@ -104,11 +131,14 @@ _TYPE_LABELS = {
     "BOMB": "Bomb",
 }
 
-# The leading bracketed tag on a component name, e.g. "[MIL-S3-B]" or the
-# user-reconfigured "[CMP.S1.B.PW]". Parsed by tokenizing the contents rather
-# than a fixed pattern, because the tag's separator, element order, and which
-# elements appear are all Tag-Builder-configurable (see parse_component_tag).
+# The bracketed component tag, e.g. "[MIL-S3-B]" or the user-reconfigured
+# "[CMP.S1.B.PW]". Parsed by tokenizing the contents rather than a fixed
+# pattern, because the tag's separator, element order, and which elements
+# appear are all Tag-Builder-configurable (see parse_component_tag). Matched
+# leading OR trailing since the category's placement setting can put it on
+# either side (mirrors normalize_item_name's leading/trailing handling).
 _TAG_BRACKET_RE = re.compile(r"^\s*\[([^\]]+)\]")
+_TRAILING_TAG_BRACKET_RE = re.compile(r"\[([^\]]+)\]\s*$")
 _SIZE_TOKEN_RE = re.compile(r"^S?(\d+)$", re.IGNORECASE)
 # Size straight from the loc key (stable regardless of tag config):
 # item_NamePOWR_ACOM_S01_StarHeart -> S1.
@@ -145,21 +175,34 @@ class BlueprintItem:
 
 
 def parse_component_tag(value: str):
-    """Best-effort ``(class, size, grade)`` from a leading component tag.
+    """Best-effort ``(class, size, grade)`` from a component tag.
 
     Robust to the Tag Builder's configurable separator / element order / which
     elements are shown, so it handles the default ``[MIL-S3-B]`` and a
-    reconfigured ``[CMP.S1.B.PW]`` alike. The tokens inside the leading ``[...]``
-    are split on any non-alphanumeric separator and classified: an ``S?<digits>``
-    token is the size, a lone A-F letter is the grade, and the first multi-letter
-    token is the class (type codes like ``PW`` come after the class in the tag,
-    so they don't win). Missing pieces are ``None``.
+    reconfigured ``[CMP.S1.B.PW]`` alike. Also robust to the category's
+    placement setting: the tag is matched leading (``[MIL-S3-B] Norfield``,
+    prepend) or trailing (``Norfield [MIL-S3-B]``, append) — a category
+    configured to append lost Class/Grade extraction entirely until this
+    matched normalize_item_name's leading/trailing symmetry. The tokens
+    inside the ``[...]`` are split on any non-alphanumeric separator and
+    classified: an ``S?<digits>`` token is the size, a lone A-F letter is the
+    grade, and the first multi-letter token is the class (type codes like
+    ``PW`` come after the class in the tag, so they don't win). Missing
+    pieces are ``None``.
 
     Limitation: a single-letter (Short-style) class code can't be told apart from
     a grade letter, so class may be missed under a Short class style — size still
     comes from the loc key and grade still resolves.
+
+    Limitation: the class token itself is unvalidated against any known class
+    list, so a stock component name that happens to end in a bracket that
+    isn't actually a tag (e.g. a name literally ending in "[Prototype]")
+    would parse a bogus class facet now that trailing brackets are matched
+    too, not just leading ones. The call-site gate (only components actually
+    routed through the Tag Builder reach this function) makes it unlikely in
+    practice; the leading-only version of this regex had the same weakness.
     """
-    m = _TAG_BRACKET_RE.match(value or "")
+    m = _TAG_BRACKET_RE.match(value or "") or _TRAILING_TAG_BRACKET_RE.search(value or "")
     if not m:
         return (None, None, None)
     cls = size = grade = None

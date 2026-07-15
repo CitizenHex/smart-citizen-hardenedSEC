@@ -201,7 +201,7 @@ class EnhancementsTab(QWidget):
         # stack down the left column and the next three down the right —
         # reads top-to-bottom-then-right rather than left-to-right.
         categories_layout = QGridLayout()
-        categories_layout.setHorizontalSpacing(24)
+        categories_layout.setHorizontalSpacing(12)
         categories_layout.setVerticalSpacing(4)
         column_height = 2
         for idx, (key, label) in enumerate(AppSettings.ENHANCEMENT_LABELS.items()):
@@ -239,8 +239,16 @@ class EnhancementsTab(QWidget):
         categories_layout.setColumnStretch(0, 0)
         categories_layout.setColumnStretch(1, 0)
         categories_layout.setColumnStretch(2, 0)
-        categories_layout.setColumnStretch(3, 1)
-        gl.addLayout(categories_layout)
+        categories_layout.setColumnStretch(3, 0)
+        # Pack the grid to its natural (left-hugging) width and let a
+        # trailing stretch absorb the rest of the row — previously column 3
+        # itself carried the stretch, which spread the categories out across
+        # the full tab width and forced horizontal scrolling.
+        categories_row = QHBoxLayout()
+        categories_row.setContentsMargins(0, 0, 0, 0)
+        categories_row.addLayout(categories_layout)
+        categories_row.addStretch()
+        gl.addLayout(categories_row)
 
         # ── Mission detail fields (#121) ───────────────────────────────────
         # Granular show/hide for each line the generator adds to a mission
@@ -1507,6 +1515,7 @@ class _TagBuilderPage(QWidget):
             ("rep",       'Rep Tag (adds "[500 REP]")'),
             ("blueprint", 'BP Tag (adds "[BP]" / "[BP?]")'),
             ("ace",       'ACE Tag (adds "[ACE]" / "[ACE?]")'),
+            ("rep_track", 'Rep Track Tag (adds "(Security)" / "(Contractor)" to the Rep tag)'),
         ]
         self._title_tag_checkboxes: dict = {}
         _tt_saved = AppSettings.get_mission_title_tags()
@@ -1679,17 +1688,21 @@ class _TagBuilderPage(QWidget):
             self._select_combo(self._mt_arrow, fresh.route_arrow)
             self._select_combo(self._mt_sep, fresh.title_separator)
             self._select_combo(self._mt_detail, fresh.location_detail)
-            # General Tags (Rep/BP/ACE) aren't part of TagConfig — they're
-            # their own settings domain (AppSettings.set_mission_title_tag),
-            # persisted immediately on toggle rather than staged until Apply
-            # Tag Changes like the rest of this page. Reset explicitly persists
-            # their default (all on) to match that immediate-save behavior,
-            # rather than relying solely on setChecked's toggled signal (a
-            # checkbox already True wouldn't fire it, leaving a stale saved
-            # value if one had somehow drifted out of sync).
+            # General Tags (Rep/BP/ACE/Rep Track) aren't part of TagConfig —
+            # they're their own settings domain
+            # (AppSettings.set_mission_title_tag), persisted immediately on
+            # toggle rather than staged until Apply Tag Changes like the rest
+            # of this page. Reset explicitly persists each field's own
+            # default (get_mission_title_tag_default — all on except Rep
+            # Track, which defaults off) to match that immediate-save
+            # behavior, rather than relying solely on setChecked's toggled
+            # signal (a checkbox already at its default wouldn't fire it,
+            # leaving a stale saved value if one had somehow drifted out of
+            # sync).
             for field, box in self._title_tag_checkboxes.items():
-                box.setChecked(True)
-                AppSettings.set_mission_title_tag(field, True)
+                default = AppSettings.get_mission_title_tag_default(field)
+                box.setChecked(default)
+                AppSettings.set_mission_title_tag(field, default)
             self._set_mt_controls_enabled(self._mt_enable.isChecked())
             self._refresh_preview()
             self.config_changed.emit()

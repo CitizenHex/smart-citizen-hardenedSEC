@@ -14,6 +14,7 @@ from src.utils.perf import timed
 
 from src.utils.dataforge_diff import update_manifest
 from src.utils.i18n import tr
+from src.utils.win_paths import win_long_path as _win_long_path
 
 logger = logging.getLogger(__name__)
 
@@ -29,31 +30,7 @@ P4K_SIZE_STAMP = ".p4k_size"
 _RMTREE_CB_KWARG = "onexc" if sys.version_info >= (3, 12) else "onerror"
 
 
-def _win_long_path(path) -> str:
-    """Return *path* as a Windows extended-length path string when needed.
-
-    DataForge's ~28k-file entity tree uses long CIG-authored filenames
-    (e.g. ``softlock_terminal_standard_lowtech_commoditykiosk_console_
-    transfers_1_straight_a.xml``); once nested under a user's install
-    directory plus the per-channel cache layout, the destination path can
-    exceed the legacy 260-char ``MAX_PATH``, and ``shutil``/``os`` raise
-    ``WinError 3`` ("The system cannot find the path specified") even
-    though the path is otherwise valid (#221). The ``\\\\?\\`` prefix tells
-    the Win32 API to skip that check (paths up to ~32,767 chars). No-op on
-    non-Windows platforms and on paths that are already prefixed.
-    """
-    if sys.platform != "win32":
-        return str(path)
-    p = str(Path(path).resolve())
-    if p.startswith("\\\\?\\"):
-        return p
-    if p.startswith("\\\\"):
-        # UNC path: \\server\share\... -> \\?\UNC\server\share\...
-        return "\\\\?\\UNC\\" + p[2:]
-    return "\\\\?\\" + p
-
-
-def _robust_rmtree(path: Path, attempts: int = 6) -> None:
+def robust_rmtree(path: Path, attempts: int = 6) -> None:
     """Delete *path* recursively, surviving transient Windows locks.
 
     On Windows — especially when the target lives under OneDrive — rmtree
@@ -123,7 +100,7 @@ _GLOBAL_INI_RELATIVE = Path("data/Localization/english/global.ini")
 #   * cuts the temp → cache copy step to ~50% of its old wall-clock (OneDrive
 #     / Defender / Indexer fire hooks per-file-close, which dominates copy
 #     time on typical Windows installs);
-#   * makes ``_robust_rmtree`` on the old cache roughly 2x faster and less
+#   * makes ``robust_rmtree`` on the old cache roughly 2x faster and less
 #     prone to transient WinError 5 retries, since there are half as many
 #     files for the AV/indexer stack to hold open briefly.
 #
@@ -330,6 +307,11 @@ def extract_dataforge(
     if not p4k_path.exists():
         raise FileNotFoundError(f"Data.p4k not found at: {p4k_path}")
 
+    # Wrap once here so every use below (mkdir, exists checks, and whatever
+    # this function hands to _copy_filtered_records/update_manifest) inherits
+    # long-path safety — see win_paths.win_long_path (#221).
+    dataforge_cache_dir = Path(_win_long_path(dataforge_cache_dir))
+
     TOTAL_PHASES = 3
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp = Path(tmp_dir)
@@ -434,7 +416,7 @@ def extract_dataforge(
         # just-exited unforge.exe or from the OneDrive/Defender/indexer
         # stack can reject the first few rmdir attempts with WinError 5.
         if dataforge_cache_dir.exists():
-            _robust_rmtree(dataforge_cache_dir)
+            robust_rmtree(dataforge_cache_dir)
         dataforge_cache_dir.mkdir(parents=True, exist_ok=True)
 
         # Cache only the subtrees the enhancement generator actually reads.
@@ -494,6 +476,7 @@ def dataforge_cache_is_fresh(p4k_path: Path, dataforge_cache_dir: Path) -> bool:
     existed (upgrades) fall back to the legacy mtime comparison until the next
     extraction writes the size stamp.
     """
+    dataforge_cache_dir = Path(_win_long_path(dataforge_cache_dir))
     stamp = dataforge_cache_dir / P4K_MTIME_STAMP
     size_stamp = dataforge_cache_dir / P4K_SIZE_STAMP
     libs_dir = dataforge_cache_dir / "raw" / "libs"

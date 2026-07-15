@@ -146,7 +146,7 @@ class AppSettings:
     # ace title tag and the rep/xp title tag were both unconditionally shown
     # before this split). migrate_title_tag_settings() carries a user's prior
     # blueprint_tag / ace choice forward once.
-    MISSION_TITLE_TAG_KEYS = ("rep", "blueprint", "ace", "rs")
+    MISSION_TITLE_TAG_KEYS = ("rep", "blueprint", "ace", "rs", "rep_track")
     _MISSION_TITLE_TAG_SETTING = {
         "rep":       "mission_title_tag/rep",
         "blueprint": "mission_title_tag/blueprint",
@@ -154,6 +154,19 @@ class AppSettings:
         # RS ("resonance signature") tag for Recco Battaglia's Scan/Mining
         # contracts (4.9+) — see MINEABLE_RS_VALUES in generate_enhancements_ini.py.
         "rs":        "mission_title_tag/rs",
+        # Reputation TRACK suffix (e.g. "(Security)"/"(Contractor)") on the
+        # title's Rep tag — see issue #161. Off by default (see
+        # _MISSION_TITLE_TAG_DEFAULTS below): unlike the other title tags,
+        # this one is new to a lot of titles at once and can make an already
+        # busy title noisier, so it's opt-in. The equivalent body-line
+        # suffix (MISSION DETAILS' Reputation field) is unconditional and
+        # always on, independent of this toggle.
+        "rep_track": "mission_title_tag/rep_track",
+    }
+    # Per-field default for get_mission_title_tags() — every title tag
+    # defaults on except where overridden here.
+    _MISSION_TITLE_TAG_DEFAULTS = {
+        "rep_track": False,
     }
     MISSION_HEADER_DEFAULTS = {
         "details": "MISSION DETAILS",
@@ -737,12 +750,16 @@ class AppSettings:
     @staticmethod
     def get_mission_title_tags() -> dict:
         """Return {field: enabled} for the mission TITLE tags (2.2.0, "General
-        Tags"): rep/xp, blueprint, ace. Independent of
+        Tags"): rep/xp, blueprint, ace, rep_track. Independent of
         get_mission_detail_fields() — see MISSION_TITLE_TAG_KEYS. Every field
-        defaults to True, matching prior (unsplit) behaviour."""
+        defaults to True (matching prior, unsplit behaviour) except where
+        overridden in _MISSION_TITLE_TAG_DEFAULTS (currently just
+        "rep_track", off by default — see issue #161)."""
         s = AppSettings.settings()
         return {
-            field: bool(s.value(reg_key, True, type=bool))
+            field: bool(s.value(
+                reg_key, AppSettings._MISSION_TITLE_TAG_DEFAULTS.get(field, True), type=bool
+            ))
             for field, reg_key in AppSettings._MISSION_TITLE_TAG_SETTING.items()
         }
 
@@ -752,6 +769,14 @@ class AppSettings:
         reg_key = AppSettings._MISSION_TITLE_TAG_SETTING.get(field)
         if reg_key:
             AppSettings.settings().setValue(reg_key, enabled)
+
+    @staticmethod
+    def get_mission_title_tag_default(field: str) -> bool:
+        """The out-of-the-box value for one mission-title-tag field — True
+        unless overridden in _MISSION_TITLE_TAG_DEFAULTS. Lets callers (e.g.
+        the Enhancements tab's "Reset to defaults") restore the correct
+        per-field default instead of assuming every tag defaults on."""
+        return AppSettings._MISSION_TITLE_TAG_DEFAULTS.get(field, True)
 
     @staticmethod
     def migrate_title_tag_settings() -> None:
@@ -1113,6 +1138,26 @@ class AppSettings:
         AppSettings.settings().setValue(AppSettings.LAST_OVERRIDES_PATH, path)
 
     @staticmethod
+    def _read_legacy_installer_sc_directory() -> "str | None":
+        """Return the raw ``sc_directory`` value the older installer flow
+        wrote to the registry, or ``None`` if the key is absent/unreadable.
+
+        Shared by `get_game_install_path()` and `get_sc_install_root()` —
+        both used to carry their own copy of this same registry read
+        (identical path + value name), each interpreting the raw value
+        differently (one keeps a channel-suffixed path as-is, the other
+        strips to the root). ``WindowsError`` is just an alias of `OSError`
+        in Python 3, so catching the latter covers both.
+        """
+        try:
+            reg_path = r'Software\Osiris DevWorks\SC Localization Editor'
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path) as registry_key:
+                sc_directory, _ = winreg.QueryValueEx(registry_key, 'sc_directory')
+            return sc_directory or None
+        except OSError:
+            return None
+
+    @staticmethod
     def get_game_install_path() -> str:
         """Return the install path of the **active channel**.
 
@@ -1145,21 +1190,14 @@ class AppSettings:
                 return saved
 
         # Installer-written registry key (older flow).
-        try:
-            reg_path = r'Software\Osiris DevWorks\SC Localization Editor'
-            registry_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path)
-            sc_directory, _ = winreg.QueryValueEx(registry_key, 'sc_directory')
-            winreg.CloseKey(registry_key)
-            if sc_directory:
-                sc_path = Path(sc_directory)
-                if _path_ends_in_channel(sc_directory):
-                    AppSettings.settings().setValue(AppSettings.GAME_INSTALL_PATH, sc_directory)
-                    return sc_directory
-                if _is_valid_sc_root(sc_directory):
-                    AppSettings.settings().setValue(AppSettings.GAME_INSTALL_PATH, sc_directory)
-                    return sc_directory
-        except (WindowsError, OSError):
-            pass
+        sc_directory = AppSettings._read_legacy_installer_sc_directory()
+        if sc_directory:
+            if _path_ends_in_channel(sc_directory):
+                AppSettings.settings().setValue(AppSettings.GAME_INSTALL_PATH, sc_directory)
+                return sc_directory
+            if _is_valid_sc_root(sc_directory):
+                AppSettings.settings().setValue(AppSettings.GAME_INSTALL_PATH, sc_directory)
+                return sc_directory
 
         for candidate in [
             r"C:\Program Files\Roberts Space Industries\StarCitizen\LIVE",
@@ -2102,7 +2140,8 @@ class AppSettings:
           1. QSettings value for :data:`SC_INSTALL_ROOT`
           2. Derived from legacy ``GAME_INSTALL_PATH`` (strip trailing
              ``\LIVE`` if present)
-          3. Auto-detected from the common RSI install locations
+          3. The old installer's registry key (``sc_directory``)
+          4. Auto-detected from the common RSI install locations
 
         Returns an empty string when nothing resolves — the Config tab shows
         a placeholder in that case.
@@ -2138,6 +2177,24 @@ class AppSettings:
                 return str(legacy_path.parent)
             if _is_valid_sc_root(legacy):
                 return legacy
+
+        # Installer-written registry key (older flow) — same source
+        # get_game_install_path() falls back to. Without this, a fresh
+        # profile whose only trace of the install is this key sees
+        # get_game_install_path() (and thus extraction) resolve correctly
+        # while the Config tab, which reads only this method, stayed blank
+        # until some other code path happened to call get_game_install_path()
+        # first and persist GAME_INSTALL_PATH as a side effect.
+        sc_directory = AppSettings._read_legacy_installer_sc_directory()
+        if sc_directory:
+            root = None
+            if _path_ends_in_channel(sc_directory):
+                root = str(Path(sc_directory).parent)
+            elif _is_valid_sc_root(sc_directory):
+                root = sc_directory
+            if root:
+                AppSettings.settings().setValue(AppSettings.SC_INSTALL_ROOT, root)
+                return root
 
         for candidate in [
             r"C:\Program Files\Roberts Space Industries\StarCitizen",
