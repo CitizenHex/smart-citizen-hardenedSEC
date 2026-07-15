@@ -87,6 +87,22 @@ def test_blueprint_type_buckets():
     assert blueprint_type_from_key(None) is None
 
 
+def test_blueprint_type_armor_core_pieces():
+    """FPS armor torso-platform pieces ("Core") reported showing up in the
+    Blueprint Tracker's "Other" bucket instead of "Armor". Newer
+    manufacturer-prefixed armor lines carry no "armor" token in the key at
+    all (unlike CIG's older sets, which do), only "core"."""
+    assert blueprint_type_from_key("item_Name_qrt_specialist_heavy_core_01_01_01") == "Armor"
+    assert blueprint_type_from_key("item_Name_kap_combat_light_core_01_01_01") == "Armor"
+    assert blueprint_type_from_key("item_Name_GRIN_utility_medium_core_01_01_01") == "Armor"
+    # Older sets that DO carry "armor" in the key still work (no regression).
+    assert blueprint_type_from_key("item_Name_cds_armor_heavy_core_01_02_01") == "Armor"
+    # Ship components sharing the bare "core" word must not be reclassified —
+    # their component-type-code prefix (POWR_/COOL_) wins first.
+    assert blueprint_type_from_key("item_NamePOWR_ACOM_S02_LuxCore_SCItem") == "Power Plant"
+    assert blueprint_type_from_key("item_NameCOOL_JUST_S02_CoolCore") == "Cooler"
+
+
 def test_clean_mission_title_strips_reward_tags():
     raw = ("Salvager Needed (Lrg. Special Order) "
            "<EM4>[BP]</EM4> <EM4>[150 REP]</EM4>")
