@@ -272,10 +272,21 @@ def write_ini(path: Path, entries: dict[str, str]) -> None:
 #     meaningless "[S1-A]" in POTENTIAL BLUEPRINTS. entity_name_tags now keeps
 #     only CLASS/TYPE-qualified tags; both lookups carry the affected names so
 #     both bump to force a rebuild.
+#   xml_path_index v2 (2.2.0, #231 follow-up) — main() now wraps forge_dir
+#     (and everything derived from it, including records_dir) via
+#     win_paths.win_long_path before building this index, so its stored path
+#     strings carry the \\?\ long-path prefix. xml_path_index had no entry
+#     here before, so it silently defaulted to "v1" forever — a pickle built
+#     by a pre-#231 run (unprefixed paths, same DataForge fingerprint) was
+#     reused indefinitely, mixing unprefixed indexed paths with the now-
+#     prefixed bp_dir/entity_dir callers compare them against and crashing
+#     scan_crafting_blueprints's xml_file.relative_to(bp_dir) with "not in
+#     the subpath of". Bump flushes any pre-#231 pickle.
 _LOOKUP_VERSIONS: dict[str, str] = {
     "blueprint_pools": "v12",
     "scitem_lookups": "v8",
     "standings": "v2",
+    "xml_path_index": "v2",
 }
 
 
