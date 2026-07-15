@@ -74,8 +74,11 @@ def merge_sources_by_hierarchy(
         for key, value in user_overrides.items():
             result[key] = value
 
-    # Sync values across key variants (e.g., item_Name_QDRV vs item_nameQDRV_SCItem)
-    sync_key_variants(result)
+    # Sync values across key variants (e.g., item_Name_QDRV vs item_nameQDRV_SCItem).
+    # Pass along which keys the user explicitly edited so a user's edit to a
+    # variant never gets silently outvoted by a longer sibling value — see
+    # sync_key_variants' docstring.
+    sync_key_variants(result, user_edited_keys=set(user_overrides) if user_overrides else None)
 
     return result
 
@@ -131,7 +134,10 @@ def _get_canonical_key(key: str) -> str:
 
 
 @timed
-def sync_key_variants(merged_dict: Dict[str, str]) -> None:
+def sync_key_variants(
+    merged_dict: Dict[str, str],
+    user_edited_keys: Optional[set] = None,
+) -> None:
     """Sync values across key variants in a merged dictionary.
 
     If item_Name_QDRV_RSI_S02_Hemera has value X, then
@@ -141,6 +147,17 @@ def sync_key_variants(merged_dict: Dict[str, str]) -> None:
 
     Args:
         merged_dict: Dictionary of keys to values from merged sources
+        user_edited_keys: Keys the user explicitly edited (user.ini
+            overrides), if any. This function runs *after* user overrides
+            are applied in merge_sources_by_hierarchy, so without this a
+            user's edit to a variant shorter than its sibling's stock value
+            would get silently reverted on the very next merge — user
+            overrides are supposed to "apply last and survive" (root
+            CLAUDE.md, Merge hierarchy). A user-edited variant always wins
+            over the longest-value heuristic below; when more than one
+            variant of the same canonical key was user-edited, the longest
+            of *those* wins (same tie-break as the no-override case — we
+            have no ordering signal between two deliberate edits).
     """
     # Build a mapping of canonical → list of actual keys with that canonical form
     canonical_keys: Dict[str, List[str]] = {}
@@ -150,6 +167,8 @@ def sync_key_variants(merged_dict: Dict[str, str]) -> None:
         if canonical not in canonical_keys:
             canonical_keys[canonical] = []
         canonical_keys[canonical].append(key)
+
+    user_edited_keys = user_edited_keys or ()
 
     # For each canonical form with multiple variants, sync their values
     for canonical, variants in canonical_keys.items():
@@ -176,7 +195,13 @@ def sync_key_variants(merged_dict: Dict[str, str]) -> None:
             # is a no-op for the genuine same-entity variant case this
             # function targets (the generator's own sibling mirroring already
             # gives those matching values, so length ties and either wins).
-            preferred_key = max(variants, key=lambda v: len(merged_dict[v]))
+            #
+            # A user-edited variant is excluded from that "arbitrary first
+            # duplicate" problem entirely — it's a deliberate choice, not a
+            # data artifact — so it takes priority over the length heuristic.
+            edited_variants = [v for v in variants if v in user_edited_keys]
+            candidates = edited_variants or variants
+            preferred_key = max(candidates, key=lambda v: len(merged_dict[v]))
             synced_value = merged_dict[preferred_key]
 
             # Apply this value to all variants
