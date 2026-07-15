@@ -101,6 +101,12 @@ def test_blueprint_type_armor_core_pieces():
     # their component-type-code prefix (POWR_/COOL_) wins first.
     assert blueprint_type_from_key("item_NamePOWR_ACOM_S02_LuxCore_SCItem") == "Power Plant"
     assert blueprint_type_from_key("item_NameCOOL_JUST_S02_CoolCore") == "Cooler"
+    # The word is "_core" (underscore-prefixed), not bare "core" — a bare
+    # substring match would misclassify anything with "score"/"scoreboard" in
+    # the key ("score" contains "core"), and no armor set actually needs the
+    # bare form since every real armor "core" piece carries the underscore.
+    assert blueprint_type_from_key("item_Name_gys_scoreboard_01_01_01") is None
+    assert blueprint_type_from_key("item_Name_gys_highscore_01_01_01") is None
 
 
 def test_blueprint_type_gys_jacket_and_pants():
