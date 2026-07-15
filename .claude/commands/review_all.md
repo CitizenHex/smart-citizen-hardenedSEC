@@ -1,0 +1,1 @@
+Run the review_pr.md claude command in a cycle for every open PR against the current release branch. 
