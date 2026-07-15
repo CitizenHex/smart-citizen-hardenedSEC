@@ -41,7 +41,19 @@ from src.models.string_model import (
 # components sharing the "core" word (LuxCore, CoolCore, ThermalCore) since
 # those carry a component-type-code prefix (POWR_/COOL_) resolved earlier by
 # component_type_from_key, which always wins first.
-_ARMOR_EXTRA_WORDS = ("backpack", "undersuit", "flightsuit", "torso", "_legs", "_arms", "core")
+#
+# "gys_jacket" / "gys_pants" cover the Carnifex set's torso/leg pieces
+# (item_Name_gys_jacket_01_01_01 -> "Carnifex Armor Core",
+# item_Name_gys_pants_01_01_01 -> "Carnifex Armor Legs") — yet another
+# manufacturer-specific naming scheme with no "armor" token. Scoped to the
+# "gys_" prefix rather than bare "jacket"/"pants": those bare words match
+# hundreds of unrelated civilian wardrobe items (987/ALB/CTL/DMC fashion
+# lines) elsewhere in item_Name space, none of which are ever real blueprint
+# rewards today — but there's no need to gamble on that staying true.
+_ARMOR_EXTRA_WORDS = (
+    "backpack", "undersuit", "flightsuit", "torso", "_legs", "_arms", "core",
+    "gys_jacket", "gys_pants",
+)
 from src.utils.owned_items import (
     BP_SECTION_HEADER,
     extract_bp_item_names,
