@@ -5327,6 +5327,15 @@ def enhancements_medical_consumables(ctx: dict) -> dict[str, str]:
     salvage-tool EM4 fix). Uses the "--- EFFECT ---" header (not the shared
     "--- STATS ---" one) since there's no numeric stat here, just the effect
     line itself — no redundant "Effect:" prefix needed under that header.
+
+    Because this category has no CATEGORY_SUBTREES entry (see scripts/CLAUDE.md
+    → Medical consumables), the post-extraction dirty-category pass never
+    flags it, so it never regenerates automatically on a fresh P4K extract.
+    Its only input is base.ini, so if CIG rewords a pen's lore, the stale
+    copy stays baked into medical_consumables_enhancements.ini until the user
+    runs a manual full Generate. Low stakes (pen lore rarely changes), but
+    worth knowing since this category is the one exception to the freshness
+    system.
     """
     loc = ctx["loc"]
     prepend = ctx.get("stats_prepend", False)
