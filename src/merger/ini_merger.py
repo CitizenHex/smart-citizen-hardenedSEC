@@ -214,8 +214,9 @@ def merge_ini_files(
     """Merge source INI with overrides, preserving all lines.
 
     Reads source file line-by-line, replaces values for matching keys,
-    and writes to output as UTF-8. Strips comma-based metadata suffixes
-    (e.g., "key,P") from keys to match normalized override keys.
+    and writes to output as UTF-8 **with a BOM** (#261). Strips comma-based
+    metadata suffixes (e.g., "key,P") from keys to match normalized
+    override keys.
 
     Note: Variant key syncing happens in merge_sources_by_hierarchy(), so
     the overrides_dict already has synced values when this is called.
@@ -234,8 +235,19 @@ def merge_ini_files(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        with open(source_path, 'r', encoding='utf-8') as infile, \
-             open(output_path, 'w', encoding='utf-8') as outfile:
+        # utf-8-sig on read strips a source BOM if present (Data.p4k's own
+        # extracted base.ini has one) instead of leaking it into the first
+        # key's name. utf-8-sig on write (#261) WRITES a BOM — Star
+        # Citizen's own loc-string loader appears to need it to reliably
+        # detect the file's encoding; without it the game can fail to
+        # resolve every key (shown as raw @KeyName placeholders) rather
+        # than degrading per-key. Every prior release wrote plain utf-8 (no
+        # BOM) here; our own readers are utf-8-sig-aware so they never
+        # noticed the mismatch, but the game's own parser does — see
+        # validate_applied_file's BOM check for the safety net half of
+        # this fix.
+        with open(source_path, 'r', encoding='utf-8-sig') as infile, \
+             open(output_path, 'w', encoding='utf-8-sig') as outfile:
 
             for line in infile:
                 # Preserve line ending style, but work with stripped version
