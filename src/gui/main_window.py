@@ -3310,6 +3310,15 @@ class MainWindow(QMainWindow):
             # label. Calling only refresh_forge_status() would leave the
             # per-category dots showing the prior channel's state.
             self.enhancements_tab.refresh_enhancements_status()
+            # #273: the Generate Enhancements button's enabled state
+            # (_enhancements_dirty) is normally only nudged by discrete UI
+            # events (a checkbox toggle, clicking Generate), never
+            # recomputed wholesale — left alone here, it kept reflecting
+            # whatever it was for the PREVIOUS channel. If that channel
+            # ended clean (nothing to do) but the new one genuinely needs
+            # (re)generation, the button stayed disabled and clicks did
+            # nothing until the user happened to retoggle some checkbox.
+            self.enhancements_tab.refresh_enhancements_dirty_state()
 
         # Reset the "already prompted once" flag so the category-selection
         # dialog fires again for this channel's (potentially different) set

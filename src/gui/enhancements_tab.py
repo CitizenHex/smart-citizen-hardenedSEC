@@ -418,6 +418,23 @@ class EnhancementsTab(QWidget):
         button never lighting up to prompt a re-run."""
         self._mark_enhancements_dirty()
 
+    def refresh_enhancements_dirty_state(self) -> None:
+        """Public entrypoint for external callers (MainWindow) to re-derive
+        the Generate Enhancements button's enabled state from the current
+        channel's real disk state (#273).
+
+        _enhancements_dirty is otherwise only ever set once, at tab
+        construction, then nudged True/False by discrete UI events
+        (a checkbox toggle, clicking Generate itself). Switching the active
+        channel changes what "the current channel's real disk state" even
+        means — the flag needs recomputing from scratch, not left at
+        whatever it held for the previous channel. Without this, switching
+        to a channel that genuinely needs (re)generation left the button
+        disabled (still reflecting the previous channel's now-clean state),
+        so clicking it silently did nothing until the user happened to
+        retoggle some checkbox that forces the flag back on."""
+        self._set_generate_btn_dirty(self._compute_initial_enhancements_dirty())
+
     def _on_category_checkbox_changed(self):
         """Enable Apply button if any checkbox differs from saved settings."""
         has_changes = any(
