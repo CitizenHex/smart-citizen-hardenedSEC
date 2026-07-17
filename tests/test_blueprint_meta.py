@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from src.utils.blueprint_meta import (  # noqa: E402
+    MANUAL_BLUEPRINT_ITEMS,
     blueprint_type_from_key,
     build_blueprint_metadata,
     clean_mission_title,
@@ -24,6 +25,7 @@ from src.utils.blueprint_meta import (  # noqa: E402
     size_from_key,
     strip_size_prefix,
 )
+from src.utils.owned_items import normalize_item_name  # noqa: E402
 
 pytestmark = [pytest.mark.unit, pytest.mark.regression]
 
@@ -186,7 +188,9 @@ def _sample_entries():
 
 def test_build_joins_component_attributes():
     meta = build_blueprint_metadata(_sample_entries())
-    assert set(meta) == {"Balandin", "Abrade Scraper Module"}
+    # Subset, not equality: the manually-curated items (#267) always ride
+    # along too now, covered separately in TestManualBlueprintItems.
+    assert {"Balandin", "Abrade Scraper Module"} <= set(meta)
     bal = meta["Balandin"]
     assert (bal.type, bal.cls, bal.size, bal.grade) == ("Quantum Drive", "Military", "3", "B")
     # Plain item with no matching name entry -> "Other" type, no class/size/grade.
@@ -236,4 +240,65 @@ def test_desc_without_title_yields_no_mission_but_keeps_item():
 
 
 def test_no_blueprint_entries_is_empty():
-    assert build_blueprint_metadata([_Entry("vehicle_NameRSI_Polaris", "Polaris", "Ships")]) == {}
+    """No mission-derived items -- only the manually-curated ones (#267),
+    which ride along regardless of what's loaded."""
+    meta = build_blueprint_metadata([_Entry("vehicle_NameRSI_Polaris", "Polaris", "Ships")])
+    assert "Polaris" not in meta
+    assert set(meta) == {normalize_item_name(n) for n, _ in MANUAL_BLUEPRINT_ITEMS}
+
+
+class TestManualBlueprintItems:
+    """#267: XenoThreat "Purgatory Camo" items were never advertised via any
+    mission's POTENTIAL BLUEPRINTS text (CIG announced them on their own
+    website for a limited-time event), so mission-text scanning alone could
+    never surface them -- players only ever saw them in the Owned list, via
+    the log scanner's independent "Received Blueprint: ..." matching, never
+    in Available. These lock down the manual-item fold-in that fixes that."""
+
+    def test_all_manual_items_present_with_no_source_data(self):
+        meta = build_blueprint_metadata([])
+        for raw_name, expected_type in MANUAL_BLUEPRINT_ITEMS:
+            assert raw_name in meta, f"{raw_name!r} missing from blueprint metadata"
+            assert meta[raw_name].type == expected_type
+
+    def test_manual_item_missions_label_explains_itself(self):
+        meta = build_blueprint_metadata([])
+        assert meta["QuadraCell"].missions == frozenset({"Limited time event reward"})
+
+    def test_manual_item_falls_back_to_bare_name_with_no_match(self):
+        meta = build_blueprint_metadata([])
+        fr66 = meta["FR-66"]
+        assert fr66.tagged_name == "FR-66"
+        assert (fr66.cls, fr66.size, fr66.grade) == (None, None, None)
+
+    def test_manual_item_picks_up_real_facets_when_actually_loaded(self):
+        """If this install's own loaded strings DO carry a matching
+        item_Name entry (the item exists in the base game data, just never
+        listed as a mission reward), the manual entry should use its real
+        tag/class/size/grade instead of the bare fallback."""
+        entries = [_Entry("item_NamePOWR_XNTH_S01_QuadraCell", "[MIL-S1-A] QuadraCell", "Ship Items")]
+        meta = build_blueprint_metadata(entries)
+        qc = meta["QuadraCell"]
+        assert qc.type == "Power Plant"
+        assert (qc.cls, qc.size, qc.grade) == ("Military", "1", "A")
+        assert qc.tagged_name == "[MIL-S1-A] QuadraCell"
+        assert qc.missions == frozenset({"Limited time event reward"})
+
+    def test_mission_derived_item_is_not_overwritten_by_manual_entry(self):
+        """If a manual item's name ever DOES turn up in a real mission's
+        POTENTIAL BLUEPRINTS text (CIG could add one later), the real
+        mission-derived entry must win, not the manual fallback."""
+        desc = "x\\n<EM4>POTENTIAL BLUEPRINTS</EM4>\\n- QuadraCell"
+        entries = [
+            _Entry("M_Title_001", "Real Mission", "Missions"),
+            _Entry("M_Desc_001", desc, "Missions"),
+        ]
+        meta = build_blueprint_metadata(entries)
+        assert meta["QuadraCell"].missions == frozenset({"Real Mission"})
+
+    def test_manual_items_do_not_duplicate_or_error_on_repeated_build(self):
+        """Calling build twice (e.g. re-Extract) must be stable -- same
+        result, no accumulation."""
+        first = build_blueprint_metadata([])
+        second = build_blueprint_metadata([])
+        assert first == second
