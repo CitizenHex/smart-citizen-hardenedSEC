@@ -404,14 +404,14 @@ class TestBulletNameMismatches:
         )
         entries = [
             _Entry("M_Desc_001", desc, "Missions"),
-            _Entry("item_fuelnozzle_GRIN_Fast_Name", "[FN] Norfield", "Ship Items"),
-            _Entry("item_fuelnozzle_GRIN_Safe_Name", "[FN] Harkin", "Ship Items"),
-            _Entry("item_fuelnozzle_MISC_Standard_Name", "[FN] RN-7s", "Ship Items"),
+            _Entry("item_fuelnozzle_GRIN_Fast_Name", "Norfield", "Ship Items"),
+            _Entry("item_fuelnozzle_GRIN_Safe_Name", "Harkin", "Ship Items"),
+            _Entry("item_fuelnozzle_MISC_Standard_Name", "RN-7s", "Ship Items"),
         ]
         meta = build_blueprint_metadata(entries)
-        assert meta["Norfield"].tagged_name == "[FN] Norfield"
-        assert meta["Harkin"].tagged_name == "[FN] Harkin"
-        assert meta["RN-7s"].tagged_name == "[FN] RN-7s"
+        assert meta["Norfield"].tagged_name == "Norfield"
+        assert meta["Harkin"].tagged_name == "Harkin"
+        assert meta["RN-7s"].tagged_name == "RN-7s"
         assert "Nozzle Fuelgiver Grin Nozzlefast" not in meta
         assert "Nozzle Fuelgiver Grin Nozzleverysecure" not in meta
         assert "Nozzle Fuelgiver Misc Nozzlestandard" not in meta

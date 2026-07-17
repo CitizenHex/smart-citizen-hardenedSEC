@@ -221,6 +221,19 @@ _BULLET_NAME_ALIASES: dict[str, str] = {
     "Nozzle Fuelgiver Misc Nozzlestandard": "RN-7s",
 }
 
+# Fuel nozzle Name-key conventions (#266 follow-up): nozzles ship under two
+# different manufacturer-specific prefixes (MISC's item_fuelnozzle_* vs
+# Greycat/Shubin's Nozzle_FuelGiver_*), neither matching the item_Name /
+# vehicle_Name convention every other component uses. Without these, Pass 1
+# never recognised a nozzle's key as a Name entry at all, so the _key_slug
+# fallback and the explicit aliases above had nothing to resolve against --
+# the bullet stayed as a separate untagged/garbled entry instead of joining
+# the real item.
+_EXTRA_NAME_KEY_PREFIXES = (
+    "item_fuelnozzle_",
+    "nozzle_fuelgiver_",
+)
+
 # The bracketed component tag, e.g. "[MIL-S3-B]" or the user-reconfigured
 # "[CMP.S1.B.PW]". Parsed by tokenizing the contents rather than a fixed
 # pattern, because the tag's separator, element order, and which elements
@@ -392,7 +405,8 @@ def build_blueprint_metadata(entries) -> dict:
         cat = getattr(e, "category", "") or ""
         kl = key.lower()
 
-        if kl.startswith("item_name") or kl.startswith("vehicle_name"):
+        if (kl.startswith("item_name") or kl.startswith("vehicle_name")
+                or kl.startswith(_EXTRA_NAME_KEY_PREFIXES)):
             nm = normalize_item_name(val)
             if nm:
                 keyslug_to_name[_key_slug(key)] = nm
