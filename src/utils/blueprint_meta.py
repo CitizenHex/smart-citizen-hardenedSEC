@@ -131,6 +131,44 @@ _TYPE_LABELS = {
     "BOMB": "Bomb",
 }
 
+# Blueprints that exist in-game but were never advertised via a mission's
+# POTENTIAL BLUEPRINTS text (#267) -- CIG announced these purely on their own
+# website/socials for a limited-time event, so there's no loc-string source to
+# scan them out of. Keyed by the bare item name a "Received Blueprint: ..."
+# log line or a bullet would carry (no component tag). Extend this tuple for
+# any future item reported missing the same way.
+_MANUAL_MISSION_LABEL = "Limited time event reward"
+MANUAL_BLUEPRINT_ITEMS: tuple[tuple[str, str], ...] = (
+    # XenoThreat "Purgatory Camo" armor sets
+    ("Chiron Arms Purgatory Camo", _TYPE_ARMOR),
+    ("Chiron Backpack Purgatory Camo", _TYPE_ARMOR),
+    ("Chiron Core Purgatory Camo", _TYPE_ARMOR),
+    ("Chiron Helmet Purgatory Camo", _TYPE_ARMOR),
+    ("Chiron Legs Purgatory Camo", _TYPE_ARMOR),
+    ("Testudo Arms Purgatory Camo", _TYPE_ARMOR),
+    ("Testudo Backpack Purgatory Camo", _TYPE_ARMOR),
+    ("Testudo Core Purgatory Camo", _TYPE_ARMOR),
+    ("Testudo Helmet Purgatory Camo", _TYPE_ARMOR),
+    ("Testudo Legs Purgatory Camo", _TYPE_ARMOR),
+    ("Monde Arms Purgatory Camo", _TYPE_ARMOR),
+    ("Monde Core Purgatory Camo", _TYPE_ARMOR),
+    ("Monde Helmet Purgatory Camo", _TYPE_ARMOR),
+    ("Monde Legs Purgatory Camo", _TYPE_ARMOR),
+    ("Warden Backpack Purgatory Camo", _TYPE_ARMOR),
+    # XenoThreat "Purgatory Camo" FPS weapons
+    ('Demeco "Purgatory Camo" LMG', _TYPE_FPS_WEAPON),
+    ('S71 "Purgatory Camo" Rifle', _TYPE_FPS_WEAPON),
+    ('BR-2 "Purgatory Camo" Shotgun', _TYPE_FPS_WEAPON),
+    # XenoThreat ship components
+    ("QuadraCell", _TYPE_LABELS["POWR"]),
+    ("QuadraCell MT", _TYPE_LABELS["POWR"]),
+    ("FR-66", _TYPE_LABELS["SHLD"]),
+    ("FR-76", _TYPE_LABELS["SHLD"]),
+    ("NDB-26 Repeater", _TYPE_SHIP_WEAPON),
+    ("NDB-28 Repeater", _TYPE_SHIP_WEAPON),
+    ("NDB-30 Repeater", _TYPE_SHIP_WEAPON),
+)
+
 # The bracketed component tag, e.g. "[MIL-S3-B]" or the user-reconfigured
 # "[CMP.S1.B.PW]". Parsed by tokenizing the contents rather than a fixed
 # pattern, because the tag's separator, element order, and which elements
@@ -358,6 +396,28 @@ def build_blueprint_metadata(entries) -> dict:
             name=nm,
             missions=frozenset(missions),
             type=type_,
+            cls=cls,
+            size=size,
+            grade=grade,
+            tagged_name=name_to_value.get(nm) or nm,
+        )
+
+    # Pass 3: fold in manually-declared items no mission ever advertised
+    # (#267). Prefer real data from Pass 1 if this install's loaded strings
+    # happen to carry a matching item_Name/vehicle_Name entry (picks up the
+    # real tag/class/size/grade); otherwise fall back to a bare entry so the
+    # item still shows up rather than being silently dropped. Never
+    # overwrites an item a mission already supplied.
+    for raw_name, manual_type in MANUAL_BLUEPRINT_ITEMS:
+        nm = normalize_item_name(raw_name)
+        if not nm or nm in result:
+            continue
+        key = name_to_key.get(nm)
+        cls, size, grade = attrs.get(nm, (None, None, None))
+        result[nm] = BlueprintItem(
+            name=nm,
+            missions=frozenset({_MANUAL_MISSION_LABEL}),
+            type=(blueprint_type_from_key(key) or manual_type),
             cls=cls,
             size=size,
             grade=grade,
