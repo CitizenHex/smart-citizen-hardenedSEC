@@ -1161,9 +1161,13 @@ class AppSettings:
     @staticmethod
     def get_scan_other_channels_enabled() -> bool:
         """Whether "Scan Logs for Owned Blueprints" also scans whichever of
-        LIVE/HOTFIX isn't the active channel (#268). Default False."""
+        LIVE/HOTFIX isn't the active channel (#268). Default True — most
+        players with a HOTFIX-era account run both channels, and scanning
+        the inactive one too is what makes the Owned set actually complete;
+        opting in after the fact means missing blueprints already earned
+        there before the user thinks to enable it."""
         return bool(AppSettings.settings().value(
-            AppSettings.BLUEPRINT_SCAN_OTHER_CHANNELS, False, type=bool
+            AppSettings.BLUEPRINT_SCAN_OTHER_CHANNELS, True, type=bool
         ))
 
     @staticmethod
