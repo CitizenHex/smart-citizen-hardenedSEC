@@ -435,6 +435,21 @@ class EnhancementsTab(QWidget):
         retoggle some checkbox that forces the flag back on."""
         self._set_generate_btn_dirty(self._compute_initial_enhancements_dirty())
 
+    def refresh_tag_builder_dirty_state(self) -> None:
+        """Public entrypoint for external callers (MainWindow) to light the
+        Save Tag Changes button after a channel switch (#273 follow-up).
+
+        Tag Builder configs are global, but the generated enhancement INIs
+        they feed are per-channel, and nothing records which configs a
+        channel's INIs were last generated with — so after a switch there
+        is no way to prove the new channel's output carries the current
+        tags. Err on the side of clickable: a grey button here left the
+        user unable to stamp their tags onto the freshly selected channel
+        at all (the "can't apply changes" half of the report), while a lit
+        button costs at worst one redundant regeneration."""
+        if getattr(self, "_apply_tag_btn", None) is not None:
+            self._set_tag_btn_dirty(True)
+
     def _on_category_checkbox_changed(self):
         """Enable Apply button if any checkbox differs from saved settings."""
         has_changes = any(
