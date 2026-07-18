@@ -2991,6 +2991,28 @@ def _merge_blueprint_pool(
             existing_items.append(item)
 
 
+# Fuel nozzles hit the filename-fallback tier (#281): their entityClass UUID
+# doesn't resolve in entity_names, and entity_names_by_filename also misses
+# for reasons CIG's own data doesn't make obvious, so every fuel nozzle
+# reward fell all the way through to _name_from_blueprint_filename's
+# title-cased slug -- visible in-game as "Nozzle Fuelgiver Grin Nozzlefast"
+# etc. in a mission's POTENTIAL BLUEPRINTS list instead of the real
+# manufacturer name. Confirmed via a live "URGENT REFUEL REQUEST" mission
+# body listing all 8 variants this way. Keyed by the exact fallback string
+# this function produces (title-cased, space-separated) so it's a pure
+# post-processing correction with no effect on any other blueprint type.
+_BLUEPRINT_FILENAME_FALLBACK_ALIASES = {
+    "Nozzle Fuelgiver Grin Nozzlefast": "Norfield",
+    "Nozzle Fuelgiver Grin Nozzlesecure": "Marlin",
+    "Nozzle Fuelgiver Grin Nozzleveryfast": "Lindstrom",
+    "Nozzle Fuelgiver Grin Nozzleverysecure": "Harkin",
+    "Nozzle Fuelgiver Misc Nozzlestandard": "RN-7s",
+    "Nozzle Fuelgiver Shin Nozzleexpensivefast": "Bendix",
+    "Nozzle Fuelgiver Shin Nozzleexpensivesecure": "Torrez",
+    "Nozzle Fuelgiver Shin Nozzlemostexpensive": "Ezra",
+}
+
+
 def _name_from_blueprint_filename(bp_xml: Path) -> str:
     """Best-effort fallback display name from a blueprint XML's filename.
 
@@ -3002,7 +3024,7 @@ def _name_from_blueprint_filename(bp_xml: Path) -> str:
 
     Examples:
         bp_craft_nozzle_fuelgiver_grin_nozzlefast.xml
-            → "Nozzle Fuelgiver Grin Nozzlefast"
+            → "Norfield" (known alias — see _BLUEPRINT_FILENAME_FALLBACK_ALIASES)
         bp_craft_salvage_modifier_scraper_large.xml
             → "Salvage Modifier Scraper Large"
         bp_rewards_eckhartsecuritykillnpcboss.xml
@@ -3016,7 +3038,8 @@ def _name_from_blueprint_filename(bp_xml: Path) -> str:
             stem = stem[len(prefix):]
             break
     # Replace separators with spaces and title-case.
-    return stem.replace("_", " ").replace("-", " ").title()
+    fallback = stem.replace("_", " ").replace("-", " ").title()
+    return _BLUEPRINT_FILENAME_FALLBACK_ALIASES.get(fallback, fallback)
 
 
 def build_blueprint_pool_lookup(
