@@ -187,12 +187,18 @@ class TestMergeIniFilesBom:
         prepend the BOM character onto the first key's name — that would
         silently corrupt the first key in the output on every apply."""
         src = tmp_path / "base.ini"
-        src.write_bytes("﻿FirstKey=first value\nSecondKey=second\n".encode("utf-8"))
+        # BOM written as explicit bytes rather than the invisible U+FEFF
+        # character inline in a string literal — the latter is easy to lose
+        # or miscopy since it renders as nothing in an editor.
+        src.write_bytes(b"\xef\xbb\xbf" + "FirstKey=first value\nSecondKey=second\n".encode("utf-8"))
         out = tmp_path / "out.ini"
         merge_ini_files(src, {"FirstKey": "overridden"}, out)
+        # utf-8-sig strips the (correct, expected) leading BOM the output
+        # itself carries; a *second*, stray BOM glued onto the key name
+        # would mean the source's BOM leaked through unstripped.
         text = out.read_text(encoding="utf-8-sig")
         assert "FirstKey=overridden" in text
-        assert "﻿FirstKey" not in text
+        assert (chr(0xFEFF) + "FirstKey") not in text
 
     def test_values_and_structure_preserved_alongside_bom(self, tmp_path):
         src = tmp_path / "base.ini"

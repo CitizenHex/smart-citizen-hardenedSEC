@@ -128,3 +128,36 @@ class TestBomCheck:
         fail-open posture as the other exception guards in this module."""
         missing = tmp_path / "does_not_exist.ini"
         assert validate_applied_file(missing, tmp_path) == ""
+
+    def test_missing_bom_still_reported_when_base_ini_absent(self, tmp_path):
+        """The key-presence comparison bailing out early (no base.ini in
+        cache) must not swallow a BOM problem the file-open check already
+        found — the two checks are independent, and this one fires first."""
+        written = tmp_path / "written.ini"
+        written.write_text("key=val\n", encoding="utf-8")  # no BOM, no base.ini
+        result = validate_applied_file(written, tmp_path)
+        assert result != ""
+        assert "BOM" in result
+
+    def test_missing_bom_still_reported_when_stock_parse_fails(self, tmp_path):
+        (tmp_path / "base.ini").write_text("key=val\n", encoding="utf-8")
+        written = tmp_path / "written.ini"
+        written.write_text("key=val\n", encoding="utf-8")  # no BOM
+        with patch(
+            "src.utils.applied_file_validator.parse_ini_file",
+            side_effect=Exception("boom"),
+        ):
+            result = validate_applied_file(written, tmp_path)
+        assert result != ""
+        assert "BOM" in result
+
+    def test_missing_bom_still_reported_when_written_parse_fails(self, tmp_path):
+        written = tmp_path / "written.ini"
+        written.write_text("key=val\n", encoding="utf-8")  # no BOM
+        with patch(
+            "src.utils.applied_file_validator.parse_ini_file",
+            side_effect=Exception("boom"),
+        ):
+            result = validate_applied_file(written, tmp_path, stock_keys={"key"})
+        assert result != ""
+        assert "BOM" in result

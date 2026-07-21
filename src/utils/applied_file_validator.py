@@ -60,22 +60,36 @@ def validate_applied_file(
         logger.warning(f"Validation error reading written file for BOM check: {e}")
         return ""
 
+    # The BOM check stands on its own — it must still fire even when the
+    # key-presence comparison below can't run at all (base.ini missing from
+    # cache, unreadable, or the written file itself fails to parse). Without
+    # this, a missing base.ini silently swallowed a BOM-less written file as
+    # "validation skipped" instead of reporting the one problem we *could*
+    # still detect.
+    bom_warning = (
+        "The written file is missing its UTF-8 BOM. Star Citizen's own "
+        "localization loader needs this to detect the file's encoding — "
+        "without it the game can fail to resolve every string (shown as "
+        "raw @KeyName placeholders instead of text) rather than just the "
+        "ones that changed."
+    ) if not has_bom else ""
+
     if stock_keys is None:
         stock_path = cache_dir / "base.ini"
         if not stock_path.exists():
             logger.warning("Validation skipped: base.ini not found in cache")
-            return ""
+            return bom_warning
         try:
             stock_keys = set(parse_ini_file(stock_path).keys())
         except Exception as e:
             logger.warning(f"Validation error reading stock base.ini: {e}")
-            return ""
+            return bom_warning
 
     try:
         written_keys = set(parse_ini_file(written_path).keys())
     except Exception as e:
         logger.warning(f"Validation error reading written file: {e}")
-        return ""
+        return bom_warning
 
     missing = stock_keys - written_keys
     extra = written_keys - stock_keys
@@ -91,14 +105,8 @@ def validate_applied_file(
 
     lines = []
 
-    if not has_bom:
-        lines += [
-            "The written file is missing its UTF-8 BOM. Star Citizen's own "
-            "localization loader needs this to detect the file's encoding — "
-            "without it the game can fail to resolve every string (shown as "
-            "raw @KeyName placeholders instead of text) rather than just the "
-            "ones that changed.",
-        ]
+    if bom_warning:
+        lines.append(bom_warning)
 
     if missing:
         sample = sorted(missing)[:20]
