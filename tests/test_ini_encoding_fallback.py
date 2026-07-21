@@ -201,11 +201,27 @@ class TestMergerAppliesCorruptedBase:
         src.write_text("a=1\nb=2\n", encoding="utf-8")
         out = tmp_path / "out.ini"
         merge_ini_files(src, {}, out)
-        assert out.read_text(encoding="utf-8") == "a=1\nb=2\n"
+        # utf-8-sig strips the BOM (#261) written on the applied file — see
+        # test_merge_ini_files_writes_utf8_bom below for the BOM assertion
+        # itself; this test is purely about the trailing-newline shape.
+        assert out.read_text(encoding="utf-8-sig") == "a=1\nb=2\n"
 
         src.write_text("a=1\nb=2", encoding="utf-8")  # no trailing newline
         merge_ini_files(src, {}, out)
-        assert out.read_text(encoding="utf-8") == "a=1\nb=2"
+        assert out.read_text(encoding="utf-8-sig") == "a=1\nb=2"
+
+    def test_merge_ini_files_writes_utf8_bom(self, tmp_path):
+        """#261: the applied global.ini must carry a UTF-8 BOM — Star
+        Citizen's own loc-string loader needs it to reliably detect the
+        file's encoding, or the game shows every key as a raw @KeyName
+        placeholder instead of the resolved string."""
+        from src.merger.ini_merger import merge_ini_files
+
+        src = tmp_path / "base.ini"
+        src.write_text("a=1\nb=2\n", encoding="utf-8")
+        out = tmp_path / "out.ini"
+        merge_ini_files(src, {}, out)
+        assert out.read_bytes().startswith(b"\xef\xbb\xbf")
 
 
 # ── Sibling #251-class guards (corrupt bytes in app-written state files) ──────
