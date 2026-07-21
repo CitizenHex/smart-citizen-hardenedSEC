@@ -3,6 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from src.utils.ini_io import read_ini_text
 from src.utils.perf import timed
 
 # Component type codes used to canonicalize item_name*/item_desc* key variants.
@@ -235,24 +236,43 @@ def merge_ini_files(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        # utf-8-sig on read strips a source BOM if present (Data.p4k's own
-        # extracted base.ini has one) instead of leaking it into the first
-        # key's name. utf-8-sig on write (#261) WRITES a BOM — Star
-        # Citizen's own loc-string loader appears to need it to reliably
-        # detect the file's encoding; without it the game can fail to
-        # resolve every key (shown as raw @KeyName placeholders) rather
-        # than degrading per-key. Every prior release wrote plain utf-8 (no
-        # BOM) here; our own readers are utf-8-sig-aware so they never
-        # noticed the mismatch, but the game's own parser does — see
+        # read_ini_text (#251) tolerates non-UTF-8 content — the previous
+        # strict open() meant one corrupt byte in base.ini failed the whole
+        # Apply to Game. It also strips a source BOM if present (Data.p4k's
+        # own extracted base.ini has one) via its own utf-8-sig decode,
+        # instead of leaking it into the first key's name. Normalize
+        # newlines to match the old open() default (universal newlines
+        # translated \r\n and \r to \n on read), then re-attach a trailing
+        # \n per line like file iteration yielded.
+        source_lines = (
+            read_ini_text(source_path)
+            .replace('\r\n', '\n').replace('\r', '\n')
+            .split('\n')
+        )
+        # split('\n') yields one trailing '' when the file ends with a
+        # newline — file iteration never yielded that empty last line.
+        if source_lines and source_lines[-1] == '':
+            trailing_newline = True
+            source_lines.pop()
+        else:
+            trailing_newline = False
+
+        # utf-8-sig on write (#261) WRITES a BOM — Star Citizen's own
+        # loc-string loader appears to need it to reliably detect the
+        # file's encoding; without it the game can fail to resolve every
+        # key (shown as raw @KeyName placeholders) rather than degrading
+        # per-key. Every prior release wrote plain utf-8 (no BOM) here; our
+        # own readers are utf-8-sig-aware so they never noticed the
+        # mismatch, but the game's own parser does — see
         # validate_applied_file's BOM check for the safety net half of
         # this fix.
-        with open(source_path, 'r', encoding='utf-8-sig') as infile, \
-             open(output_path, 'w', encoding='utf-8-sig') as outfile:
-
-            for line in infile:
-                # Preserve line ending style, but work with stripped version
-                line_rstrip = line.rstrip('\n\r')
-                original_ending = line[len(line_rstrip):]
+        with open(output_path, 'w', encoding='utf-8-sig') as outfile:
+            for i, line_rstrip in enumerate(source_lines):
+                # Match the old per-line shape: every line ended with '\n'
+                # except a final line with no trailing newline.
+                is_last = i == len(source_lines) - 1
+                original_ending = '\n' if (not is_last or trailing_newline) else ''
+                line = line_rstrip + original_ending
 
                 # Skip processing for comments and empty lines
                 if not line_rstrip.strip() or line_rstrip.strip().startswith(';'):
