@@ -29,7 +29,7 @@ def merge_sources_by_hierarchy(
     Syncs values across item_Name*/item_Desc* key variants (e.g.,
     item_Name_QDRV_RSI_S02_Hemera and item_nameQDRV_RSI_S02_Hemera_SCItem get
     the same value) — see sync_key_variants for why this is scoped to that
-    namespace and not the whole table (#257).
+    namespace and not the whole table (#255).
 
     Args:
         sources_dict: Dictionary mapping source name to its key-value pairs.
@@ -148,7 +148,7 @@ def sync_key_variants(
 
     This modifies merged_dict in-place.
 
-    Scoped to item_Name*/item_Desc* keys only (#257). Canonicalization
+    Scoped to item_Name*/item_Desc* keys only (#255). Canonicalization
     strips ALL underscores and lowercases, which is exactly right for the
     ship-item naming quirks this function targets — but running it over
     every key in the ~90k-key table let two completely unrelated CIG loc
@@ -180,7 +180,7 @@ def sync_key_variants(
     """
     # Build a mapping of canonical → list of actual keys with that canonical
     # form, restricted to the item_Name*/item_Desc* namespace this sync is
-    # actually for (#257) — any other key (locations, missions, UI labels,
+    # actually for (#255) — any other key (locations, missions, UI labels,
     # options-menu strings, ...) is left completely untouched by this pass.
     canonical_keys: Dict[str, List[str]] = {}
 

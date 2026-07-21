@@ -8,7 +8,7 @@ opposite ways — see the docstring in ini_merger.py). These tests pin the
 three real-data shapes that broke it, plus the guard added so a user's
 override to a variant can't be silently outvoted by the longest-value rule.
 
-TestSyncKeyVariantsDomainScope (#257) pins a third, more severe bug: the
+TestSyncKeyVariantsDomainScope (#255) pins a third, more severe bug: the
 canonical-key grouping used to run over EVERY key in the merged table, not
 just item_Name*/item_Desc*. Two completely unrelated CIG loc keys —
 Stanton2 (the Crusader planet) and Stanton_2 (the Stanton star) — collapsed
@@ -160,7 +160,7 @@ class TestMergeSourcesByHierarchyUserOverrideSurvival:
 
 
 class TestSyncKeyVariantsDomainScope:
-    """#257: sync_key_variants must never touch a key outside item_Name*/
+    """#255: sync_key_variants must never touch a key outside item_Name*/
     item_Desc* — that's the one guarantee this whole test class exists to
     pin down. Real key/value pairs pulled straight from the bug's audit."""
 
