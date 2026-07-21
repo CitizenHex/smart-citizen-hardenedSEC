@@ -94,6 +94,12 @@ _COMMON_SC_SUBPATHS = (
 )
 
 
+# Sentinel distinct from a real scan outcome — the scan legitimately returns
+# None ("nothing found"), so that value can't double as "not run yet".
+_SC_SCAN_UNSET = object()
+_sc_scan_cache: "str | None | object" = _SC_SCAN_UNSET
+
+
 def _scan_common_sc_install_locations() -> "str | None":
     """Search every local drive letter for a real Star Citizen install.
 
@@ -107,7 +113,18 @@ def _scan_common_sc_install_locations() -> "str | None":
     every other candidate is (:func:`_is_valid_sc_root`), so an empty/stub
     folder (e.g. a partial RSI Launcher download with no real ``Data.p4k``
     channel folder yet) is never mistaken for a real install.
+
+    Cached in-memory for the process's lifetime, including a "found
+    nothing" result -- without this, a no-install profile re-walks every
+    drive letter on every call (e.g. after each channel switch clears
+    GAME_INSTALL_PATH), and a disconnected network drive can make a single
+    ``exists()`` check hang for seconds. The cache resets naturally on app
+    restart since it's a plain module global, not persisted to settings.
     """
+    global _sc_scan_cache
+    if _sc_scan_cache is not _SC_SCAN_UNSET:
+        return _sc_scan_cache
+
     for letter in string.ascii_uppercase:
         drive_root = Path(f"{letter}:\\")
         if not drive_root.exists():
@@ -115,7 +132,10 @@ def _scan_common_sc_install_locations() -> "str | None":
         for subpath in _COMMON_SC_SUBPATHS:
             candidate = drive_root / subpath
             if _is_valid_sc_root(str(candidate)):
-                return str(candidate)
+                _sc_scan_cache = str(candidate)
+                return _sc_scan_cache
+
+    _sc_scan_cache = None
     return None
 
 
@@ -1243,7 +1263,16 @@ class AppSettings:
         root = _scan_common_sc_install_locations()
         if root:
             result = str(Path(root) / AppSettings.get_active_channel())
-            AppSettings.settings().setValue(AppSettings.GAME_INSTALL_PATH, result)
+            # _scan_common_sc_install_locations only proves SOME channel
+            # folder exists at this root (via _is_valid_sc_root) — not
+            # necessarily the active one. Caching a path the active
+            # channel doesn't actually have would just get discarded by
+            # whatever reads it next, forcing a rescan anyway; skip the
+            # write so a later channel switch (or the channel actually
+            # appearing after an install) gets a fresh scan instead of a
+            # stale miss.
+            if Path(result).is_dir():
+                AppSettings.settings().setValue(AppSettings.GAME_INSTALL_PATH, result)
             return result
 
         return ""

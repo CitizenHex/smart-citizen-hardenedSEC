@@ -338,8 +338,13 @@ class TestScanCommonScInstallLocations:
     a handful of common shapes instead of just two fixed C:\\ paths."""
 
     def test_finds_install_at_a_matching_candidate(self, monkeypatch):
+        import src.utils.settings as settings_mod
         from src.utils.settings import _scan_common_sc_install_locations
 
+        # The scan result is cached in-memory for the process's lifetime
+        # (see the function's own docstring) — reset it so an earlier
+        # test's outcome in this same run can't leak in here.
+        monkeypatch.setattr(settings_mod, "_sc_scan_cache", settings_mod._SC_SCAN_UNSET)
         target = r"C:\Games\Roberts Space Industries\StarCitizen"
         monkeypatch.setattr(
             "src.utils.settings._is_valid_sc_root",
@@ -348,10 +353,30 @@ class TestScanCommonScInstallLocations:
         assert _scan_common_sc_install_locations() == target
 
     def test_returns_none_when_nothing_valid_anywhere(self, monkeypatch):
+        import src.utils.settings as settings_mod
         from src.utils.settings import _scan_common_sc_install_locations
 
+        monkeypatch.setattr(settings_mod, "_sc_scan_cache", settings_mod._SC_SCAN_UNSET)
         monkeypatch.setattr("src.utils.settings._is_valid_sc_root", lambda p: False)
         assert _scan_common_sc_install_locations() is None
+
+    def test_result_is_cached_for_process_lifetime(self, monkeypatch):
+        """A second call must not re-scan — it should return the cached
+        result even if the underlying validator's answer would now differ,
+        proving the cache (not a fresh scan) is what answered."""
+        import src.utils.settings as settings_mod
+        from src.utils.settings import _scan_common_sc_install_locations
+
+        monkeypatch.setattr(settings_mod, "_sc_scan_cache", settings_mod._SC_SCAN_UNSET)
+        target = r"C:\Games\Roberts Space Industries\StarCitizen"
+        monkeypatch.setattr(
+            "src.utils.settings._is_valid_sc_root",
+            lambda p: os.path.normcase(p) == os.path.normcase(target),
+        )
+        assert _scan_common_sc_install_locations() == target
+        # Flip the validator so a real re-scan would find nothing.
+        monkeypatch.setattr("src.utils.settings._is_valid_sc_root", lambda p: False)
+        assert _scan_common_sc_install_locations() == target
 
     def test_documented_subpaths_cover_default_and_secondary_drive_shapes(self):
         """Locks the exact candidate list down -- covers RSI Launcher's own
@@ -388,15 +413,20 @@ class TestGetScInstallRootUsesDriveScan:
         # Persisted -- a subsequent call doesn't need the scan to run again.
         assert json_backend.value(AppSettings.SC_INSTALL_ROOT, "") == found_root
 
-    def test_get_game_install_path_persists_scan_result_with_channel(self, json_backend, monkeypatch):
-        found_root = r"E:\Games\Roberts Space Industries\StarCitizen"
+    def test_get_game_install_path_persists_scan_result_with_channel(self, json_backend, monkeypatch, tmp_path):
+        """The channel subdir must actually exist for the result to persist
+        (see the sibling "not persisted" test below) -- a real directory on
+        disk, not a fake path, so ``Path(result).is_dir()`` is genuinely
+        true."""
+        found_root = tmp_path / "StarCitizen"
+        (found_root / "PTU").mkdir(parents=True)
         # Patch BEFORE touching active_channel: set_active_channel() itself
         # queries get_sc_install_root() internally (to sync the legacy path)
         # -- with the patch not yet in place, that inner call would find
         # this machine's own real (or stub) install and persist THAT,
         # clobbering the very state this test is trying to control.
         monkeypatch.setattr(
-            "src.utils.settings._scan_common_sc_install_locations", lambda: found_root
+            "src.utils.settings._scan_common_sc_install_locations", lambda: str(found_root)
         )
         json_backend.remove(AppSettings.SC_INSTALL_ROOT)
         json_backend.remove(AppSettings.GAME_INSTALL_PATH)
@@ -404,9 +434,34 @@ class TestGetScInstallRootUsesDriveScan:
 
         result = AppSettings.get_game_install_path()
 
-        expected = str(Path(found_root) / "PTU")
+        expected = str(found_root / "PTU")
         assert result == expected
         assert json_backend.value(AppSettings.GAME_INSTALL_PATH, "") == expected
+
+    def test_scan_result_not_persisted_when_active_channel_folder_absent(self, json_backend, monkeypatch, tmp_path):
+        """The scan only proves SOME channel folder exists at this root, not
+        the active one -- if the active channel isn't actually installed
+        there, the guessed path is still returned (best guess) but must not
+        be cached, or the next read would trust a path that doesn't exist
+        instead of re-scanning.
+
+        Sets ACTIVE_CHANNEL directly rather than via set_active_channel(),
+        which has its own separate, unconditional GAME_INSTALL_PATH sync —
+        this test isolates get_game_install_path()'s own guard."""
+        found_root = tmp_path / "StarCitizen"
+        found_root.mkdir()  # root exists, but no "PTU" subfolder inside it
+        monkeypatch.setattr(
+            "src.utils.settings._scan_common_sc_install_locations", lambda: str(found_root)
+        )
+        json_backend.remove(AppSettings.SC_INSTALL_ROOT)
+        json_backend.remove(AppSettings.GAME_INSTALL_PATH)
+        json_backend.setValue(AppSettings.ACTIVE_CHANNEL, "PTU")
+
+        result = AppSettings.get_game_install_path()
+
+        expected = str(found_root / "PTU")
+        assert result == expected
+        assert json_backend.value(AppSettings.GAME_INSTALL_PATH, "") == ""
 
     def test_no_scan_result_returns_empty(self, json_backend, monkeypatch):
         json_backend.remove(AppSettings.SC_INSTALL_ROOT)
