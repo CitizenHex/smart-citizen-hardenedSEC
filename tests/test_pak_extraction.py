@@ -20,9 +20,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 from utils.pak_extractor import (
     DATAFORGE_KEEP_SUBPATHS,
     _copy_filtered_records,
+    _raise_unp4k_failure,
     dataforge_cache_is_fresh,
     extract_dataforge,
 )
+from utils.i18n import set_language, tr
 
 
 class TestDataForgeCache:
@@ -589,3 +591,48 @@ class TestCopyFilteredRecords:
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
+
+
+class TestUnp4kFailureMessage:
+    """_raise_unp4k_failure upgrades a locked-Data.p4k failure (RSI Launcher
+    updating) to a friendly hint, and otherwise preserves the raw output.
+
+    The lock manifests as a .NET IOException '...being used by another
+    process' with exit code 3762504530 (0xE0434352, the generic managed-
+    exception code — so the message text, not the code, is what we match on."""
+
+    _REAL_LOCK_STDERR = (
+        "Unhandled exception. System.IO.IOException: The process cannot access "
+        "the file 'E:\Games\...\StarCitizen\HOTFIX\Data.p4k' because it is "
+        "being used by another process.\n   at Microsoft.Win32.SafeHandles..."
+    )
+
+    def setup_method(self):
+        set_language("english")
+
+    def test_locked_file_raises_friendly_message(self):
+        with pytest.raises(RuntimeError) as exc:
+            _raise_unp4k_failure(3762504530, self._REAL_LOCK_STDERR)
+        assert str(exc.value) == tr("extract.p4k_locked")
+        # The friendly text must not leak the raw stack trace.
+        assert "IOException" not in str(exc.value)
+        assert "System.IO" not in str(exc.value)
+
+    def test_detection_is_case_insensitive(self):
+        with pytest.raises(RuntimeError) as exc:
+            _raise_unp4k_failure(1, "BEING USED BY ANOTHER PROCESS")
+        assert str(exc.value) == tr("extract.p4k_locked")
+
+    def test_other_failure_preserves_raw_output(self):
+        raw = "some other unp4k error: bad archive header"
+        with pytest.raises(RuntimeError) as exc:
+            _raise_unp4k_failure(2, raw)
+        msg = str(exc.value)
+        assert "exited with code 2" in msg
+        assert raw in msg
+        assert msg != tr("extract.p4k_locked")
+
+    def test_empty_output_does_not_crash(self):
+        with pytest.raises(RuntimeError) as exc:
+            _raise_unp4k_failure(-1, None)
+        assert "exited with code -1" in str(exc.value)
