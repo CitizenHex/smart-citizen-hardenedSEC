@@ -39,8 +39,24 @@ _RMTREE_CB_KWARG = "onexc" if sys.version_info >= (3, 12) else "onerror"
 _P4K_LOCKED_SIGNATURE = "being used by another process"
 
 
+class P4kLockedError(RuntimeError):
+    """Data.p4k is locked by another process (RSI Launcher updating/verifying).
+
+    A RuntimeError subclass, not a plain RuntimeError, so P4kExtractWorker /
+    DataForgeExtractWorker (workers.py) can tell this anticipated, already-
+    friendly-messaged condition apart from a genuinely unexpected extraction
+    failure — via isinstance(), not by re-sniffing the message text a second
+    time. Both workers' blanket ``except Exception`` handlers otherwise call
+    logger.exception() unconditionally, which independently satisfies
+    MainWindow's global ErrorDialogHandler (error_dialog.py, triggers on any
+    ERROR-level log record app-wide) — so downgrading only the log call
+    inside _raise_unp4k_failure wasn't enough; the worker's own logging needed
+    the same treatment, and needed a reliable way to recognize this case."""
+
+
 def _raise_unp4k_failure(returncode: int, output: str) -> None:
-    """Raise a RuntimeError for a non-zero unp4k exit.
+    """Raise for a non-zero unp4k exit — P4kLockedError for a locked Data.p4k,
+    plain RuntimeError otherwise.
 
     Upgrades the generic "exited with code N" message to a clear "Star Citizen
     is updating, wait and retry" hint when the failure is Data.p4k being locked
@@ -49,23 +65,17 @@ def _raise_unp4k_failure(returncode: int, output: str) -> None:
     tab keeps the underlying technical detail even when the friendly message is
     shown. Never returns — always raises.
 
-    Logged at WARNING, not ERROR, for the locked-file case specifically:
-    MainWindow's global ErrorDialogHandler pops its own generic "Smart
-    Citizen — Error / Show Log / Dismiss" dialog for every ERROR-level log
-    record, anywhere in the app (error_dialog.py). That's meant for genuinely
-    unexpected failures; a locked Data.p4k is an anticipated, well-understood
-    condition with its own dedicated friendly dialog (the one this raises
-    into), so logging it at ERROR duplicated that dialog with a second,
-    confusing raw-stack-trace popup on top of it. Any OTHER unp4k failure
-    still logs at ERROR — those are genuinely unexpected and should still
-    surface through the generic handler."""
+    Logged at WARNING, not ERROR, for the locked-file case specifically — see
+    P4kLockedError's docstring for why. Any OTHER unp4k failure still logs at
+    ERROR — those are genuinely unexpected and should still surface through
+    the generic handler."""
     output = output or ""
     if _P4K_LOCKED_SIGNATURE in output.lower():
         logger.warning(
             f"unp4k.exe exited with code {returncode} — Data.p4k is locked "
             f"(game likely updating); output:\n{output[:2000]}"
         )
-        raise RuntimeError(tr("extract.p4k_locked"))
+        raise P4kLockedError(tr("extract.p4k_locked"))
     logger.error(f"unp4k.exe exited with code {returncode}; output:\n{output[:2000]}")
     raise RuntimeError(f"unp4k.exe exited with code {returncode}.\n\n{output}")
 

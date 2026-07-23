@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from utils.pak_extractor import (
     DATAFORGE_KEEP_SUBPATHS,
+    P4kLockedError,
     _copy_filtered_records,
     _raise_unp4k_failure,
     dataforge_cache_is_fresh,
@@ -603,8 +604,8 @@ class TestUnp4kFailureMessage:
     exception code — so the message text, not the code, is what we match on."""
 
     _REAL_LOCK_STDERR = (
-        "Unhandled exception. System.IO.IOException: The process cannot access "
-        "the file 'E:\Games\...\StarCitizen\HOTFIX\Data.p4k' because it is "
+        r"Unhandled exception. System.IO.IOException: The process cannot access "
+        r"the file 'E:\Games\...\StarCitizen\HOTFIX\Data.p4k' because it is "
         "being used by another process.\n   at Microsoft.Win32.SafeHandles..."
     )
 
@@ -612,15 +613,23 @@ class TestUnp4kFailureMessage:
         set_language("english")
 
     def test_locked_file_raises_friendly_message(self):
-        with pytest.raises(RuntimeError) as exc:
+        with pytest.raises(P4kLockedError) as exc:
             _raise_unp4k_failure(3762504530, self._REAL_LOCK_STDERR)
         assert str(exc.value) == tr("extract.p4k_locked")
         # The friendly text must not leak the raw stack trace.
         assert "IOException" not in str(exc.value)
         assert "System.IO" not in str(exc.value)
 
+    def test_locked_file_raises_the_typed_exception(self):
+        """Must be P4kLockedError specifically, not a plain RuntimeError —
+        the worker except blocks (workers.py) key off isinstance() to decide
+        whether to log at WARNING (this case) or ERROR (any other failure),
+        so the type distinction is what prevents the duplicate-dialog bug."""
+        with pytest.raises(P4kLockedError):
+            _raise_unp4k_failure(3762504530, self._REAL_LOCK_STDERR)
+
     def test_detection_is_case_insensitive(self):
-        with pytest.raises(RuntimeError) as exc:
+        with pytest.raises(P4kLockedError) as exc:
             _raise_unp4k_failure(1, "BEING USED BY ANOTHER PROCESS")
         assert str(exc.value) == tr("extract.p4k_locked")
 
@@ -632,6 +641,14 @@ class TestUnp4kFailureMessage:
         assert "exited with code 2" in msg
         assert raw in msg
         assert msg != tr("extract.p4k_locked")
+
+    def test_other_failure_is_not_the_locked_type(self):
+        """A genuine failure must NOT be P4kLockedError, or the worker would
+        wrongly log it at WARNING and skip the global error-dialog handler
+        for a real, unexpected problem."""
+        with pytest.raises(RuntimeError) as exc:
+            _raise_unp4k_failure(2, "some other unp4k error")
+        assert not isinstance(exc.value, P4kLockedError)
 
     def test_locked_file_logs_at_warning_not_error(self, caplog):
         """The locked-file case must log below ERROR: MainWindow's global
