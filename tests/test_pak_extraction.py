@@ -9,6 +9,7 @@ Tests cover:
 """
 
 import pytest
+import logging
 import tempfile
 import os
 from pathlib import Path
@@ -631,6 +632,27 @@ class TestUnp4kFailureMessage:
         assert "exited with code 2" in msg
         assert raw in msg
         assert msg != tr("extract.p4k_locked")
+
+    def test_locked_file_logs_at_warning_not_error(self, caplog):
+        """The locked-file case must log below ERROR: MainWindow's global
+        ErrorDialogHandler pops its own generic crash-style dialog for every
+        ERROR-level record anywhere in the app, which would duplicate the
+        friendly dialog this raises into with a second, raw-stack-trace
+        popup on top of it (the exact bug this regression-guards)."""
+        with caplog.at_level(logging.WARNING, logger="utils.pak_extractor"):
+            with pytest.raises(RuntimeError):
+                _raise_unp4k_failure(3762504530, self._REAL_LOCK_STDERR)
+        assert not any(r.levelno >= logging.ERROR for r in caplog.records)
+        assert any(r.levelno == logging.WARNING for r in caplog.records)
+
+    def test_other_failure_logs_at_error(self, caplog):
+        """A genuinely unexpected unp4k failure should still surface through
+        the global ErrorDialogHandler — only the well-understood locked-file
+        case is downgraded."""
+        with caplog.at_level(logging.WARNING, logger="utils.pak_extractor"):
+            with pytest.raises(RuntimeError):
+                _raise_unp4k_failure(2, "some other unp4k error")
+        assert any(r.levelno >= logging.ERROR for r in caplog.records)
 
     def test_empty_output_does_not_crash(self):
         with pytest.raises(RuntimeError) as exc:

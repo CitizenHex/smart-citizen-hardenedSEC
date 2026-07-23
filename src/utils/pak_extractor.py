@@ -47,11 +47,26 @@ def _raise_unp4k_failure(returncode: int, output: str) -> None:
     by another process (the common case — the user launched an extract while
     the RSI Launcher was patching). Always logs the raw output first so the Log
     tab keeps the underlying technical detail even when the friendly message is
-    shown. Never returns — always raises."""
+    shown. Never returns — always raises.
+
+    Logged at WARNING, not ERROR, for the locked-file case specifically:
+    MainWindow's global ErrorDialogHandler pops its own generic "Smart
+    Citizen — Error / Show Log / Dismiss" dialog for every ERROR-level log
+    record, anywhere in the app (error_dialog.py). That's meant for genuinely
+    unexpected failures; a locked Data.p4k is an anticipated, well-understood
+    condition with its own dedicated friendly dialog (the one this raises
+    into), so logging it at ERROR duplicated that dialog with a second,
+    confusing raw-stack-trace popup on top of it. Any OTHER unp4k failure
+    still logs at ERROR — those are genuinely unexpected and should still
+    surface through the generic handler."""
     output = output or ""
-    logger.error(f"unp4k.exe exited with code {returncode}; output:\n{output[:2000]}")
     if _P4K_LOCKED_SIGNATURE in output.lower():
+        logger.warning(
+            f"unp4k.exe exited with code {returncode} — Data.p4k is locked "
+            f"(game likely updating); output:\n{output[:2000]}"
+        )
         raise RuntimeError(tr("extract.p4k_locked"))
+    logger.error(f"unp4k.exe exited with code {returncode}; output:\n{output[:2000]}")
     raise RuntimeError(f"unp4k.exe exited with code {returncode}.\n\n{output}")
 
 
