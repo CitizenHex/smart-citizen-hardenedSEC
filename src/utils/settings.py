@@ -44,6 +44,7 @@ SC_LANGUAGE_IDS: dict[str, str] = {
     "spanish":       "spanish_(spain)",
     "portuguese_br": "portuguese_(brazil)",
     "japanese":      "japanese_(japan)",
+    "chinese":       "chinese_(simplified)",
 }
 
 
