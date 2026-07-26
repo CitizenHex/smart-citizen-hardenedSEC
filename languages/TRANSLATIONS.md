@@ -50,6 +50,19 @@ them against the new source.
 
 ## Backfill log
 
+- **2.3.0 cycle (2026-07-24, Claude Sonnet 5):** Full AI translation for the new
+  **italian** language (#298). All 376 `ui.json` keys plus the full 19-step
+  `tutorial.*` guided tour (38 keys) translated to Italian, `ht: ""` / `at:
+  "<translation>"` throughout — there is no human translator yet, so every
+  key is a review candidate (grep `"ht": ""` finds all of it). `HELP.md`,
+  `ABOUT.md`, `LEGAL.md`, and `FAQ.md` translated in full from the English
+  originals. The base `global.ini` for Italian is sourced from
+  `Dymerz/StarCitizen-Localization`
+  (`data/Localization/italian_(italy)/global.ini`), the same source repo
+  already used for french and portuguese_br. Italian writes to the game's
+  `italian_(italy)` Localization folder with `g_language = italian_(italy)`
+  (`SC_LANGUAGE_IDS`). Also added Italian to the installer's
+  `LanguageChoicePage` (`installer.iss`) as the 5th option.
 - **2.3.0 (2026-07-25, Claude Sonnet 5):** New language **chinese** added
   (#300). Full AI translation of all 376 UI keys plus the 19-step guided tour
   (`tutorial.*`), all `at`-only (`ht` empty). Translated `HELP.md`,
@@ -109,6 +122,18 @@ them against the new source.
   source (99.9% vs 78.4% key coverage). Spanish writes to the game's
   `spanish_(spain)` Localization folder with `g_language = spanish_(spain)`
   (`SC_LANGUAGE_IDS`), confirmed to render in-game.
+- **italian** — AI-translated by **Claude** (#298). No human translator yet, so
+  **every** key is `at`-only (`ht` empty) — the whole UI, the guided tour
+  (`tutorial.*`), and the `HELP.md` / `ABOUT.md` / `LEGAL.md` / `FAQ.md`
+  documents are awaiting human review (grep `"ht": ""` returns the entire
+  file by design). The base `global.ini` is sourced from
+  **Dymerz/StarCitizen-Localization**
+  (`data/Localization/italian_(italy)/global.ini`), the same source repo
+  already used for french and portuguese_br. Italian writes to the game's
+  `italian_(italy)` Localization folder with `g_language = italian_(italy)`
+  (`SC_LANGUAGE_IDS`). An Italian-speaking reviewer replacing the `at`
+  strings with `ht` is the next step to promote it from AI-only to
+  human-reviewed.
 - **chinese** — AI-translated by **Claude** (#300). No human translator yet,
   so **every** key is `at`-only (`ht` empty) — the whole UI, the guided tour
   (`tutorial.*`), and the `HELP.md` / `ABOUT.md` / `LEGAL.md` / `FAQ.md`
