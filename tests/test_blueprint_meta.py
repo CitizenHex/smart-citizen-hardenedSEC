@@ -210,6 +210,17 @@ def test_blueprint_type_ammo_and_magazines():
     assert blueprint_type_from_key("item_NameSHLD_ACOM_S01") == "Shield"
 
 
+def test_blueprint_type_ammo_suffix_checked_before_mining_head_carveout():
+    """Locks the classifier's ordering (#249 review): component-code -> Ammo
+    suffix -> FPS weapon/armor -> mining-head carve-out (#290) -> ship-weapon
+    heuristic (#212). Neither #249 nor #290 should ever shadow the other --
+    an ammo key ending in one of _AMMO_KEY_SUFFIXES must classify as Ammo
+    even if it also happens to contain "mining_head", and a real mining-head
+    key with no ammo suffix must still land in Other, not Ammo."""
+    assert blueprint_type_from_key("item_NameMining_Head_S00_Test_mag") == "Ammo"
+    assert blueprint_type_from_key("item_NameMining_Head_S00_Arbor_SCItem") is None
+
+
 def test_blueprint_type_gys_jacket_and_pants():
     """Carnifex set torso/leg pieces reported showing up in "Other" — the
     "gys" manufacturer keys these as jacket/pants, not core/legs/armor."""
