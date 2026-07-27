@@ -125,7 +125,7 @@ _FRONTEND_VERSION_STAMP_RE = _re_mod.compile(
 # shows up in the other's logs too. PTU/EPTU/TECH-PREVIEW are separate test
 # builds with their own progression -- never scanned regardless of the
 # "also scan other channels" checkbox.
-_LINKED_CHANNELS = frozenset({"LIVE", "HOTFIX"})
+_LINKED_CHANNELS = frozenset({AppSettings.CHANNEL_LIVE, AppSettings.CHANNEL_HOTFIX})
 
 
 def _channels_to_scan(active_channel: str, other_enabled: bool, installed_channels) -> list:

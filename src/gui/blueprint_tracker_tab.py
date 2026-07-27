@@ -105,11 +105,11 @@ class BlueprintTrackerTab(QWidget):
         layout.addLayout(top_btn_row)
 
         # #268: also scan whichever of LIVE/HOTFIX isn't the active channel
-        # when the user clicks "Scan Logs for Owned Blueprints". Off by
-        # default -- a second channel's full log history is real extra work.
-        # Never covers PTU/EPTU/TECH-PREVIEW: those are separate test builds
-        # with their own progression, not the same account history as
-        # LIVE/HOTFIX.
+        # when the user clicks "Scan Logs for Owned Blueprints". Enabled by
+        # default; they share the same account progression, so it's cheap
+        # coverage most users want. Never covers PTU/EPTU/TECH-PREVIEW: those
+        # are separate test builds with their own progression, not the same
+        # account history as LIVE/HOTFIX.
         self._scan_other_channels_checkbox = QCheckBox(
             tr("blueprint_tracker.scan_other_channels_checkbox")
         )
