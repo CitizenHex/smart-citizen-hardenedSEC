@@ -1326,6 +1326,14 @@
       "ht": "",
       "at": "LIVE et HOTFIX partagent la même progression de compte, donc un plan gagné sur l'un apparaît aussi dans les journaux de l'autre. Analyse aussi celui des deux qui n'est pas votre canal actif, s'il est installé. PTU, EPTU et TECH-PREVIEW sont des versions de test séparées avec leur propre progression et ne sont jamais analysées."
     },
+    "force_rescan_checkbox": {
+      "ht": "",
+      "at": "Réanalyser tous les journaux (ignorer la dernière analyse)"
+    },
+    "force_rescan_tooltip": {
+      "ht": "",
+      "at": "Normalement, une analyse ne lit que les événements depuis votre dernière analyse pour rester rapide. Cochez cette case si votre liste de possédés semble incorrecte et que vous voulez relire chaque journal depuis le début. Se décoche automatiquement après l'analyse suivante."
+    },
     "apply_owned_tag_btn": {
       "ht": "",
       "at": "Appliquer les étiquettes [Owned]"
