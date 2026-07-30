@@ -24,18 +24,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.utils.tag_builder import default_config  # noqa: E402
 
-
-def _enabled_commodities_config():
-    """default_config("commodities") ships with every element disabled
-    (#325) -- these tests exercise the crafting-cost scanner's [CF] tagging
-    logic, which is independent of that default, so they build their own
-    enabled copy."""
-    cfg = default_config("commodities")
-    return dc_replace(
-        cfg,
-        elements=[dc_replace(e, enabled=True) for e in cfg.elements],
-    )
-
 pytestmark = [pytest.mark.unit, pytest.mark.regression]
 
 
@@ -50,6 +38,18 @@ def gen_module():
     sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)
     return mod
+
+
+def _enabled_commodities_config():
+    """default_config("commodities") ships with every element disabled
+    (#325) -- these tests exercise the crafting-cost scanner's [CF] tagging
+    logic, which is independent of that default, so they build their own
+    enabled copy."""
+    cfg = default_config("commodities")
+    return dc_replace(
+        cfg,
+        elements=[dc_replace(e, enabled=True) for e in cfg.elements],
+    )
 
 
 class TestCraftingCostItemPickup:
