@@ -50,7 +50,7 @@ from src.gui.workers import (
     StartupSyncWorker,
 )
 from src.merger.ini_merger import merge_sources_by_hierarchy
-from src.models.string_model import StringEntry
+from src.models.string_model import StringEntry, is_ship_name_key
 from src.parser.ini_parser import load_source_files, load_sources_from_settings, parse_ini_file
 from src.gui.update_dialog import UpdateDialog
 from src.utils.app_updater import AppUpdateCheckWorker, AppUpdateDownloadWorker
@@ -690,6 +690,17 @@ class MainWindow(QMainWindow):
         self.hide_unmodified_check.setToolTip(tr("filters.hide_unmodified_tooltip"))
         self.hide_unmodified_check.stateChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.hide_unmodified_check)
+
+        # #329: ship descriptions share the "Ships" category with ship names
+        # but have no equivalent favorite/sort-order behavior in-game, so
+        # they only clutter Favorites Only / the ★ and order columns. This
+        # checkbox hides them; placed before Favorites Only per the report,
+        # since the two are meant to be used together when picking ASOP
+        # favorites.
+        self.vehicle_name_only_check = QCheckBox(tr("filters.vehicle_name_only"))
+        self.vehicle_name_only_check.setToolTip(tr("filters.vehicle_name_only_tooltip"))
+        self.vehicle_name_only_check.stateChanged.connect(self.apply_filters)
+        filter_layout.addWidget(self.vehicle_name_only_check)
 
         self.favorites_only_check = QCheckBox(tr("filters.favorites_only"))
         self.favorites_only_check.setToolTip(tr("filters.favorites_only_tooltip"))
@@ -3423,6 +3434,8 @@ class MainWindow(QMainWindow):
         self.status_combo.setToolTip(tr("filters.status_tooltip"))
         self.hide_unmodified_check.setText(tr("filters.hide_unmodified"))
         self.hide_unmodified_check.setToolTip(tr("filters.hide_unmodified_tooltip"))
+        self.vehicle_name_only_check.setText(tr("filters.vehicle_name_only"))
+        self.vehicle_name_only_check.setToolTip(tr("filters.vehicle_name_only_tooltip"))
         self.favorites_only_check.setText(tr("filters.favorites_only"))
         self.favorites_only_check.setToolTip(tr("filters.favorites_only_tooltip"))
         self.bp_titles_check.setText(tr("filters.bp_titles_only"))
@@ -4608,6 +4621,7 @@ class MainWindow(QMainWindow):
             AppSettings.get_favorite_prefix(),
             bp_titles_only=self.bp_titles_check.isChecked(),
             bp_descs_only=self.bp_descs_check.isChecked(),
+            vehicle_name_only=self.vehicle_name_only_check.isChecked(),
         )
 
     @timed
@@ -4727,6 +4741,7 @@ class MainWindow(QMainWindow):
         self.category_combo.blockSignals(True)
         self.status_combo.blockSignals(True)
         self.hide_unmodified_check.blockSignals(True)
+        self.vehicle_name_only_check.blockSignals(True)
         self.favorites_only_check.blockSignals(True)
         self.bp_titles_check.blockSignals(True)
         self.bp_descs_check.blockSignals(True)
@@ -4735,6 +4750,7 @@ class MainWindow(QMainWindow):
         self.category_combo.setCurrentIndex(0)
         self.status_combo.setCurrentIndex(0)
         self.hide_unmodified_check.setChecked(False)
+        self.vehicle_name_only_check.setChecked(False)
         self.favorites_only_check.setChecked(False)
         self.bp_titles_check.setChecked(False)
         self.bp_descs_check.setChecked(False)
@@ -4742,6 +4758,7 @@ class MainWindow(QMainWindow):
         self.category_combo.blockSignals(False)
         self.status_combo.blockSignals(False)
         self.hide_unmodified_check.blockSignals(False)
+        self.vehicle_name_only_check.blockSignals(False)
         self.favorites_only_check.blockSignals(False)
         self.bp_titles_check.blockSignals(False)
         self.bp_descs_check.blockSignals(False)
@@ -4799,7 +4816,7 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         menu.addAction(tr("strings_tab.context_copy_all_filtered"), lambda: self.copy_filtered_to_clipboard())
 
-        if entry.category == "Ships":
+        if entry.category == "Ships" and is_ship_name_key(entry.key):
             menu.addSeparator()
             if is_favorite:
                 menu.addAction(tr("strings_tab.context_remove_favorite"), lambda: self.toggle_favorite(proxy_row))
@@ -4852,8 +4869,10 @@ class MainWindow(QMainWindow):
         col = proxy_index.column()
         if col == COL_STAR:
             entry_idx = self._entry_index_for_row(proxy_index.row())
-            if entry_idx < len(self.entries) and self.entries[entry_idx].category == "Ships":
-                self.toggle_favorite(proxy_index.row())
+            if entry_idx < len(self.entries):
+                entry = self.entries[entry_idx]
+                if entry.category == "Ships" and is_ship_name_key(entry.key):
+                    self.toggle_favorite(proxy_index.row())
 
     @pyqtSlot(QModelIndex)
     def _on_cell_double_clicked(self, proxy_index: QModelIndex):
@@ -5026,12 +5045,20 @@ class MainWindow(QMainWindow):
         box.exec()
 
     def toggle_favorite(self, proxy_row: int):
-        """Add or remove the sort prefix from a ship's custom value."""
+        """Add or remove the sort prefix from a ship's custom value.
+
+        Both call sites (star click, context menu) already gate on
+        is_ship_name_key, but a description's custom_value being modified
+        this way would silently do nothing useful in-game and confuse the
+        Favorites Only filter (#329), so guard here too.
+        """
         entry_idx = self._entry_index_for_row(proxy_row)
         if entry_idx >= len(self.entries):
             return
 
         entry = self.entries[entry_idx]
+        if entry.category != "Ships" or not is_ship_name_key(entry.key):
+            return
         prefix = AppSettings.get_favorite_prefix()
 
         if entry.custom_value.startswith(prefix):

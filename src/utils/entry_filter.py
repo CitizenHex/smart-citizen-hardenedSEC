@@ -7,7 +7,7 @@ tested independently of Qt.
 import logging
 
 from src.gui.string_table_model import NUM_COLUMNS
-from src.models.string_model import StringEntry
+from src.models.string_model import StringEntry, is_ship_name_key
 from src.utils.owned_items import has_bp_section
 from src.utils.ship_sort_prefix import get_order
 
@@ -25,6 +25,7 @@ def filter_entry_indices(
     favorite_prefix: str,
     bp_titles_only: bool = False,
     bp_descs_only: bool = False,
+    vehicle_name_only: bool = False,
 ) -> list[int]:
     """Return indices of entries that pass all active filters.
 
@@ -45,6 +46,10 @@ def filter_entry_indices(
         bp_descs_only: When True, keep mission-description rows containing the
             POTENTIAL BLUEPRINTS section (#156). When both bp_* flags are set
             the row passes if it matches EITHER (blueprint titles OR bodies).
+        vehicle_name_only: When True, hide ship/vehicle description rows
+            (vehicle_Desc*, Wikelo *_VehicleDesc), keeping only the name rows
+            the favorite/sort-order mechanism actually reads (#329). Has no
+            effect outside the "Ships" category.
 
     Returns:
         Ordered list of integer indices into *entries* for rows that should
@@ -77,8 +82,16 @@ def filter_entry_indices(
         lambda e: e.key.lower(),
         lambda e: default_values.get(e.key, "").lower(),
         lambda e: e.original_value.lower(),
-        lambda e: "★" if e.custom_value.startswith(favorite_prefix) else "",
-        lambda e: get_order(e.custom_value, favorite_prefix) if e.category == "Ships" else "",
+        lambda e: (
+            "★"
+            if e.category == "Ships" and is_ship_name_key(e.key)
+            and e.custom_value.startswith(favorite_prefix)
+            else ""
+        ),
+        lambda e: (
+            get_order(e.custom_value, favorite_prefix)
+            if e.category == "Ships" and is_ship_name_key(e.key) else ""
+        ),
         lambda e: e.custom_value.lower(),
         lambda e: e.status.lower(),
         # COL_OWNED (#157): the owned star isn't text-filterable from here (the
@@ -97,7 +110,13 @@ def filter_entry_indices(
             continue
         if status_filter != "All" and entry.status != status_filter:
             continue
-        if favorites_only and not entry.custom_value.startswith(favorite_prefix):
+        if vehicle_name_only and entry.category == "Ships" and not is_ship_name_key(entry.key):
+            continue
+        if favorites_only and not (
+            entry.category == "Ships"
+            and is_ship_name_key(entry.key)
+            and entry.custom_value.startswith(favorite_prefix)
+        ):
             continue
         # #156: blueprint-mission isolation. [BP]/[BP?] tags live on title
         # rows; the POTENTIAL BLUEPRINTS header lives on description rows. The

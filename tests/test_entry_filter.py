@@ -55,9 +55,24 @@ def test_status_filter_excludes_non_matching():
 
 
 def test_favorites_only_keeps_entries_starting_with_prefix():
-    entries = [_e("k1", custom_value="★ favorite"), _e("k2", custom_value="plain")]
+    entries = [
+        _e("vehicle_NameAVNR_Carrack", custom_value="★ favorite"),
+        _e("vehicle_NameANVL_Hornet", custom_value="plain"),
+    ]
     result = filter_entry_indices(entries, {}, _no_filters(), "All", "All", False, True, "★")
     assert result == [0]
+
+
+def test_favorites_only_excludes_a_favorited_description_row():
+    """#329: a ship description row must never count as a favorite, even if
+    its custom_value happens to carry the prefix (e.g. leftover state from
+    before the star column was restricted to name rows)."""
+    entries = [
+        _e("vehicle_DescAVNR_Carrack", custom_value="★ favorite"),
+        _e("vehicle_NameANVL_Hornet", custom_value="★ favorite"),
+    ]
+    result = filter_entry_indices(entries, {}, _no_filters(), "All", "All", False, True, "★")
+    assert result == [1]
 
 
 def test_column_filter_by_key():
@@ -76,11 +91,13 @@ def test_column_filter_by_status_text():
 
 def test_column_filter_by_order():
     # The order getter (col index 5) reads the two-digit sort prefix off a
-    # ship's custom_value; non-ship rows and unordered ships return "".
+    # ship NAME row's custom_value; non-ship rows, ship description rows,
+    # and unordered ships all return "".
     entries = [
-        _e("k1", custom_value="*05-Avenger"),
-        _e("k2", custom_value="*12-Cutlass"),
+        _e("vehicle_NameANVL_Avenger", custom_value="*05-Avenger"),
+        _e("vehicle_NameANVL_Cutlass", custom_value="*12-Cutlass"),
         _e("k3", category="Gear", custom_value="*05-Helmet"),
+        _e("vehicle_DescANVL_Avenger", custom_value="*05-Avenger"),
     ]
     col_filters = ["", "", "", "", "", "05", "", ""]
     result = filter_entry_indices(entries, {}, col_filters, "All", "All", False, False, "*")
@@ -144,10 +161,12 @@ def test_getter_count_matches_num_columns():
 
 
 def test_favorites_marker_searchable_in_star_column():
-    """The fav-star column getter returns '★' when custom_value starts with the prefix."""
+    """The fav-star column getter returns '★' when custom_value starts with
+    the prefix on a ship NAME row -- description rows always get ''."""
     entries = [
-        _e("k1", custom_value="★ fave"),
-        _e("k2", custom_value="plain"),
+        _e("vehicle_NameANVL_Hornet", custom_value="★ fave"),
+        _e("vehicle_NameANVL_Gladius", custom_value="plain"),
+        _e("vehicle_DescANVL_Hornet", custom_value="★ fave"),
     ]
     col_filters = ["", "", "", "", "★", "", ""]
     result = filter_entry_indices(entries, {}, col_filters, "All", "All", False, False, "★")
@@ -211,4 +230,51 @@ def test_bp_filter_reads_custom_override_when_present():
     e = [_e("t", original_value="bare title", custom_value="Custom <EM4>[BP]</EM4>")]
     result = filter_entry_indices(e, {}, _no_filters(), "All", "All", False, False, "★",
                                   bp_titles_only=True)
+    assert result == [0]
+
+
+# ── vehicle_name_only (#329) ─────────────────────────────────────────────────
+
+def test_vehicle_name_only_hides_ship_description_rows():
+    entries = [
+        _e("vehicle_NameANVL_Carrack"),
+        _e("vehicle_DescANVL_Carrack"),
+    ]
+    result = filter_entry_indices(entries, {}, _no_filters(), "All", "All", False, False, "★",
+                                  vehicle_name_only=True)
+    assert result == [0]
+
+
+def test_vehicle_name_only_leaves_other_categories_untouched():
+    """Only applies within the Ships category -- a Gear row isn't a
+    vehicle_Name/vehicle_Desc pair at all, so it must still show."""
+    entries = [
+        _e("vehicle_DescANVL_Carrack"),
+        _e("item_Name_rifle_behr", category="Gear"),
+    ]
+    result = filter_entry_indices(entries, {}, _no_filters(), "All", "All", False, False, "★",
+                                  vehicle_name_only=True)
+    assert result == [1]
+
+
+def test_vehicle_name_only_off_shows_both():
+    entries = [
+        _e("vehicle_NameANVL_Carrack"),
+        _e("vehicle_DescANVL_Carrack"),
+    ]
+    result = filter_entry_indices(entries, {}, _no_filters(), "All", "All", False, False, "★",
+                                  vehicle_name_only=False)
+    assert result == [0, 1]
+
+
+def test_vehicle_name_only_combined_with_favorites_only():
+    """The issue's actual motivating case: browsing favorited ship names
+    without description rows cluttering the list."""
+    entries = [
+        _e("vehicle_NameANVL_Carrack", custom_value="★ Carrack"),
+        _e("vehicle_DescANVL_Carrack", custom_value="★ leftover"),
+        _e("vehicle_NameANVL_Hornet", custom_value="plain"),
+    ]
+    result = filter_entry_indices(entries, {}, _no_filters(), "All", "All", False, True, "★",
+                                  vehicle_name_only=True)
     assert result == [0]

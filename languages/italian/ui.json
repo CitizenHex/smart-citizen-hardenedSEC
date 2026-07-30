@@ -210,6 +210,14 @@
       "ht": "",
       "at": "Nascondi Non Modificati"
     },
+    "vehicle_name_only": {
+      "ht": "",
+      "at": "Solo Nome Nave"
+    },
+    "vehicle_name_only_tooltip": {
+      "ht": "",
+      "at": "Mostra solo le righe con il nome della nave, nascondendo le descrizioni. Le descrizioni condividono la categoria Navi ma non hanno alcun comportamento di preferito o ordine di ordinamento in gioco, quindi questo limita l'elenco a ciò che Solo Preferiti e l'ordinamento ASOP influenzano realmente."
+    },
     "favorites_only": {
       "ht": "",
       "at": "★ Solo Preferiti"

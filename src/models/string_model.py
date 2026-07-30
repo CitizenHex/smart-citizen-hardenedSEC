@@ -161,6 +161,28 @@ def _extract_category_impl(key: str) -> str:
     return "Other"
 
 
+def is_ship_name_key(key: str) -> bool:
+    """True if *key* is a ship/vehicle NAME entry, as opposed to a
+    description entry that merely shares the "Ships" category (#329).
+
+    The favorite-prefix + sort-order mechanism (ship_sort_prefix.py) only
+    means anything on the entry that becomes the ASOP terminal's display
+    name -- a description's custom_value is never read by that mechanism,
+    so marking one "favorite" edits text nothing in-game ever shows sorted
+    or starred, and only confuses the Ships category's favorites/sort UI.
+    """
+    if not key:
+        return False
+    key_lower = key.lower()
+    if key_lower.startswith("vehicle_name"):
+        return True
+    # Wikelo ship mods (TheCollector_ShipMod_*_VehicleName /
+    # _VehicleNameShort) -- mirrors the category-extraction check above.
+    if key_lower.endswith(("_vehiclename", "_vehiclenameshort")):
+        return True
+    return False
+
+
 @dataclass
 class StringEntry:
     """Represents a localization string entry."""

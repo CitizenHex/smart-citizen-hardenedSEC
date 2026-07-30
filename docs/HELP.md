@@ -64,9 +64,10 @@ Use the **Category** filter to focus on one domain:
 
 ## 6. Ship Favorites
 
-- Click the **★** column on any Ship row to mark it as a favorite.
+- Click the **★** column on any Ship row to mark it as a favorite. Only a ship's name row can be favorited; the description row for the same ship has no equivalent behavior in-game, so the star and sort-order columns stay blank there.
 - Favorited ships get a configurable prefix prepended to their name, sorting them to the top of the in-game ship list.
 - Change the prefix character in the **Enhancements** tab (default: `*`).
+- Check **Vehicle Name Only** in the Search & Filter row to hide ship description rows entirely; pairs with **Favorites Only** to browse just the name rows you can favorite.
 
 ## 7. Apply Changes to Game
 

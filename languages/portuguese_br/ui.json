@@ -250,6 +250,14 @@
       "ht": "Esconder Inalterados",
       "at": "Esconder Inalterados"
     },
+    "vehicle_name_only": {
+      "ht": "",
+      "at": "Somente Nome da Nave"
+    },
+    "vehicle_name_only_tooltip": {
+      "ht": "",
+      "at": "Mostrar apenas as linhas de nome da nave, ocultando as descrições. As descrições compartilham a categoria Naves, mas não têm nenhum comportamento de favorito ou de ordem de classificação no jogo, então isso limita a lista ao que Somente Favoritos e a ordenação do ASOP realmente afetam."
+    },
     "favorites_only": {
       "ht": "★ Apenas Favoritos",
       "at": "★ Apenas Favoritos"
