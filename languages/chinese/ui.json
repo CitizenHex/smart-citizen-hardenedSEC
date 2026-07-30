@@ -210,13 +210,13 @@
       "ht": "",
       "at": "隐藏未修改项"
     },
-    "vehicle_name_only": {
+    "ship_vehicle_names_only": {
       "ht": "",
-      "at": "仅显示飞船名称"
+      "at": "仅显示飞船与载具名称"
     },
-    "vehicle_name_only_tooltip": {
+    "ship_vehicle_names_only_tooltip": {
       "ht": "",
-      "at": "仅显示飞船/载具名称行，隐藏描述行。描述与飞船共享同一分类，但在游戏中没有任何收藏或排序行为，因此这可以将列表限制为“仅收藏”和 ASOP 排序实际影响的内容。"
+      "at": "仅显示飞船和载具的名称行，隐藏其他所有内容，包括飞船描述以及所有其他分类。只保留收藏和 ASOP 排序实际适用的行。"
     },
     "favorites_only": {
       "ht": "",

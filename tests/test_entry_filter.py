@@ -233,48 +233,66 @@ def test_bp_filter_reads_custom_override_when_present():
     assert result == [0]
 
 
-# ── vehicle_name_only (#329) ─────────────────────────────────────────────────
+# ── ship_vehicle_names_only (#329) ───────────────────────────────────────────
 
-def test_vehicle_name_only_hides_ship_description_rows():
+def test_ship_vehicle_names_only_hides_ship_description_rows():
     entries = [
         _e("vehicle_NameANVL_Carrack"),
         _e("vehicle_DescANVL_Carrack"),
     ]
     result = filter_entry_indices(entries, {}, _no_filters(), "All", "All", False, False, "★",
-                                  vehicle_name_only=True)
+                                  ship_vehicle_names_only=True)
     assert result == [0]
 
 
-def test_vehicle_name_only_leaves_other_categories_untouched():
-    """Only applies within the Ships category -- a Gear row isn't a
-    vehicle_Name/vehicle_Desc pair at all, so it must still show."""
+def test_ship_vehicle_names_only_hides_every_other_category():
+    """It's "names only", not "Ships category only" -- anything that isn't a
+    ship/vehicle name row is hidden, so the list is exactly what favorites
+    and ASOP sort order apply to."""
     entries = [
+        _e("vehicle_NameANVL_Carrack"),
+        _e("item_Name_rifle_behr", category="Gear"),
+        _e("item_NameSHLD_Aspirum", category="Ship Items"),
+        _e("mission_title_001", category="Missions"),
+        _e("items_commodities_agricium", category="Commodities"),
+    ]
+    result = filter_entry_indices(entries, {}, _no_filters(), "All", "All", False, False, "★",
+                                  ship_vehicle_names_only=True)
+    assert result == [0]
+
+
+def test_ship_vehicle_names_only_keeps_wikelo_vehiclename_rows():
+    """Wikelo/Collector ship mods key their name as *_VehicleName rather
+    than vehicle_Name*, and are still real ship names."""
+    entries = [
+        _e("TheCollector_ShipMod_01_VehicleName"),
+        _e("TheCollector_ShipMod_01_VehicleDesc"),
+    ]
+    result = filter_entry_indices(entries, {}, _no_filters(), "All", "All", False, False, "★",
+                                  ship_vehicle_names_only=True)
+    assert result == [0]
+
+
+def test_ship_vehicle_names_only_off_shows_everything():
+    entries = [
+        _e("vehicle_NameANVL_Carrack"),
         _e("vehicle_DescANVL_Carrack"),
         _e("item_Name_rifle_behr", category="Gear"),
     ]
     result = filter_entry_indices(entries, {}, _no_filters(), "All", "All", False, False, "★",
-                                  vehicle_name_only=True)
-    assert result == [1]
+                                  ship_vehicle_names_only=False)
+    assert result == [0, 1, 2]
 
 
-def test_vehicle_name_only_off_shows_both():
-    entries = [
-        _e("vehicle_NameANVL_Carrack"),
-        _e("vehicle_DescANVL_Carrack"),
-    ]
-    result = filter_entry_indices(entries, {}, _no_filters(), "All", "All", False, False, "★",
-                                  vehicle_name_only=False)
-    assert result == [0, 1]
-
-
-def test_vehicle_name_only_combined_with_favorites_only():
+def test_ship_vehicle_names_only_combined_with_favorites_only():
     """The issue's actual motivating case: browsing favorited ship names
-    without description rows cluttering the list."""
+    without descriptions or unrelated categories cluttering the list."""
     entries = [
         _e("vehicle_NameANVL_Carrack", custom_value="★ Carrack"),
         _e("vehicle_DescANVL_Carrack", custom_value="★ leftover"),
         _e("vehicle_NameANVL_Hornet", custom_value="plain"),
+        _e("item_Name_rifle_behr", category="Gear", custom_value="★ rifle"),
     ]
     result = filter_entry_indices(entries, {}, _no_filters(), "All", "All", False, True, "★",
-                                  vehicle_name_only=True)
+                                  ship_vehicle_names_only=True)
     assert result == [0]

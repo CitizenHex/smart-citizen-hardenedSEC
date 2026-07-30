@@ -210,13 +210,13 @@
       "ht": "",
       "at": "Nascondi Non Modificati"
     },
-    "vehicle_name_only": {
+    "ship_vehicle_names_only": {
       "ht": "",
-      "at": "Solo Nome Nave"
+      "at": "Solo Nomi di Navi e Veicoli"
     },
-    "vehicle_name_only_tooltip": {
+    "ship_vehicle_names_only_tooltip": {
       "ht": "",
-      "at": "Mostra solo le righe con il nome della nave, nascondendo le descrizioni. Le descrizioni condividono la categoria Navi ma non hanno alcun comportamento di preferito o ordine di ordinamento in gioco, quindi questo limita l'elenco a ciò che Solo Preferiti e l'ordinamento ASOP influenzano realmente."
+      "at": "Mostra solo le righe con i nomi di navi e veicoli, nascondendo tutto il resto, comprese le descrizioni delle navi e tutte le altre categorie. Lascia esattamente le righe a cui si applicano i preferiti e l'ordinamento ASOP."
     },
     "favorites_only": {
       "ht": "",

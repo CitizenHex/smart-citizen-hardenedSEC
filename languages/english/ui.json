@@ -250,12 +250,12 @@
       "ht": "Hide Unmodified",
       "at": ""
     },
-    "vehicle_name_only": {
-      "ht": "Vehicle Name Only",
+    "ship_vehicle_names_only": {
+      "ht": "Ship & Vehicle Names Only",
       "at": ""
     },
-    "vehicle_name_only_tooltip": {
-      "ht": "Show only ship/vehicle name rows, hiding descriptions. Descriptions share the Ships category but have no favorite or sort-order behavior in-game, so this keeps the list to what Favorites Only and ASOP sorting actually affect.",
+    "ship_vehicle_names_only_tooltip": {
+      "ht": "Show only ship and vehicle name rows, hiding everything else including ship descriptions and all other categories. Leaves exactly the rows that favorites and ASOP sort order apply to.",
       "at": ""
     },
     "favorites_only": {

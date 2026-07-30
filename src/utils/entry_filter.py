@@ -25,7 +25,7 @@ def filter_entry_indices(
     favorite_prefix: str,
     bp_titles_only: bool = False,
     bp_descs_only: bool = False,
-    vehicle_name_only: bool = False,
+    ship_vehicle_names_only: bool = False,
 ) -> list[int]:
     """Return indices of entries that pass all active filters.
 
@@ -46,10 +46,11 @@ def filter_entry_indices(
         bp_descs_only: When True, keep mission-description rows containing the
             POTENTIAL BLUEPRINTS section (#156). When both bp_* flags are set
             the row passes if it matches EITHER (blueprint titles OR bodies).
-        vehicle_name_only: When True, hide ship/vehicle description rows
-            (vehicle_Desc*, Wikelo *_VehicleDesc), keeping only the name rows
-            the favorite/sort-order mechanism actually reads (#329). Has no
-            effect outside the "Ships" category.
+        ship_vehicle_names_only: When True, show ONLY ship/vehicle name rows
+            (vehicle_Name*, Wikelo *_VehicleName) -- every other row is
+            hidden, including ship description rows and every non-Ships
+            category (#329). Narrows the table to exactly the rows the
+            favorite / ASOP sort-order mechanism reads.
 
     Returns:
         Ordered list of integer indices into *entries* for rows that should
@@ -110,7 +111,9 @@ def filter_entry_indices(
             continue
         if status_filter != "All" and entry.status != status_filter:
             continue
-        if vehicle_name_only and entry.category == "Ships" and not is_ship_name_key(entry.key):
+        if ship_vehicle_names_only and not (
+            entry.category == "Ships" and is_ship_name_key(entry.key)
+        ):
             continue
         if favorites_only and not (
             entry.category == "Ships"

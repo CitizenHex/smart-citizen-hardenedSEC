@@ -250,13 +250,13 @@
       "ht": "Ocultar sin modificar",
       "at": ""
     },
-    "vehicle_name_only": {
+    "ship_vehicle_names_only": {
       "ht": "",
-      "at": "Solo nombre de nave"
+      "at": "Solo nombres de naves y vehículos"
     },
-    "vehicle_name_only_tooltip": {
+    "ship_vehicle_names_only_tooltip": {
       "ht": "",
-      "at": "Mostrar solo las filas de nombre de nave, ocultando las descripciones. Las descripciones comparten la categoría Naves pero no tienen ningún comportamiento de favorito ni de orden de clasificación en el juego, así que esto limita la lista a lo que Solo favoritos y la clasificación ASOP realmente afectan."
+      "at": "Mostrar solo las filas de nombres de naves y vehículos, ocultando todo lo demás, incluidas las descripciones de naves y todas las demás categorías. Deja exactamente las filas a las que se aplican los favoritos y el orden de clasificación ASOP."
     },
     "favorites_only": {
       "ht": "★ Solo favoritos",

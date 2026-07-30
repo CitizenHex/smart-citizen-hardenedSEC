@@ -250,13 +250,13 @@
       "ht": "Masquer les inchangés",
       "at": "Masquer les inchangés"
     },
-    "vehicle_name_only": {
+    "ship_vehicle_names_only": {
       "ht": "",
-      "at": "Nom du vaisseau uniquement"
+      "at": "Noms de vaisseaux et véhicules uniquement"
     },
-    "vehicle_name_only_tooltip": {
+    "ship_vehicle_names_only_tooltip": {
       "ht": "",
-      "at": "Afficher uniquement les lignes de nom de vaisseau, en masquant les descriptions. Les descriptions partagent la catégorie Vaisseaux mais n'ont aucun comportement de favori ou d'ordre de tri en jeu, donc cela limite la liste à ce que Favoris uniquement et le tri ASOP affectent réellement."
+      "at": "Afficher uniquement les lignes de noms de vaisseaux et de véhicules, en masquant tout le reste, y compris les descriptions de vaisseaux et toutes les autres catégories. Ne laisse que les lignes auxquelles s'appliquent les favoris et l'ordre de tri ASOP."
     },
     "favorites_only": {
       "ht": "★ Favoris uniquement",

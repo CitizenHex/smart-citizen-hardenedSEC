@@ -691,16 +691,17 @@ class MainWindow(QMainWindow):
         self.hide_unmodified_check.stateChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.hide_unmodified_check)
 
-        # #329: ship descriptions share the "Ships" category with ship names
-        # but have no equivalent favorite/sort-order behavior in-game, so
-        # they only clutter Favorites Only / the ★ and order columns. This
-        # checkbox hides them; placed before Favorites Only per the report,
-        # since the two are meant to be used together when picking ASOP
-        # favorites.
-        self.vehicle_name_only_check = QCheckBox(tr("filters.vehicle_name_only"))
-        self.vehicle_name_only_check.setToolTip(tr("filters.vehicle_name_only_tooltip"))
-        self.vehicle_name_only_check.stateChanged.connect(self.apply_filters)
-        filter_layout.addWidget(self.vehicle_name_only_check)
+        # #329: narrows the table to ONLY ship/vehicle name rows -- the exact
+        # set the favorite prefix + ASOP sort-order mechanism reads. Ship
+        # descriptions share the "Ships" category but have no equivalent
+        # in-game behavior, and every other category is irrelevant when
+        # you're picking ASOP favorites, so both are hidden. Placed before
+        # Favorites Only per the report, since the two are meant to be used
+        # together.
+        self.ship_vehicle_names_only_check = QCheckBox(tr("filters.ship_vehicle_names_only"))
+        self.ship_vehicle_names_only_check.setToolTip(tr("filters.ship_vehicle_names_only_tooltip"))
+        self.ship_vehicle_names_only_check.stateChanged.connect(self.apply_filters)
+        filter_layout.addWidget(self.ship_vehicle_names_only_check)
 
         self.favorites_only_check = QCheckBox(tr("filters.favorites_only"))
         self.favorites_only_check.setToolTip(tr("filters.favorites_only_tooltip"))
@@ -3434,8 +3435,8 @@ class MainWindow(QMainWindow):
         self.status_combo.setToolTip(tr("filters.status_tooltip"))
         self.hide_unmodified_check.setText(tr("filters.hide_unmodified"))
         self.hide_unmodified_check.setToolTip(tr("filters.hide_unmodified_tooltip"))
-        self.vehicle_name_only_check.setText(tr("filters.vehicle_name_only"))
-        self.vehicle_name_only_check.setToolTip(tr("filters.vehicle_name_only_tooltip"))
+        self.ship_vehicle_names_only_check.setText(tr("filters.ship_vehicle_names_only"))
+        self.ship_vehicle_names_only_check.setToolTip(tr("filters.ship_vehicle_names_only_tooltip"))
         self.favorites_only_check.setText(tr("filters.favorites_only"))
         self.favorites_only_check.setToolTip(tr("filters.favorites_only_tooltip"))
         self.bp_titles_check.setText(tr("filters.bp_titles_only"))
@@ -4621,7 +4622,7 @@ class MainWindow(QMainWindow):
             AppSettings.get_favorite_prefix(),
             bp_titles_only=self.bp_titles_check.isChecked(),
             bp_descs_only=self.bp_descs_check.isChecked(),
-            vehicle_name_only=self.vehicle_name_only_check.isChecked(),
+            ship_vehicle_names_only=self.ship_vehicle_names_only_check.isChecked(),
         )
 
     @timed
@@ -4741,7 +4742,7 @@ class MainWindow(QMainWindow):
         self.category_combo.blockSignals(True)
         self.status_combo.blockSignals(True)
         self.hide_unmodified_check.blockSignals(True)
-        self.vehicle_name_only_check.blockSignals(True)
+        self.ship_vehicle_names_only_check.blockSignals(True)
         self.favorites_only_check.blockSignals(True)
         self.bp_titles_check.blockSignals(True)
         self.bp_descs_check.blockSignals(True)
@@ -4750,7 +4751,7 @@ class MainWindow(QMainWindow):
         self.category_combo.setCurrentIndex(0)
         self.status_combo.setCurrentIndex(0)
         self.hide_unmodified_check.setChecked(False)
-        self.vehicle_name_only_check.setChecked(False)
+        self.ship_vehicle_names_only_check.setChecked(False)
         self.favorites_only_check.setChecked(False)
         self.bp_titles_check.setChecked(False)
         self.bp_descs_check.setChecked(False)
@@ -4758,7 +4759,7 @@ class MainWindow(QMainWindow):
         self.category_combo.blockSignals(False)
         self.status_combo.blockSignals(False)
         self.hide_unmodified_check.blockSignals(False)
-        self.vehicle_name_only_check.blockSignals(False)
+        self.ship_vehicle_names_only_check.blockSignals(False)
         self.favorites_only_check.blockSignals(False)
         self.bp_titles_check.blockSignals(False)
         self.bp_descs_check.blockSignals(False)
