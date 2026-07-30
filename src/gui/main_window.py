@@ -698,6 +698,13 @@ class MainWindow(QMainWindow):
         # you're picking ASOP favorites, so both are hidden. Placed before
         # Favorites Only per the report, since the two are meant to be used
         # together.
+        #
+        # The label reads "Ship/Vehicle Names Only", NOT "Ship & Vehicle ...":
+        # Qt reads "&" in a widget label as a mnemonic marker, so the
+        # ampersand is swallowed and the following letter renders underlined
+        # ("Ship Vehicle Names Only" with a stray accelerator). Escaping it
+        # as "&&" would work but reads badly in the i18n files, so the slash
+        # form is used instead. Same applies to any translation of this key.
         self.ship_vehicle_names_only_check = QCheckBox(tr("filters.ship_vehicle_names_only"))
         self.ship_vehicle_names_only_check.setToolTip(tr("filters.ship_vehicle_names_only_tooltip"))
         self.ship_vehicle_names_only_check.stateChanged.connect(self.apply_filters)
