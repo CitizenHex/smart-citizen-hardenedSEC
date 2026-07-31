@@ -50,7 +50,7 @@ from src.gui.workers import (
     StartupSyncWorker,
 )
 from src.merger.ini_merger import merge_sources_by_hierarchy
-from src.models.string_model import StringEntry, is_ship_name_key
+from src.models.string_model import StringEntry, is_favoritable_ship
 from src.parser.ini_parser import load_source_files, load_sources_from_settings, parse_ini_file
 from src.gui.update_dialog import UpdateDialog
 from src.utils.app_updater import AppUpdateCheckWorker, AppUpdateDownloadWorker
@@ -4824,7 +4824,7 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         menu.addAction(tr("strings_tab.context_copy_all_filtered"), lambda: self.copy_filtered_to_clipboard())
 
-        if entry.category == "Ships" and is_ship_name_key(entry.key):
+        if is_favoritable_ship(entry):
             menu.addSeparator()
             if is_favorite:
                 menu.addAction(tr("strings_tab.context_remove_favorite"), lambda: self.toggle_favorite(proxy_row))
@@ -4879,7 +4879,7 @@ class MainWindow(QMainWindow):
             entry_idx = self._entry_index_for_row(proxy_index.row())
             if entry_idx < len(self.entries):
                 entry = self.entries[entry_idx]
-                if entry.category == "Ships" and is_ship_name_key(entry.key):
+                if is_favoritable_ship(entry):
                     self.toggle_favorite(proxy_index.row())
 
     @pyqtSlot(QModelIndex)
@@ -5056,7 +5056,7 @@ class MainWindow(QMainWindow):
         """Add or remove the sort prefix from a ship's custom value.
 
         Both call sites (star click, context menu) already gate on
-        is_ship_name_key, but a description's custom_value being modified
+        is_favoritable_ship, but a description's custom_value being modified
         this way would silently do nothing useful in-game and confuse the
         Favorites Only filter (#329), so guard here too.
         """
@@ -5065,7 +5065,7 @@ class MainWindow(QMainWindow):
             return
 
         entry = self.entries[entry_idx]
-        if entry.category != "Ships" or not is_ship_name_key(entry.key):
+        if not is_favoritable_ship(entry):
             return
         prefix = AppSettings.get_favorite_prefix()
 

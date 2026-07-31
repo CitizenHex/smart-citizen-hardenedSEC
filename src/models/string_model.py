@@ -170,6 +170,13 @@ def is_ship_name_key(key: str) -> bool:
     name -- a description's custom_value is never read by that mechanism,
     so marking one "favorite" edits text nothing in-game ever shows sorted
     or starred, and only confuses the Ships category's favorites/sort UI.
+
+    Short-name variants deliberately count as names. The base game's own
+    ``vehicle_Name*_short`` keys never reach a StringEntry at all (they're
+    dropped in ini_parser's build loop), so in practice this only admits
+    Wikelo's ``*_VehicleNameShort`` rows -- which were already favouritable
+    before #329, since they carry the "Ships" category. Keeping them keeps
+    that behaviour unchanged; #329 was only ever about descriptions.
     """
     if not key:
         return False
@@ -181,6 +188,26 @@ def is_ship_name_key(key: str) -> bool:
     if key_lower.endswith(("_vehiclename", "_vehiclenameshort")):
         return True
     return False
+
+
+def is_favoritable_ship(entry) -> bool:
+    """True if *entry* is a row the favorite prefix and ASOP sort order
+    actually apply to: a Ships-category ship/vehicle NAME row (#329).
+
+    Both halves are load-bearing, so don't collapse this to a bare
+    ``is_ship_name_key(entry.key)``. StringEntry.category is not always
+    derived from the key -- ini_parser assigns it from the enhancement
+    file a generated key came from when one applies
+    (``enhancements_key_categories``), so the stored category, not the
+    key shape, is the authority on which bucket a row is displayed under.
+
+    Takes the whole entry rather than (category, key) so call sites read
+    as the question they're actually asking. Every star / sort-order
+    code path gates on this: column display, editability, tooltips,
+    colours, sort keys, the Favorites Only + Ship/Vehicle Names Only
+    filters, and the favorite toggle itself.
+    """
+    return entry.category == "Ships" and is_ship_name_key(entry.key)
 
 
 @dataclass
