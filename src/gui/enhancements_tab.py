@@ -336,7 +336,7 @@ class EnhancementsTab(QWidget):
         # Independent of "Resource Signatures" under Mission Detail Fields
         # above (the DETAILS-body breakdown): that one adds a line to the
         # mission body, this one patches the ore's own name at its source.
-        # Off by default -- see AppSettings.RS_ORE_NAME_ANNOTATIONS for why.
+        # Default on -- see AppSettings.RS_ORE_NAME_ANNOTATIONS for why.
         self._rs_ore_name_annotations_check = QCheckBox(tr("enhancements.rs_ore_name_annotations_cb"))
         self._rs_ore_name_annotations_check.setChecked(
             AppSettings.get_rs_ore_name_annotations()

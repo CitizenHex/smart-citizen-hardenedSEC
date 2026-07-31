@@ -6010,9 +6010,10 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
     # #331: independent Localization Enhancements toggle for the ore-name
     # "(RS ####)" annotation -- NOT a mission-detail field (it isn't a body
     # line, it patches the ore's own display name loc key), so it isn't
-    # gated through _mdf/_show like "resource_signatures" above. Off by
-    # default; see _build_mineable_rs_name_overrides for why.
-    _rs_ore_name_annotations = bool(ctx.get("rs_ore_name_annotations", False))
+    # gated through _mdf/_show like "resource_signatures" above. Default on,
+    # matching the fallback True the boolean fields above use when unset;
+    # see _build_mineable_rs_name_overrides for the feature's own history.
+    _rs_ore_name_annotations = bool(ctx.get("rs_ore_name_annotations", True))
     # 2.2.0 ("General Tags"): independent show/hide for the [BP]/[ACE]/rep-xp
     # markers appended to the mission TITLE, separate from the body fields
     # above. Missing/unknown keys default to True (prior, unsplit behaviour).
@@ -6676,7 +6677,7 @@ def main(base_ini_path: Path, forge_dir: Path | None = None,
          mission_title_tags: dict | None = None,
          stats_prepend: bool = False,
          standardize_earnable_ship_names: bool = False,
-         rs_ore_name_annotations: bool = False,
+         rs_ore_name_annotations: bool = True,
          english_base_ini_path: Path | None = None) -> None:
     import sys as sys_mod
     # Deferred import — the script is loaded by both the app worker (where

@@ -211,6 +211,14 @@ class AppSettings:
         # line -- a user can have either, both, or neither.
         "resource_signatures": "mission_field/resource_signatures",
     }
+    # Per-field default for get_mission_detail_fields() -- every field
+    # defaults on except where overridden here (mirrors
+    # _MISSION_TITLE_TAG_DEFAULTS below). "resource_signatures" is new
+    # (#331), so it doesn't join its established on-by-default siblings
+    # until a user opts in.
+    _MISSION_FIELD_DEFAULTS = {
+        "resource_signatures": False,
+    }
 
     # Mission TITLE tags (2.2.0, "General Tags" section): independent of the
     # mission-detail body fields above — these gate the [BP]/[ACE]/[REP]
@@ -384,11 +392,13 @@ class AppSettings:
     # (mineabletype_primary_<ore>), so Recco Battaglia's base resource
     # signature shows up everywhere the game renders that ore's name --
     # including the top-right mission tracker, which is what users actually
-    # asked for. Broad-reaching by design (it patches the name at its
-    # source), so it's opt-in like STANDARDIZE_EARNABLE_SHIP_NAMES rather
-    # than on-by-default like the established MISSION_FIELD_KEYS /
-    # MISSION_TITLE_TAG_KEYS toggles. Independent of the "resource_signatures"
-    # Mission Detail Field above (the DETAILS-body breakdown) -- see
+    # asked for. Default on, matching the established MISSION_FIELD_KEYS /
+    # MISSION_TITLE_TAG_KEYS toggles -- the earlier attempt that pulled this
+    # feature entirely was a call about bundling it into one all-or-nothing
+    # toggle with the DETAILS breakdown, not about the ore-name annotation
+    # being undesirable by default now that it's independently toggleable.
+    # Independent of the "resource_signatures" Mission Detail Field above
+    # (the DETAILS-body breakdown) -- see
     # scripts/generate_enhancements_ini.py's _build_mineable_rs_name_overrides
     # for the full history (shipped bundled with the breakdown, then pulled
     # for being too broad, now split into its own toggle).
@@ -817,12 +827,16 @@ class AppSettings:
         """Return {field: enabled} for the mission DETAILS body fields (#121).
 
         Every field defaults to True, so an unconfigured user gets the full
-        body exactly as before. Consumed by the enhancements generator at
+        body exactly as before, except where overridden in
+        _MISSION_FIELD_DEFAULTS (currently just "resource_signatures", off
+        by default -- see #331). Consumed by the enhancements generator at
         generation time (passed through the worker into its ctx).
         """
         s = AppSettings.settings()
         return {
-            field: bool(s.value(reg_key, True, type=bool))
+            field: bool(s.value(
+                reg_key, AppSettings._MISSION_FIELD_DEFAULTS.get(field, True), type=bool
+            ))
             for field, reg_key in AppSettings._MISSION_FIELD_SETTING.items()
         }
 
@@ -1073,10 +1087,10 @@ class AppSettings:
     @staticmethod
     def get_rs_ore_name_annotations() -> bool:
         """#331: whether mineable ore display names are annotated with their
-        base Resource Signature value (" (RS ####)"). Off by default -- see
+        base Resource Signature value (" (RS ####)"). Default on -- see
         RS_ORE_NAME_ANNOTATIONS for why."""
         return bool(AppSettings.settings().value(
-            AppSettings.RS_ORE_NAME_ANNOTATIONS, False, type=bool
+            AppSettings.RS_ORE_NAME_ANNOTATIONS, True, type=bool
         ))
 
     @staticmethod

@@ -1154,7 +1154,7 @@
     },
     "rs_ore_name_annotations_cb": {
       "ht": "",
-      "at": "Afficher la SR dans les noms des minerais"
+      "at": "Afficher les Signatures de Ressources (RS) à côté des noms de minerais"
     },
     "mission_labels_group": {
       "ht": "",

@@ -1153,7 +1153,7 @@
       "at": ""
     },
     "rs_ore_name_annotations_cb": {
-      "ht": "Show RS in ore names",
+      "ht": "Show Resource Signatures (RS) next to ore names",
       "at": ""
     },
     "mission_labels_group": {

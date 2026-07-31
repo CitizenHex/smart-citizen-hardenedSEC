@@ -41,7 +41,17 @@ def isolated_settings(tmp_path, monkeypatch):
 def test_defaults_all_on(isolated_settings):
     fields = AppSettings.get_mission_detail_fields()
     assert set(fields) == set(AppSettings.MISSION_FIELD_KEYS)
-    assert all(fields.values()), "every mission-detail field must default to on"
+    for field, enabled in fields.items():
+        assert enabled == AppSettings._MISSION_FIELD_DEFAULTS.get(field, True), field
+
+
+def test_resource_signatures_defaults_off(isolated_settings):
+    """#331: unlike its established siblings, the DETAILS-body "Resource
+    Signatures" breakdown is new, so it stays opt-in rather than joining the
+    other fields' on-by-default behavior. Independent of the separate
+    ore-name-annotation setting, which does default on."""
+    fields = AppSettings.get_mission_detail_fields()
+    assert fields["resource_signatures"] is False
 
 
 def test_set_get_roundtrip(isolated_settings):
@@ -60,7 +70,8 @@ def test_unknown_key_ignored(isolated_settings):
     AppSettings.set_mission_detail_field("not_a_field", False)
     fields = AppSettings.get_mission_detail_fields()
     assert "not_a_field" not in fields
-    assert all(fields.values())
+    for field, enabled in fields.items():
+        assert enabled == AppSettings._MISSION_FIELD_DEFAULTS.get(field, True), field
 
 
 # ── Generator gating (replica of the _run_gen_missions DETAILS block) ───────

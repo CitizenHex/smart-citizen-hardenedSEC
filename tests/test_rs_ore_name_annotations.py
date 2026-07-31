@@ -45,30 +45,36 @@ def isolated_settings(tmp_path, monkeypatch):
 
 # ── AppSettings contract ─────────────────────────────────────────────────
 
-def test_rs_ore_name_annotations_defaults_off(isolated_settings):
-    # Broad-reaching by design (patches the ore's own display name
-    # everywhere it's rendered), so it's opt-in like
-    # standardize_earnable_ship_names rather than on-by-default like the
-    # established MISSION_FIELD_KEYS / MISSION_TITLE_TAG_KEYS toggles.
-    assert AppSettings.get_rs_ore_name_annotations() is False
+def test_rs_ore_name_annotations_defaults_on(isolated_settings):
+    # On by default, matching the established MISSION_FIELD_KEYS /
+    # MISSION_TITLE_TAG_KEYS toggles -- the earlier attempt that pulled this
+    # feature entirely was about bundling it into one all-or-nothing toggle
+    # with the DETAILS breakdown, not about the annotation being unwanted by
+    # default now that it's independently toggleable (see #331).
+    assert AppSettings.get_rs_ore_name_annotations() is True
 
 
 def test_rs_ore_name_annotations_roundtrip(isolated_settings):
-    AppSettings.set_rs_ore_name_annotations(True)
-    assert AppSettings.get_rs_ore_name_annotations() is True
     AppSettings.set_rs_ore_name_annotations(False)
     assert AppSettings.get_rs_ore_name_annotations() is False
+    AppSettings.set_rs_ore_name_annotations(True)
+    assert AppSettings.get_rs_ore_name_annotations() is True
 
 
 def test_resource_signatures_mission_field_is_independent(isolated_settings):
     """Toggling the ore-name-annotation setting must not affect the
     unrelated "resource_signatures" Mission Detail Field (the DETAILS-body
     breakdown), and vice versa -- they're stored under entirely different
-    keys and read by different code paths in the generator."""
-    AppSettings.set_rs_ore_name_annotations(True)
-    AppSettings.set_mission_detail_field("resource_signatures", False)
+    keys and read by different code paths in the generator. Also pins that
+    the two have different defaults: the ore-name annotation on, the
+    Mission Detail Field off (it's new, so it doesn't join its on-by-default
+    siblings until a user opts in)."""
     assert AppSettings.get_rs_ore_name_annotations() is True
     assert AppSettings.get_mission_detail_fields()["resource_signatures"] is False
+    AppSettings.set_rs_ore_name_annotations(False)
+    AppSettings.set_mission_detail_field("resource_signatures", True)
+    assert AppSettings.get_rs_ore_name_annotations() is False
+    assert AppSettings.get_mission_detail_fields()["resource_signatures"] is True
 
 
 # ── Generator ctx gating ──────────────────────────────────────────────────
@@ -80,18 +86,23 @@ def test_resource_signatures_mission_field_is_independent(isolated_settings):
 #     if _rs_ore_name_annotations:
 #         out.update(_build_mineable_rs_name_overrides(loc))
 #
-# where _rs_ore_name_annotations = bool(ctx.get("rs_ore_name_annotations", False)).
+# where _rs_ore_name_annotations = bool(ctx.get("rs_ore_name_annotations", True)).
 
 def _apply_rs_ore_name_gate(gen_module, out: dict, loc: dict, ctx: dict) -> dict:
-    if bool(ctx.get("rs_ore_name_annotations", False)):
+    if bool(ctx.get("rs_ore_name_annotations", True)):
         out.update(gen_module._build_mineable_rs_name_overrides(loc))
     return out
 
 
-def test_ctx_flag_missing_leaves_ore_names_untouched(gen_module):
+def test_ctx_flag_missing_applies_the_name_overrides(gen_module):
+    # Missing ctx key falls back to the same "on" default as the real
+    # generator's ctx.get("rs_ore_name_annotations", True).
     loc = {"mineabletype_primary_ice": "Ice"}
     out = _apply_rs_ore_name_gate(gen_module, {"Battaglia_title": "Some Title"}, loc, ctx={})
-    assert out == {"Battaglia_title": "Some Title"}
+    assert out == {
+        "Battaglia_title": "Some Title",
+        "mineabletype_primary_ice": "Ice (RS 4300)",
+    }
 
 
 def test_ctx_flag_false_leaves_ore_names_untouched(gen_module):
@@ -125,4 +136,4 @@ def test_main_accepts_rs_ore_name_annotations_kwarg(gen_module):
     import inspect
     sig = inspect.signature(gen_module.main)
     assert "rs_ore_name_annotations" in sig.parameters
-    assert sig.parameters["rs_ore_name_annotations"].default is False
+    assert sig.parameters["rs_ore_name_annotations"].default is True

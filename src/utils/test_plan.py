@@ -117,10 +117,10 @@ TEST_SECTIONS: list[dict] = [
     {
         "title": "Resource Signature ore-name annotation + mission-details breakdown (#331)",
         "items": [
-            "Enhancements Tab: \"Show RS in ore names\" and \"Resource Signatures\" (Mission Detail Fields) are independent checkboxes, both off by default.",
-            "With only \"Show RS in ore names\" on, generate and check a mineable ore's Mining Compendium entry: its name reads e.g. \"Aluminium (RS 4285)\".",
+            "Enhancements Tab: the ore-name RS checkbox and the Mission Detail Field's Resource Signatures checkbox are independent; the former defaults on, the latter off.",
+            "With the default settings, generate and check a mineable ore's Mining Compendium entry: its name reads e.g. \"Aluminium (RS 4285)\".",
             "Same setting, then find a Recco Battaglia scan/mining mission: the Work Brief text and Primary Objectives panel also show the ore name with its RS value appended.",
-            "With only \"Resource Signatures\" (Mission Detail Fields) on, find a Recco Battaglia scan/mining contract: MISSION DETAILS shows a per-ore RS value progression line, e.g. \"Ice: 4300 - 8600 - ...\".",
+            "Turn on \"Resource Signatures\" (Mission Detail Fields) too, find a Recco Battaglia scan/mining contract: MISSION DETAILS shows a per-ore RS value progression line, e.g. \"Ice: 4300 - 8600 - ...\".",
             "Turn both off and regenerate: neither the ore-name annotation nor the DETAILS breakdown appears; the mission-title [RS ####] tag (General Tags) is unaffected either way.",
         ],
     },
