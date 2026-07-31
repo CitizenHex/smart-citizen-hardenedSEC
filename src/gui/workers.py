@@ -300,7 +300,7 @@ class EnhancementsGeneratorWorker(QThread):
                  mission_title_tags: dict | None = None,
                  stats_prepend: bool = False,
                  standardize_earnable_ship_names: bool = False,
-                 rs_ore_name_annotations: bool = False,
+                 rs_ore_name_annotations: bool = True,
                  language: str | None = None):
         super().__init__()
         self.categories = categories

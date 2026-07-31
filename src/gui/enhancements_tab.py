@@ -271,8 +271,9 @@ class EnhancementsTab(QWidget):
             # #331: "Resource Signatures:" breakdown block in the DETAILS
             # body for Recco Battaglia scan/mining contracts -- one line per
             # targeted ore with its full RS value progression. Independent of
-            # the "Show RS in Ore Names" checkbox below (which annotates the
-            # ore's own display name instead of adding a body line).
+            # the "Show Resource Signatures (RS) next to ore names" checkbox
+            # below (which annotates the ore's own display name instead of
+            # adding a body line).
             ("resource_signatures", "enhancements.mission_field_resource_signatures"),
         ]
         self._mission_field_labels = [(f, tr(k)) for f, k in self._mission_field_keys]

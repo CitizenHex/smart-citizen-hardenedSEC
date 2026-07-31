@@ -3373,15 +3373,15 @@ def _build_mineable_rs_name_overrides(loc: dict) -> dict[str, str]:
     name, not just the mission TITLE tag or the DETAILS "Resource
     Signatures:" breakdown block.
 
-    Gated by its own "Show RS in Ore Names" Localization Enhancements
-    checkbox (#331), independent of the "Show Resource Signatures" Mission
-    Detail Fields checkbox above -- a user can show the flat name annotation
-    without the fuller DETAILS block, or vice versa. Originally shipped
-    bundled with the DETAILS block under one toggle, then pulled entirely as
-    "too broad an effect... for what it bought" (touches every place the game
-    renders that ore's name, not just Battaglia missions); revived as its own
-    opt-in toggle after users asked for the mission-tracker case specifically
-    (#331)."""
+    Gated by its own "Show Resource Signatures (RS) next to ore names"
+    Localization Enhancements checkbox (#331), independent of the "Resource
+    Signatures" Mission Detail Fields checkbox above -- a user can show the
+    flat name annotation without the fuller DETAILS block, or vice versa.
+    Originally shipped bundled with the DETAILS block under one toggle, then
+    pulled entirely as "too broad an effect... for what it bought" (touches
+    every place the game renders that ore's name, not just Battaglia
+    missions); revived as its own independent toggle (default on) after
+    users asked for the mission-tracker case specifically (#331)."""
     out: dict[str, str] = {}
     for ore, value in MINEABLE_RS_VALUES.items():
         key = f"mineabletype_primary_{ore}"
