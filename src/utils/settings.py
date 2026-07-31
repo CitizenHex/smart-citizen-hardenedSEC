@@ -190,7 +190,7 @@ class AppSettings:
     # MISSION_TITLE_TAG_KEYS below with the other title-only toggles.
     MISSION_FIELD_KEYS = (
         "mission_type", "difficulty", "spawns", "reputation",
-        "blueprints", "ace",
+        "blueprints", "ace", "resource_signatures",
     )
     _MISSION_FIELD_SETTING = {
         "mission_type":  "mission_field/mission_type",
@@ -201,6 +201,15 @@ class AppSettings:
         # #158, split from the title tag in 2.2.0 (see MISSION_TITLE_TAG_KEYS):
         # this key now controls ONLY the "Ace Pilot: Yes" body line.
         "ace":           "mission_field/ace",
+        # #331: Recco Battaglia's Scan/Mining contracts already carry a flat
+        # [RS ####] tag on the mission TITLE (MISSION_TITLE_TAG_KEYS' "rs"),
+        # independent of this key. This one gates a fuller "Resource
+        # Signatures:" breakdown in the DETAILS body -- one line per targeted
+        # ore with its full RS value progression, not just the title's single
+        # flattened number. Separate from RS_ORE_NAME_ANNOTATIONS below,
+        # which patches the ore's own display name instead of adding a body
+        # line -- a user can have either, both, or neither.
+        "resource_signatures": "mission_field/resource_signatures",
     }
 
     # Mission TITLE tags (2.2.0, "General Tags" section): independent of the
@@ -371,6 +380,19 @@ class AppSettings:
     TAG_ANNOTATE_MISSION_DESCS = "tag_builder/annotate_mission_descs"
     STATS_PREPEND = "stats_prepend"  # #153: stats block above the description
     STANDARDIZE_EARNABLE_SHIP_NAMES = "standardize_earnable_ship_names"
+    # #331: appends " (RS ####)" to every mineable ore's own display name
+    # (mineabletype_primary_<ore>), so Recco Battaglia's base resource
+    # signature shows up everywhere the game renders that ore's name --
+    # including the top-right mission tracker, which is what users actually
+    # asked for. Broad-reaching by design (it patches the name at its
+    # source), so it's opt-in like STANDARDIZE_EARNABLE_SHIP_NAMES rather
+    # than on-by-default like the established MISSION_FIELD_KEYS /
+    # MISSION_TITLE_TAG_KEYS toggles. Independent of the "resource_signatures"
+    # Mission Detail Field above (the DETAILS-body breakdown) -- see
+    # scripts/generate_enhancements_ini.py's _build_mineable_rs_name_overrides
+    # for the full history (shipped bundled with the breakdown, then pulled
+    # for being too broad, now split into its own toggle).
+    RS_ORE_NAME_ANNOTATIONS = "enhancements/rs_ore_name_annotations"
     OWNED_ITEMS = "owned_items"      # #157: blueprint items the user owns (JSON list of names)
     # #222: newest "Received Blueprint" log event a BP Scan has already
     # consumed, so a re-scan only imports genuinely new blueprints. Per-channel
@@ -1045,6 +1067,22 @@ class AppSettings:
     def set_standardize_earnable_ship_names(enabled: bool) -> None:
         AppSettings.settings().setValue(
             AppSettings.STANDARDIZE_EARNABLE_SHIP_NAMES, bool(enabled)
+        )
+        AppSettings.settings().sync()
+
+    @staticmethod
+    def get_rs_ore_name_annotations() -> bool:
+        """#331: whether mineable ore display names are annotated with their
+        base Resource Signature value (" (RS ####)"). Off by default -- see
+        RS_ORE_NAME_ANNOTATIONS for why."""
+        return bool(AppSettings.settings().value(
+            AppSettings.RS_ORE_NAME_ANNOTATIONS, False, type=bool
+        ))
+
+    @staticmethod
+    def set_rs_ore_name_annotations(enabled: bool) -> None:
+        AppSettings.settings().setValue(
+            AppSettings.RS_ORE_NAME_ANNOTATIONS, bool(enabled)
         )
         AppSettings.settings().sync()
 
