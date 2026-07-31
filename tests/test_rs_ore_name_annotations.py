@@ -65,13 +65,14 @@ def test_resource_signatures_mission_field_is_independent(isolated_settings):
     """Toggling the ore-name-annotation setting must not affect the
     unrelated "resource_signatures" Mission Detail Field (the DETAILS-body
     breakdown), and vice versa -- they're stored under entirely different
-    keys and read by different code paths in the generator. Also pins that
-    the two have different defaults: the ore-name annotation on, the
-    Mission Detail Field off (it's new, so it doesn't join its on-by-default
-    siblings until a user opts in)."""
+    keys and read by different code paths in the generator. Both default on,
+    but that's incidental to this test; the point is they're independent."""
     assert AppSettings.get_rs_ore_name_annotations() is True
-    assert AppSettings.get_mission_detail_fields()["resource_signatures"] is False
+    assert AppSettings.get_mission_detail_fields()["resource_signatures"] is True
     AppSettings.set_rs_ore_name_annotations(False)
+    AppSettings.set_mission_detail_field("resource_signatures", False)
+    assert AppSettings.get_rs_ore_name_annotations() is False
+    assert AppSettings.get_mission_detail_fields()["resource_signatures"] is False
     AppSettings.set_mission_detail_field("resource_signatures", True)
     assert AppSettings.get_rs_ore_name_annotations() is False
     assert AppSettings.get_mission_detail_fields()["resource_signatures"] is True

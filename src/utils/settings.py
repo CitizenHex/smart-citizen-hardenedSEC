@@ -211,14 +211,6 @@ class AppSettings:
         # line -- a user can have either, both, or neither.
         "resource_signatures": "mission_field/resource_signatures",
     }
-    # Per-field default for get_mission_detail_fields() -- every field
-    # defaults on except where overridden here (mirrors
-    # _MISSION_TITLE_TAG_DEFAULTS below). "resource_signatures" is new
-    # (#331), so it doesn't join its established on-by-default siblings
-    # until a user opts in.
-    _MISSION_FIELD_DEFAULTS = {
-        "resource_signatures": False,
-    }
 
     # Mission TITLE tags (2.2.0, "General Tags" section): independent of the
     # mission-detail body fields above — these gate the [BP]/[ACE]/[REP]
@@ -827,16 +819,12 @@ class AppSettings:
         """Return {field: enabled} for the mission DETAILS body fields (#121).
 
         Every field defaults to True, so an unconfigured user gets the full
-        body exactly as before, except where overridden in
-        _MISSION_FIELD_DEFAULTS (currently just "resource_signatures", off
-        by default -- see #331). Consumed by the enhancements generator at
+        body exactly as before. Consumed by the enhancements generator at
         generation time (passed through the worker into its ctx).
         """
         s = AppSettings.settings()
         return {
-            field: bool(s.value(
-                reg_key, AppSettings._MISSION_FIELD_DEFAULTS.get(field, True), type=bool
-            ))
+            field: bool(s.value(reg_key, True, type=bool))
             for field, reg_key in AppSettings._MISSION_FIELD_SETTING.items()
         }
 
