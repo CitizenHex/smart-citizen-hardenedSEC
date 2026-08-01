@@ -6509,6 +6509,23 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         has_blueprints = title_key in mission_blueprints
         _bp_variants = [v.has_bp for v in variants]
         _all_have_bp = has_blueprints and all(_bp_variants)
+        # #341 follow-up: _all_have_bp only means every variant HAS a
+        # BlueprintRewards pool, not that it always pays out -- the element
+        # can carry its own chance="0.25"-style attribute (mirrors the
+        # "X% chance" vs "Guaranteed" wording the mission DETAILS body
+        # already derives from the same v.bp_chance field below). Title
+        # tags never checked it, so a 100%-coverage-but-25%-chance mission
+        # still read as the guaranteed [BP] while its own body said "25%
+        # chance". Live repro: Rayari's RAIN_collectresources missions
+        # (chance="0.25" in rayari_recoveritem.xml). NOT the Battaglia
+        # missions #341 reports -- their data is chance="1" on every
+        # variant, so their in-game non-payouts come from pool state (a
+        # pool only pays blueprints the player doesn't own yet), which
+        # static mission text can't express. A title only earns the
+        # guarantee if every variant's own chance is 1.0 too.
+        _all_bp_guaranteed = _all_have_bp and all(
+            v.bp_chance >= 1.0 for v in variants if v.has_bp
+        )
 
         # #102 / #31: a haul title's contractgenerator variants (CareerContract
         # blocks) can all carry BlueprintRewards, yet the SAME title is also
@@ -6576,9 +6593,19 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
             if _route and apply_mission_title:
                 augmented_title = apply_mission_title(base_title, _route, _mt_cfg)
         if _show_title_tag("blueprint"):
-            if _all_have_bp and not _surviving_no_bp_cargo:
+            if _all_have_bp and _all_bp_guaranteed and not _surviving_no_bp_cargo:
                 augmented_title += " <EM4>[BP]</EM4>"
-            elif _bp_partial or (_all_have_bp and _surviving_no_bp_cargo):
+            # The "not _all_bp_guaranteed" half of this elif is redundant
+            # today: whenever _all_have_bp is True, every desc bucket has
+            # has_bp True too, so _has_dominant_no_bp_bucket is always False
+            # and _bp_partial is already unconditionally True -- it alone
+            # would catch this branch. Spelled out explicitly anyway rather
+            # than relying on that chain of implications, so this stays
+            # correct even if _bp_partial's dominant-bucket heuristic is
+            # ever reworked to no longer guarantee it.
+            elif _bp_partial or (
+                _all_have_bp and (_surviving_no_bp_cargo or not _all_bp_guaranteed)
+            ):
                 augmented_title += " <EM4>[BP?]</EM4>"
         # #158: ace-pilot flag. An AcePilotShip spawn group classifies as the
         # "Ace Pilots" hostile label (see _SPAWN_KEYWORD_TABLE). [ACE] when
