@@ -232,6 +232,36 @@ _BULLET_NAME_ALIASES: dict[str, str] = {
     "Nozzle Fuelgiver Misc Nozzlestandard": "RN-7s",
 }
 
+# Prefixes CIG strips off a blueprint XML's filename before the descriptive
+# part (mirrors generate_enhancements_ini.py's _name_from_blueprint_filename,
+# which uses this same transform when resolving a blueprint pool entry).
+_RAW_BLUEPRINT_FILENAME_PREFIXES = ("bp_craft_", "bp_rewards_", "bp_")
+
+
+def _raw_blueprint_filename_slug(raw_nm: str) -> "str | None":
+    """Recover a real display name from a raw blueprint-XML-filename-shaped
+    bullet, or None if *raw_nm* doesn't look like one.
+
+    Some mission text ships the raw blueprint filename stem verbatim instead
+    of a resolved display name -- confirmed via a live "URGENT REFUEL
+    REQUEST" mission body listing "bp_craft_nozzle_fuelgiver_grin_
+    nozzleverysecure" for what should be "Harkin". This is a different root
+    cause than _key_slug's garbled-KEY bug above: the bullet here is the
+    blueprint's own filename, not a de-slugified loc key, so it needs its
+    own prefix-strip + title-case transform before _BULLET_NAME_ALIASES can
+    recognize it -- once transformed it lands on the exact same alias-table
+    entries the key-slug bug already uses (both bugs happen to produce the
+    same title-cased string for the fuel-nozzle family), so no new aliases
+    are needed, just the extra normalization step to reach them.
+    """
+    lowered = raw_nm.lower()
+    for prefix in _RAW_BLUEPRINT_FILENAME_PREFIXES:
+        if lowered.startswith(prefix):
+            stem = raw_nm[len(prefix):]
+            return stem.replace("_", " ").replace("-", " ").title()
+    return None
+
+
 # Fuel nozzle Name-key conventions (#266 follow-up): nozzles ship under two
 # different manufacturer-specific prefixes (MISC's item_fuelnozzle_* vs
 # Greycat/Shubin's Nozzle_FuelGiver_*), neither matching the item_Name /
@@ -474,16 +504,23 @@ def build_blueprint_metadata(entries) -> dict:
     # Pass 2: gather each blueprint item's missions, then attach type + attrs.
     # A bullet name that doesn't match any real item directly is checked
     # against the known one-off aliases, then against the key-slug fallback
-    # (see _BULLET_NAME_ALIASES / _key_slug) before falling back to itself —
-    # so a mismatched bullet still joins the real, tagged item instead of
-    # creating a separate untagged "Other" entry.
+    # (see _BULLET_NAME_ALIASES / _key_slug), then against the raw-filename
+    # fallback (see _raw_blueprint_filename_slug) before falling back to
+    # itself, so a mismatched bullet still joins the real, tagged item
+    # instead of creating a separate untagged "Other" entry.
     missions_by_name: dict = {}
     for pair, val in bp_descs:
         title = titles.get(pair) if pair else None
         for raw_nm in extract_bp_item_names(val):
-            nm = raw_nm if raw_nm in name_to_value else (
-                _BULLET_NAME_ALIASES.get(raw_nm) or keyslug_to_name.get(raw_nm, raw_nm)
-            )
+            if raw_nm in name_to_value:
+                nm = raw_nm
+            elif raw_nm in _BULLET_NAME_ALIASES:
+                nm = _BULLET_NAME_ALIASES[raw_nm]
+            elif raw_nm in keyslug_to_name:
+                nm = keyslug_to_name[raw_nm]
+            else:
+                slug = _raw_blueprint_filename_slug(raw_nm)
+                nm = _BULLET_NAME_ALIASES.get(slug, raw_nm) if slug else raw_nm
             bucket = missions_by_name.setdefault(nm, set())
             if title:
                 bucket.add(title)
