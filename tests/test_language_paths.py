@@ -225,9 +225,10 @@ class TestLocalizedDocPath:
 class TestIssue306FaqBackfill:
     """#306: french/spanish/portuguese_br predate docs/FAQ.md (#152) and never
     got a translated copy, so get_localized_doc_path silently fell back to
-    the English FAQ for those three languages while every language added
-    afterwards (italian/chinese/japanese/german) shipped one from day one.
-    Locks that the gap is closed and stays closed."""
+    the English FAQ for those three languages. italian, chinese, and german
+    shipped a translated FAQ from day one; japanese missed it too and was
+    backfilled separately (#334). Locks that the gap is closed and stays
+    closed for all four languages."""
 
     REPO = Path(__file__).resolve().parent.parent
     _ENGLISH_HEADINGS = None
@@ -241,7 +242,9 @@ class TestIssue306FaqBackfill:
             ]
         return cls._ENGLISH_HEADINGS
 
-    @pytest.mark.parametrize("language", ["french", "spanish", "portuguese_br"])
+    @pytest.mark.parametrize(
+        "language", ["french", "spanish", "portuguese_br", "japanese"]
+    )
     def test_faq_exists_and_is_not_the_english_fallback(self, language):
         faq_path = self.REPO / "languages" / language / "FAQ.md"
         assert faq_path.exists(), f"languages/{language}/FAQ.md is missing"
@@ -249,7 +252,9 @@ class TestIssue306FaqBackfill:
         english = (self.REPO / "docs" / "FAQ.md").read_text(encoding="utf-8")
         assert translated != english, f"{language} FAQ.md is just the English source"
 
-    @pytest.mark.parametrize("language", ["french", "spanish", "portuguese_br"])
+    @pytest.mark.parametrize(
+        "language", ["french", "spanish", "portuguese_br", "japanese"]
+    )
     def test_faq_section_count_matches_english(self, language):
         faq_path = self.REPO / "languages" / language / "FAQ.md"
         headings = [
