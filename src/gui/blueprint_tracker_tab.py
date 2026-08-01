@@ -104,6 +104,26 @@ class BlueprintTrackerTab(QWidget):
 
         layout.addLayout(top_btn_row)
 
+        # #268: also scan whichever of LIVE/HOTFIX isn't the active channel
+        # when the user clicks "Scan Logs for Owned Blueprints". Enabled by
+        # default; they share the same account progression, so it's cheap
+        # coverage most users want. Never covers PTU/EPTU/TECH-PREVIEW: those
+        # are separate test builds with their own progression, not the same
+        # account history as LIVE/HOTFIX.
+        self._scan_other_channels_checkbox = QCheckBox(
+            tr("blueprint_tracker.scan_other_channels_checkbox")
+        )
+        self._scan_other_channels_checkbox.setToolTip(
+            tr("blueprint_tracker.scan_other_channels_tooltip")
+        )
+        self._scan_other_channels_checkbox.setChecked(
+            AppSettings.get_scan_other_channels_enabled()
+        )
+        self._scan_other_channels_checkbox.toggled.connect(
+            AppSettings.set_scan_other_channels_enabled
+        )
+        layout.addWidget(self._scan_other_channels_checkbox)
+
         # Shown instead of the lists when no blueprint items exist yet (mission
         # enhancements not generated) — the same precondition the stars had.
         self._blueprints_empty_note = QLabel(tr("enhancements.blueprints_empty_note"))
@@ -238,6 +258,12 @@ class BlueprintTrackerTab(QWidget):
         self._blueprints_desc_label.setText(tr("enhancements.blueprints_desc"))
         self._scan_logs_btn.setText(tr("blueprint_tracker.scan_logs_btn"))
         self._scan_logs_btn.setToolTip(tr("blueprint_tracker.scan_logs_tooltip"))
+        self._scan_other_channels_checkbox.setText(
+            tr("blueprint_tracker.scan_other_channels_checkbox")
+        )
+        self._scan_other_channels_checkbox.setToolTip(
+            tr("blueprint_tracker.scan_other_channels_tooltip")
+        )
         self._apply_owned_btn.setText(tr("blueprint_tracker.apply_owned_tag_btn"))
         self._set_owned_btn_dirty(self._owned_dirty)  # re-applies the right tooltip
         self._blueprints_empty_note.setText(tr("enhancements.blueprints_empty_note"))

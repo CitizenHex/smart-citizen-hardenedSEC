@@ -1318,6 +1318,14 @@
       "ht": "",
       "at": "Star Citizen のログファイル（Game.log および logbackups）で「Received Blueprint」報酬通知をスキャンし、自動的に所有済みとしてマークします。"
     },
+    "scan_other_channels_checkbox": {
+      "ht": "",
+      "at": "LIVE/HOTFIX も同時にスキャン（アクティブでない方）"
+    },
+    "scan_other_channels_tooltip": {
+      "ht": "",
+      "at": "LIVE と HOTFIX は同じアカウント進捗を共有しているため、一方で獲得したブループリントはもう一方のログにも表示されます。インストールされていれば、アクティブでない方のチャンネルも同時にスキャンします。PTU、EPTU、TECH-PREVIEW はそれぞれ独自の進捗を持つ別のテストビルドであり、スキャン対象には含まれません。"
+    },
     "apply_owned_tag_btn": {
       "ht": "",
       "at": "所有タグを適用"

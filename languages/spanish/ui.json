@@ -1330,6 +1330,14 @@
       "ht": "",
       "at": "Escanea los archivos de registro de Star Citizen (Game.log y logbackups) en busca de notificaciones de recompensa \"Received Blueprint\" y marca esos blueprints automáticamente como adquiridos."
     },
+    "scan_other_channels_checkbox": {
+      "ht": "",
+      "at": "Analizar también LIVE/HOTFIX (el que no esté activo)"
+    },
+    "scan_other_channels_tooltip": {
+      "ht": "",
+      "at": "LIVE y HOTFIX comparten el mismo progreso de cuenta, así que un plano obtenido en uno aparece también en los registros del otro. También analiza el que no sea tu canal activo de los dos, si está instalado. PTU, EPTU y TECH-PREVIEW son compilaciones de prueba independientes con su propio progreso y nunca se analizan."
+    },
     "apply_owned_tag_btn": {
       "ht": "",
       "at": "Aplicar etiquetas [Owned]"
