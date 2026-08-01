@@ -721,21 +721,27 @@ class BlueprintTrackerTab(QWidget):
             return
 
         owned = AppSettings.get_owned_items()
-        owned.update(matched)
-        AppSettings.set_owned_items(owned)
-        self._render_blueprint_lists()
-        self.owned_items_changed.emit()
-        # owned_items_changed already triggers MainWindow._recompute_owned()
-        # -- the same [Owned]-tag re-weave Apply Owned Tags performs -- so
-        # mark clean rather than dirty. Mirrors the log-scan flow's #296
-        # fix: re-dirtying after work that just happened would leave the
-        # button red right after this summary told the user its tags were
-        # already applied.
-        self.mark_owned_clean()
+        # Count only genuinely new names -- matched includes items already
+        # owned, and the log-scan flow this mirrors subtracts them before
+        # reporting, so a re-import of the same file says "0 added", not
+        # the full file size.
+        new_names = matched - owned
+        if new_names:
+            owned.update(new_names)
+            AppSettings.set_owned_items(owned)
+            self._render_blueprint_lists()
+            self.owned_items_changed.emit()
+            # owned_items_changed already triggers MainWindow._recompute_owned()
+            # -- the same [Owned]-tag re-weave Apply Owned Tags performs -- so
+            # mark clean rather than dirty. Mirrors the log-scan flow's #296
+            # fix: re-dirtying after work that just happened would leave the
+            # button red right after this summary told the user its tags were
+            # already applied.
+            self.mark_owned_clean()
 
         added_text = (
-            tr("blueprint_tracker.owned_added_singular") if len(matched) == 1
-            else tr("blueprint_tracker.owned_added_plural", count=len(matched))
+            tr("blueprint_tracker.owned_added_singular") if len(new_names) == 1
+            else tr("blueprint_tracker.owned_added_plural", count=len(new_names))
         )
         body_parts = [added_text]
         if unmatched:
