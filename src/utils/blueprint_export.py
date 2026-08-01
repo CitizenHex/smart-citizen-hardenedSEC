@@ -73,8 +73,10 @@ def parse_import_names(path: "str | Path") -> "set[str]":
     Accepts both our own export shape and a genuine SCMDB export (both key
     each entry's display name as "name"), plus a plain CSV with a "name"
     column. Raises InvalidImportFileError for anything else (wrong
-    extension, malformed JSON, missing "name" column) so the caller can
-    show one clear error rather than a confusing traceback.
+    extension, malformed JSON, missing "name" column, or a CSV that isn't
+    valid UTF-8 -- plausible for a file saved from Excel on Windows, which
+    defaults to cp1252/Latin-1) so the caller can show one clear error
+    rather than a confusing traceback.
     """
     path = Path(path)
     suffix = path.suffix.lower()
@@ -115,7 +117,7 @@ def _parse_import_names_csv(path: Path) -> "set[str]":
                 nm = normalize_item_name(row.get("name") or "")
                 if nm:
                     names.add(nm)
-    except OSError as e:
+    except (OSError, UnicodeDecodeError) as e:
         raise InvalidImportFileError(f"Could not read CSV file: {e}") from e
     return names
 

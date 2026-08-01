@@ -164,6 +164,15 @@ class TestParseImportNamesCsv:
         path.write_bytes(b"\xef\xbb\xbfname,type\r\nNorfield,Fuel Nozzle\r\n")
         assert parse_import_names(path) == {"Norfield"}
 
+    def test_non_utf8_csv_raises_invalid_import_file_error(self, tmp_path):
+        """A CSV saved from Excel on Windows often lands as cp1252/Latin-1,
+        not UTF-8 -- must surface as the same clean error as any other
+        malformed file, not an uncaught UnicodeDecodeError."""
+        path = tmp_path / "bad_encoding.csv"
+        path.write_bytes(b"name,type\r\nNorf\xffield,Fuel Nozzle\r\n")
+        with pytest.raises(InvalidImportFileError):
+            parse_import_names(path)
+
 
 class TestParseImportNamesUnsupportedExtension:
     def test_unsupported_extension_raises(self, tmp_path):
