@@ -85,6 +85,18 @@ def test_italian_covers_full_english_key_universe():
     assert not extra, f"Italian has keys English on this branch doesn't have: {extra[:10]}"
 
 
+# dialogs.suppressed_errors_suffix's {plural} is deliberately dropped: the
+# token is only ever filled with a hardcoded English "s" suffix
+# (main_window.py). Italian pluralizes with a stem change (errore ->
+# errori), not a suffix append, so the token has no correct value to hold
+# either way. German drops the same token for the analogous reason;
+# str.format ignores unused kwargs, so a dropped placeholder in the string
+# is harmless.
+_ALLOWED_PLACEHOLDER_DROPS = {
+    "dialogs.suppressed_errors_suffix": {"{plural}"},
+}
+
+
 def test_italian_placeholders_match_english_source():
     en = {p: leaf for p, leaf in _leaves(json.loads(_EN_UI.read_text(encoding="utf-8")))}
     it = {p: leaf for p, leaf in _leaves(json.loads(_IT_UI.read_text(encoding="utf-8")))}
@@ -94,7 +106,8 @@ def test_italian_placeholders_match_english_source():
             continue
         en_tokens = set(_PLACEHOLDER.findall(en_leaf.get("ht", "")))
         it_tokens = set(_PLACEHOLDER.findall(it[path].get("at", "")))
-        if en_tokens != it_tokens:
+        allowed_drop = _ALLOWED_PLACEHOLDER_DROPS.get(path, set())
+        if en_tokens - it_tokens != allowed_drop or it_tokens - en_tokens:
             mismatches.append((path, sorted(en_tokens), sorted(it_tokens)))
     assert not mismatches, f"placeholder drift: {mismatches[:5]}"
 

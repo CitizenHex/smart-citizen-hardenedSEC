@@ -72,6 +72,18 @@ def test_japanese_is_ai_only_every_leaf_at_filled_ht_empty():
     assert len(leaves) > 300
 
 
+# dialogs.suppressed_errors_suffix's {plural} is deliberately dropped: the
+# token is only ever filled with a hardcoded English "s" suffix
+# (main_window.py), which has no equivalent in Japanese -- nouns don't
+# inflect for number, so there's no suffix pluralization to append it to.
+# German drops the same token for the analogous reason (its "Fehler" is
+# already invariant); str.format ignores unused kwargs, so a dropped
+# placeholder in the string is harmless.
+_ALLOWED_PLACEHOLDER_DROPS = {
+    "dialogs.suppressed_errors_suffix": {"{plural}"},
+}
+
+
 def test_japanese_placeholders_match_english_source():
     en = {p: leaf for p, leaf in _leaves(json.loads(_EN_UI.read_text(encoding="utf-8")))}
     ja = {p: leaf for p, leaf in _leaves(json.loads(_JA_UI.read_text(encoding="utf-8")))}
@@ -81,7 +93,8 @@ def test_japanese_placeholders_match_english_source():
             continue
         en_tokens = set(_PLACEHOLDER.findall(en_leaf.get("ht", "")))
         ja_tokens = set(_PLACEHOLDER.findall(ja[path].get("at", "")))
-        if en_tokens != ja_tokens:
+        allowed_drop = _ALLOWED_PLACEHOLDER_DROPS.get(path, set())
+        if en_tokens - ja_tokens != allowed_drop or ja_tokens - en_tokens:
             mismatches.append((path, sorted(en_tokens), sorted(ja_tokens)))
     assert not mismatches, f"placeholder drift: {mismatches[:5]}"
 
