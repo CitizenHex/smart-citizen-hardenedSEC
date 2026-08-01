@@ -64,9 +64,10 @@ Use the **Category** filter to focus on one domain:
 
 ## 6. Ship Favorites
 
-- Click the **★** column on any Ship row to mark it as a favorite.
+- Click the **★** column on any Ship row to mark it as a favorite. Only a ship's name row can be favorited; the description row for the same ship has no equivalent behavior in-game, so the star and sort-order columns stay blank there.
 - Favorited ships get a configurable prefix prepended to their name, sorting them to the top of the in-game ship list.
 - Change the prefix character in the **Enhancements** tab (default: `*`).
+- Check **Ship/Vehicle Names Only** in the Search & Filter row to narrow the table to just ship and vehicle name rows, hiding ship descriptions and every other category; pairs with **Favorites Only** to browse exactly the rows you can favorite.
 
 ## 7. Apply Changes to Game
 
@@ -96,11 +97,15 @@ Open the **More** menu and choose **Export INI…** to bundle the currently appl
 
 Use **Reset user.ini** in the **Config** tab to wipe all of your personal edits for the active channel. A confirmation prompt makes sure it isn't a mis-click, and an automatic backup of the current `user.ini` is taken into `<data folder>\<channel>\backups\` first — so a reset is recoverable if you change your mind.
 
-## 13. After Game Updates
+## 13. Export / Import Settings
+
+Use **Export Settings** and **Import Settings** in the **Config** tab to move your whole Smart Citizen setup between PCs, or back it up before a fresh install. Export bundles your app settings and every channel's `user.ini` overrides into one small zip, including your Star Citizen install path; machine-specific paths that wouldn't make sense on another PC (your data folder, cache location, window geometry) are left out. Import layers that backup over your current settings and replaces `user.ini` for the channels it contains — your current `user.ini` files are snapshotted first via **Restore user.ini**, so an import is reversible. Your Star Citizen path is only kept if it still exists on the PC you're importing to; otherwise Smart Citizen auto-detects it instead. Smart Citizen restarts after an import to load the new settings, then offers to regenerate and apply your enhancements.
+
+## 14. After Game Updates
 
 When Star Citizen updates, your edits are preserved in `<data folder>\<channel>\user.ini`. Re-run **Extract from Data.p4k** to pull fresh stock strings from the patched game — the table reloads automatically and your customizations re-apply on top.
 
-## 14. Switch Languages
+## 15. Switch Languages
 
 Pick a language from the **Language** dropdown in the **Config** tab (next to Channel). Switching changes both the app's interface and the game strings in the table:
 
@@ -114,7 +119,7 @@ Applying writes to the matching language folder in your game install and sets `g
 
 Want to help translate? Translation status per language is tracked in `languages/TRANSLATIONS.md` in the repo, and we would much rather ship your words than a machine's. Reach out on the Discord.
 
-## 15. App Updates
+## 16. App Updates
 
 Smart Citizen checks for a new version every time it starts. When one is available, the release notes appear in a scrollable window with two choices:
 
@@ -128,13 +133,14 @@ You can also check manually anytime with **Check for Updates** on the Config tab
 - Toggle stat overlays that append numerical stats to descriptions — SCM speed, shield HP, DPS, cargo capacity, mining-laser beam stats (Fracture / Extraction), handheld salvage-tool rates, blueprint pools, mission XP, and more. Mission XP also names the reputation track it feeds (ex: `750 XP (Hauling)`), Battaglia scan/mine contracts carry a `[RS ####]` tag with the target ore's base resource signature, and the Mining Compendium journal lists each ore's base RS next to its mining locations.
 - **Medical Consumables** — adds a plain-language effect line to the base CureLife pens (MedPen, OxyPen, AdrenaPen, and friends), so the description tells you what the pen actually does instead of just its lore.
 - **Show stats above the description** — flip the stat block to sit at the top of a description instead of the bottom, so the numbers are the first thing you read in-game.
+- **Show Resource Signatures (RS) next to ore names** — appends each mineable ore's base Resource Signature to its own display name (e.g. "Aluminium (RS 4285)"), so it shows up everywhere the game renders that name, including the mission tracker. Independent of the Resource Signatures line under Mission Details fields below.
 - Enable or disable each enhancement category independently.
 - Configure the ship favorites prefix character.
 - **Blueprint ownership** moved to its own **Blueprint Tracker** tab; see the next section.
-- **Tag Builder** — customize the bracketed tags placed on component, missile, ship-weapon, and commodity names. Reorder elements with ▲/▼, toggle individual elements off, change abbreviation length (`M` / `MIL` / `Military`), pick separator (none, hyphen, space, etc.) and brackets (square, round, none, etc.), and choose whether the tag appears before or after the name. Components also have an optional **Type** element (Shield, Cooler, Power Plant, etc.) — disabled by default. Commodities have a **Usage** element that shows what a commodity's crafting materials feed into. Click **Save Tag Changes** to save and regenerate. (**Generate Enhancements** also saves any pending tag edits first, so an unsaved tweak can't slip out of a regen.)
+- **Tag Builder** — customize the bracketed tags placed on component, missile, ship-weapon, and commodity names. Reorder elements with ▲/▼, toggle individual elements off, change abbreviation length (`M` / `MIL` / `Military`), pick separator (none, hyphen, space, etc.) and brackets (square, round, none, etc.), and choose whether the tag appears before or after the name. Components also have an optional **Type** element (Shield, Cooler, Power Plant, etc.) — disabled by default. Commodities have **Label**, **Usage** (what a commodity's crafting materials feed into), and **Collection** elements, all disabled by default; enable the ones you want from the Tag Builder. Click **Save Tag Changes** to save and regenerate. (**Generate Enhancements** also saves any pending tag edits first, so an unsaved tweak can't slip out of a regen.)
 - **Mission Titles** (Tag Builder tab) — lead hauling mission titles with their route. Pick placement (Prepend, Append, or Replace the title), the route arrow (`>`, `->`, `to`, or the shape-encoding `->-`/`->=`/`=>-`/`=>=` that shows one-vs-many endpoints per side), the title separator, and how much of the location to show (full address by default; the short name can fail to display on rare missions), with a live preview. A hauling run reads like `Area18 > Lorville - <original title>` so you can see the job at a glance in the contract list, and multi-stop hauls list their drop-offs (`Area18 > Lorville, New Babbage`). Two independent toggles trim the stock title: **Shorten original titles** applies curated phrase shortenings (e.g. "Opportunity for Independent Cargo Hauler" → "Intro", "Local Shipment Route" → "Route", plus Ling Family and rank-prefix handling), and **Shorten cargo sizes** abbreviates cargo-grade sizes ("Extra Small" → "XS"). Individual checkboxes give finer control — remove "Cargo" or "Haul" outright, drop "Rank", or underline "Direct" hauls for emphasis — so the route and tags fit even on long titles.
 - **Mission Labels** — customize the section headers used in mission enhancement blocks (MISSION DETAILS, POTENTIAL BLUEPRINTS, ITEM REWARDS, BLUEPRINT DATA), the XP label shown on missions without a specific reputation rank (default "Rep"), and the emphasis tag (EM3 = underline, EM4 = color) used for headers.
-- **Mission Details fields** — show or hide each line of the MISSION DETAILS block individually (mission type, difficulty, spawns, reputation, blueprints, and the `[BP]` title tag), so your mission descriptions carry only the data you care about.
+- **Mission Details fields** — show or hide each line of the MISSION DETAILS block individually (mission type, difficulty, spawns, reputation, blueprints, resource signatures, and the `[BP]` title tag), so your mission descriptions carry only the data you care about. **Resource Signatures** adds a breakdown to Recco Battaglia scan/mining contracts listing each targeted ore's full RS value progression, separate from the mission-title `[RS ####]` tag and the ore-name annotation above.
 - Click **Generate Enhancements** to extract DataForge data from `Data.p4k` and rebuild the enhancement INI files. Declarative patches under `patches/` are re-applied idempotently on every regen so known CIG data bugs stay fixed without waiting for a game patch.
 
 ## Blueprint Tracker Tab

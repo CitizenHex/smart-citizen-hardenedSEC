@@ -250,6 +250,14 @@
       "ht": "Masquer les inchangés",
       "at": "Masquer les inchangés"
     },
+    "ship_vehicle_names_only": {
+      "ht": "",
+      "at": "Noms de vaisseaux et véhicules uniquement"
+    },
+    "ship_vehicle_names_only_tooltip": {
+      "ht": "",
+      "at": "Afficher uniquement les lignes de noms de vaisseaux et de véhicules, en masquant tout le reste, y compris les descriptions de vaisseaux et toutes les autres catégories. Ne laisse que les lignes auxquelles s'appliquent les favoris et l'ordre de tri ASOP."
+    },
     "favorites_only": {
       "ht": "★ Favoris uniquement",
       "at": "★ Favoris uniquement"
@@ -801,6 +809,30 @@
     "language_source_placeholder": {
       "ht": "",
       "at": "https://…/global.ini"
+    },
+    "backup_group": {
+      "ht": "",
+      "at": "Sauvegarde des paramètres"
+    },
+    "backup_desc": {
+      "ht": "",
+      "at": "Enregistrez tous vos paramètres (préférences, configurations d'étiquettes, votre dossier Star Citizen et vos modifications de texte personnalisées pour chaque canal) dans un seul petit fichier de sauvegarde. Importez-le sur un nouveau PC, après une extraction portable fraîche, ou pour annuler une mauvaise configuration. Les sauvegardes fonctionnent entre les versions de Smart Citizen. Les caches du jeu ne sont pas inclus ; ils se reconstruisent automatiquement à partir de vos fichiers de jeu."
+    },
+    "export_settings_btn": {
+      "ht": "",
+      "at": "Exporter les paramètres..."
+    },
+    "export_settings_tooltip": {
+      "ht": "",
+      "at": "Enregistrez vos préférences, votre dossier Star Citizen et vos modifications de texte personnalisées dans un petit fichier zip de sauvegarde (quelques Ko). Conservez-le n'importe où (drive cloud, clé USB) et importez-le plus tard, sur n'importe quelle version de Smart Citizen, pour restaurer vos paramètres."
+    },
+    "import_settings_btn": {
+      "ht": "",
+      "at": "Importer les paramètres..."
+    },
+    "import_settings_tooltip": {
+      "ht": "",
+      "at": "Restaurez un fichier de sauvegarde des paramètres créé par n'importe quelle version de Smart Citizen. Vos fichiers user.ini actuels sont d'abord sauvegardés, votre dossier Star Citizen est restauré (ou détecté automatiquement si le chemin de la sauvegarde n'est pas sur ce PC), et Smart Citizen redémarre avec les paramètres importés."
     }
   },
   "enhancements": {
@@ -1004,6 +1036,10 @@
       "ht": "",
       "at": "Renommer les variantes de vaisseau exec-hangar (PYX) et Wikelo (WIK) pour inclure un suffixe les distinguant de la version standard du magasin de pledge (ex. « Anvil F8C Lightning PYX »). Prend effet à la prochaine génération des enrichissements."
     },
+    "rs_ore_name_annotations_tooltip": {
+      "ht": "",
+      "at": "Ajoute la Signature de Ressource de base de chaque minerai à son propre nom affiché (ex. « Aluminium (RS 4285) »), afin qu'elle apparaisse partout où le jeu affiche ce nom -- y compris le suivi de mission. Indépendant de Signatures de Ressources sous Champs des détails de mission. Prend effet à la prochaine génération des enrichissements."
+    },
     "apply_categories_tooltip": {
       "ht": "",
       "at": "Enregistrer la sélection des catégories. Les catégories décochées seront désactivées."
@@ -1128,6 +1164,10 @@
       "ht": "",
       "at": "Pilote Ace"
     },
+    "mission_field_resource_signatures": {
+      "ht": "",
+      "at": "Signatures de Ressources"
+    },
     "mission_detail_fields_note": {
       "ht": "",
       "at": "Les champs décochés sont omis des descriptions de mission. Prend effet au prochain « Générer les enrichissements »."
@@ -1139,6 +1179,10 @@
     "standardize_ship_names_cb": {
       "ht": "",
       "at": "Uniformiser les noms des vaisseaux gagnables"
+    },
+    "rs_ore_name_annotations_cb": {
+      "ht": "",
+      "at": "Afficher les Signatures de Ressources (RS) à côté des noms de minerais"
     },
     "mission_labels_group": {
       "ht": "",
@@ -2175,6 +2219,10 @@
     "manifest_missing": {
       "ht": "",
       "at": "SC {channel} (manifeste manquant)"
+    },
+    "settings_exported": {
+      "ht": "",
+      "at": "Sauvegarde des parametres exportee"
     }
   },
   "import_flow": {
@@ -2455,6 +2503,10 @@
     "extraction_error_title": {
       "ht": "",
       "at": "Erreur d'extraction"
+    },
+    "p4k_locked": {
+      "ht": "",
+      "at": ""
     }
   },
   "apply": {
@@ -2723,6 +2775,120 @@
         "ht": "",
         "at": "Marquez les plans que vous possédez. Cherchez dans la liste de gauche par nom ou par mission, ou affinez par Type, Classe, Taille et Grade de composant, puis utilisez les flèches pour déplacer des éléments vers votre liste de possédés. Les plans possédés reçoivent une étiquette [Owned] partout où ils apparaissent dans les récompenses potentielles d'une mission, pour voir d'un coup d'œil ce qui vaut la peine d'être chassé."
       }
+    }
+  },
+  "settings_backup": {
+    "export_dialog_title": {
+      "ht": "",
+      "at": "Exporter la sauvegarde des paramètres"
+    },
+    "export_done_title": {
+      "ht": "",
+      "at": "Paramètres exportés"
+    },
+    "export_done_body": {
+      "ht": "",
+      "at": "Vos paramètres ont été enregistrés dans :\n{path}\n\nInclus : {n_settings} paramètres et modifications de texte personnalisées pour : {channels}.\n\nConservez ce fichier n'importe où, il est petit. Utilisez Importer les paramètres pour le restaurer sur un nouveau PC ou après être passé à une nouvelle version portable."
+    },
+    "export_failed_title": {
+      "ht": "",
+      "at": "Échec de l'exportation"
+    },
+    "export_failed_body": {
+      "ht": "",
+      "at": "Impossible d'écrire le fichier zip de sauvegarde.\n\n{error_type} : {error}"
+    },
+    "import_dialog_title": {
+      "ht": "",
+      "at": "Importer la sauvegarde des paramètres"
+    },
+    "import_confirm_title": {
+      "ht": "",
+      "at": "Importer ces paramètres ?"
+    },
+    "import_confirm_body": {
+      "ht": "",
+      "at": "Sauvegarde créée avec Smart Citizen v{version} le {when}.\n\nElle contient {n_settings} paramètres et modifications de texte pour : {channels}.\n\nL'importation superpose ces données à vos paramètres actuels et remplace user.ini pour les canaux listés (vos fichiers user.ini actuels sont d'abord sauvegardés, donc c'est réversible via Restaurer user.ini). Continuer ?"
+    },
+    "import_done_title": {
+      "ht": "",
+      "at": "Paramètres importés"
+    },
+    "import_done_body_detected": {
+      "ht": "",
+      "at": "{applied} paramètres et modifications de texte importés pour : {channels}.\n\nLe dossier Star Citizen de la sauvegarde n'est pas sur ce PC, il a donc été détecté automatiquement à la place :\n{root}\n\nSmart Citizen doit redémarrer pour charger vos paramètres importés. Après le redémarrage, il proposera de régénérer et d'appliquer vos améliorations."
+    },
+    "import_done_body_no_install": {
+      "ht": "",
+      "at": "{applied} paramètres et modifications de texte importés pour : {channels}.\n\nAucune installation de Star Citizen n'a été trouvée sur ce PC ; définissez-la dans l'onglet Configuration après le redémarrage.\n\nSmart Citizen doit redémarrer pour charger vos paramètres importés."
+    },
+    "import_done_body_restored": {
+      "ht": "",
+      "at": "{applied} paramètres et modifications de texte importés pour : {channels}.\n\nVotre dossier Star Citizen a été restauré depuis la sauvegarde :\n{root}\n\nSmart Citizen doit redémarrer pour charger vos paramètres importés. Après le redémarrage, il proposera de régénérer et d'appliquer vos améliorations."
+    },
+    "import_failed_title": {
+      "ht": "",
+      "at": "Échec de l'importation"
+    },
+    "import_failed_body": {
+      "ht": "",
+      "at": "Impossible d'écrire les modifications importées.\n\n{error_type} : {error}\n\nAucun paramètre n'a été modifié."
+    },
+    "import_invalid_title": {
+      "ht": "",
+      "at": "Ce n'est pas une sauvegarde de paramètres"
+    },
+    "import_invalid_body": {
+      "ht": "",
+      "at": "Ce fichier n'a pas pu être importé :\n\n{error}"
+    },
+    "no_channels": {
+      "ht": "",
+      "at": "aucun"
+    },
+    "post_import_apply_title": {
+      "ht": "",
+      "at": "Presque terminé : appliquer à votre jeu ?"
+    },
+    "post_import_apply_body": {
+      "ht": "",
+      "at": "Vos paramètres sont importés. La dernière étape consiste à construire vos améliorations à partir des fichiers de jeu de ce PC et à les écrire dans le jeu.\n\nLes sauvegardes stockent vos paramètres, pas le texte de jeu généré, donc cela doit être fait une fois sur chaque nouveau PC. Cela prend généralement quelques minutes, un peu plus longtemps la première fois, le temps que vos fichiers de jeu soient décompressés.\n\nVous pouvez aussi le faire plus tard avec le bouton Appliquer les améliorations."
+    },
+    "post_import_apply_now_btn": {
+      "ht": "",
+      "at": "Appliquer maintenant"
+    },
+    "post_import_apply_later_btn": {
+      "ht": "",
+      "at": "Plus tard"
+    },
+    "post_import_no_install_title": {
+      "ht": "",
+      "at": "Définissez votre dossier Star Citizen"
+    },
+    "post_import_no_install_body": {
+      "ht": "",
+      "at": "Vos paramètres importés sont chargés, mais aucune installation de Star Citizen n'est encore configurée. Définissez le dossier d'installation dans l'onglet Configuration, puis utilisez Appliquer les améliorations pour mettre vos personnalisations dans le jeu."
+    },
+    "relaunch_failed_title": {
+      "ht": "",
+      "at": "Échec du redémarrage"
+    },
+    "relaunch_failed_body": {
+      "ht": "",
+      "at": "Smart Citizen n'a pas pu se relancer. Veuillez le redémarrer manuellement ; vos paramètres importés se chargeront alors."
+    },
+    "restart_now_btn": {
+      "ht": "",
+      "at": "Redémarrer maintenant"
+    },
+    "restart_later_btn": {
+      "ht": "",
+      "at": "Redémarrer plus tard"
+    },
+    "zip_filter": {
+      "ht": "",
+      "at": "Sauvegarde des paramètres (*.zip)"
     }
   }
 }
