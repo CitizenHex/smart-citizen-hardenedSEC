@@ -384,10 +384,12 @@ class AppSettings:
     # mission text, which always shows the tag regardless of this setting.
     BLUEPRINT_SHOW_TAGS = "blueprints/show_tags"
     # #268: whether "Scan Logs for Owned Blueprints" also scans whichever of
-    # LIVE/HOTFIX isn't the active channel. Off by default since it's slower
-    # (a second channel's full log history to read). Never covers PTU/EPTU/
-    # TECH-PREVIEW — those are separate test builds with their own
-    # progression, not the same account/blueprint history as LIVE/HOTFIX.
+    # LIVE/HOTFIX isn't the active channel. Enabled by default -- most
+    # players with a HOTFIX-era account run both channels, and scanning the
+    # inactive one too is what makes the Owned set actually complete. Never
+    # covers PTU/EPTU/TECH-PREVIEW -- those are separate test builds with
+    # their own progression, not the same account/blueprint history as
+    # LIVE/HOTFIX.
     BLUEPRINT_SCAN_OTHER_CHANNELS = "blueprints/scan_other_channels"
 
     # Settings keys - Data sources (new)
