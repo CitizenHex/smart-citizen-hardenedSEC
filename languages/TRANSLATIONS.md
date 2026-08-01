@@ -129,9 +129,11 @@ them against the new source.
   (#152) landed after these three languages' initial doc translation work
   (the #248 backfill above covers `HELP.md`/`ABOUT.md`/`LEGAL.md` only), so
   `get_localized_doc_path` had been silently falling back to the English FAQ
-  tab for all three ever since. Every language added after #152 (italian,
-  chinese, japanese) shipped a translated `FAQ.md` from day one; this closes
-  the gap for the three that predate it. Styled on each file's existing
+  tab for all three ever since. italian and chinese both shipped a
+  translated `FAQ.md` from day one; this closes the gap for the three
+  languages that predate #152 (japanese also missed it, tracked and fixed
+  separately since it wasn't part of #306's original scope). Styled on each
+  file's existing
   human `HELP.md`/`ABOUT.md` terminology (french: "Effacer la localisation"
   / "Restaurer une sauvegarde"; spanish: "Limpiar localización" / "Restaurar
   copia"; portuguese_br: "Limpar Localização" / "Restaurar Backup") and
