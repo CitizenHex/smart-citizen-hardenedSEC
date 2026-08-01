@@ -12,11 +12,11 @@ the tab housing it changed, not the strings' meaning).
 The available universe is fed in by MainWindow via ``set_blueprint_items``
 (it is computed from the loaded mission strings, which this tab can't see).
 """
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QPushButton, QScrollArea, QSizePolicy,
-    QVBoxLayout, QWidget,
+    QAbstractItemView, QCheckBox, QFileDialog, QFrame, QGridLayout,
+    QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+    QMessageBox, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from src.gui.enhancements_tab import _NoScrollComboBox
@@ -39,6 +39,78 @@ class _NoWheelComboBox(_NoScrollComboBox):
 
     def wheelEvent(self, event):  # noqa: N802 (Qt override)
         event.ignore()
+
+
+def _relabel_details_button(box: QMessageBox, shown_label: str, hidden_label: str) -> None:
+    """Rename a QMessageBox's auto-added "Show Details.../Hide Details..."
+    button to *shown_label* while collapsed and *hidden_label* while
+    expanded.
+
+    setDetailedText() gives every such button the generic Qt-default label,
+    which doesn't say what the details actually are (#234 follow-up: a user
+    had to click through to discover "Show Details..." meant the skipped-
+    blueprint list). Qt has no direct API to set that text at creation time,
+    so this finds it by its ActionRole (the role Qt assigns the details
+    toggle specifically, distinct from OK/Yes/No) and relabels it after the
+    box is otherwise fully configured.
+
+    QMessageBox computes its layout size around the *original* "Show
+    Details..." button before this runs, so a longer replacement label
+    (confirmed live: "Show Added Blueprints" got clipped to "...w Added
+    Blueprints") doesn't widen the dialog on its own. Relying purely on
+    layout re-invalidation is timing-sensitive (QMessageBox isn't fully
+    laid out until it's actually shown), so this also sets an explicit
+    minimum width on the button itself from its own font metrics, sized for
+    the longer of the two labels -- a deterministic floor that doesn't
+    depend on when Qt gets around to recomputing the rest of the layout.
+    Needed for every language here, not just English: several translations
+    (e.g. German "Übersprungene Baupläne anzeigen") run longer still.
+
+    Also confirmed live: Qt resets this button's text to its own "Show
+    Details.../Hide Details..." on every click (it's the same button
+    toggling between expanded/collapsed, and Qt's internal handler rewrites
+    the label each time), so a one-time setText() here gets clobbered the
+    moment the user clicks it -- and re-applying it synchronously on
+    `toggled` still lost the race (confirmed live: label reverted anyway),
+    meaning Qt's own reset runs after ours within the same click, not
+    before. QTimer.singleShot(0, ...) defers the re-apply to the next
+    event-loop iteration, strictly after all of the click's synchronous
+    handling (Qt's included) has finished, so it always has the last word
+    regardless of internal ordering.
+
+    A first pass picked between the two labels via `btn.isChecked()`, which
+    left the button stuck on the shown label forever (confirmed live) --
+    Qt's details button is a plain QPushButton, not checkable, so
+    isChecked() always returns False no matter how many times it's clicked.
+    Tracking the expanded/collapsed state ourselves (a plain bool flipped
+    once per click, independent of any Qt button state) fixes that, since
+    each click here corresponds 1:1 with Qt's own internal visibility
+    toggle.
+    """
+    for btn in box.buttons():
+        if box.buttonRole(btn) == QMessageBox.ButtonRole.ActionRole:
+            fm = btn.fontMetrics()
+            needed_width = max(
+                fm.horizontalAdvance(shown_label), fm.horizontalAdvance(hidden_label)
+            ) + 24
+            btn.setMinimumWidth(needed_width)
+
+            state = {"expanded": False}
+
+            def _apply_label(btn=btn, state=state, shown_label=shown_label, hidden_label=hidden_label):
+                btn.setText(hidden_label if state["expanded"] else shown_label)
+
+            def _on_clicked(_checked=False, state=state, cb=_apply_label):
+                state["expanded"] = not state["expanded"]
+                QTimer.singleShot(0, cb)
+
+            btn.clicked.connect(_on_clicked)
+            _apply_label()
+            layout = box.layout()
+            if layout is not None:
+                layout.invalidate()
+                layout.activate()
+            box.adjustSize()
 
 
 class BlueprintTrackerTab(QWidget):
@@ -86,28 +158,40 @@ class BlueprintTrackerTab(QWidget):
         self._blueprints_desc_label.setWordWrap(True)
         layout.addWidget(self._blueprints_desc_label)
 
-        # Always visible regardless of the empty-state gate below — scanning
+        # A 4-column grid rather than two independent rows so the bottom
+        # row's Export/Import buttons align exactly under Apply Owned Tags
+        # (equal column stretch on all 4 columns means Export == Import ==
+        # half of Apply Owned Tags each, and together they exactly span its
+        # width) -- a plain QHBoxLayout can't guarantee that column
+        # alignment across two separate rows the way a shared grid does.
+        #
+        # Row 0: Scan Logs (cols 0-1) | Apply Owned Tags (cols 2-3) -- always
+        # visible regardless of the empty-state gate below, since scanning
         # logs doesn't need mission data loaded, it reads the player's own
         # earned-blueprint history straight from Star Citizen's log files.
-        top_btn_row = QHBoxLayout()
+        # Row 1: scan-behavior checkboxes (cols 0-1, which channels to cover
+        # #268 and whether to ignore the watermark #308, both only affecting
+        # "Scan Logs for Owned Blueprints") | Export/Import the Owned set
+        # (#234, cols 2-3) -- secondary actions, smaller than the primary
+        # scan/apply buttons above them, sharing the row since neither
+        # checkbox nor export/import needs mission data loaded.
+        top_grid = QGridLayout()
+        for col in range(4):
+            top_grid.setColumnStretch(col, 1)
+
         self._scan_logs_btn = QPushButton(tr("blueprint_tracker.scan_logs_btn"))
         self._scan_logs_btn.setToolTip(tr("blueprint_tracker.scan_logs_tooltip"))
         self._scan_logs_btn.clicked.connect(self.scan_logs_requested.emit)
         self._scan_logs_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        top_btn_row.addWidget(self._scan_logs_btn, 1)
+        top_grid.addWidget(self._scan_logs_btn, 0, 0, 1, 2)
 
         self._apply_owned_btn = QPushButton(tr("blueprint_tracker.apply_owned_tag_btn"))
         self._apply_owned_btn.clicked.connect(self._on_apply_owned_clicked)
         self._apply_owned_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        top_btn_row.addWidget(self._apply_owned_btn, 1)
+        top_grid.addWidget(self._apply_owned_btn, 0, 2, 1, 2)
         self._set_owned_btn_dirty(False)
 
-        layout.addLayout(top_btn_row)
-
-        # Scan-behavior checkboxes, side by side: which channels to cover
-        # (#268), and whether to ignore the watermark and re-read everything
-        # (#308). Both only affect "Scan Logs for Owned Blueprints".
-        scan_checkboxes_row = QHBoxLayout()
+        checkboxes_row = QHBoxLayout()
 
         # #268: also scan whichever of LIVE/HOTFIX isn't the active channel
         # when the user clicks "Scan Logs for Owned Blueprints". Enabled by
@@ -127,7 +211,7 @@ class BlueprintTrackerTab(QWidget):
         self._scan_other_channels_checkbox.toggled.connect(
             AppSettings.set_scan_other_channels_enabled
         )
-        scan_checkboxes_row.addWidget(self._scan_other_channels_checkbox)
+        checkboxes_row.addWidget(self._scan_other_channels_checkbox)
 
         # #308: force a full rescan back to the scanner's epoch floor,
         # ignoring the saved watermark -- for the rare case a user's owned
@@ -143,10 +227,21 @@ class BlueprintTrackerTab(QWidget):
         self._force_rescan_checkbox.setToolTip(
             tr("blueprint_tracker.force_rescan_tooltip")
         )
-        scan_checkboxes_row.addWidget(self._force_rescan_checkbox)
-        scan_checkboxes_row.addStretch()
+        checkboxes_row.addWidget(self._force_rescan_checkbox)
+        checkboxes_row.addStretch()
+        top_grid.addLayout(checkboxes_row, 1, 0, 1, 2)
 
-        layout.addLayout(scan_checkboxes_row)
+        self._export_owned_btn = QPushButton(tr("blueprint_tracker.export_owned_btn"))
+        self._export_owned_btn.setToolTip(tr("blueprint_tracker.export_owned_tooltip"))
+        self._export_owned_btn.clicked.connect(self._export_owned_blueprints)
+        top_grid.addWidget(self._export_owned_btn, 1, 2)
+
+        self._import_owned_btn = QPushButton(tr("blueprint_tracker.import_owned_btn"))
+        self._import_owned_btn.setToolTip(tr("blueprint_tracker.import_owned_tooltip"))
+        self._import_owned_btn.clicked.connect(self._import_owned_blueprints)
+        top_grid.addWidget(self._import_owned_btn, 1, 3)
+
+        layout.addLayout(top_grid)
 
         # Shown instead of the lists when no blueprint items exist yet (mission
         # enhancements not generated) — the same precondition the stars had.
@@ -282,6 +377,10 @@ class BlueprintTrackerTab(QWidget):
         self._blueprints_desc_label.setText(tr("enhancements.blueprints_desc"))
         self._scan_logs_btn.setText(tr("blueprint_tracker.scan_logs_btn"))
         self._scan_logs_btn.setToolTip(tr("blueprint_tracker.scan_logs_tooltip"))
+        self._export_owned_btn.setText(tr("blueprint_tracker.export_owned_btn"))
+        self._export_owned_btn.setToolTip(tr("blueprint_tracker.export_owned_tooltip"))
+        self._import_owned_btn.setText(tr("blueprint_tracker.import_owned_btn"))
+        self._import_owned_btn.setToolTip(tr("blueprint_tracker.import_owned_tooltip"))
         self._scan_other_channels_checkbox.setText(
             tr("blueprint_tracker.scan_other_channels_checkbox")
         )
@@ -500,6 +599,168 @@ class BlueprintTrackerTab(QWidget):
         self._render_blueprint_lists()
         self.owned_items_changed.emit()
         self.mark_owned_dirty()
+
+    def _export_owned_blueprints(self) -> None:
+        """Export the Owned set to a JSON (SCMDB-shaped) or CSV file (#234).
+
+        Format is chosen via the save dialog's own filter dropdown -- same
+        pattern as Export Settings -- rather than a separate format-choice
+        dialog. Falls back to whichever filter is selected if the user
+        types a path with no/an unexpected extension.
+        """
+        from src.utils.blueprint_export import (
+            export_owned_blueprints_csv,
+            export_owned_blueprints_json,
+        )
+
+        owned = AppSettings.get_owned_items()
+        if not owned:
+            QMessageBox.information(
+                self,
+                tr("blueprint_tracker.export_nothing_title"),
+                tr("blueprint_tracker.export_nothing_body"),
+            )
+            return
+
+        path, selected_filter = QFileDialog.getSaveFileName(
+            self,
+            tr("blueprint_tracker.export_dialog_title"),
+            tr("blueprint_tracker.export_default_filename"),
+            f"{tr('blueprint_tracker.export_json_filter')};;"
+            f"{tr('blueprint_tracker.export_csv_filter')}",
+        )
+        if not path:
+            return
+
+        is_csv = path.lower().endswith(".csv") or (
+            not path.lower().endswith(".json")
+            and selected_filter == tr("blueprint_tracker.export_csv_filter")
+        )
+        if is_csv and not path.lower().endswith(".csv"):
+            path += ".csv"
+        elif not is_csv and not path.lower().endswith(".json"):
+            path += ".json"
+
+        content = (
+            export_owned_blueprints_csv(owned, self._blueprint_meta)
+            if is_csv
+            else export_owned_blueprints_json(owned, self._blueprint_meta)
+        )
+        try:
+            with open(path, "w", encoding="utf-8", newline="") as f:
+                f.write(content)
+        except OSError as e:
+            QMessageBox.critical(
+                self,
+                tr("blueprint_tracker.export_failed_title"),
+                tr("blueprint_tracker.export_failed_body",
+                   error_type=type(e).__name__, error=e),
+            )
+            return
+
+        done_body = (
+            tr("blueprint_tracker.export_done_singular", path=path) if len(owned) == 1
+            else tr("blueprint_tracker.export_done_plural", count=len(owned), path=path)
+        )
+        QMessageBox.information(
+            self,
+            tr("blueprint_tracker.export_done_title"),
+            done_body,
+        )
+
+    def _import_owned_blueprints(self) -> None:
+        """Import owned blueprints from a JSON or CSV file (#234).
+
+        Mirrors "Scan Logs for Owned Blueprints": no confirmation step,
+        matched names are applied immediately and the [Owned] tag is
+        auto-woven into the strings table the same way a log scan does, then
+        one summary reports what happened. Additive -- matched items are
+        unioned into the current Owned set, never replacing it, the same
+        "never un-owns anything" guarantee the arrow buttons and log scan
+        already give.
+        """
+        from src.utils.blueprint_export import (
+            InvalidImportFileError,
+            match_import_names,
+            parse_import_names,
+        )
+
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            tr("blueprint_tracker.import_dialog_title"),
+            "",
+            tr("blueprint_tracker.import_file_filter"),
+        )
+        if not path:
+            return
+
+        try:
+            imported_names = parse_import_names(path)
+        except InvalidImportFileError as e:
+            QMessageBox.critical(
+                self,
+                tr("blueprint_tracker.import_invalid_title"),
+                tr("blueprint_tracker.import_invalid_body", error=e),
+            )
+            return
+
+        matched, unmatched = match_import_names(imported_names, set(self._blueprint_meta))
+        skipped_list = "\n".join(sorted(unmatched, key=str.lower))
+        if not matched:
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Information)
+            box.setWindowTitle(tr("blueprint_tracker.import_dialog_title"))
+            box.setText(tr("blueprint_tracker.import_nothing_matched_body", count=len(unmatched)))
+            box.setDetailedText(skipped_list)
+            _relabel_details_button(
+                box,
+                tr("blueprint_tracker.show_skipped_btn"),
+                tr("blueprint_tracker.hide_skipped_btn"),
+            )
+            box.exec()
+            return
+
+        owned = AppSettings.get_owned_items()
+        # Count only genuinely new names -- matched includes items already
+        # owned, and the log-scan flow this mirrors subtracts them before
+        # reporting, so a re-import of the same file says "0 added", not
+        # the full file size.
+        new_names = matched - owned
+        if new_names:
+            owned.update(new_names)
+            AppSettings.set_owned_items(owned)
+            self._render_blueprint_lists()
+            self.owned_items_changed.emit()
+            # owned_items_changed already triggers MainWindow._recompute_owned()
+            # -- the same [Owned]-tag re-weave Apply Owned Tags performs -- so
+            # mark clean rather than dirty. Mirrors the log-scan flow's #296
+            # fix: re-dirtying after work that just happened would leave the
+            # button red right after this summary told the user its tags were
+            # already applied.
+            self.mark_owned_clean()
+
+        added_text = (
+            tr("blueprint_tracker.owned_added_singular") if len(new_names) == 1
+            else tr("blueprint_tracker.owned_added_plural", count=len(new_names))
+        )
+        body_parts = [added_text]
+        if unmatched:
+            body_parts.append(tr("blueprint_tracker.import_skipped_note", skipped=len(unmatched)))
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setWindowTitle(tr("blueprint_tracker.import_dialog_title"))
+        # Own line rather than run together in one paragraph -- the skipped
+        # note is a distinct, secondary fact from the main result.
+        box.setText("\n\n".join(body_parts))
+        if unmatched:
+            box.setDetailedText(skipped_list)
+            _relabel_details_button(
+                box,
+                tr("blueprint_tracker.show_skipped_btn"),
+                tr("blueprint_tracker.hide_skipped_btn"),
+            )
+        box.exec()
 
     # ── Apply Owned Tags dirty-tracking ──────────────────────────────────────
     # Mirrors the Enhancements tab's Generate Enhancements / Save Tag Changes
