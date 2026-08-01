@@ -232,17 +232,71 @@ _BULLET_NAME_ALIASES: dict[str, str] = {
     "Nozzle Fuelgiver Misc Nozzlestandard": "RN-7s",
 }
 
-# Fuel nozzle Name-key conventions (#266 follow-up): nozzles ship under two
-# different manufacturer-specific prefixes (MISC's item_fuelnozzle_* vs
-# Greycat/Shubin's Nozzle_FuelGiver_*), neither matching the item_Name /
-# vehicle_Name convention every other component uses. Without these, Pass 1
-# never recognised a nozzle's key as a Name entry at all, so the _key_slug
-# fallback and the explicit aliases above had nothing to resolve against --
-# the bullet stayed as a separate untagged/garbled entry instead of joining
-# the real item.
+# Prefixes CIG strips off a blueprint XML's filename before the descriptive
+# part. Shared with generate_enhancements_ini.py's _name_from_blueprint_filename
+# (imported from here, same deferred-import pattern as tag_builder/win_paths)
+# so the two don't hand-maintain separate copies of the same transform.
+RAW_BLUEPRINT_FILENAME_PREFIXES = ("bp_craft_", "bp_rewards_", "bp_")
+
+
+def strip_raw_blueprint_filename_prefix(stem: str) -> "tuple[str, bool]":
+    """Strip a known bp_* filename prefix (case-insensitively) from *stem*.
+
+    Returns ``(remainder, True)`` if a prefix matched, or ``(stem, False)``
+    unchanged if it didn't -- deliberately leaves "no prefix matched" for the
+    caller to interpret, since the two current callers disagree on what that
+    means: :func:`_raw_blueprint_filename_slug` below takes it as "this bullet
+    isn't shaped like a raw blueprint filename at all," while
+    generate_enhancements_ini.py's ``_name_from_blueprint_filename`` still
+    transforms the untouched stem (its caller already knows it's a genuine
+    blueprint XML path, so there's no "is this one at all" question to ask).
+    """
+    lowered = stem.lower()
+    for prefix in RAW_BLUEPRINT_FILENAME_PREFIXES:
+        if lowered.startswith(prefix):
+            return stem[len(prefix):], True
+    return stem, False
+
+
+def _raw_blueprint_filename_slug(raw_nm: str) -> "str | None":
+    """Recover a real display name from a raw blueprint-XML-filename-shaped
+    bullet, or None if *raw_nm* doesn't look like one.
+
+    Some mission text ships the raw blueprint filename stem verbatim instead
+    of a resolved display name -- confirmed via a live "URGENT REFUEL
+    REQUEST" mission body listing "bp_craft_nozzle_fuelgiver_grin_
+    nozzleverysecure" for what should be "Harkin". This is a different root
+    cause than _key_slug's garbled-KEY bug above: the bullet here is the
+    blueprint's own filename, not a de-slugified loc key, so it needs its
+    own prefix-strip + title-case transform before _BULLET_NAME_ALIASES can
+    recognize it -- once transformed it lands on the exact same alias-table
+    entries the key-slug bug already uses (both bugs happen to produce the
+    same title-cased string for the fuel-nozzle family), so no new aliases
+    are needed, just the extra normalization step to reach them.
+    """
+    stem, matched = strip_raw_blueprint_filename_prefix(raw_nm)
+    if not matched:
+        return None
+    return stem.replace("_", " ").replace("-", " ").title()
+
+
+# Extra Name-key conventions for #266's bare-type components, which don't
+# follow the item_Name<code> / vehicle_Name prefix every other component
+# uses. Fuel nozzles ship under two different manufacturer-specific
+# prefixes (MISC's item_fuelnozzle_* vs Greycat/Shubin's
+# Nozzle_FuelGiver_*); mining lasers share one prefix across all
+# manufacturers but carry no "_Name" marker at all -- the bare key IS the
+# name entry. Without these, Pass 1 never recognised these keys as Name
+# entries at all, so the _key_slug fallback and the explicit aliases above
+# had nothing to resolve against, and the Blueprint Tracker's tagged_name
+# fell back to the untagged bare name even though the String Editor showed
+# the real tag correctly.
+# Extend this alongside _BARE_TYPE_NAMES in generate_enhancements_ini.py
+# whenever a new bare-type category ships (fuel tank, mining module, ...).
 _EXTRA_NAME_KEY_PREFIXES = (
     "item_fuelnozzle_",
     "nozzle_fuelgiver_",
+    "item_mining_mininglaser_",
 )
 
 # The bracketed component tag, e.g. "[MIL-S3-B]" or the user-reconfigured
@@ -474,16 +528,23 @@ def build_blueprint_metadata(entries) -> dict:
     # Pass 2: gather each blueprint item's missions, then attach type + attrs.
     # A bullet name that doesn't match any real item directly is checked
     # against the known one-off aliases, then against the key-slug fallback
-    # (see _BULLET_NAME_ALIASES / _key_slug) before falling back to itself —
-    # so a mismatched bullet still joins the real, tagged item instead of
-    # creating a separate untagged "Other" entry.
+    # (see _BULLET_NAME_ALIASES / _key_slug), then against the raw-filename
+    # fallback (see _raw_blueprint_filename_slug) before falling back to
+    # itself, so a mismatched bullet still joins the real, tagged item
+    # instead of creating a separate untagged "Other" entry.
     missions_by_name: dict = {}
     for pair, val in bp_descs:
         title = titles.get(pair) if pair else None
         for raw_nm in extract_bp_item_names(val):
-            nm = raw_nm if raw_nm in name_to_value else (
-                _BULLET_NAME_ALIASES.get(raw_nm) or keyslug_to_name.get(raw_nm, raw_nm)
-            )
+            if raw_nm in name_to_value:
+                nm = raw_nm
+            elif raw_nm in _BULLET_NAME_ALIASES:
+                nm = _BULLET_NAME_ALIASES[raw_nm]
+            elif raw_nm in keyslug_to_name:
+                nm = keyslug_to_name[raw_nm]
+            else:
+                slug = _raw_blueprint_filename_slug(raw_nm)
+                nm = _BULLET_NAME_ALIASES.get(slug, raw_nm) if slug else raw_nm
             bucket = missions_by_name.setdefault(nm, set())
             if title:
                 bucket.add(title)

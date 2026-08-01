@@ -46,6 +46,7 @@ SC_LANGUAGE_IDS: dict[str, str] = {
     "japanese":      "japanese_(japan)",
     "chinese":       "chinese_(simplified)",
     "italian":       "italian_(italy)",
+    "german":        "german_(germany)",
 }
 
 
@@ -190,7 +191,7 @@ class AppSettings:
     # MISSION_TITLE_TAG_KEYS below with the other title-only toggles.
     MISSION_FIELD_KEYS = (
         "mission_type", "difficulty", "spawns", "reputation",
-        "blueprints", "ace",
+        "blueprints", "ace", "resource_signatures",
     )
     _MISSION_FIELD_SETTING = {
         "mission_type":  "mission_field/mission_type",
@@ -201,6 +202,15 @@ class AppSettings:
         # #158, split from the title tag in 2.2.0 (see MISSION_TITLE_TAG_KEYS):
         # this key now controls ONLY the "Ace Pilot: Yes" body line.
         "ace":           "mission_field/ace",
+        # #331: Recco Battaglia's Scan/Mining contracts already carry a flat
+        # [RS ####] tag on the mission TITLE (MISSION_TITLE_TAG_KEYS' "rs"),
+        # independent of this key. This one gates a fuller "Resource
+        # Signatures:" breakdown in the DETAILS body -- one line per targeted
+        # ore with its full RS value progression, not just the title's single
+        # flattened number. Separate from RS_ORE_NAME_ANNOTATIONS below,
+        # which patches the ore's own display name instead of adding a body
+        # line -- a user can have either, both, or neither.
+        "resource_signatures": "mission_field/resource_signatures",
     }
 
     # Mission TITLE tags (2.2.0, "General Tags" section): independent of the
@@ -371,6 +381,21 @@ class AppSettings:
     TAG_ANNOTATE_MISSION_DESCS = "tag_builder/annotate_mission_descs"
     STATS_PREPEND = "stats_prepend"  # #153: stats block above the description
     STANDARDIZE_EARNABLE_SHIP_NAMES = "standardize_earnable_ship_names"
+    # #331: appends " (RS ####)" to every mineable ore's own display name
+    # (mineabletype_primary_<ore>), so Recco Battaglia's base resource
+    # signature shows up everywhere the game renders that ore's name --
+    # including the top-right mission tracker, which is what users actually
+    # asked for. Default on, matching the established MISSION_FIELD_KEYS /
+    # MISSION_TITLE_TAG_KEYS toggles -- the earlier attempt that pulled this
+    # feature entirely was a call about bundling it into one all-or-nothing
+    # toggle with the DETAILS breakdown, not about the ore-name annotation
+    # being undesirable by default now that it's independently toggleable.
+    # Independent of the "resource_signatures" Mission Detail Field above
+    # (the DETAILS-body breakdown) -- see
+    # scripts/generate_enhancements_ini.py's _build_mineable_rs_name_overrides
+    # for the full history (shipped bundled with the breakdown, then pulled
+    # for being too broad, now split into its own toggle).
+    RS_ORE_NAME_ANNOTATIONS = "enhancements/rs_ore_name_annotations"
     OWNED_ITEMS = "owned_items"      # #157: blueprint items the user owns (JSON list of names)
     # #222: newest "Received Blueprint" log event a BP Scan has already
     # consumed, so a re-scan only imports genuinely new blueprints. Per-channel
@@ -383,6 +408,55 @@ class AppSettings:
     # display; this only affects the app's own list, never the in-game
     # mission text, which always shows the tag regardless of this setting.
     BLUEPRINT_SHOW_TAGS = "blueprints/show_tags"
+    # #268: whether "Scan Logs for Owned Blueprints" also scans whichever of
+    # LIVE/HOTFIX isn't the active channel. Enabled by default -- most
+    # players with a HOTFIX-era account run both channels, and scanning the
+    # inactive one too is what makes the Owned set actually complete. Never
+    # covers PTU/EPTU/TECH-PREVIEW -- those are separate test builds with
+    # their own progression, not the same account/blueprint history as
+    # LIVE/HOTFIX.
+    BLUEPRINT_SCAN_OTHER_CHANNELS = "blueprints/scan_other_channels"
+
+    # Set at Import Settings time so the NEXT launch can prompt "your imported
+    # settings need enhancements regenerated + applied" once the app is fully
+    # up (the import itself ends in a restart, so the freshly-imported
+    # settings are what the pipeline reads). Cleared as soon as the prompt is
+    # shown — one-shot, never lingers.
+    POST_IMPORT_APPLY_PENDING = "post_import/apply_pending"
+
+    # Keys that never travel in an Export Settings backup: the data-root and
+    # cache overrides (pointing them at a drive that doesn't exist on the
+    # target machine would strand every path derived from them), window
+    # placement (QByteArray, monitor-specific), and legacy path keys. Keys
+    # starting with "_" (one-shot migration markers) are excluded by rule in
+    # is_profile_excluded_key, as are local (non-URL) data_sources/*/path
+    # values. The same filter runs on export AND import — defense in depth
+    # against hand-edited or older backup files.
+    #
+    # NOT excluded (deliberately): sc_install_root / game_install_path. The
+    # Star Citizen folder is the single most tedious thing to re-pick, and
+    # for the common restore (same PC, fresh portable unzip) it's already
+    # correct. It's validated on import by reconcile_imported_install_path()
+    # — kept when the folder really exists here, dropped in favour of
+    # auto-detection when it doesn't — so a backup from another machine
+    # can't strand the user on a dead path.
+    PROFILE_EXCLUDE_KEYS = frozenset({
+        "user_data_dir",
+        "UserDataDir",
+        "cache_dir",
+        "pending_cache_cleanup",
+        "window_geometry",
+        "window_state",
+        "base_global_path",
+        "vehicles_path",
+        "last_overrides_path",
+        POST_IMPORT_APPLY_PENDING,
+    })
+
+    # reconcile_imported_install_path() outcomes.
+    INSTALL_PATH_RESTORED = "restored"     # backup's path is valid here
+    INSTALL_PATH_REDETECTED = "redetected"  # backup's path was bad; found another
+    INSTALL_PATH_NONE = "none"             # nothing resolved on this machine
 
     # Settings keys - Data sources (new)
     # Prefix: data_sources/{source_name}/
@@ -943,11 +1017,11 @@ class AppSettings:
         """Insert element kinds added in a newer version that the stored config
         doesn't have yet (e.g. ``type`` added to components in 1.4.2, ``usage``
         added to commodities in 2.1). New elements inherit the default config's
-        enabled state (usually disabled so existing output is unchanged; the
-        commodity ``usage`` element is on by default, so upgraded users pick it
-        up too), and are inserted at their canonical position in
-        ``CATEGORY_ELEMENT_KINDS`` (not appended) so an element added in the
-        middle of the order — like ``usage`` between ``label`` and
+        enabled state (per-category, e.g. commodities' three elements are all
+        disabled by default as of #325, while components/missiles/ship_weapons
+        default their own elements enabled), and are inserted at their
+        canonical position in ``CATEGORY_ELEMENT_KINDS`` (not appended) so an
+        element added in the middle of the order — like ``usage`` between ``label`` and
         ``collection`` — renders in the right place for upgraded users too."""
         from src.utils.tag_builder import (
             CATEGORY_ELEMENT_KINDS, DEFAULT_TAG_CONFIGS, DEFAULT_KIND_MAPPINGS,
@@ -1049,6 +1123,22 @@ class AppSettings:
         AppSettings.settings().sync()
 
     @staticmethod
+    def get_rs_ore_name_annotations() -> bool:
+        """#331: whether mineable ore display names are annotated with their
+        base Resource Signature value (" (RS ####)"). Default on -- see
+        RS_ORE_NAME_ANNOTATIONS for why."""
+        return bool(AppSettings.settings().value(
+            AppSettings.RS_ORE_NAME_ANNOTATIONS, True, type=bool
+        ))
+
+    @staticmethod
+    def set_rs_ore_name_annotations(enabled: bool) -> None:
+        AppSettings.settings().setValue(
+            AppSettings.RS_ORE_NAME_ANNOTATIONS, bool(enabled)
+        )
+        AppSettings.settings().sync()
+
+    @staticmethod
     def get_owned_items() -> set:
         """Return the set of owned blueprint item names (#157).
 
@@ -1107,14 +1197,22 @@ class AppSettings:
         return new_state
 
     @staticmethod
-    def _blueprint_watermark_key() -> str:
-        """Per-channel storage key for the BP Scan watermark (#222)."""
+    def _blueprint_watermark_key(channel: "str | None" = None) -> str:
+        """Per-channel storage key for the BP Scan watermark (#222).
+
+        *channel* targets a specific channel's watermark without needing to
+        flip ``active_channel`` (#268's multi-channel scan reads/writes
+        LIVE's and HOTFIX's watermarks independently in the same pass, and
+        switching active_channel mid-scan would trigger its own unrelated
+        side effects). Defaults to the active channel, unchanged from before.
+        """
         return (f"{AppSettings.BLUEPRINT_LOG_WATERMARK}/"
-                f"{AppSettings.get_active_channel()}")
+                f"{channel or AppSettings.get_active_channel()}")
 
     @staticmethod
-    def get_blueprint_log_watermark():
-        """Return the active channel's BP Scan watermark, or ``None`` (#222).
+    def get_blueprint_log_watermark(channel: "str | None" = None):
+        """Return *channel*'s (default: active channel) BP Scan watermark, or
+        ``None`` (#222).
 
         The watermark is the newest received-blueprint event a prior scan
         consumed. Returns a timezone-aware ``datetime`` (the stored ISO string
@@ -1123,7 +1221,7 @@ class AppSettings:
         """
         from datetime import datetime
         raw = AppSettings.settings().value(
-            AppSettings._blueprint_watermark_key(), "", type=str
+            AppSettings._blueprint_watermark_key(channel), "", type=str
         )
         if not raw:
             return None
@@ -1133,14 +1231,34 @@ class AppSettings:
             return None
 
     @staticmethod
-    def set_blueprint_log_watermark(when) -> None:
-        """Persist the active channel's BP Scan watermark (#222).
+    def set_blueprint_log_watermark(when, channel: "str | None" = None) -> None:
+        """Persist *channel*'s (default: active channel) BP Scan watermark (#222).
 
         *when* is a ``datetime`` (the scanner emits timezone-aware UTC); stored
         as its ISO-8601 string so it round-trips through both settings backends.
         """
         AppSettings.settings().setValue(
-            AppSettings._blueprint_watermark_key(), when.isoformat()
+            AppSettings._blueprint_watermark_key(channel), when.isoformat()
+        )
+        AppSettings.settings().sync()
+
+    @staticmethod
+    def get_scan_other_channels_enabled() -> bool:
+        """Whether "Scan Logs for Owned Blueprints" also scans whichever of
+        LIVE/HOTFIX isn't the active channel (#268). Default True — most
+        players with a HOTFIX-era account run both channels, and scanning
+        the inactive one too is what makes the Owned set actually complete;
+        opting in after the fact means missing blueprints already earned
+        there before the user thinks to enable it."""
+        return bool(AppSettings.settings().value(
+            AppSettings.BLUEPRINT_SCAN_OTHER_CHANNELS, True, type=bool
+        ))
+
+    @staticmethod
+    def set_scan_other_channels_enabled(enabled: bool) -> None:
+        """Persist the multi-channel BP Scan checkbox state (#268)."""
+        AppSettings.settings().setValue(
+            AppSettings.BLUEPRINT_SCAN_OTHER_CHANNELS, bool(enabled)
         )
         AppSettings.settings().sync()
 
@@ -2801,3 +2919,191 @@ class AppSettings:
                 logger.info(f"Created empty user.ini: {user_ini_path}")
             except Exception as e:
                 logger.error(f"Failed to create user.ini: {e}")
+
+    # ── Export / Import Settings (settings backup) ───────────────────────
+    # Backend-agnostic snapshot + restore of every stored setting, powering
+    # the Config tab's Export Settings / Import Settings buttons. The zip
+    # layout and validation live in src/utils/settings_profile.py; these
+    # methods own the backend enumeration and the machine-key filter.
+
+    @staticmethod
+    def is_profile_excluded_key(key: str, value=None) -> bool:
+        """True when *key* must not travel in a settings backup.
+
+        Three rules:
+          1. Exact members of :data:`PROFILE_EXCLUDE_KEYS` (machine-local
+             paths, window placement, legacy path keys).
+          2. Keys starting with ``_`` — one-shot migration markers; a fresh
+             target profile should run its own (idempotent) migrators.
+          3. ``data_sources/*/path`` values that are NOT URLs — post-1.0 the
+             ``global`` source path points at the local cached base.ini,
+             which is meaningless on another machine (the app re-derives it
+             on load). URL-mapped custom sources survive: they're part of
+             the user's setup and work anywhere.
+        """
+        if key in AppSettings.PROFILE_EXCLUDE_KEYS:
+            return True
+        if key.startswith("_"):
+            return True
+        if (
+            key.startswith(f"{AppSettings.DATA_SOURCES_PREFIX}/")
+            and key.endswith("/path")
+        ):
+            text = str(value) if value is not None else ""
+            if not text.lower().startswith(("http://", "https://")):
+                return True
+        return False
+
+    @staticmethod
+    def export_all_values() -> dict:
+        """Snapshot every backend key/value for a settings backup.
+
+        Works against either backend: ``QSettings.allKeys()`` (registry
+        build) or ``JsonSettings.keys()`` (portable build / tests). Values
+        that JSON can't serialise (e.g. a stray QByteArray) are skipped with
+        a warning rather than poisoning the whole export — the known binary
+        keys (window geometry/state) are already excluded by the filter.
+        """
+        backend = AppSettings.settings()
+        if hasattr(backend, "allKeys"):
+            keys = list(backend.allKeys())
+        else:
+            keys = backend.keys()
+
+        out: dict = {}
+        for key in keys:
+            value = backend.value(key)
+            if AppSettings.is_profile_excluded_key(key, value):
+                continue
+            try:
+                json.dumps(value)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Export Settings: skipping non-serialisable value for key "
+                    "%r (%s)", key, type(value).__name__,
+                )
+                continue
+            out[key] = value
+        return out
+
+    @staticmethod
+    def import_values(values: dict) -> int:
+        """Write backup values into the live backend. Returns keys applied.
+
+        Runs the same machine-specific filter as export (a hand-edited or
+        pre-filter backup can't smuggle in a stale install path), writes
+        everything else verbatim, and syncs once at the end. Existing keys
+        not present in *values* are left untouched — an import layers the
+        backup over the current profile rather than wiping it, so local
+        state like the SC install path survives a same-machine restore.
+        """
+        backend = AppSettings.settings()
+        applied = 0
+        for key, value in values.items():
+            if not isinstance(key, str) or not key:
+                continue
+            if AppSettings.is_profile_excluded_key(key, value):
+                continue
+            backend.setValue(key, value)
+            applied += 1
+        backend.sync()
+        logger.info("Import Settings: applied %d settings keys", applied)
+        return applied
+
+    @staticmethod
+    def reconcile_imported_install_path() -> str:
+        """Validate a just-imported Star Citizen path against this machine.
+
+        The backup carries ``sc_install_root`` so the common restore (same
+        PC, fresh portable unzip) doesn't make the user re-pick their game
+        folder. But a backup from *another* machine can name a path that
+        doesn't exist here, so the imported value is only trusted when
+        :func:`_is_valid_sc_root` still recognises it as a real install.
+
+        When it doesn't, both path keys are cleared so
+        :meth:`get_sc_install_root` runs its normal detection chain instead
+        of leaving the user pinned to a dead path.
+
+        Returns one of :data:`INSTALL_PATH_RESTORED`,
+        :data:`INSTALL_PATH_REDETECTED`, or :data:`INSTALL_PATH_NONE`.
+        """
+        imported = AppSettings.settings().value(AppSettings.SC_INSTALL_ROOT, "")
+
+        if imported and _is_valid_sc_root(imported):
+            # Re-persist through the setter so game_install_path is derived
+            # from the active channel and can't disagree with the root.
+            AppSettings.set_sc_install_root(imported)
+            logger.info(f"Import Settings: restored SC install path {imported!r}")
+            return AppSettings.INSTALL_PATH_RESTORED
+
+        if imported:
+            logger.info(
+                f"Import Settings: backup's SC install path {imported!r} is not "
+                f"valid on this machine — falling back to auto-detection"
+            )
+        settings = AppSettings.settings()
+        settings.remove(AppSettings.SC_INSTALL_ROOT)
+        settings.remove(AppSettings.GAME_INSTALL_PATH)
+
+        detected = AppSettings.get_sc_install_root()
+        if detected:
+            logger.info(f"Import Settings: auto-detected SC install {detected!r}")
+            return AppSettings.INSTALL_PATH_REDETECTED
+        return AppSettings.INSTALL_PATH_NONE
+
+    @staticmethod
+    def get_post_import_apply_pending() -> bool:
+        """Whether imported settings are still waiting for their first
+        regenerate + apply (checked once per launch, then cleared)."""
+        return AppSettings.settings().value(
+            AppSettings.POST_IMPORT_APPLY_PENDING, False, type=bool
+        )
+
+    @staticmethod
+    def set_post_import_apply_pending(pending: bool) -> None:
+        """Set or clear the post-import "enhancements need applying" flag."""
+        if pending:
+            AppSettings.settings().setValue(
+                AppSettings.POST_IMPORT_APPLY_PENDING, True
+            )
+        else:
+            AppSettings.settings().remove(AppSettings.POST_IMPORT_APPLY_PENDING)
+
+    @staticmethod
+    def get_channel_user_ini_path(channel: str) -> Path:
+        r"""Return ``{user_data_dir}\{channel}\user.ini`` for any channel.
+
+        Unlike :meth:`get_user_ini_path` this doesn't run the legacy
+        ``overrides.ini`` migration and doesn't depend on the *active*
+        channel — Export/Import Settings walks every channel, not just the
+        current one.
+        """
+        return AppSettings.get_user_data_dir() / channel / "user.ini"
+
+    @staticmethod
+    def export_channel_overrides() -> dict:
+        """Collect ``{channel: user.ini text}`` for every channel with one.
+
+        Reads ``user.ini`` (or the legacy ``overrides.ini`` when only that
+        exists) from each known channel dir. Empty files are skipped — no
+        point carrying zero-byte overrides in a backup.
+        """
+        overrides: dict = {}
+        for channel in AppSettings.AVAILABLE_CHANNELS:
+            path = AppSettings.get_channel_user_ini_path(channel)
+            if not path.exists():
+                legacy = path.parent / "overrides.ini"
+                if legacy.exists():
+                    path = legacy
+                else:
+                    continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError as e:
+                logger.warning(
+                    "Export Settings: could not read %s: %s", path, e
+                )
+                continue
+            if text.strip():
+                overrides[channel] = text
+        return overrides

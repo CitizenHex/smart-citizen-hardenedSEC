@@ -65,14 +65,16 @@ Smart Citizen also bundles upstream tooling from:
 The non-English game strings are community translations:
 
 - [**Dymerz/StarCitizen-Localization**](https://github.com/Dymerz/StarCitizen-Localization) — the community-maintained `global.ini` translations that power the French, Spanish, Brazilian Portuguese, and Italian language options. Their translators do the real work here; we just deliver it.
+- [**stdblue/StarCitizenJapaneseResources**](https://github.com/stdblue/StarCitizenJapaneseResources) — the community-maintained `global.ini` translation that powers the Japanese language option.
 - [**42Kit**](https://ini.42kit.com/) — the community-maintained `global.ini` translation that powers the Chinese language option.
+- [**rjcncpt/StarCitizen-Deutsch-INI**](https://github.com/rjcncpt/StarCitizen-Deutsch-INI) — the community-maintained `global.ini` translation that powers the German language option.
 
 ## Key Features
 
 ### 🎯 Core Features
 - **Load & Edit**: Load `global.ini` from your Star Citizen installation and customize strings in an intuitive table view
 - **Multi-Channel Support**: LIVE / PTU / EPTU / HOTFIX / TECH-PREVIEW each get their own isolated `user.ini`, cache, backups, and DataForge extraction — switch channels from the Config tab without restarting
-- **Multi-Language Support**: Switch the app and game strings between English, French, Spanish, Brazilian Portuguese, Japanese, Chinese, and Italian from the Config tab. Non-English languages layer a community-translated `global.ini` over the English base, with English fallback for anything untranslated. More languages will be exposed as community translations land (see `languages/TRANSLATIONS.md`)
+- **Multi-Language Support**: Switch the app and game strings between English, French, Spanish, Brazilian Portuguese, Japanese, Chinese, Italian, and German from the Config tab. Non-English languages layer a community-translated `global.ini` over the English base, with English fallback for anything untranslated. More languages will be exposed as community translations land (see `languages/TRANSLATIONS.md`)
 - **Mission Contracts**: Edit mission contract and briefing text from the dedicated Missions category
 - **Smart Filtering**: Search strings, filter by category (Ships, Ship Items, Missions, Gear, Commodities, Journal, Other), or modification status
 - **Per-Column Filters**: Type directly into filter boxes below each column header for fine-grained searching
@@ -96,7 +98,7 @@ The non-English game strings are community translations:
 - **Ship Stats**: SCM speed, hydrogen/quantum fuel, cargo capacity, full weapon loadouts, and armor multipliers (physical / energy / distortion / thermal) appended to ship descriptions
 - **Component Stats**: Shield HP, power draw, cooling rate, regen, and similar stats for shields, coolers, power plants, quantum drives, and radars — with `[MIL-S2-A]`-style name tags by default (fully customizable in the Tag Builder)
 - **Weapon Stats**: DPS, fire rate, range, and damage on ship guns and turrets from S1 through capital. Ship weapons get a `[E-S2]`-style damage+size tag, missiles `[IR-S1] Arrester III`, and bombs `[S5] 500SCB Cluster`
-- **Mission Annotations**: `[BP]` / `[BP?]` blueprint reward tags on titles, plus structured *MISSION DETAILS*, *POTENTIAL BLUEPRINTS*, and *ITEM REWARDS* blocks in descriptions. Reputation tier lines show actual rank names (Rookie, Jr. Contractor, etc.) instead of generic numbering. Mission XP names the reputation track it feeds, and Battaglia scan/mine titles carry `[RS ####]` resource-signature tags
+- **Mission Annotations**: `[BP]` / `[BP?]` blueprint reward tags on titles, plus structured *MISSION DETAILS*, *POTENTIAL BLUEPRINTS*, and *ITEM REWARDS* blocks in descriptions. Reputation tier lines show actual rank names (Rookie, Jr. Contractor, etc.) instead of generic numbering. Mission XP names the reputation track it feeds, and Battaglia scan/mine titles carry `[RS ####]` resource-signature tags, joined by a MISSION DETAILS "Resource Signatures" breakdown per targeted ore and an ore-name annotation shown everywhere the game displays that name, including the mission tracker (two independent toggles, both on by default)
 - **Journal Cross-References**: Mining Compendium entries get crafting cross-references and each ore's base resource signature; commodities used in crafting get a customizable `[CF]` name tag and a list of every blueprint that calls for them
 - **Medical Consumable Effects**: The base CureLife pens (MedPen, OxyPen, AdrenaPen, and friends) get a plain-language effect line, so the description says what the pen does instead of just its lore
 - **Ship Favorites**: Star a ship to prepend a configurable prefix (default `*`) so favorites sort to the top of the in-game ASOP terminal
