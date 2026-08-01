@@ -19,7 +19,7 @@ from PyQt6.QtGui import QColor, QFont, QCursor, QPixmap, QIcon, QPalette
 from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices
 
-from src.gui.blueprint_tracker_tab import BlueprintTrackerTab
+from src.gui.blueprint_tracker_tab import BlueprintTrackerTab, _relabel_details_button
 from src.gui.coach_mark import CoachMarkStep, TutorialTour
 from src.gui.config_tab import ConfigTab
 from src.gui.error_dialog import ErrorDialogHandler, _ErrorDialogEmitter
@@ -5133,20 +5133,20 @@ class MainWindow(QMainWindow):
         # the user its tags were applied.
         self.blueprint_tracker_tab.mark_owned_clean()
 
-        # How many of the newly-added names are visible right now (i.e. appear
-        # as a blueprint bullet in the currently-loaded data). The rest light up
-        # automatically whenever their item next appears in a blueprint list.
-        visible_now = len(set(new_names) & getattr(self, "_bp_item_names", set()))
-        summary = tr(
-            "enhancements.bp_scan_summary",
-            count=len(new_names),
-            visible=visible_now,
+        summary = (
+            tr("blueprint_tracker.owned_added_singular") if len(new_names) == 1
+            else tr("blueprint_tracker.owned_added_plural", count=len(new_names))
         )
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Information)
         box.setWindowTitle(tr("enhancements.bp_scan_title"))
         box.setText(summary)
         box.setDetailedText("\n".join(new_names))
+        _relabel_details_button(
+            box,
+            tr("blueprint_tracker.show_added_btn"),
+            tr("blueprint_tracker.hide_added_btn"),
+        )
         box.exec()
 
     def toggle_favorite(self, proxy_row: int):
