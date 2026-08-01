@@ -46,6 +46,7 @@ SC_LANGUAGE_IDS: dict[str, str] = {
     "japanese":      "japanese_(japan)",
     "chinese":       "chinese_(simplified)",
     "italian":       "italian_(italy)",
+    "german":        "german_(germany)",
 }
 
 
@@ -190,7 +191,7 @@ class AppSettings:
     # MISSION_TITLE_TAG_KEYS below with the other title-only toggles.
     MISSION_FIELD_KEYS = (
         "mission_type", "difficulty", "spawns", "reputation",
-        "blueprints", "ace",
+        "blueprints", "ace", "resource_signatures",
     )
     _MISSION_FIELD_SETTING = {
         "mission_type":  "mission_field/mission_type",
@@ -201,6 +202,15 @@ class AppSettings:
         # #158, split from the title tag in 2.2.0 (see MISSION_TITLE_TAG_KEYS):
         # this key now controls ONLY the "Ace Pilot: Yes" body line.
         "ace":           "mission_field/ace",
+        # #331: Recco Battaglia's Scan/Mining contracts already carry a flat
+        # [RS ####] tag on the mission TITLE (MISSION_TITLE_TAG_KEYS' "rs"),
+        # independent of this key. This one gates a fuller "Resource
+        # Signatures:" breakdown in the DETAILS body -- one line per targeted
+        # ore with its full RS value progression, not just the title's single
+        # flattened number. Separate from RS_ORE_NAME_ANNOTATIONS below,
+        # which patches the ore's own display name instead of adding a body
+        # line -- a user can have either, both, or neither.
+        "resource_signatures": "mission_field/resource_signatures",
     }
 
     # Mission TITLE tags (2.2.0, "General Tags" section): independent of the
@@ -371,6 +381,21 @@ class AppSettings:
     TAG_ANNOTATE_MISSION_DESCS = "tag_builder/annotate_mission_descs"
     STATS_PREPEND = "stats_prepend"  # #153: stats block above the description
     STANDARDIZE_EARNABLE_SHIP_NAMES = "standardize_earnable_ship_names"
+    # #331: appends " (RS ####)" to every mineable ore's own display name
+    # (mineabletype_primary_<ore>), so Recco Battaglia's base resource
+    # signature shows up everywhere the game renders that ore's name --
+    # including the top-right mission tracker, which is what users actually
+    # asked for. Default on, matching the established MISSION_FIELD_KEYS /
+    # MISSION_TITLE_TAG_KEYS toggles -- the earlier attempt that pulled this
+    # feature entirely was a call about bundling it into one all-or-nothing
+    # toggle with the DETAILS breakdown, not about the ore-name annotation
+    # being undesirable by default now that it's independently toggleable.
+    # Independent of the "resource_signatures" Mission Detail Field above
+    # (the DETAILS-body breakdown) -- see
+    # scripts/generate_enhancements_ini.py's _build_mineable_rs_name_overrides
+    # for the full history (shipped bundled with the breakdown, then pulled
+    # for being too broad, now split into its own toggle).
+    RS_ORE_NAME_ANNOTATIONS = "enhancements/rs_ore_name_annotations"
     OWNED_ITEMS = "owned_items"      # #157: blueprint items the user owns (JSON list of names)
     # #222: newest "Received Blueprint" log event a BP Scan has already
     # consumed, so a re-scan only imports genuinely new blueprints. Per-channel
@@ -383,6 +408,14 @@ class AppSettings:
     # display; this only affects the app's own list, never the in-game
     # mission text, which always shows the tag regardless of this setting.
     BLUEPRINT_SHOW_TAGS = "blueprints/show_tags"
+    # #268: whether "Scan Logs for Owned Blueprints" also scans whichever of
+    # LIVE/HOTFIX isn't the active channel. Enabled by default -- most
+    # players with a HOTFIX-era account run both channels, and scanning the
+    # inactive one too is what makes the Owned set actually complete. Never
+    # covers PTU/EPTU/TECH-PREVIEW -- those are separate test builds with
+    # their own progression, not the same account/blueprint history as
+    # LIVE/HOTFIX.
+    BLUEPRINT_SCAN_OTHER_CHANNELS = "blueprints/scan_other_channels"
 
     # Settings keys - Data sources (new)
     # Prefix: data_sources/{source_name}/
@@ -943,11 +976,11 @@ class AppSettings:
         """Insert element kinds added in a newer version that the stored config
         doesn't have yet (e.g. ``type`` added to components in 1.4.2, ``usage``
         added to commodities in 2.1). New elements inherit the default config's
-        enabled state (usually disabled so existing output is unchanged; the
-        commodity ``usage`` element is on by default, so upgraded users pick it
-        up too), and are inserted at their canonical position in
-        ``CATEGORY_ELEMENT_KINDS`` (not appended) so an element added in the
-        middle of the order — like ``usage`` between ``label`` and
+        enabled state (per-category, e.g. commodities' three elements are all
+        disabled by default as of #325, while components/missiles/ship_weapons
+        default their own elements enabled), and are inserted at their
+        canonical position in ``CATEGORY_ELEMENT_KINDS`` (not appended) so an
+        element added in the middle of the order — like ``usage`` between ``label`` and
         ``collection`` — renders in the right place for upgraded users too."""
         from src.utils.tag_builder import (
             CATEGORY_ELEMENT_KINDS, DEFAULT_TAG_CONFIGS, DEFAULT_KIND_MAPPINGS,
@@ -1049,6 +1082,22 @@ class AppSettings:
         AppSettings.settings().sync()
 
     @staticmethod
+    def get_rs_ore_name_annotations() -> bool:
+        """#331: whether mineable ore display names are annotated with their
+        base Resource Signature value (" (RS ####)"). Default on -- see
+        RS_ORE_NAME_ANNOTATIONS for why."""
+        return bool(AppSettings.settings().value(
+            AppSettings.RS_ORE_NAME_ANNOTATIONS, True, type=bool
+        ))
+
+    @staticmethod
+    def set_rs_ore_name_annotations(enabled: bool) -> None:
+        AppSettings.settings().setValue(
+            AppSettings.RS_ORE_NAME_ANNOTATIONS, bool(enabled)
+        )
+        AppSettings.settings().sync()
+
+    @staticmethod
     def get_owned_items() -> set:
         """Return the set of owned blueprint item names (#157).
 
@@ -1107,14 +1156,22 @@ class AppSettings:
         return new_state
 
     @staticmethod
-    def _blueprint_watermark_key() -> str:
-        """Per-channel storage key for the BP Scan watermark (#222)."""
+    def _blueprint_watermark_key(channel: "str | None" = None) -> str:
+        """Per-channel storage key for the BP Scan watermark (#222).
+
+        *channel* targets a specific channel's watermark without needing to
+        flip ``active_channel`` (#268's multi-channel scan reads/writes
+        LIVE's and HOTFIX's watermarks independently in the same pass, and
+        switching active_channel mid-scan would trigger its own unrelated
+        side effects). Defaults to the active channel, unchanged from before.
+        """
         return (f"{AppSettings.BLUEPRINT_LOG_WATERMARK}/"
-                f"{AppSettings.get_active_channel()}")
+                f"{channel or AppSettings.get_active_channel()}")
 
     @staticmethod
-    def get_blueprint_log_watermark():
-        """Return the active channel's BP Scan watermark, or ``None`` (#222).
+    def get_blueprint_log_watermark(channel: "str | None" = None):
+        """Return *channel*'s (default: active channel) BP Scan watermark, or
+        ``None`` (#222).
 
         The watermark is the newest received-blueprint event a prior scan
         consumed. Returns a timezone-aware ``datetime`` (the stored ISO string
@@ -1123,7 +1180,7 @@ class AppSettings:
         """
         from datetime import datetime
         raw = AppSettings.settings().value(
-            AppSettings._blueprint_watermark_key(), "", type=str
+            AppSettings._blueprint_watermark_key(channel), "", type=str
         )
         if not raw:
             return None
@@ -1133,14 +1190,34 @@ class AppSettings:
             return None
 
     @staticmethod
-    def set_blueprint_log_watermark(when) -> None:
-        """Persist the active channel's BP Scan watermark (#222).
+    def set_blueprint_log_watermark(when, channel: "str | None" = None) -> None:
+        """Persist *channel*'s (default: active channel) BP Scan watermark (#222).
 
         *when* is a ``datetime`` (the scanner emits timezone-aware UTC); stored
         as its ISO-8601 string so it round-trips through both settings backends.
         """
         AppSettings.settings().setValue(
-            AppSettings._blueprint_watermark_key(), when.isoformat()
+            AppSettings._blueprint_watermark_key(channel), when.isoformat()
+        )
+        AppSettings.settings().sync()
+
+    @staticmethod
+    def get_scan_other_channels_enabled() -> bool:
+        """Whether "Scan Logs for Owned Blueprints" also scans whichever of
+        LIVE/HOTFIX isn't the active channel (#268). Default True — most
+        players with a HOTFIX-era account run both channels, and scanning
+        the inactive one too is what makes the Owned set actually complete;
+        opting in after the fact means missing blueprints already earned
+        there before the user thinks to enable it."""
+        return bool(AppSettings.settings().value(
+            AppSettings.BLUEPRINT_SCAN_OTHER_CHANNELS, True, type=bool
+        ))
+
+    @staticmethod
+    def set_scan_other_channels_enabled(enabled: bool) -> None:
+        """Persist the multi-channel BP Scan checkbox state (#268)."""
+        AppSettings.settings().setValue(
+            AppSettings.BLUEPRINT_SCAN_OTHER_CHANNELS, bool(enabled)
         )
         AppSettings.settings().sync()
 

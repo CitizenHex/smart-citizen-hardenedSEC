@@ -35,6 +35,22 @@
     "defaults_hint": {
       "ht": "",
       "at": "現在の設定（詳細ビューに表示されるものと同じ）を使用します。\n初回実行時は DataForge の抽出に数分かかることがあります。"
+    },
+    "set_game_folder_title": {
+      "ht": "",
+      "at": "ゲームフォルダを設定してください"
+    },
+    "set_game_folder_body": {
+      "ht": "",
+      "at": "変更を適用する前に、Smart Citizen は Star Citizen のインストール場所を知る必要があります。\n\n設定タブでゲームフォルダを設定できるよう、詳細モードに切り替えます。"
+    },
+    "apply_enhancements_confirm_title": {
+      "ht": "",
+      "at": "拡張を適用"
+    },
+    "apply_enhancements_confirm_body": {
+      "ht": "",
+      "at": "現在の設定で最新の拡張機能を生成し、ゲームの global.ini に適用します。まずタイムスタンプ付きのバックアップが作成されます。\n\n初回実行時は DataForge の抽出のため数分かかることがあります。続行しますか？"
     }
   },
   "tabs": {
@@ -69,6 +85,18 @@
     "legal": {
       "ht": "",
       "at": "法的情報"
+    },
+    "about_load_failed": {
+      "ht": "",
+      "at": "アプリ情報を読み込めませんでした。"
+    },
+    "faq_load_failed": {
+      "ht": "",
+      "at": "FAQ を読み込めませんでした。"
+    },
+    "legal_load_failed": {
+      "ht": "",
+      "at": "法的情報を読み込めませんでした。"
     }
   },
   "toolbar": {
@@ -175,6 +203,18 @@
     "apply_disabled_tooltip": {
       "ht": "",
       "at": "すでに適用済みです：前回のゲームへの適用以降、変更はありません。"
+    },
+    "feedback_fallback_text": {
+      "ht": "",
+      "at": "フィードバック・バグ報告・機能投票"
+    },
+    "paypal_fallback_text": {
+      "ht": "",
+      "at": "PayPal で寄付する"
+    },
+    "venmo_fallback_text": {
+      "ht": "",
+      "at": "Venmo"
     }
   },
   "filters": {
@@ -339,6 +379,66 @@
     "column_filter_placeholder": {
       "ht": "",
       "at": "{column} をフィルター…"
+    },
+    "editor_dock_title": {
+      "ht": "",
+      "at": "文字列エディター"
+    },
+    "no_row_selected": {
+      "ht": "",
+      "at": "（行が選択されていません）"
+    },
+    "editor_underline_btn": {
+      "ht": "",
+      "at": "下線"
+    },
+    "editor_highlight_btn": {
+      "ht": "",
+      "at": "ハイライト"
+    },
+    "editor_placeholder": {
+      "ht": "",
+      "at": "文字列エディターの表で行を選択すると、ここでカスタム値を編集できます。"
+    },
+    "context_copy_cell": {
+      "ht": "",
+      "at": "セルをコピー"
+    },
+    "context_copy_key": {
+      "ht": "",
+      "at": "キーをコピー"
+    },
+    "context_edit": {
+      "ht": "",
+      "at": "編集"
+    },
+    "context_reset_to_original": {
+      "ht": "",
+      "at": "元の値に戻す"
+    },
+    "context_copy_all_filtered": {
+      "ht": "",
+      "at": "絞り込み結果をすべてコピー"
+    },
+    "context_remove_favorite": {
+      "ht": "",
+      "at": "★ お気に入りから削除"
+    },
+    "context_add_favorite": {
+      "ht": "",
+      "at": "★ お気に入りに追加"
+    },
+    "showing_count": {
+      "ht": "",
+      "at": "{total} 件中 {shown} 件を表示中"
+    },
+    "copied_key": {
+      "ht": "",
+      "at": "コピーしました：{loc_key}"
+    },
+    "pyperclip_missing": {
+      "ht": "",
+      "at": "pyperclip がインストールされていません"
     }
   },
   "config": {
@@ -661,6 +761,46 @@
     "extract_tooltip": {
       "ht": "",
       "at": "インストール済みの Data.p4k から、標準ローカライズ（base.ini）と DataForge エンティティ XML を展開します。Star Citizen のパッチごとに実行してください。抽出が完了すると、文字列は自動的にテーブルに再読み込みされます。"
+    },
+    "include_new_cb": {
+      "ht": "",
+      "at": "新しく見つかった項目を含める"
+    },
+    "disable_tutorial_cb": {
+      "ht": "",
+      "at": "チュートリアルを無効にする"
+    },
+    "invalid_data_folder_body": {
+      "ht": "",
+      "at": "選択したデータフォルダはディレクトリではなくファイルです：\n{path}"
+    },
+    "onedrive_folder_title": {
+      "ht": "",
+      "at": "データフォルダが OneDrive 内にあります"
+    },
+    "onedrive_folder_body": {
+      "ht": "",
+      "at": "このフォルダは OneDrive 内にあります：\n\n{path}\n\nOneDrive はこれらのファイルを同期し、時には空にしてしまうことがあり、編集内容の消失につながることがあります。OneDrive の外にあるローカルフォルダの使用を強くお勧めします。\n\nこのまま OneDrive フォルダを使用しますか？"
+    },
+    "dataforge_cache_old_new": {
+      "ht": "",
+      "at": "旧：{old}\n新：{new}"
+    },
+    "channel_not_installed_hint": {
+      "ht": "",
+      "at": "⚠ このルート配下に {channel} はインストールされていません — 別のチャンネルを選択してください"
+    },
+    "preview_merge_failed": {
+      "ht": "",
+      "at": "マージのプレビューに失敗しました：{error}"
+    },
+    "game_path_placeholder": {
+      "ht": "",
+      "at": "C:\\Program Files\\Roberts Space Industries\\StarCitizen"
+    },
+    "language_source_placeholder": {
+      "ht": "",
+      "at": "https://…/global.ini"
     }
   },
   "enhancements": {
@@ -923,6 +1063,246 @@
     "extracting_dataforge_tooltip": {
       "ht": "",
       "at": "Data.p4k から DataForge を抽出しています…"
+    },
+    "tag_move_up_tooltip": {
+      "ht": "",
+      "at": "この要素を上に移動"
+    },
+    "tag_move_down_tooltip": {
+      "ht": "",
+      "at": "この要素を下に移動"
+    },
+    "tag_untick_exclude_tooltip": {
+      "ht": "",
+      "at": "チェックを外すとこの要素をタグから除外します"
+    },
+    "tag_edit_mapping_row_btn": {
+      "ht": "",
+      "at": "マッピングを編集…"
+    },
+    "tag_mapping_tooltip_ordinance": {
+      "ht": "",
+      "at": "各追尾タイプに使用する短縮/中間/長い表記を編集します（例：Infrared → I / IR / Infrared）。"
+    },
+    "tag_mapping_tooltip_damage": {
+      "ht": "",
+      "at": "各ダメージタイプに使用する短縮/中間/長い表記を編集します（例：Energy → E / EN / Energy）。"
+    },
+    "tag_mapping_tooltip_type": {
+      "ht": "",
+      "at": "各コンポーネントタイプに使用する短縮/中間/長い表記を編集します（例：Shield Generator → SH / SHLD / Shield）。"
+    },
+    "tag_mapping_tooltip_label": {
+      "ht": "",
+      "at": "クラフティングラベルの短縮/中間/長い表記を編集します（例：Crafting → CF / Craft / Crafting）。"
+    },
+    "tag_mapping_tooltip_collection": {
+      "ht": "",
+      "at": "コレクションラベルの短縮/中間/長い表記を編集します（例：Collection → Col / Collect / Collection）。"
+    },
+    "tag_mapping_tooltip_default": {
+      "ht": "",
+      "at": "各クラスに使用する短縮/中間/長い表記を編集します（例：Military → M / MIL / Military）。"
+    },
+    "mission_detail_fields_heading": {
+      "ht": "",
+      "at": "任務詳細フィールド："
+    },
+    "mission_field_mission_type": {
+      "ht": "",
+      "at": "任務タイプ"
+    },
+    "mission_field_difficulty": {
+      "ht": "",
+      "at": "難易度"
+    },
+    "mission_field_hostiles": {
+      "ht": "",
+      "at": "敵対勢力"
+    },
+    "mission_field_reputation": {
+      "ht": "",
+      "at": "評判"
+    },
+    "mission_field_blueprints": {
+      "ht": "",
+      "at": "設計図"
+    },
+    "mission_field_ace_pilot": {
+      "ht": "",
+      "at": "エースパイロット"
+    },
+    "mission_detail_fields_note": {
+      "ht": "",
+      "at": "チェックを外したフィールドは任務説明から除外されます。次回の「拡張を生成」時に反映されます。"
+    },
+    "stats_prepend_cb": {
+      "ht": "",
+      "at": "説明文の上にステータスを表示"
+    },
+    "standardize_ship_names_cb": {
+      "ht": "",
+      "at": "入手可能な船名を統一表記にする"
+    },
+    "mission_labels_group": {
+      "ht": "",
+      "at": "任務ラベル"
+    },
+    "mission_label_details": {
+      "ht": "",
+      "at": "詳細："
+    },
+    "mission_label_blueprints": {
+      "ht": "",
+      "at": "設計図："
+    },
+    "mission_label_item_rewards": {
+      "ht": "",
+      "at": "アイテム報酬："
+    },
+    "mission_label_blueprint_data": {
+      "ht": "",
+      "at": "設計図データ："
+    },
+    "mission_label_xp": {
+      "ht": "",
+      "at": "経験値ラベル："
+    },
+    "mission_label_header_style": {
+      "ht": "",
+      "at": "見出しスタイル："
+    },
+    "em_label_underline": {
+      "ht": "",
+      "at": "下線"
+    },
+    "em_label_blue_text": {
+      "ht": "",
+      "at": "青色テキスト"
+    },
+    "forge_status_not_extracted": {
+      "ht": "",
+      "at": "DataForge：未抽出 — 「拡張を生成」をクリックして開始してください"
+    },
+    "forge_status_outdated": {
+      "ht": "",
+      "at": "DataForge：キャッシュが古くなっています — 「拡張を生成」をクリックして再抽出・更新してください"
+    },
+    "forge_status_up_to_date": {
+      "ht": "",
+      "at": "DataForge：キャッシュは最新です ✓"
+    },
+    "tag_separator_label": {
+      "ht": "",
+      "at": "区切り文字："
+    },
+    "tag_enclosing_label": {
+      "ht": "",
+      "at": "囲み記号："
+    },
+    "tag_placement_label": {
+      "ht": "",
+      "at": "配置："
+    },
+    "tag_craft_usage_separator_label": {
+      "ht": "",
+      "at": "用途の区切り文字："
+    },
+    "mt_hauling_group": {
+      "ht": "",
+      "at": "輸送任務"
+    },
+    "mt_enable_route_cb": {
+      "ht": "",
+      "at": "輸送任務のタイトルにルートを追加"
+    },
+    "mt_standardize_cb": {
+      "ht": "",
+      "at": "輸送任務名を統一表記にする（例：どの企業でも「Large Shipment」「Haul - Small Scale」ではなく「Medium Cargo Haul」に統一）"
+    },
+    "mt_route_hint": {
+      "ht": "",
+      "at": "任務を受注すると、実際の集荷地点と配達地点がゲーム内で自動的に入力されます。"
+    },
+    "mt_route_arrow_label": {
+      "ht": "",
+      "at": "ルート矢印："
+    },
+    "mt_title_separator_label": {
+      "ht": "",
+      "at": "タイトル区切り文字："
+    },
+    "mt_rank_separator_label": {
+      "ht": "",
+      "at": "ランク区切り文字："
+    },
+    "mt_location_detail_label": {
+      "ht": "",
+      "at": "地点表示の詳細度："
+    },
+    "mt_shorten_titles_cb": {
+      "ht": "",
+      "at": "元のタイトルを短縮する（定型句を短縮します。例：「Local Shipment Route」→「Route」）"
+    },
+    "mt_shorten_sizes_cb": {
+      "ht": "",
+      "at": "貨物サイズを短縮する（貨物のサイズ表記を略します。例：「Extra Small」→「XS」）"
+    },
+    "mt_underline_direct_cb": {
+      "ht": "",
+      "at": "「Direct」に下線を引く（ゲーム内で「Direct」輸送を強調表示します）"
+    },
+    "mt_general_tags_group": {
+      "ht": "",
+      "at": "汎用タグ"
+    },
+    "mt_general_tags_hint": {
+      "ht": "",
+      "at": "これらのタグを任務タイトルにのみ表示・非表示にします"
+    },
+    "mt_tag_rep_cb": {
+      "ht": "",
+      "at": "評判タグ（「[500 REP]」を追加）"
+    },
+    "mt_tag_blueprint_cb": {
+      "ht": "",
+      "at": "設計図タグ（「[BP]」「[BP?]」を追加）"
+    },
+    "mt_tag_ace_cb": {
+      "ht": "",
+      "at": "エースタグ（「[ACE]」「[ACE?]」を追加）"
+    },
+    "mt_tag_rep_track_cb": {
+      "ht": "",
+      "at": "評判トラックタグ（評判タグの後に「(Security)」「(Contractor)」を追加）"
+    },
+    "mt_scanning_group": {
+      "ht": "",
+      "at": "スキャン/採掘任務"
+    },
+    "mt_scanning_hint": {
+      "ht": "",
+      "at": "Recco Battaglia のスキャン/採掘任務は特定の採掘可能な鉱石を対象とし、任務タイトルに各鉱石のリソースシグネチャ値を表示します。"
+    },
+    "mt_tag_rs_cb": {
+      "ht": "",
+      "at": "リソースシグネチャ（RS）タグを表示"
+    },
+    "mt_preview_route_off": {
+      "ht": "",
+      "at": "プレビュー：  {display} [50 REP]  （ルート機能オフ）"
+    },
+    "mt_preview_route_on": {
+      "ht": "",
+      "at": "プレビュー：  {display} [50 REP]"
+    },
+    "tag_preview": {
+      "ht": "",
+      "at": "プレビュー：  {content}"
+    },
+    "tag_preview_no_tag": {
+      "ht": "",
+      "at": "プレビュー：  {name}   （タグなし — すべての要素が空か無効です）"
     }
   },
   "blueprint_tracker": {
@@ -938,6 +1318,22 @@
       "ht": "",
       "at": "Star Citizen のログファイル（Game.log および logbackups）で「Received Blueprint」報酬通知をスキャンし、自動的に所有済みとしてマークします。"
     },
+    "scan_other_channels_checkbox": {
+      "ht": "",
+      "at": "LIVE/HOTFIX も同時にスキャン（アクティブでない方）"
+    },
+    "scan_other_channels_tooltip": {
+      "ht": "",
+      "at": "LIVE と HOTFIX は同じアカウント進捗を共有しているため、一方で獲得したブループリントはもう一方のログにも表示されます。インストールされていれば、アクティブでない方のチャンネルも同時にスキャンします。PTU、EPTU、TECH-PREVIEW はそれぞれ独自の進捗を持つ別のテストビルドであり、スキャン対象には含まれません。"
+    },
+    "force_rescan_checkbox": {
+      "ht": "",
+      "at": "すべてのログを再スキャン（前回のスキャンを無視）"
+    },
+    "force_rescan_tooltip": {
+      "ht": "",
+      "at": "通常、スキャンは高速化のため前回のスキャン以降のイベントのみを読み込みます。所有リストが正しくないように見え、すべてのログを最初から読み直したい場合はこれをチェックしてください。次のスキャン後に自動的にチェックが外れます。"
+    },
     "apply_owned_tag_btn": {
       "ht": "",
       "at": "所有タグを適用"
@@ -949,6 +1345,10 @@
     "apply_owned_tag_tooltip_disabled": {
       "ht": "",
       "at": "すでに最新です — 前回の適用以降、所有リストは変更されていません。"
+    },
+    "owned_tags_refreshed": {
+      "ht": "",
+      "at": "[Owned] タグを現在の所有リストに合わせて更新しました。"
     }
   },
   "log": {
@@ -1056,7 +1456,7 @@
     },
     "custom_value_prompt": {
       "ht": "",
-      "at": "キーのカスタム値を入力してください：\n{key}"
+      "at": "キーのカスタム値を入力してください：\n{loc_key}"
     },
     "auto_add_summary": {
       "ht": "",
@@ -1431,6 +1831,38 @@
     "skip_generate_tooltip": {
       "ht": "",
       "at": "拡張を生成せずに続行します。後で Enhancements タブから実行できます。"
+    },
+    "crash_error_title": {
+      "ht": "",
+      "at": "Smart Citizen — エラー"
+    },
+    "show_log_btn": {
+      "ht": "",
+      "at": "ログを表示"
+    },
+    "dismiss_btn": {
+      "ht": "",
+      "at": "閉じる"
+    },
+    "suppressed_errors_suffix": {
+      "ht": "",
+      "at": "\n\n（他 {count} 件のエラーが非表示になっています — 詳細はログタブを参照してください）"
+    },
+    "failed_to_delete_global_ini": {
+      "ht": "",
+      "at": "global.ini の削除に失敗しました：{error}"
+    },
+    "failed_to_merge_sources": {
+      "ht": "",
+      "at": "ソースのマージに失敗しました：{error}"
+    },
+    "failed_to_load_sources": {
+      "ht": "",
+      "at": "ソースの読み込みに失敗しました：{error}"
+    },
+    "app_title": {
+      "ht": "",
+      "at": "Smart Citizen"
     }
   },
   "progress": {
@@ -1497,6 +1929,30 @@
     "snapshot_diff": {
       "ht": "",
       "at": "差分用にキャッシュのスナップショットを作成しています…"
+    },
+    "syncing_sources": {
+      "ht": "",
+      "at": "ソースを同期しています..."
+    },
+    "starting_up_title": {
+      "ht": "",
+      "at": "起動中"
+    },
+    "enhancements_label": {
+      "ht": "",
+      "at": "DataForge から拡張ローカライズを生成しています…\n\n初回実行時は数分かかることがあります。"
+    },
+    "generating_enhancements_title": {
+      "ht": "",
+      "at": "拡張を生成中"
+    },
+    "reloading_with_enhancements": {
+      "ht": "",
+      "at": "更新された拡張機能で文字列を再読み込みしています…"
+    },
+    "reloading_after_user_ini_restore": {
+      "ht": "",
+      "at": "user.ini の復元後、{channel} を再読み込みしています..."
     }
   },
   "status_bar": {
@@ -1535,6 +1991,442 @@
     "open_release_page_tooltip": {
       "ht": "",
       "at": "v{version} のリリースページを開く"
+    },
+    "downloading_ini": {
+      "ht": "",
+      "at": "INI ファイルをダウンロード中..."
+    },
+    "starting_up": {
+      "ht": "",
+      "at": "起動中 — ソースを同期しています..."
+    },
+    "generating_enhancements_background": {
+      "ht": "",
+      "at": "バックグラウンドで拡張を生成中…"
+    },
+    "enhancements_generated_applying": {
+      "ht": "",
+      "at": "拡張が生成されました — ゲームに適用中…"
+    },
+    "enhancements_generated_reloading": {
+      "ht": "",
+      "at": "拡張が生成されました — 項目を再読み込み中…"
+    },
+    "enhancement_generation_failed": {
+      "ht": "",
+      "at": "拡張の生成に失敗しました — 詳細はログタブを参照してください"
+    },
+    "user_ini_reset": {
+      "ht": "",
+      "at": "{channel} の user.ini をリセットしました（バックアップ作成済み）"
+    },
+    "user_ini_restored": {
+      "ht": "",
+      "at": "{channel} の user.ini を復元しました"
+    },
+    "channel_indicator": {
+      "ht": "",
+      "at": "チャンネル：{channel}"
+    },
+    "channel_switched_extracting": {
+      "ht": "",
+      "at": "{channel} に切り替えました — Data.p4k を抽出中…"
+    },
+    "channel_switched_reloading": {
+      "ht": "",
+      "at": "{channel} に切り替えました — ソースを再読み込み中…"
+    },
+    "data_folder_changed_extracting": {
+      "ht": "",
+      "at": "データフォルダが {data_dir} に変更されました — Data.p4k を抽出中…"
+    },
+    "data_folder_changed_reloading": {
+      "ht": "",
+      "at": "データフォルダが {data_dir} に変更されました — ソースを再読み込み中…"
+    },
+    "cache_folder_changed": {
+      "ht": "",
+      "at": "DataForge キャッシュフォルダが変更されました — Data.p4k から再抽出中…"
+    },
+    "syncing_source": {
+      "ht": "",
+      "at": "{source_name} を同期中..."
+    },
+    "source_updated": {
+      "ht": "",
+      "at": "更新済み ↑"
+    },
+    "source_offline": {
+      "ht": "",
+      "at": "（オフライン？）"
+    },
+    "entry_count": {
+      "ht": "",
+      "at": "{count} 件"
+    },
+    "override_count_suffix": {
+      "ht": "",
+      "at": " | {count} 件の上書き"
+    },
+    "manifest_missing": {
+      "ht": "",
+      "at": "SC {channel}（マニフェストがありません）"
+    }
+  },
+  "import_flow": {
+    "source_dialog_title": {
+      "ht": "",
+      "at": "INI ファイルをインポート"
+    },
+    "source_dialog_label": {
+      "ht": "",
+      "at": "ローカルファイルパスまたは URL を入力してください："
+    },
+    "source_dialog_placeholder": {
+      "ht": "",
+      "at": "C:\\path\\to\\file.ini または https://example.com/file.ini"
+    },
+    "browse_btn": {
+      "ht": "",
+      "at": "参照..."
+    },
+    "select_ini_file_title": {
+      "ht": "",
+      "at": "INI ファイルを選択"
+    },
+    "ini_file_filter": {
+      "ht": "",
+      "at": "INI ファイル (*.ini);;すべてのファイル (*)"
+    },
+    "download_error_title": {
+      "ht": "",
+      "at": "ダウンロードエラー"
+    },
+    "download_error_body": {
+      "ht": "",
+      "at": "ダウンロードに失敗しました：\n{source}\n\n{error}"
+    },
+    "no_base_data_title": {
+      "ht": "",
+      "at": "ベースデータがありません"
+    },
+    "no_base_data_body": {
+      "ht": "",
+      "at": "ベース INI がまだ読み込まれていません。先に Data.p4k から抽出してください。"
+    },
+    "no_valid_keys_title": {
+      "ht": "",
+      "at": "有効なキーがありません"
+    },
+    "no_valid_keys_body": {
+      "ht": "",
+      "at": "インポートされた {count} 件のキーのうち、base.ini に存在するものはありませんでした。\nすべてのキーが除外されました。"
+    },
+    "nothing_to_import_title": {
+      "ht": "",
+      "at": "インポートするものがありません"
+    },
+    "nothing_to_import_body": {
+      "ht": "",
+      "at": "インポートされたキーはすべて、同じ値で user.ini に既に存在しています。"
+    },
+    "confirm_title": {
+      "ht": "",
+      "at": "INI をインポート"
+    },
+    "confirm_body": {
+      "ht": "",
+      "at": "{new_count} 件の新しいキーが user.ini に追加されます。\n{excluded_count} 件のキーが除外されます（base.ini に存在しません）。\n\n続行しますか？"
+    },
+    "reload_status": {
+      "ht": "",
+      "at": "インポートされたデータで再読み込み中..."
+    },
+    "complete_title": {
+      "ht": "",
+      "at": "インポート完了"
+    },
+    "complete_body": {
+      "ht": "",
+      "at": "インポートに成功しました。\n\n  追加：{added} 件のキー\n  競合解決：{resolved} 件のキー\n  除外：{excluded} 件のキー"
+    },
+    "error_title": {
+      "ht": "",
+      "at": "インポートエラー"
+    },
+    "error_body": {
+      "ht": "",
+      "at": "INI ファイルのインポートに失敗しました：\n{error}"
+    }
+  },
+  "restore_backup": {
+    "select_file_title": {
+      "ht": "",
+      "at": "復元するバックアップファイルを選択"
+    },
+    "file_filter": {
+      "ht": "",
+      "at": "バックアップファイル (*.bak_*);;INI ファイル (*.ini);;すべてのファイル (*)"
+    },
+    "success_body": {
+      "ht": "",
+      "at": "次のバックアップから復元しました：\n{name}"
+    },
+    "error_body": {
+      "ht": "",
+      "at": "バックアップの復元に失敗しました：{error}"
+    }
+  },
+  "onedrive": {
+    "warning_title": {
+      "ht": "",
+      "at": "Smart Citizen のデータが OneDrive 内にあります"
+    },
+    "warning_body": {
+      "ht": "",
+      "at": "Smart Citizen は編集内容（user.ini）、ソースキャッシュ、バックアップを次の場所に保存しています：\n\n{data_dir}\n\nこのフォルダは OneDrive 内にあります。OneDrive はこれらのファイルを同期し、時には空にしてしまうことがあり、編集内容の消失につながることがあります。OneDrive の外にあるローカルフォルダにデータを移動すればこの問題を回避できます。\n\n次の場所に移動しますか：\n{local} ？"
+    },
+    "move_btn": {
+      "ht": "",
+      "at": "ローカルフォルダに移動"
+    },
+    "keep_here_btn": {
+      "ht": "",
+      "at": "このままにする"
+    },
+    "dont_warn_again": {
+      "ht": "",
+      "at": "今後表示しない"
+    }
+  },
+  "user_ini_reset": {
+    "backup_note": {
+      "ht": "",
+      "at": "\n\nバックアップの保存先：\n{path}"
+    },
+    "complete_title": {
+      "ht": "",
+      "at": "user.ini をリセットしました"
+    },
+    "complete_body": {
+      "ht": "",
+      "at": "{channel} チャンネルのカスタム上書き設定はすべて消去されました。{backup_note}"
+    }
+  },
+  "restore_user_ini": {
+    "no_snapshots_title": {
+      "ht": "",
+      "at": "スナップショットがまだありません"
+    },
+    "no_snapshots_body": {
+      "ht": "",
+      "at": "Smart Citizen には {channel} チャンネルの自動 user.ini スナップショットがまだありません。スナップショットは上書き設定が変更されるたびに保存されるため、編集を行って保存した後に復元ポイントが表示されます。"
+    },
+    "snapshot_label": {
+      "ht": "",
+      "at": "{when}  —  {lines} 件の上書き、{size_kb} KB"
+    },
+    "picker_title": {
+      "ht": "",
+      "at": "user.ini を復元"
+    },
+    "picker_label": {
+      "ht": "",
+      "at": "{channel} チャンネルで復元するスナップショットを選んでください。\n現在の user.ini はまず先にスナップショットとして保存されるため、この操作は元に戻せます。"
+    },
+    "restore_failed_title": {
+      "ht": "",
+      "at": "復元に失敗しました"
+    },
+    "restore_failed_body": {
+      "ht": "",
+      "at": "Smart Citizen はスナップショットを復元できませんでした：\n\n{error_type}：{error}"
+    },
+    "restored_title": {
+      "ht": "",
+      "at": "user.ini を復元しました"
+    },
+    "restored_body": {
+      "ht": "",
+      "at": "{channel} チャンネルの上書き設定を次から復元しました：\n{name}\n\n復元した上書き設定をゲームに反映するには「拡張を適用」を実行してください。"
+    }
+  },
+  "extract": {
+    "path_required_title": {
+      "ht": "",
+      "at": "Star Citizen のパスが必要です"
+    },
+    "path_required_body": {
+      "ht": "",
+      "at": "Star Citizen のインストールパスが設定されておらず、キャッシュされたローカライズデータも見つかりませんでした。\n\n設定タブで Star Citizen のインストールパスを設定してから、「抽出」をクリックしてゲームのローカライズ文字列を読み込んでください。"
+    },
+    "p4k_prompt_title": {
+      "ht": "",
+      "at": "Data.p4k から抽出"
+    },
+    "p4k_prompt_base_missing": {
+      "ht": "",
+      "at": "キャッシュにベースローカライズファイルが見つかりません。\n\n今すぐ Data.p4k から global.ini を抽出しますか？\n（ローカライズ文字列を読み込んで表示するために必要です。）"
+    },
+    "p4k_prompt_p4k_newer": {
+      "ht": "",
+      "at": "Data.p4k がキャッシュされた base.ini より新しくなっています。\n\n今すぐ Data.p4k から global.ini を抽出しますか？\n（現在インストールされているゲームバージョンに正確に一致する標準文字列が得られます。）"
+    },
+    "dataforge_outdated_title": {
+      "ht": "",
+      "at": "DataForge キャッシュが古くなっています"
+    },
+    "dataforge_outdated_body": {
+      "ht": "",
+      "at": "DataForge のエンティティキャッシュが現在の Data.p4k より古くなっています。\n\n今すぐ DataForge を再抽出して拡張を再生成しますか？\n\nこれには数分かかり、バックグラウンドで実行されます — 処理中も文字列の編集を続けられます。待ちたくない場合は今は飛ばしても構いません。後で拡張タブからいつでも実行できます。"
+    },
+    "generate_dialog_title": {
+      "ht": "",
+      "at": "拡張を生成"
+    },
+    "category_singular": {
+      "ht": "",
+      "at": "つの拡張カテゴリが不足しています。"
+    },
+    "category_plural": {
+      "ht": "",
+      "at": "つの拡張カテゴリが不足しています。"
+    },
+    "missing_categories_body": {
+      "ht": "",
+      "at": "{count}{noun}\n生成するものを選択してください。\nこれは後で拡張タブから変更できます。"
+    },
+    "missing_category_label": {
+      "ht": "",
+      "at": "{label}  （不足）"
+    },
+    "dataforge_auto_extract_note": {
+      "ht": "",
+      "at": "DataForge データはまだキャッシュされていない場合、自動的に抽出されます。\n初回実行には数分かかります。"
+    },
+    "generate_btn": {
+      "ht": "",
+      "at": "生成"
+    },
+    "skip_btn": {
+      "ht": "",
+      "at": "スキップ"
+    },
+    "dataforge_extracting_background": {
+      "ht": "",
+      "at": "バックグラウンドで DataForge を抽出中 — これには数分かかります…"
+    },
+    "dataforge_extracting_label": {
+      "ht": "",
+      "at": "Data.p4k から DataForge を抽出中 — これには数分かかります…"
+    },
+    "dataforge_extraction_title": {
+      "ht": "",
+      "at": "DataForge 抽出"
+    },
+    "dataforge_extraction_error_title": {
+      "ht": "",
+      "at": "DataForge 抽出エラー"
+    },
+    "dataforge_extraction_error_body": {
+      "ht": "",
+      "at": "DataForge の抽出に失敗しました：\n\n{message}\n\n詳細はログタブを参照してください。"
+    },
+    "dataforge_extracted_generating": {
+      "ht": "",
+      "at": "DataForge を抽出しました — 拡張を生成中…"
+    },
+    "dataforge_extraction_failed": {
+      "ht": "",
+      "at": "DataForge の抽出に失敗しました — 詳細はログタブを参照してください"
+    },
+    "p4k_extracting_label": {
+      "ht": "",
+      "at": "Data.p4k から global.ini を抽出中..."
+    },
+    "p4k_extraction_title": {
+      "ht": "",
+      "at": "P4K 抽出"
+    },
+    "extraction_error_title": {
+      "ht": "",
+      "at": "抽出エラー"
+    }
+  },
+  "apply": {
+    "cannot_save_edits_title": {
+      "ht": "",
+      "at": "編集内容を保存できません"
+    },
+    "cannot_save_edits_body": {
+      "ht": "",
+      "at": "Smart Citizen は編集内容を次の場所に書き込めませんでした：\n\n  {path}\n\n{error_type}：{error}\n\nゲームファイルは変更されていません。よくある原因：\n  • アンチウイルスソフトや Windows のコントロールされたフォルダーアクセスがゲームフォルダへの書き込みをブロックしている\n  • user.ini ファイルが別のプログラムで開かれている\n  • ドライブが読み取り専用か、空き容量が不足している\n\n根本的な問題を解決してから、もう一度適用してください。"
+    },
+    "applied_body": {
+      "ht": "",
+      "at": "{target_path} に適用しました\n\n  ユーザー編集数：{user_count}\n\n{enhancement_block}"
+    },
+    "failed_body": {
+      "ht": "",
+      "at": "ゲームへの適用に失敗しました：{error}"
+    }
+  },
+  "test_plan": {
+    "intro": {
+      "ht": "",
+      "at": "このビルドの各項目を確認し、確認できたらチェックを入れてください。進捗は自動的に保存されます。完了したら、「レポートをコピー」または「送信」で見つけた内容を共有してください。"
+    },
+    "tester_label": {
+      "ht": "",
+      "at": "テスター："
+    },
+    "tester_placeholder": {
+      "ht": "",
+      "at": "あなたの名前またはハンドルネーム"
+    },
+    "submit_btn": {
+      "ht": "",
+      "at": "Discord に送信"
+    },
+    "no_webhook_tooltip": {
+      "ht": "",
+      "at": "Discord の Webhook が設定されていません。送信を有効にするには {env_var} 環境変数（または test_plan/webhook_url 設定）を設定してください。それまでは「レポートをコピー」をご利用ください。"
+    },
+    "copy_report_btn": {
+      "ht": "",
+      "at": "レポートをコピー"
+    },
+    "reset_btn": {
+      "ht": "",
+      "at": "リセット"
+    },
+    "notes_label": {
+      "ht": "",
+      "at": "追加のフィードバック（任意）："
+    },
+    "notes_placeholder": {
+      "ht": "",
+      "at": "バグ、想定外の挙動、提案などを記入してください..."
+    },
+    "copied_status": {
+      "ht": "",
+      "at": "レポートをクリップボードにコピーしました。"
+    },
+    "copy_failed_status": {
+      "ht": "",
+      "at": "レポートをクリップボードにコピーできませんでした。"
+    },
+    "reset_status": {
+      "ht": "",
+      "at": "チェックリストをリセットしました。"
+    },
+    "no_webhook_status": {
+      "ht": "",
+      "at": "Discord の Webhook が設定されていません。"
+    },
+    "sending_status": {
+      "ht": "",
+      "at": "Discord にレポートを送信中..."
     }
   },
   "tutorial": {

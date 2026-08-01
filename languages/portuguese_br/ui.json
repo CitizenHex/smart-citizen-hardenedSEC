@@ -1008,6 +1008,10 @@
       "ht": "",
       "at": "Renomear variantes de nave exec-hangar (PYX) e Wikelo (WIK) para incluir um sufixo que as diferencie da versão padrão da loja de pledge (ex.: \"Anvil F8C Lightning PYX\"). Entra em vigor na próxima Geração de Aprimoramentos."
     },
+    "rs_ore_name_annotations_tooltip": {
+      "ht": "",
+      "at": "Adiciona a Assinatura de Recurso base de cada minério ao seu próprio nome de exibição (ex.: \"Alumínio (RS 4285)\"), para que apareça em todos os lugares onde o jogo mostra esse nome -- incluindo o rastreador de missão. Independente de Assinaturas de Recursos em Campos de Detalhes da Missão. Entra em vigor na próxima Geração de Aprimoramentos."
+    },
     "apply_categories_tooltip": {
       "ht": "",
       "at": "Salvar a seleção de categorias. Categorias desmarcadas serão desativadas."
@@ -1132,6 +1136,10 @@
       "ht": "",
       "at": "Piloto Ace"
     },
+    "mission_field_resource_signatures": {
+      "ht": "",
+      "at": "Assinaturas de Recursos"
+    },
     "mission_detail_fields_note": {
       "ht": "",
       "at": "Os campos desmarcados ficam de fora das descrições de missão. Vale a partir do próximo Gerar Aprimoramentos."
@@ -1143,6 +1151,10 @@
     "standardize_ship_names_cb": {
       "ht": "",
       "at": "Padronizar os nomes das naves obteníveis"
+    },
+    "rs_ore_name_annotations_cb": {
+      "ht": "",
+      "at": "Mostrar Assinaturas de Recursos (RS) ao lado dos nomes dos minérios"
     },
     "mission_labels_group": {
       "ht": "",
@@ -1317,6 +1329,22 @@
     "scan_logs_tooltip": {
       "ht": "",
       "at": "Escaneia os arquivos de log do Star Citizen (Game.log e logbackups) em busca de notificações de recompensa \"Received Blueprint\" e marca esses blueprints automaticamente como adquiridos."
+    },
+    "scan_other_channels_checkbox": {
+      "ht": "",
+      "at": "Também escanear LIVE/HOTFIX (o que não estiver ativo)"
+    },
+    "scan_other_channels_tooltip": {
+      "ht": "",
+      "at": "LIVE e HOTFIX compartilham o mesmo progresso de conta, então uma planta obtida em um aparece também nos registros do outro. Também escaneia o que não for seu canal ativo entre os dois, se estiver instalado. PTU, EPTU e TECH-PREVIEW são builds de teste separadas com progresso próprio e nunca são escaneadas."
+    },
+    "force_rescan_checkbox": {
+      "ht": "",
+      "at": "Reescanear todos os registros (ignorar a última verificação)"
+    },
+    "force_rescan_tooltip": {
+      "ht": "",
+      "at": "Normalmente uma verificação só lê eventos desde a última verificação, para continuar rápida. Marque isto se sua lista de itens possuídos parecer errada e você quiser reler cada registro do zero. Desmarca-se sozinha após a próxima verificação."
     },
     "apply_owned_tag_btn": {
       "ht": "",
@@ -2335,6 +2363,10 @@
     "extraction_error_title": {
       "ht": "",
       "at": "Erro de extração"
+    },
+    "p4k_locked": {
+      "ht": "",
+      "at": ""
     }
   },
   "apply": {

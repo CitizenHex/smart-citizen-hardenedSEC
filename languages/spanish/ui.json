@@ -1008,6 +1008,10 @@
       "ht": "",
       "at": "Renombrar las variantes de nave exec-hangar (PYX) y Wikelo (WIK) para incluir un sufijo que las distinga de la versión estándar de la tienda de pledge (p. ej. \"Anvil F8C Lightning PYX\"). Surte efecto en la próxima generación de mejoras."
     },
+    "rs_ore_name_annotations_tooltip": {
+      "ht": "",
+      "at": "Añade la Firma de Recurso base de cada mineral a su propio nombre mostrado (p. ej. «Aluminio (RS 4285)»), para que aparezca en todos los lugares donde el juego muestra ese nombre, incluido el rastreador de misiones. Independiente de Firmas de Recursos en Campos de Detalles de Misión. Surte efecto en la próxima generación de mejoras."
+    },
     "apply_categories_tooltip": {
       "ht": "",
       "at": "Guardar la selección de categorías. Las categorías sin marcar se desactivarán."
@@ -1132,6 +1136,10 @@
       "ht": "",
       "at": "Piloto Ace"
     },
+    "mission_field_resource_signatures": {
+      "ht": "",
+      "at": "Firmas de Recursos"
+    },
     "mission_detail_fields_note": {
       "ht": "",
       "at": "Los campos desmarcados se omiten de las descripciones de misión. Se aplica en el próximo «Generar mejoras»."
@@ -1143,6 +1151,10 @@
     "standardize_ship_names_cb": {
       "ht": "",
       "at": "Estandarizar los nombres de las naves obtenibles"
+    },
+    "rs_ore_name_annotations_cb": {
+      "ht": "",
+      "at": "Mostrar Firmas de Recursos (RS) junto a los nombres de minerales"
     },
     "mission_labels_group": {
       "ht": "",
@@ -1317,6 +1329,22 @@
     "scan_logs_tooltip": {
       "ht": "",
       "at": "Escanea los archivos de registro de Star Citizen (Game.log y logbackups) en busca de notificaciones de recompensa \"Received Blueprint\" y marca esos blueprints automáticamente como adquiridos."
+    },
+    "scan_other_channels_checkbox": {
+      "ht": "",
+      "at": "Analizar también LIVE/HOTFIX (el que no esté activo)"
+    },
+    "scan_other_channels_tooltip": {
+      "ht": "",
+      "at": "LIVE y HOTFIX comparten el mismo progreso de cuenta, así que un plano obtenido en uno aparece también en los registros del otro. También analiza el que no sea tu canal activo de los dos, si está instalado. PTU, EPTU y TECH-PREVIEW son compilaciones de prueba independientes con su propio progreso y nunca se analizan."
+    },
+    "force_rescan_checkbox": {
+      "ht": "",
+      "at": "Reanalizar todos los registros (ignorar el último análisis)"
+    },
+    "force_rescan_tooltip": {
+      "ht": "",
+      "at": "Normalmente un análisis solo lee eventos desde tu último análisis, para seguir siendo rápido. Marca esto si tu lista de poseídos parece incorrecta y quieres releer cada registro desde cero. Se desmarca sola después del siguiente análisis."
     },
     "apply_owned_tag_btn": {
       "ht": "",
@@ -2335,6 +2363,10 @@
     "extraction_error_title": {
       "ht": "",
       "at": "Error de extracción"
+    },
+    "p4k_locked": {
+      "ht": "",
+      "at": ""
     }
   },
   "apply": {

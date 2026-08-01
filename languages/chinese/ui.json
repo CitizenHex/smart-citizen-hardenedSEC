@@ -35,6 +35,22 @@
     "defaults_hint": {
       "ht": "",
       "at": "使用你当前的设置（与高级视图显示的相同）。\n首次运行在提取 DataForge 时可能需要几分钟。"
+    },
+    "set_game_folder_title": {
+      "ht": "",
+      "at": "设置你的游戏文件夹"
+    },
+    "set_game_folder_body": {
+      "ht": "",
+      "at": "Smart Citizen 需要知道 Star Citizen 的安装位置才能应用更改。\n\n即将切换到高级模式，以便你在配置标签页设置游戏文件夹。"
+    },
+    "apply_enhancements_confirm_title": {
+      "ht": "",
+      "at": "应用增强内容"
+    },
+    "apply_enhancements_confirm_body": {
+      "ht": "",
+      "at": "这将使用你当前的设置生成最新的增强内容，并应用到游戏的 global.ini。系统会先创建一个带时间戳的备份。\n\n首次运行可能需要几分钟，因为需要提取 DataForge。是否继续？"
     }
   },
   "tabs": {
@@ -69,6 +85,18 @@
     "legal": {
       "ht": "",
       "at": "法律信息"
+    },
+    "about_load_failed": {
+      "ht": "",
+      "at": "无法加载关于信息。"
+    },
+    "faq_load_failed": {
+      "ht": "",
+      "at": "无法加载常见问题。"
+    },
+    "legal_load_failed": {
+      "ht": "",
+      "at": "无法加载法律信息。"
     }
   },
   "toolbar": {
@@ -175,6 +203,18 @@
     "apply_disabled_tooltip": {
       "ht": "",
       "at": "已经应用：自上次应用到游戏以来没有任何更改。"
+    },
+    "feedback_fallback_text": {
+      "ht": "",
+      "at": "反馈、错误报告与功能投票"
+    },
+    "paypal_fallback_text": {
+      "ht": "",
+      "at": "通过 PayPal 捐赠"
+    },
+    "venmo_fallback_text": {
+      "ht": "",
+      "at": "Venmo"
     }
   },
   "filters": {
@@ -339,6 +379,66 @@
     "column_filter_placeholder": {
       "ht": "",
       "at": "筛选 {column}…"
+    },
+    "editor_dock_title": {
+      "ht": "",
+      "at": "字符串编辑器"
+    },
+    "no_row_selected": {
+      "ht": "",
+      "at": "（未选择任何行）"
+    },
+    "editor_underline_btn": {
+      "ht": "",
+      "at": "下划线"
+    },
+    "editor_highlight_btn": {
+      "ht": "",
+      "at": "高亮"
+    },
+    "editor_placeholder": {
+      "ht": "",
+      "at": "在字符串编辑器表格中选择一行，即可在此编辑其自定义值。"
+    },
+    "context_copy_cell": {
+      "ht": "",
+      "at": "复制单元格"
+    },
+    "context_copy_key": {
+      "ht": "",
+      "at": "复制键名"
+    },
+    "context_edit": {
+      "ht": "",
+      "at": "编辑"
+    },
+    "context_reset_to_original": {
+      "ht": "",
+      "at": "重置为原始值"
+    },
+    "context_copy_all_filtered": {
+      "ht": "",
+      "at": "复制所有筛选结果"
+    },
+    "context_remove_favorite": {
+      "ht": "",
+      "at": "★ 取消收藏"
+    },
+    "context_add_favorite": {
+      "ht": "",
+      "at": "★ 添加到收藏"
+    },
+    "showing_count": {
+      "ht": "",
+      "at": "显示 {total} 个字符串中的 {shown} 个"
+    },
+    "copied_key": {
+      "ht": "",
+      "at": "已复制：{loc_key}"
+    },
+    "pyperclip_missing": {
+      "ht": "",
+      "at": "未安装 pyperclip"
     }
   },
   "config": {
@@ -661,6 +761,46 @@
     "extract_tooltip": {
       "ht": "",
       "at": "从你已安装的 Data.p4k 中解包官方本地化内容（base.ini）以及 DataForge 实体 XML。每次《星际公民》更新后运行——提取完成后字符串会自动重新加载到表格中。"
+    },
+    "include_new_cb": {
+      "ht": "",
+      "at": "包含新发现的项目"
+    },
+    "disable_tutorial_cb": {
+      "ht": "",
+      "at": "禁用教程"
+    },
+    "invalid_data_folder_body": {
+      "ht": "",
+      "at": "所选的数据文件夹是一个文件，而不是目录：\n{path}"
+    },
+    "onedrive_folder_title": {
+      "ht": "",
+      "at": "数据文件夹位于 OneDrive 中"
+    },
+    "onedrive_folder_body": {
+      "ht": "",
+      "at": "此文件夹位于 OneDrive 中：\n\n{path}\n\nOneDrive 可能会同步甚至清空这些文件，已导致过编辑内容丢失。强烈建议使用 OneDrive 之外的本地文件夹。\n\n仍要使用此 OneDrive 文件夹吗？"
+    },
+    "dataforge_cache_old_new": {
+      "ht": "",
+      "at": "旧：{old}\n新：{new}"
+    },
+    "channel_not_installed_hint": {
+      "ht": "",
+      "at": "⚠ 此根目录下未安装 {channel} — 请选择其他频道"
+    },
+    "preview_merge_failed": {
+      "ht": "",
+      "at": "预览合并失败：{error}"
+    },
+    "game_path_placeholder": {
+      "ht": "",
+      "at": "C:\\Program Files\\Roberts Space Industries\\StarCitizen"
+    },
+    "language_source_placeholder": {
+      "ht": "",
+      "at": "https://…/global.ini"
     }
   },
   "enhancements": {
@@ -762,7 +902,7 @@
     },
     "blueprints_desc": {
       "ht": "",
-      "at": "标记你已拥有的蓝图。已拥有的物品在任务的潜在蓝图奖励中出现时会带有 [已拥有] 标签，让你一眼就能看出哪些值得追求。在左侧选择物品，用箭头将它们移动到你的已拥有列表。"
+      "at": "标记你已拥有的蓝图。已拥有的物品在任务的潜在蓝图奖励中出现时会带有 [Owned] 标签，让你一眼就能看出哪些值得追求。在左侧选择物品，用箭头将它们移动到你的已拥有列表。"
     },
     "blueprints_empty_note": {
       "ht": "",
@@ -850,7 +990,7 @@
     },
     "bp_scan_summary": {
       "ht": "",
-      "at": "已将 {count} 个蓝图添加到你的已拥有列表。\n\n其中 {visible} 个目前可在你当前的蓝图列表中看到；其余的会在其物品下次出现在任务蓝图奖励中时自动显示 [已拥有]。"
+      "at": "已将 {count} 个蓝图添加到你的已拥有列表。\n\n其中 {visible} 个目前可在你当前的蓝图列表中看到；其余的会在其物品下次出现在任务蓝图奖励中时自动显示 [Owned]。"
     },
     "mission_field_ace_tooltip": {
       "ht": "",
@@ -923,6 +1063,246 @@
     "extracting_dataforge_tooltip": {
       "ht": "",
       "at": "正在从 Data.p4k 提取 DataForge…"
+    },
+    "tag_move_up_tooltip": {
+      "ht": "",
+      "at": "上移此元素"
+    },
+    "tag_move_down_tooltip": {
+      "ht": "",
+      "at": "下移此元素"
+    },
+    "tag_untick_exclude_tooltip": {
+      "ht": "",
+      "at": "取消勾选可将此元素从标签中排除"
+    },
+    "tag_edit_mapping_row_btn": {
+      "ht": "",
+      "at": "编辑映射…"
+    },
+    "tag_mapping_tooltip_ordinance": {
+      "ht": "",
+      "at": "编辑每种追踪类型使用的短/中/长文本（例如：Infrared → I / IR / Infrared）。"
+    },
+    "tag_mapping_tooltip_damage": {
+      "ht": "",
+      "at": "编辑每种伤害类型使用的短/中/长文本（例如：Energy → E / EN / Energy）。"
+    },
+    "tag_mapping_tooltip_type": {
+      "ht": "",
+      "at": "编辑每种组件类型使用的短/中/长文本（例如：Shield Generator → SH / SHLD / Shield）。"
+    },
+    "tag_mapping_tooltip_label": {
+      "ht": "",
+      "at": "编辑制造标签的短/中/长文本（例如：Crafting → CF / Craft / Crafting）。"
+    },
+    "tag_mapping_tooltip_collection": {
+      "ht": "",
+      "at": "编辑收藏标签的短/中/长文本（例如：Collection → Col / Collect / Collection）。"
+    },
+    "tag_mapping_tooltip_default": {
+      "ht": "",
+      "at": "编辑每个等级使用的短/中/长文本（例如：Military → M / MIL / Military）。"
+    },
+    "mission_detail_fields_heading": {
+      "ht": "",
+      "at": "任务详情字段："
+    },
+    "mission_field_mission_type": {
+      "ht": "",
+      "at": "任务类型"
+    },
+    "mission_field_difficulty": {
+      "ht": "",
+      "at": "难度"
+    },
+    "mission_field_hostiles": {
+      "ht": "",
+      "at": "敌对数量"
+    },
+    "mission_field_reputation": {
+      "ht": "",
+      "at": "声望"
+    },
+    "mission_field_blueprints": {
+      "ht": "",
+      "at": "蓝图"
+    },
+    "mission_field_ace_pilot": {
+      "ht": "",
+      "at": "王牌飞行员"
+    },
+    "mission_detail_fields_note": {
+      "ht": "",
+      "at": "未勾选的字段不会出现在任务描述中。下次生成增强内容时生效。"
+    },
+    "stats_prepend_cb": {
+      "ht": "",
+      "at": "在描述上方显示属性数据"
+    },
+    "standardize_ship_names_cb": {
+      "ht": "",
+      "at": "统一可获取飞船的名称"
+    },
+    "mission_labels_group": {
+      "ht": "",
+      "at": "任务标签"
+    },
+    "mission_label_details": {
+      "ht": "",
+      "at": "详情："
+    },
+    "mission_label_blueprints": {
+      "ht": "",
+      "at": "蓝图："
+    },
+    "mission_label_item_rewards": {
+      "ht": "",
+      "at": "物品奖励："
+    },
+    "mission_label_blueprint_data": {
+      "ht": "",
+      "at": "蓝图数据："
+    },
+    "mission_label_xp": {
+      "ht": "",
+      "at": "经验值标签："
+    },
+    "mission_label_header_style": {
+      "ht": "",
+      "at": "标题样式："
+    },
+    "em_label_underline": {
+      "ht": "",
+      "at": "下划线"
+    },
+    "em_label_blue_text": {
+      "ht": "",
+      "at": "蓝色文字"
+    },
+    "forge_status_not_extracted": {
+      "ht": "",
+      "at": "DataForge：尚未提取 — 点击“生成增强内容”开始"
+    },
+    "forge_status_outdated": {
+      "ht": "",
+      "at": "DataForge：缓存已过期 — 点击“生成增强内容”以重新提取并更新"
+    },
+    "forge_status_up_to_date": {
+      "ht": "",
+      "at": "DataForge：缓存已是最新 ✓"
+    },
+    "tag_separator_label": {
+      "ht": "",
+      "at": "分隔符："
+    },
+    "tag_enclosing_label": {
+      "ht": "",
+      "at": "括号样式："
+    },
+    "tag_placement_label": {
+      "ht": "",
+      "at": "放置位置："
+    },
+    "tag_craft_usage_separator_label": {
+      "ht": "",
+      "at": "用途分隔符："
+    },
+    "mt_hauling_group": {
+      "ht": "",
+      "at": "运输任务"
+    },
+    "mt_enable_route_cb": {
+      "ht": "",
+      "at": "在运输任务标题中添加路线"
+    },
+    "mt_standardize_cb": {
+      "ht": "",
+      "at": "统一运输任务名称（例如所有公司统一显示为“Medium Cargo Haul”，而不是“Large Shipment” / “Haul - Small Scale”）"
+    },
+    "mt_route_hint": {
+      "ht": "",
+      "at": "接受任务后，游戏会自动填入实际的取货和送货地点。"
+    },
+    "mt_route_arrow_label": {
+      "ht": "",
+      "at": "路线箭头："
+    },
+    "mt_title_separator_label": {
+      "ht": "",
+      "at": "标题分隔符："
+    },
+    "mt_rank_separator_label": {
+      "ht": "",
+      "at": "等级分隔符："
+    },
+    "mt_location_detail_label": {
+      "ht": "",
+      "at": "地点详细程度："
+    },
+    "mt_shorten_titles_cb": {
+      "ht": "",
+      "at": "缩短原始标题（缩短常见短语，例如“Local Shipment Route” → “Route”）"
+    },
+    "mt_shorten_sizes_cb": {
+      "ht": "",
+      "at": "缩短货舱容量（缩写货舱等级，例如“Extra Small” → “XS”）"
+    },
+    "mt_underline_direct_cb": {
+      "ht": "",
+      "at": "为“Direct”加下划线（在游戏中突出显示“Direct”运输任务）"
+    },
+    "mt_general_tags_group": {
+      "ht": "",
+      "at": "通用标签"
+    },
+    "mt_general_tags_hint": {
+      "ht": "",
+      "at": "仅在任务标题中显示或隐藏这些标签"
+    },
+    "mt_tag_rep_cb": {
+      "ht": "",
+      "at": "声望标签（添加“[500 REP]”）"
+    },
+    "mt_tag_blueprint_cb": {
+      "ht": "",
+      "at": "蓝图标签（添加“[BP]” / “[BP?]”）"
+    },
+    "mt_tag_ace_cb": {
+      "ht": "",
+      "at": "王牌标签（添加“[ACE]” / “[ACE?]”）"
+    },
+    "mt_tag_rep_track_cb": {
+      "ht": "",
+      "at": "声望轨道标签（在声望标签后添加“(Security)” / “(Contractor)”）"
+    },
+    "mt_scanning_group": {
+      "ht": "",
+      "at": "扫描/采矿任务"
+    },
+    "mt_scanning_hint": {
+      "ht": "",
+      "at": "Recco Battaglia 的扫描/采矿任务针对特定可开采矿物，会在任务标题中显示每种矿物的资源信号值。"
+    },
+    "mt_tag_rs_cb": {
+      "ht": "",
+      "at": "显示资源信号（RS）标签"
+    },
+    "mt_preview_route_off": {
+      "ht": "",
+      "at": "预览：  {display} [50 REP]  （路线已关闭）"
+    },
+    "mt_preview_route_on": {
+      "ht": "",
+      "at": "预览：  {display} [50 REP]"
+    },
+    "tag_preview": {
+      "ht": "",
+      "at": "预览：  {content}"
+    },
+    "tag_preview_no_tag": {
+      "ht": "",
+      "at": "预览：  {name}   （无标签 — 所有元素均为空或已禁用）"
     }
   },
   "blueprint_tracker": {
@@ -938,17 +1318,37 @@
       "ht": "",
       "at": "扫描你的《星际公民》日志文件（Game.log 及 logbackups）以查找“已获得蓝图”奖励通知，并自动将其标记为已拥有。"
     },
+    "scan_other_channels_checkbox": {
+      "ht": "",
+      "at": "同时扫描 LIVE/HOTFIX（无论当前未激活的是哪一个）"
+    },
+    "scan_other_channels_tooltip": {
+      "ht": "",
+      "at": "LIVE 和 HOTFIX 共享相同的账号进度，因此在其中一个频道获得的蓝图也会出现在另一个频道的日志中。如果已安装，也会扫描这两个频道中当前非激活的那一个。PTU、EPTU 和 TECH-PREVIEW 是拥有各自独立进度的测试版本，永远不会被扫描。"
+    },
+    "force_rescan_checkbox": {
+      "ht": "",
+      "at": "重新扫描所有日志（忽略上次扫描）"
+    },
+    "force_rescan_tooltip": {
+      "ht": "",
+      "at": "通常扫描只会读取自上次扫描以来的事件，以保持速度。如果你的已拥有列表看起来不正确，且你想从头重新读取每个日志，请勾选此项。下次扫描后会自动取消勾选。"
+    },
     "apply_owned_tag_btn": {
       "ht": "",
       "at": "应用已拥有标签"
     },
     "apply_owned_tag_tooltip": {
       "ht": "",
-      "at": "刷新字符串表中蓝图名称的 [已拥有] 标签，使其与你当前的已拥有列表匹配。"
+      "at": "刷新字符串表中蓝图名称的 [Owned] 标签，使其与你当前的已拥有列表匹配。"
     },
     "apply_owned_tag_tooltip_disabled": {
       "ht": "",
       "at": "已是最新——自上次应用以来，你的已拥有列表没有变化。"
+    },
+    "owned_tags_refreshed": {
+      "ht": "",
+      "at": "[Owned] 标签已刷新，与你当前的已拥有列表保持一致。"
     }
   },
   "log": {
@@ -1056,7 +1456,7 @@
     },
     "custom_value_prompt": {
       "ht": "",
-      "at": "为该键输入自定义值：\n{key}"
+      "at": "为该键输入自定义值：\n{loc_key}"
     },
     "auto_add_summary": {
       "ht": "",
@@ -1431,6 +1831,38 @@
     "skip_generate_tooltip": {
       "ht": "",
       "at": "跳过生成增强内容，继续操作。你可以之后在增强内容标签页中运行它。"
+    },
+    "crash_error_title": {
+      "ht": "",
+      "at": "Smart Citizen — 错误"
+    },
+    "show_log_btn": {
+      "ht": "",
+      "at": "显示日志"
+    },
+    "dismiss_btn": {
+      "ht": "",
+      "at": "关闭"
+    },
+    "suppressed_errors_suffix": {
+      "ht": "",
+      "at": "\n\n（另有 {count} 个错误已被隐藏 — 详情请查看日志标签页）"
+    },
+    "failed_to_delete_global_ini": {
+      "ht": "",
+      "at": "删除 global.ini 失败：{error}"
+    },
+    "failed_to_merge_sources": {
+      "ht": "",
+      "at": "合并数据源失败：{error}"
+    },
+    "failed_to_load_sources": {
+      "ht": "",
+      "at": "加载数据源失败：{error}"
+    },
+    "app_title": {
+      "ht": "",
+      "at": "Smart Citizen"
     }
   },
   "progress": {
@@ -1497,6 +1929,30 @@
     "snapshot_diff": {
       "ht": "",
       "at": "正在为差异对比创建缓存快照…"
+    },
+    "syncing_sources": {
+      "ht": "",
+      "at": "正在同步数据源..."
+    },
+    "starting_up_title": {
+      "ht": "",
+      "at": "正在启动"
+    },
+    "enhancements_label": {
+      "ht": "",
+      "at": "正在从 DataForge 生成增强本地化内容…\n\n首次运行可能需要几分钟。"
+    },
+    "generating_enhancements_title": {
+      "ht": "",
+      "at": "正在生成增强内容"
+    },
+    "reloading_with_enhancements": {
+      "ht": "",
+      "at": "正在使用更新后的增强内容重新加载字符串…"
+    },
+    "reloading_after_user_ini_restore": {
+      "ht": "",
+      "at": "正在恢复 user.ini 后重新加载 {channel}..."
     }
   },
   "status_bar": {
@@ -1535,6 +1991,442 @@
     "open_release_page_tooltip": {
       "ht": "",
       "at": "打开 v{version} 的发布页面"
+    },
+    "downloading_ini": {
+      "ht": "",
+      "at": "正在下载 INI 文件..."
+    },
+    "starting_up": {
+      "ht": "",
+      "at": "正在启动 — 正在同步数据源..."
+    },
+    "generating_enhancements_background": {
+      "ht": "",
+      "at": "正在后台生成增强内容…"
+    },
+    "enhancements_generated_applying": {
+      "ht": "",
+      "at": "增强内容已生成 — 正在应用到游戏…"
+    },
+    "enhancements_generated_reloading": {
+      "ht": "",
+      "at": "增强内容已生成 — 正在重新加载条目…"
+    },
+    "enhancement_generation_failed": {
+      "ht": "",
+      "at": "增强内容生成失败 — 详情请查看日志标签页"
+    },
+    "user_ini_reset": {
+      "ht": "",
+      "at": "{channel} 的 user.ini 已重置（已创建备份）"
+    },
+    "user_ini_restored": {
+      "ht": "",
+      "at": "已恢复 {channel} 的 user.ini"
+    },
+    "channel_indicator": {
+      "ht": "",
+      "at": "频道：{channel}"
+    },
+    "channel_switched_extracting": {
+      "ht": "",
+      "at": "已切换到 {channel} — 正在提取 Data.p4k…"
+    },
+    "channel_switched_reloading": {
+      "ht": "",
+      "at": "已切换到 {channel} — 正在重新加载数据源…"
+    },
+    "data_folder_changed_extracting": {
+      "ht": "",
+      "at": "数据文件夹已更改为 {data_dir} — 正在提取 Data.p4k…"
+    },
+    "data_folder_changed_reloading": {
+      "ht": "",
+      "at": "数据文件夹已更改为 {data_dir} — 正在重新加载数据源…"
+    },
+    "cache_folder_changed": {
+      "ht": "",
+      "at": "DataForge 缓存文件夹已更改 — 正在从 Data.p4k 重新提取…"
+    },
+    "syncing_source": {
+      "ht": "",
+      "at": "正在同步 {source_name}..."
+    },
+    "source_updated": {
+      "ht": "",
+      "at": "已更新 ↑"
+    },
+    "source_offline": {
+      "ht": "",
+      "at": "（离线？）"
+    },
+    "entry_count": {
+      "ht": "",
+      "at": "{count} 个条目"
+    },
+    "override_count_suffix": {
+      "ht": "",
+      "at": " | {count} 项覆盖"
+    },
+    "manifest_missing": {
+      "ht": "",
+      "at": "SC {channel}（缺少清单）"
+    }
+  },
+  "import_flow": {
+    "source_dialog_title": {
+      "ht": "",
+      "at": "导入 INI 文件"
+    },
+    "source_dialog_label": {
+      "ht": "",
+      "at": "输入本地文件路径或网址："
+    },
+    "source_dialog_placeholder": {
+      "ht": "",
+      "at": "C:\\path\\to\\file.ini 或 https://example.com/file.ini"
+    },
+    "browse_btn": {
+      "ht": "",
+      "at": "浏览..."
+    },
+    "select_ini_file_title": {
+      "ht": "",
+      "at": "选择 INI 文件"
+    },
+    "ini_file_filter": {
+      "ht": "",
+      "at": "INI 文件 (*.ini);;所有文件 (*)"
+    },
+    "download_error_title": {
+      "ht": "",
+      "at": "下载错误"
+    },
+    "download_error_body": {
+      "ht": "",
+      "at": "下载失败：\n{source}\n\n{error}"
+    },
+    "no_base_data_title": {
+      "ht": "",
+      "at": "没有基础数据"
+    },
+    "no_base_data_body": {
+      "ht": "",
+      "at": "尚未加载基础 INI。请先从 Data.p4k 提取。"
+    },
+    "no_valid_keys_title": {
+      "ht": "",
+      "at": "没有有效的键"
+    },
+    "no_valid_keys_body": {
+      "ht": "",
+      "at": "导入的 {count} 个键中没有一个存在于 base.ini 中。\n所有键均已排除。"
+    },
+    "nothing_to_import_title": {
+      "ht": "",
+      "at": "没有可导入的内容"
+    },
+    "nothing_to_import_body": {
+      "ht": "",
+      "at": "所有导入的键在 user.ini 中已存在，且值相同。"
+    },
+    "confirm_title": {
+      "ht": "",
+      "at": "导入 INI"
+    },
+    "confirm_body": {
+      "ht": "",
+      "at": "将向 user.ini 添加 {new_count} 个新键。\n{excluded_count} 个键被排除（不在 base.ini 中）。\n\n是否继续？"
+    },
+    "reload_status": {
+      "ht": "",
+      "at": "正在使用导入的数据重新加载..."
+    },
+    "complete_title": {
+      "ht": "",
+      "at": "导入完成"
+    },
+    "complete_body": {
+      "ht": "",
+      "at": "导入成功。\n\n  已添加：{added} 个键\n  冲突已解决：{resolved} 个键\n  已排除：{excluded} 个键"
+    },
+    "error_title": {
+      "ht": "",
+      "at": "导入错误"
+    },
+    "error_body": {
+      "ht": "",
+      "at": "导入 INI 文件失败：\n{error}"
+    }
+  },
+  "restore_backup": {
+    "select_file_title": {
+      "ht": "",
+      "at": "选择要恢复的备份文件"
+    },
+    "file_filter": {
+      "ht": "",
+      "at": "备份文件 (*.bak_*);;INI 文件 (*.ini);;所有文件 (*)"
+    },
+    "success_body": {
+      "ht": "",
+      "at": "已从以下位置恢复备份：\n{name}"
+    },
+    "error_body": {
+      "ht": "",
+      "at": "恢复备份失败：{error}"
+    }
+  },
+  "onedrive": {
+    "warning_title": {
+      "ht": "",
+      "at": "你的 Smart Citizen 数据位于 OneDrive 中"
+    },
+    "warning_body": {
+      "ht": "",
+      "at": "Smart Citizen 将你的编辑内容（user.ini）、数据源缓存和备份存储在：\n\n{data_dir}\n\n该文件夹位于 OneDrive 中。OneDrive 可能会同步甚至清空这些文件，已导致过编辑内容丢失。将数据移动到 OneDrive 之外的本地文件夹可以避免此问题。\n\n是否移动到：\n{local} ？"
+    },
+    "move_btn": {
+      "ht": "",
+      "at": "移动到本地文件夹"
+    },
+    "keep_here_btn": {
+      "ht": "",
+      "at": "保留在此处"
+    },
+    "dont_warn_again": {
+      "ht": "",
+      "at": "不再提醒我"
+    }
+  },
+  "user_ini_reset": {
+    "backup_note": {
+      "ht": "",
+      "at": "\n\n备份已保存到：\n{path}"
+    },
+    "complete_title": {
+      "ht": "",
+      "at": "user.ini 已重置"
+    },
+    "complete_body": {
+      "ht": "",
+      "at": "{channel} 频道的所有自定义覆盖内容均已清除。{backup_note}"
+    }
+  },
+  "restore_user_ini": {
+    "no_snapshots_title": {
+      "ht": "",
+      "at": "尚无快照"
+    },
+    "no_snapshots_body": {
+      "ht": "",
+      "at": "Smart Citizen 目前还没有 {channel} 频道的自动 user.ini 快照。每次你更改覆盖内容时都会保存一个快照，因此在你进行并保存编辑后才会出现可恢复的还原点。"
+    },
+    "snapshot_label": {
+      "ht": "",
+      "at": "{when}  —  {lines} 项覆盖，{size_kb} KB"
+    },
+    "picker_title": {
+      "ht": "",
+      "at": "恢复 user.ini"
+    },
+    "picker_label": {
+      "ht": "",
+      "at": "为 {channel} 频道选择一个要恢复的快照。\n你当前的 user.ini 会先被保存为快照，因此此操作是可逆的。"
+    },
+    "restore_failed_title": {
+      "ht": "",
+      "at": "恢复失败"
+    },
+    "restore_failed_body": {
+      "ht": "",
+      "at": "Smart Citizen 无法恢复该快照：\n\n{error_type}：{error}"
+    },
+    "restored_title": {
+      "ht": "",
+      "at": "user.ini 已恢复"
+    },
+    "restored_body": {
+      "ht": "",
+      "at": "已从以下位置恢复 {channel} 频道的覆盖内容：\n{name}\n\n请运行“应用增强内容”将恢复的覆盖内容推送到游戏中。"
+    }
+  },
+  "extract": {
+    "path_required_title": {
+      "ht": "",
+      "at": "需要 Star Citizen 路径"
+    },
+    "path_required_body": {
+      "ht": "",
+      "at": "尚未配置 Star Citizen 安装路径，也未找到缓存的本地化数据。\n\n请在配置标签页设置你的 Star Citizen 安装路径，然后点击“提取”以加载游戏的本地化字符串。"
+    },
+    "p4k_prompt_title": {
+      "ht": "",
+      "at": "从 Data.p4k 提取"
+    },
+    "p4k_prompt_base_missing": {
+      "ht": "",
+      "at": "缓存中未找到基础本地化文件。\n\n现在从 Data.p4k 提取 global.ini 吗？\n（加载和显示本地化字符串需要此操作。）"
+    },
+    "p4k_prompt_p4k_newer": {
+      "ht": "",
+      "at": "Data.p4k 比你缓存的 base.ini 更新。\n\n现在从 Data.p4k 提取 global.ini 吗？\n（这将获取与你当前安装的游戏版本完全匹配的原版字符串。）"
+    },
+    "dataforge_outdated_title": {
+      "ht": "",
+      "at": "DataForge 缓存已过期"
+    },
+    "dataforge_outdated_body": {
+      "ht": "",
+      "at": "你的 DataForge 实体缓存比当前的 Data.p4k 更旧。\n\n现在重新提取 DataForge 并重新生成增强内容吗？\n\n此操作需要几分钟，并会在后台运行 — 你可以在此期间继续编辑字符串。如果不想等待，可以暂时跳过；你也可以随时从增强内容标签页触发此操作。"
+    },
+    "generate_dialog_title": {
+      "ht": "",
+      "at": "生成增强内容"
+    },
+    "category_singular": {
+      "ht": "",
+      "at": "。"
+    },
+    "category_plural": {
+      "ht": "",
+      "at": "。"
+    },
+    "missing_categories_body": {
+      "ht": "",
+      "at": "缺少 {count} 个增强类别{noun}\n请选择要生成的内容。\n你之后可以在增强内容标签页中更改此设置。"
+    },
+    "missing_category_label": {
+      "ht": "",
+      "at": "{label}  （缺失）"
+    },
+    "dataforge_auto_extract_note": {
+      "ht": "",
+      "at": "如果 DataForge 数据尚未缓存，将会自动提取。\n首次运行需要几分钟。"
+    },
+    "generate_btn": {
+      "ht": "",
+      "at": "生成"
+    },
+    "skip_btn": {
+      "ht": "",
+      "at": "跳过"
+    },
+    "dataforge_extracting_background": {
+      "ht": "",
+      "at": "正在后台提取 DataForge — 这需要几分钟…"
+    },
+    "dataforge_extracting_label": {
+      "ht": "",
+      "at": "正在从 Data.p4k 提取 DataForge — 这需要几分钟…"
+    },
+    "dataforge_extraction_title": {
+      "ht": "",
+      "at": "DataForge 提取"
+    },
+    "dataforge_extraction_error_title": {
+      "ht": "",
+      "at": "DataForge 提取错误"
+    },
+    "dataforge_extraction_error_body": {
+      "ht": "",
+      "at": "DataForge 提取失败：\n\n{message}\n\n详情请查看日志标签页。"
+    },
+    "dataforge_extracted_generating": {
+      "ht": "",
+      "at": "DataForge 已提取 — 正在生成增强内容…"
+    },
+    "dataforge_extraction_failed": {
+      "ht": "",
+      "at": "DataForge 提取失败 — 详情请查看日志标签页"
+    },
+    "p4k_extracting_label": {
+      "ht": "",
+      "at": "正在从 Data.p4k 提取 global.ini..."
+    },
+    "p4k_extraction_title": {
+      "ht": "",
+      "at": "P4K 提取"
+    },
+    "extraction_error_title": {
+      "ht": "",
+      "at": "提取错误"
+    }
+  },
+  "apply": {
+    "cannot_save_edits_title": {
+      "ht": "",
+      "at": "无法保存你的编辑内容"
+    },
+    "cannot_save_edits_body": {
+      "ht": "",
+      "at": "Smart Citizen 无法将你的编辑内容写入：\n\n  {path}\n\n{error_type}：{error}\n\n游戏文件未被修改。常见原因：\n  • 杀毒软件 / Windows 受控文件夹访问阻止了对游戏文件夹的写入\n  • user.ini 文件已在其他程序中打开\n  • 磁盘为只读或空间不足\n\n请解决相关问题后重新应用。"
+    },
+    "applied_body": {
+      "ht": "",
+      "at": "已应用到 {target_path}\n\n  用户编辑数：{user_count}\n\n{enhancement_block}"
+    },
+    "failed_body": {
+      "ht": "",
+      "at": "应用到游戏失败：{error}"
+    }
+  },
+  "test_plan": {
+    "intro": {
+      "ht": "",
+      "at": "逐项检查此构建版本中的每个项目，验证后请打勾。你的进度会自动保存。完成后，点击“复制报告”或“提交”来分享你的发现。"
+    },
+    "tester_label": {
+      "ht": "",
+      "at": "测试者："
+    },
+    "tester_placeholder": {
+      "ht": "",
+      "at": "你的名字或昵称"
+    },
+    "submit_btn": {
+      "ht": "",
+      "at": "提交到 Discord"
+    },
+    "no_webhook_tooltip": {
+      "ht": "",
+      "at": "尚未配置 Discord Webhook。请设置 {env_var} 环境变量（或 test_plan/webhook_url 设置项）以启用提交功能。在此之前请使用“复制报告”。"
+    },
+    "copy_report_btn": {
+      "ht": "",
+      "at": "复制报告"
+    },
+    "reset_btn": {
+      "ht": "",
+      "at": "重置"
+    },
+    "notes_label": {
+      "ht": "",
+      "at": "补充反馈（可选）："
+    },
+    "notes_placeholder": {
+      "ht": "",
+      "at": "描述任何错误、意外情况或建议..."
+    },
+    "copied_status": {
+      "ht": "",
+      "at": "报告已复制到剪贴板。"
+    },
+    "copy_failed_status": {
+      "ht": "",
+      "at": "无法将报告复制到剪贴板。"
+    },
+    "reset_status": {
+      "ht": "",
+      "at": "检查清单已重置。"
+    },
+    "no_webhook_status": {
+      "ht": "",
+      "at": "尚未配置 Discord Webhook。"
+    },
+    "sending_status": {
+      "ht": "",
+      "at": "正在将报告发送到 Discord..."
     }
   },
   "tutorial": {
@@ -1615,7 +2507,7 @@
       },
       "description": {
         "ht": "",
-        "at": "标记你拥有的蓝图。可按名称或任务搜索左侧列表，或按组件类型、等级、尺寸和品级缩小范围，然后用箭头将物品移动到你的已拥有列表。已拥有的蓝图在任务的潜在奖励中出现时会带有 [已拥有] 标签，让你一眼就能看出哪些值得追求。"
+        "at": "标记你拥有的蓝图。可按名称或任务搜索左侧列表，或按组件类型、等级、尺寸和品级缩小范围，然后用箭头将物品移动到你的已拥有列表。已拥有的蓝图在任务的潜在奖励中出现时会带有 [Owned] 标签，让你一眼就能看出哪些值得追求。"
       }
     },
     "edit": {
