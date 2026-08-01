@@ -212,6 +212,20 @@ def _stamp_journal_entries(merged: dict, stock: dict | None = None) -> dict:
 _SENTINEL_MISSING = object()
 
 
+def _blueprint_scan_since(force_rescan: bool, watermark):
+    """The effective watermark a "Scan Logs for Owned Blueprints" run should
+    pass to the scanner (#308).
+
+    A forced rescan (the Blueprint Tracker's "Rescan all logs" checkbox)
+    ignores any saved watermark and re-walks every log back to the
+    scanner's own March-2026 epoch floor -- for the rare case a user's
+    owned set drifted (e.g. an accidental unown) and a normal incremental
+    scan won't recover the missing blueprint. Pure/Qt-free so it's
+    directly testable -- see test_blueprint_force_rescan.py.
+    """
+    return None if force_rescan else watermark
+
+
 def _journal_stamp_for_entry(entry) -> str | None:
     """Return the rendered stamp text for *entry*'s preview, or None.
 
@@ -454,15 +468,17 @@ class MainWindow(QMainWindow):
         )
         self._bp_log_scan_worker = None
         self._bp_log_scan_progress = None
-        # #268: multi-channel scan state. _bp_scan_queue holds channels not
-        # yet started (the current one is popped off before its worker
+        # #268/#308: multi-channel scan state. _bp_scan_queue holds channels
+        # not yet started (the current one is popped off before its worker
         # starts); _bp_scan_channel is whichever channel the in-flight
         # worker is scanning; _bp_scan_new_names accumulates every channel's
         # newly-discovered names so only one combined summary/owned-set
-        # write happens once the whole queue drains.
+        # write happens once the whole queue drains; _bp_scan_force_rescan
+        # is the "Rescan all logs" checkbox state, read once per run.
         self._bp_scan_queue = []
         self._bp_scan_channel = None
         self._bp_scan_new_names = set()
+        self._bp_scan_force_rescan = False
 
         self.log_tab = LogTab()
         self._log_tab_index = self.tabs.addTab(self.log_tab, tr("tabs.log"))
@@ -4989,6 +5005,11 @@ class MainWindow(QMainWindow):
             AppSettings.get_active_channel(), other_enabled, installed
         )
         self._bp_scan_new_names = set()
+        # #308: "Rescan all logs" bypasses the saved watermark for every
+        # queued channel this run, re-walking each back to the scanner's
+        # epoch floor. Read once here (not inside the worker) so a scan
+        # already in flight isn't affected by the checkbox changing mid-scan.
+        self._bp_scan_force_rescan = self.blueprint_tracker_tab.is_force_rescan_checked()
         self._start_next_blueprint_scan()
 
     def _start_next_blueprint_scan(self):
@@ -5015,7 +5036,9 @@ class MainWindow(QMainWindow):
             self._start_next_blueprint_scan()
             return
 
-        since = AppSettings.get_blueprint_log_watermark(channel=channel)
+        since = _blueprint_scan_since(
+            self._bp_scan_force_rescan, AppSettings.get_blueprint_log_watermark(channel=channel)
+        )
         self._bp_log_scan_worker = BlueprintLogScanWorker(channel_path, since)
         self._bp_log_scan_progress = AnimatedProgressDialog(
             tr("enhancements.bp_scan_starting"),
@@ -5089,6 +5112,10 @@ class MainWindow(QMainWindow):
         covering every channel scanned this run (#268)."""
         new_names = sorted(self._bp_scan_new_names)
         self._bp_scan_new_names = set()
+        # #308: one-shot -- the checkbox is consumed by the whole queued run
+        # (every channel), whether it found anything new or errored, so it
+        # doesn't silently keep forcing a full rescan on every future click.
+        self.blueprint_tracker_tab.reset_force_rescan_checkbox()
 
         if not new_names:
             QMessageBox.information(

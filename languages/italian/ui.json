@@ -1326,6 +1326,14 @@
       "ht": "",
       "at": "LIVE e HOTFIX condividono la stessa progressione dell'account, quindi un blueprint ottenuto in uno appare anche nei log dell'altro. Analizza anche quello dei due che non è il tuo canale attivo, se installato. PTU, EPTU e TECH-PREVIEW sono build di test separate con una propria progressione e non vengono mai analizzate."
     },
+    "force_rescan_checkbox": {
+      "ht": "",
+      "at": "Riesegui la scansione di tutti i log (ignora l'ultima scansione)"
+    },
+    "force_rescan_tooltip": {
+      "ht": "",
+      "at": "Normalmente una scansione legge solo gli eventi dall'ultima scansione, per rimanere veloce. Seleziona questa opzione se la tua lista dei posseduti sembra errata e vuoi rileggere ogni log da zero. Si deseleziona automaticamente dopo la scansione successiva."
+    },
     "apply_owned_tag_btn": {
       "ht": "",
       "at": "Applica tag posseduto"

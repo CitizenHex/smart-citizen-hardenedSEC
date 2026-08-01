@@ -1338,6 +1338,14 @@
       "ht": "",
       "at": "LIVE y HOTFIX comparten el mismo progreso de cuenta, así que un plano obtenido en uno aparece también en los registros del otro. También analiza el que no sea tu canal activo de los dos, si está instalado. PTU, EPTU y TECH-PREVIEW son compilaciones de prueba independientes con su propio progreso y nunca se analizan."
     },
+    "force_rescan_checkbox": {
+      "ht": "",
+      "at": "Reanalizar todos los registros (ignorar el último análisis)"
+    },
+    "force_rescan_tooltip": {
+      "ht": "",
+      "at": "Normalmente un análisis solo lee eventos desde tu último análisis, para seguir siendo rápido. Marca esto si tu lista de poseídos parece incorrecta y quieres releer cada registro desde cero. Se desmarca sola después del siguiente análisis."
+    },
     "apply_owned_tag_btn": {
       "ht": "",
       "at": "Aplicar etiquetas [Owned]"

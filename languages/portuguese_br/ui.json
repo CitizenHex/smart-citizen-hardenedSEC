@@ -1338,6 +1338,14 @@
       "ht": "",
       "at": "LIVE e HOTFIX compartilham o mesmo progresso de conta, então uma planta obtida em um aparece também nos registros do outro. Também escaneia o que não for seu canal ativo entre os dois, se estiver instalado. PTU, EPTU e TECH-PREVIEW são builds de teste separadas com progresso próprio e nunca são escaneadas."
     },
+    "force_rescan_checkbox": {
+      "ht": "",
+      "at": "Reescanear todos os registros (ignorar a última verificação)"
+    },
+    "force_rescan_tooltip": {
+      "ht": "",
+      "at": "Normalmente uma verificação só lê eventos desde a última verificação, para continuar rápida. Marque isto se sua lista de itens possuídos parecer errada e você quiser reler cada registro do zero. Desmarca-se sozinha após a próxima verificação."
+    },
     "apply_owned_tag_btn": {
       "ht": "",
       "at": "Aplicar Tags [Owned]"

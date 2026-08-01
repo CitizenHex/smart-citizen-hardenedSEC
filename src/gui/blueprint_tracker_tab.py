@@ -104,6 +104,11 @@ class BlueprintTrackerTab(QWidget):
 
         layout.addLayout(top_btn_row)
 
+        # Scan-behavior checkboxes, side by side: which channels to cover
+        # (#268), and whether to ignore the watermark and re-read everything
+        # (#308). Both only affect "Scan Logs for Owned Blueprints".
+        scan_checkboxes_row = QHBoxLayout()
+
         # #268: also scan whichever of LIVE/HOTFIX isn't the active channel
         # when the user clicks "Scan Logs for Owned Blueprints". Enabled by
         # default; they share the same account progression, so it's cheap
@@ -122,7 +127,26 @@ class BlueprintTrackerTab(QWidget):
         self._scan_other_channels_checkbox.toggled.connect(
             AppSettings.set_scan_other_channels_enabled
         )
-        layout.addWidget(self._scan_other_channels_checkbox)
+        scan_checkboxes_row.addWidget(self._scan_other_channels_checkbox)
+
+        # #308: force a full rescan back to the scanner's epoch floor,
+        # ignoring the saved watermark -- for the rare case a user's owned
+        # set drifted (e.g. an accidental unown) and a normal incremental
+        # scan won't recover the missing blueprint. One-shot: MainWindow
+        # unchecks it once the scan queue finishes, so it doesn't silently
+        # keep forcing a full rescan (and the extra time that takes) on
+        # every future click. Deliberately not persisted to AppSettings --
+        # this isn't a standing preference like the checkbox above.
+        self._force_rescan_checkbox = QCheckBox(
+            tr("blueprint_tracker.force_rescan_checkbox")
+        )
+        self._force_rescan_checkbox.setToolTip(
+            tr("blueprint_tracker.force_rescan_tooltip")
+        )
+        scan_checkboxes_row.addWidget(self._force_rescan_checkbox)
+        scan_checkboxes_row.addStretch()
+
+        layout.addLayout(scan_checkboxes_row)
 
         # Shown instead of the lists when no blueprint items exist yet (mission
         # enhancements not generated) — the same precondition the stars had.
@@ -263,6 +287,12 @@ class BlueprintTrackerTab(QWidget):
         )
         self._scan_other_channels_checkbox.setToolTip(
             tr("blueprint_tracker.scan_other_channels_tooltip")
+        )
+        self._force_rescan_checkbox.setText(
+            tr("blueprint_tracker.force_rescan_checkbox")
+        )
+        self._force_rescan_checkbox.setToolTip(
+            tr("blueprint_tracker.force_rescan_tooltip")
         )
         self._apply_owned_btn.setText(tr("blueprint_tracker.apply_owned_tag_btn"))
         self._set_owned_btn_dirty(self._owned_dirty)  # re-applies the right tooltip
@@ -516,3 +546,14 @@ class BlueprintTrackerTab(QWidget):
     def _on_apply_owned_clicked(self) -> None:
         self.apply_owned_requested.emit()
         self._set_owned_btn_dirty(False)
+
+    def is_force_rescan_checked(self) -> bool:
+        """#308: whether "Rescan all logs" is checked. Read by MainWindow
+        when building a scan run, before the one-shot reset below."""
+        return self._force_rescan_checkbox.isChecked()
+
+    def reset_force_rescan_checkbox(self) -> None:
+        """#308: uncheck "Rescan all logs" once a scan run has consumed it
+        (called by MainWindow after the scan queue finishes), so the next
+        click defaults back to a normal incremental scan."""
+        self._force_rescan_checkbox.setChecked(False)
