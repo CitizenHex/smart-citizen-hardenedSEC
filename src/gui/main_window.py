@@ -468,15 +468,17 @@ class MainWindow(QMainWindow):
         )
         self._bp_log_scan_worker = None
         self._bp_log_scan_progress = None
-        # #268: multi-channel scan state. _bp_scan_queue holds channels not
-        # yet started (the current one is popped off before its worker
+        # #268/#308: multi-channel scan state. _bp_scan_queue holds channels
+        # not yet started (the current one is popped off before its worker
         # starts); _bp_scan_channel is whichever channel the in-flight
         # worker is scanning; _bp_scan_new_names accumulates every channel's
         # newly-discovered names so only one combined summary/owned-set
-        # write happens once the whole queue drains.
+        # write happens once the whole queue drains; _bp_scan_force_rescan
+        # is the "Rescan all logs" checkbox state, read once per run.
         self._bp_scan_queue = []
         self._bp_scan_channel = None
         self._bp_scan_new_names = set()
+        self._bp_scan_force_rescan = False
 
         self.log_tab = LogTab()
         self._log_tab_index = self.tabs.addTab(self.log_tab, tr("tabs.log"))
