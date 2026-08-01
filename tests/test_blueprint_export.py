@@ -2,8 +2,12 @@
 
 Qt-free -- covers format shape, name-matching, and malformed-file handling.
 The GUI wiring (file dialogs, QMessageBox summaries) lives in
-blueprint_tracker_tab.py and is manual-test only, matching every other
-QFileDialog-driven feature in this codebase.
+blueprint_tracker_tab.py and is manual-test only here. Some QFileDialog-
+driven features in this codebase (see test_settings_profile.py,
+test_restore_backup.py) do monkeypatch the dialog to unit-test their wiring
+directly -- that pattern was skipped here since GUI wiring is exempt per
+test_coverage_check.md, but it's a real option for a future pass if the
+extension-detection logic in _export_owned_blueprints grows more branches.
 """
 from __future__ import annotations
 
