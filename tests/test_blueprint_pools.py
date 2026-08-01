@@ -968,9 +968,10 @@ class TestCargoBpTitleDemotion:
         """Replica of the augment-loop BP-tag branch (generate_enhancements_ini)."""
         _bp_variants = [v[7] for v in variants]
         _all_have_bp = has_blueprints and all(_bp_variants)
-        # Battaglia repro: _all_have_bp only means every variant HAS a
+        # #341 follow-up: _all_have_bp only means every variant HAS a
         # BlueprintRewards pool, not that its own chance (v[8]) is 1.0 -- a
-        # 100%-coverage-but-30%-chance mission must not read as guaranteed.
+        # 100%-coverage-but-partial-chance mission must not read as
+        # guaranteed. Live repro: Rayari's chance="0.25" missions.
         _all_bp_guaranteed = _all_have_bp and all(
             v[8] >= 1.0 for v in variants if v[7]
         )
@@ -1034,14 +1035,18 @@ class TestCargoBpTitleDemotion:
 
     @pytest.mark.regression
     def test_full_coverage_with_partial_chance_demotes(self, gen_module):
-        """Battaglia repro: every variant has a BlueprintRewards pool
-        (_all_have_bp is True) but its own chance is 0.3, not 1.0 -- the
+        """#341 follow-up: every variant has a BlueprintRewards pool
+        (_all_have_bp is True) but its own chance is under 1.0 -- the
         mission won't ALWAYS pay out, so the title must not read as the
         guaranteed [BP]. Before the fix, _all_have_bp alone drove the tag
         and this produced [BP] even though the mission DETAILS body (a
         separate code path keying off the same v.bp_chance field) already
-        correctly said "30% chance", not "Guaranteed" -- the title and body
-        disagreed about the same mission."""
+        correctly said "25% chance", not "Guaranteed" -- the title and
+        body disagreed about the same mission. Live repro: Rayari's
+        RAIN_collectresources missions (chance="0.25"); verified against
+        the LIVE DataForge cache that exactly those two titles flip to
+        [BP?] and everything else, Battaglia included (chance="1"), keeps
+        its tag."""
         variants = [("Pyro", 500, 0, "D_CG", [], 0, 0, True, 0.3, "", "")]
         tag = self._tag(
             variants,

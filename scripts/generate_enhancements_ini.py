@@ -6509,15 +6509,20 @@ def _run_gen_missions(ctx: dict) -> dict[str, str]:
         has_blueprints = title_key in mission_blueprints
         _bp_variants = [v.has_bp for v in variants]
         _all_have_bp = has_blueprints and all(_bp_variants)
-        # Battaglia repro: _all_have_bp only means every variant HAS a
-        # BlueprintRewards pool, not that it always pays out -- a pool can
-        # carry its own chance="0.3"-style attribute (mirrors the "X% chance"
-        # vs "Guaranteed" wording the mission DETAILS body already derives
-        # from the same v.bp_chance field below). Title tags never checked
-        # it, so a 100%-coverage-but-30%-chance mission still read as the
-        # guaranteed [BP] here even though the body correctly said "30%
-        # chance" -- the two disagreed about the same mission. A title only
-        # earns the guarantee if every variant's own chance is 1.0 too.
+        # #341 follow-up: _all_have_bp only means every variant HAS a
+        # BlueprintRewards pool, not that it always pays out -- the element
+        # can carry its own chance="0.25"-style attribute (mirrors the
+        # "X% chance" vs "Guaranteed" wording the mission DETAILS body
+        # already derives from the same v.bp_chance field below). Title
+        # tags never checked it, so a 100%-coverage-but-25%-chance mission
+        # still read as the guaranteed [BP] while its own body said "25%
+        # chance". Live repro: Rayari's RAIN_collectresources missions
+        # (chance="0.25" in rayari_recoveritem.xml). NOT the Battaglia
+        # missions #341 reports -- their data is chance="1" on every
+        # variant, so their in-game non-payouts come from pool state (a
+        # pool only pays blueprints the player doesn't own yet), which
+        # static mission text can't express. A title only earns the
+        # guarantee if every variant's own chance is 1.0 too.
         _all_bp_guaranteed = _all_have_bp and all(
             v.bp_chance >= 1.0 for v in variants if v.has_bp
         )
