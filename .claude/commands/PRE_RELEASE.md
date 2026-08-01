@@ -1,5 +1,5 @@
 ---
-description: Pre-release sanity check before merging release/X.Y.Z to main — runs quality checks, a language coverage audit, a tester Test Plan refresh, security review, a contributor + tester acknowledgement audit, and an issue close-on-verify pass
+description: Pre-release sanity check before merging release/X.Y.Z to main — runs quality checks, a language coverage audit, a tester Test Plan refresh, security review, a contributor + tester acknowledgement audit, an issue close-on-verify pass, then triggers the tester preview builds on the release PR
 ---
 
 # /pre_release
@@ -213,8 +213,24 @@ Then bucket:
 
 **CHECKPOINT — present the close / hold / flag list and ask before closing anything.** On confirmation, close each verified issue with a short comment in the project voice (plain thanks, the version the fix shipped in, a reopen path) and credit the tester who confirmed it. Do not close an issue without the user's go-ahead, and never close one that is only awaiting verification.
 
+## 9. Final Test Plan refresh, then trigger the tester preview builds
+
+The plan ships inside the build, so this step does two things in order: bring the Test Plan checklist up to date one last time, then label the release PR — the `build-installer` and `build-portable` labels are what make `installer-preview.yml` and `portable-preview.yml` produce the downloadable artifacts testers verify against.
+
+Procedure:
+
+1. Find the release PR: `gh pr list --base main --head release/X.Y.Z --state open --json number,title`.
+2. If none exists, this is the moment to open it — `main` only ever receives the release-branch merge via PR, so it's needed for the ship step anyway. Title `Release X.Y.Z`, body summarizing the release scope (link the release notes if drafted). **Opening the PR is not merging it** — the merge stays the user's ship trigger.
+3. **Refresh the Test Plan checklist — always the step right before labeling.** Step 4 ran earlier, but steps 3–8 can land more commits on the branch (language backfills, acknowledgement edits, close-out fixes). Re-run step 4's delta pass — `git log main..HEAD --oneline` vs the current `TEST_SECTIONS` in `src/utils/test_plan.py` — and draft items for anything user-visible that landed since. If there are updates, present them, and on approval land them via a normal PR to the release branch (branch protection blocks direct pushes), so the plan is final before any artifact builds. If nothing changed since step 4, say so and move on.
+4. Add both labels: `gh pr edit <N> --add-label build-installer --add-label build-portable`.
+5. Report the two workflow runs once they start (`gh run list --limit 2`) so the user can watch them, and note the artifact names (`smartcitizen-installer-{SHA}`, `smartcitizen-portable-{SHA}`, 30-day retention).
+
+Mechanics to remember: later pushes to the labeled PR rebuild automatically (`synchronize`), so a post-audit fix landing on the release branch refreshes the artifacts without re-labeling. If the labels were already present from an earlier round, re-add them (remove + add) or dispatch the workflows manually so a build runs with the current head.
+
+**CHECKPOINT — confirm before opening the release PR (if needed) and adding the labels; both actions are visible on GitHub and start CI builds.** Wait for the user.
+
 ## Final summary
 
-After all eight steps complete, give a one-line overall verdict for release readiness — the worst-case verdict across the checks. List any remaining Critical/Major findings the user needs to address before the `release/X.Y.Z` → `main` merge, plus any issues still open that were expected to ship this cycle.
+After all nine steps complete, give a one-line overall verdict for release readiness — the worst-case verdict across the checks. List any remaining Critical/Major findings the user needs to address before the `release/X.Y.Z` → `main` merge, plus any issues still open that were expected to ship this cycle.
 
 Reminder: this command does not ship the release. Merging `release/X.Y.Z` to `main`, tagging, building the installer, and creating the GitHub release are separate steps documented in root `CLAUDE.md` → *Version & Release → Release checklist*.
