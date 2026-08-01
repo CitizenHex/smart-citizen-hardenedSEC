@@ -127,11 +127,26 @@ def match_import_names(
 ) -> "tuple[set[str], set[str]]":
     """Split *imported* into (matched, unmatched) against *known* item names.
 
-    Both sides are already normalized (parse_import_names / the Blueprint
-    Tracker's own keys), so this is a plain set intersection/difference --
-    kept as its own function so the tab can report "N matched, M skipped"
-    before actually touching the owned set.
+    *imported* is already normalized (parse_import_names runs every name
+    through normalize_item_name). *known* -- the Blueprint Tracker's own
+    dict keys -- is not, so this normalizes a working copy of *known* here
+    rather than assuming the caller already did (a bare set intersection
+    would silently break normalize_item_name's own documented invariant:
+    "both sides... so the folding is symmetric and can never introduce a
+    one-sided mismatch"). Currently a no-op for every real blueprint name
+    in the data (none contain brackets, tags, or annotations that
+    normalize_item_name would strip), but the asymmetry is real and cheap
+    to close, so there's no reason to leave it latent.
+
+    *matched* returns *known*'s original (unnormalized) names, not the
+    normalized form used for comparison -- callers persist these into the
+    Owned set, which must stay keyed exactly as the Blueprint Tracker's own
+    dict, or a subsequent blueprint_meta.get(name) lookup (e.g. in export)
+    would silently miss.
     """
-    matched = imported & known
-    unmatched = imported - known
+    known_by_normalized: dict = {}
+    for name in known:
+        known_by_normalized.setdefault(normalize_item_name(name), name)
+    matched = {known_by_normalized[nm] for nm in imported if nm in known_by_normalized}
+    unmatched = imported - known_by_normalized.keys()
     return matched, unmatched

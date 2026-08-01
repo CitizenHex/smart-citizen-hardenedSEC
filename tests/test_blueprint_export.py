@@ -143,6 +143,14 @@ class TestParseImportNamesJson:
         with pytest.raises(InvalidImportFileError):
             parse_import_names(path)
 
+    def test_blueprints_present_but_not_a_list_raises(self, tmp_path):
+        """Distinct from test_missing_blueprints_array_raises above -- this
+        is the key present but wrong-typed, not absent entirely."""
+        path = tmp_path / "wrong_type.json"
+        path.write_text(json.dumps({"blueprints": "not a list"}), encoding="utf-8")
+        with pytest.raises(InvalidImportFileError):
+            parse_import_names(path)
+
 
 class TestParseImportNamesCsv:
     def test_reads_our_own_export_shape(self, tmp_path):
@@ -202,4 +210,18 @@ class TestMatchImportNames:
     def test_empty_imported_set_matches_nothing(self):
         matched, unmatched = match_import_names(set(), {"Norfield"})
         assert matched == set()
+        assert unmatched == set()
+
+    def test_known_side_is_normalized_for_comparison(self):
+        """*imported* always arrives normalized (parse_import_names runs it
+        through normalize_item_name), but *known* -- the Blueprint Tracker's
+        own dict keys -- is not. A bracketed known name must still match a
+        plain imported one; the *original* known name comes back in
+        *matched*, not the normalized form, since that's what has to be
+        persisted into the Owned set to stay valid for a later
+        blueprint_meta.get(name) lookup."""
+        matched, unmatched = match_import_names(
+            {"Norfield"}, {"[FN] Norfield"}
+        )
+        assert matched == {"[FN] Norfield"}
         assert unmatched == set()
