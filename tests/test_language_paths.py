@@ -222,39 +222,49 @@ class TestLocalizedDocPath:
         assert path == docs_env / "french" / "HELP.md"
 
 
-class TestJapaneseFaqBackfill:
-    """The #301 japanese language PR translated HELP.md/ABOUT.md/LEGAL.md but
-    missed FAQ.md (unlike italian/chinese, which both shipped it from day
-    one), so get_localized_doc_path was silently falling back to the
-    English FAQ for japanese too. Same bug class as #306, found while
-    testing that fix's portable build. Locks that the gap is closed."""
+class TestIssue306FaqBackfill:
+    """#306: french/spanish/portuguese_br predate docs/FAQ.md (#152) and never
+    got a translated copy, so get_localized_doc_path silently fell back to
+    the English FAQ for those three languages. italian, chinese, and german
+    shipped a translated FAQ from day one; japanese missed it too and was
+    backfilled separately (#334). Locks that the gap is closed and stays
+    closed for all four languages."""
 
     REPO = Path(__file__).resolve().parent.parent
+    _ENGLISH_HEADINGS = None
 
-    def test_faq_exists_and_is_not_the_english_fallback(self):
-        faq_path = self.REPO / "languages" / "japanese" / "FAQ.md"
-        assert faq_path.exists(), "languages/japanese/FAQ.md is missing"
+    @classmethod
+    def _english_headings(cls):
+        if cls._ENGLISH_HEADINGS is None:
+            text = (cls.REPO / "docs" / "FAQ.md").read_text(encoding="utf-8")
+            cls._ENGLISH_HEADINGS = [
+                line for line in text.splitlines() if line.startswith("## ")
+            ]
+        return cls._ENGLISH_HEADINGS
+
+    @pytest.mark.parametrize(
+        "language", ["french", "spanish", "portuguese_br", "japanese"]
+    )
+    def test_faq_exists_and_is_not_the_english_fallback(self, language):
+        faq_path = self.REPO / "languages" / language / "FAQ.md"
+        assert faq_path.exists(), f"languages/{language}/FAQ.md is missing"
         translated = faq_path.read_text(encoding="utf-8")
         english = (self.REPO / "docs" / "FAQ.md").read_text(encoding="utf-8")
-        assert translated != english, "japanese FAQ.md is just the English source"
+        assert translated != english, f"{language} FAQ.md is just the English source"
 
-    def test_faq_section_count_matches_english(self):
-        faq_path = self.REPO / "languages" / "japanese" / "FAQ.md"
+    @pytest.mark.parametrize(
+        "language", ["french", "spanish", "portuguese_br", "japanese"]
+    )
+    def test_faq_section_count_matches_english(self, language):
+        faq_path = self.REPO / "languages" / language / "FAQ.md"
         headings = [
             line
             for line in faq_path.read_text(encoding="utf-8").splitlines()
             if line.startswith("## ")
         ]
-        english_headings = [
-            line
-            for line in (self.REPO / "docs" / "FAQ.md")
-            .read_text(encoding="utf-8")
-            .splitlines()
-            if line.startswith("## ")
-        ]
-        assert len(headings) == len(english_headings), (
-            f"japanese FAQ.md has {len(headings)} sections, "
-            f"English has {len(english_headings)}"
+        assert len(headings) == len(self._english_headings()), (
+            f"{language} FAQ.md has {len(headings)} sections, "
+            f"English has {len(self._english_headings())}"
         )
 
 

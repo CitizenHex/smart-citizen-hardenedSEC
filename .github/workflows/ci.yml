@@ -1,10 +1,16 @@
 name: CI
 
-# Runs on every PR + every push to main / 1.3.0. Validates that the test
-# suite passes and that the PyInstaller onedir build succeeds. Inno Setup
-# installer compilation is deliberately scoped out of CI — that step lives
-# in release.yml because it adds ~3 minutes of toolchain install per run
-# and produces an artifact only useful at release time.
+# Runs on every PR targeting main / master / 1.3.0 / any release/* branch,
+# plus every push to 1.3.0. Validates that the test suite passes and that
+# the PyInstaller onedir build succeeds. Inno Setup installer compilation
+# is deliberately scoped out of CI — that step lives in release.yml
+# because it adds ~3 minutes of toolchain install per run and produces an
+# artifact only useful at release time.
+#
+# release/** was missing from the pull_request trigger until #317: every
+# PR targeting the active release/X.Y.Z branch ran with zero CI coverage,
+# which is how the 2.3.0 language PRs' post-merge key-coverage gap (#318)
+# went undetected until a full local integration merge caught it.
 #
 # Windows-only: Smart Citizen uses Windows Registry via PyQt6 QSettings, so
 # Linux/macOS runners can't import src/utils/settings.py. windows-latest is
@@ -20,7 +26,7 @@ on:
   push:
     branches: ["1.3.0"]
   pull_request:
-    branches: [main, master, "1.3.0"]
+    branches: [main, master, "1.3.0", "release/**"]
   # Manual trigger for one-off debugging without pushing.
   workflow_dispatch:
 

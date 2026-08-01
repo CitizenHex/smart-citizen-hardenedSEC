@@ -132,7 +132,41 @@ them against the new source.
   #306 fix above. Styled on the existing `HELP.md`/`ABOUT.md` terminology
   (more menu, apply/restore/clear-localization action names) and register
   (polite desu/masu form, matching the rest of the Japanese docs). Locked
-  by `tests/test_language_paths.py::TestJapaneseFaqBackfill`.
+  by `tests/test_language_paths.py::TestIssue306FaqBackfill` (japanese
+  folded into the #306 parametrize on merge).
+- **2.3.0 cycle (2026-08-01, Claude Fable 5):** German top-up of the 45 keys
+  added in English by the 2.3.0 feature PRs that merged after German landed
+  (#272, #310, #332, #303, #311, #330). Translations taken verbatim from the
+  author's German backfill branch (PR #338), merged early in scoped form
+  because the German coverage test was red mid-cycle; #338 remains open for
+  the keys that depend on the still-open #336. All `at`-only, `ht: ""`.
+- **2.3.0 cycle (2026-08-01, Claude Sonnet 5):** AI translation of `FAQ.md`
+  for **french**, **spanish**, and **portuguese_br** (#306). `docs/FAQ.md`
+  (#152) landed after these three languages' initial doc translation work
+  (the #248 backfill above covers `HELP.md`/`ABOUT.md`/`LEGAL.md` only), so
+  `get_localized_doc_path` had been silently falling back to the English FAQ
+  tab for all three ever since. italian and chinese both shipped a
+  translated `FAQ.md` from day one; this closes the gap for the three
+  languages that predate #152 (japanese also missed it, tracked and fixed
+  separately since it wasn't part of #306's original scope). Styled on each
+  file's existing
+  human `HELP.md`/`ABOUT.md` terminology (french: "Effacer la localisation"
+  / "Restaurer une sauvegarde"; spanish: "Limpiar localización" / "Restaurar
+  copia"; portuguese_br: "Limpar Localização" / "Restaurar Backup") and
+  register (french *vous*, spanish *tú*, portuguese_br *você*), matching
+  what the translated UI actually shows today. Flagged for review by the
+  language leads (Akwa/Ishikudeska for french, Nxzzin for portuguese_br,
+  Thord82 for spanish) per the policy below. Locked by
+  `tests/test_language_paths.py::TestIssue306FaqBackfill`.
+- **2.3.0 (2026-07-25, Claude Sonnet 5):** New language **german** added (#299).
+  Full AI translation of all 376 UI keys plus the 19-step guided tour
+  (`tutorial.*`), all `at`-only (`ht` empty). Translated `HELP.md`, `ABOUT.md`,
+  `LEGAL.md`, and `FAQ.md`. Base `global.ini` mapped to
+  rjcncpt/StarCitizen-Deutsch-INI (`live/global.ini`, the standard hybrid
+  translation, not the extended "Deutsch+" variant) in `sources.json`;
+  `SC_LANGUAGE_IDS["german"] = "german_(germany)"`; installer
+  `LanguageChoicePage` gained a German option. Locked by
+  `tests/test_german_activation.py`.
 
 - **2.2.0 pre-release (2026-07-15, Claude Fable 5):** AI backfill of the keys
   this cycle added in English only. french and portuguese_br each gained 43
@@ -201,3 +235,14 @@ them against the new source.
   Localization folder with `g_language = japanese_(japan)` (`SC_LANGUAGE_IDS`).
   A Japanese-speaking reviewer replacing the `at` strings with `ht` is the next
   step to promote it from AI-only to human-reviewed.
+- **german** — AI-translated by **Claude** (#299). No human translator yet, so
+  **every** key is `at`-only (`ht` empty) — the whole UI, the guided tour
+  (`tutorial.*`), and the `HELP.md` / `ABOUT.md` / `LEGAL.md` / `FAQ.md`
+  documents are awaiting human review (grep `"ht": ""` returns the entire
+  file by design). The base `global.ini` is sourced from
+  **rjcncpt/StarCitizen-Deutsch-INI** (`live/global.ini`), a community
+  translation project with its own launcher and Discord. German writes to
+  the game's `german_(germany)` Localization folder with
+  `g_language = german_(germany)` (`SC_LANGUAGE_IDS`). A German-speaking
+  reviewer replacing the `at` strings with `ht` is the next step to promote
+  it from AI-only to human-reviewed.

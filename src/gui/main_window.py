@@ -50,7 +50,7 @@ from src.gui.workers import (
     StartupSyncWorker,
 )
 from src.merger.ini_merger import merge_sources_by_hierarchy
-from src.models.string_model import StringEntry
+from src.models.string_model import StringEntry, is_favoritable_ship
 from src.parser.ini_parser import load_source_files, load_sources_from_settings, parse_ini_file
 from src.gui.update_dialog import UpdateDialog
 from src.utils.app_updater import AppUpdateCheckWorker, AppUpdateDownloadWorker
@@ -120,6 +120,28 @@ _FRONTEND_VERSION_STAMP_RE = _re_mod.compile(
     r"(?:Localizations Enhanced (?:with|by)|Enhanced with <3 by)\s+Smart Citizen\s+v?[^\s|]+\s*$"
 )
 
+# #268: LIVE and HOTFIX share the same account/blueprint progression (HOTFIX
+# is a same-account emergency-patch channel), so a blueprint earned on one
+# shows up in the other's logs too. PTU/EPTU/TECH-PREVIEW are separate test
+# builds with their own progression -- never scanned regardless of the
+# "also scan other channels" checkbox.
+_LINKED_CHANNELS = frozenset({AppSettings.CHANNEL_LIVE, AppSettings.CHANNEL_HOTFIX})
+
+
+def _channels_to_scan(active_channel: str, other_enabled: bool, installed_channels) -> list:
+    """Which channels a "Scan Logs for Owned Blueprints" run should cover.
+
+    Always the active channel first. If *other_enabled*, and the active
+    channel is one of the linked pair, also includes whichever other linked
+    channel is actually installed (sorted, for a deterministic queue order).
+    Pure/Qt-free so it's directly testable -- see test_blueprint_scan_channels.py.
+    """
+    channels = [active_channel]
+    if other_enabled and active_channel in _LINKED_CHANNELS:
+        others = sorted((_LINKED_CHANNELS - {active_channel}) & set(installed_channels))
+        channels.extend(others)
+    return channels
+
 
 def _stamp_frontend_version(merged: dict) -> dict:
     """Append the Smart Citizen watermark to Frontend_PU_Version in place, on
@@ -188,6 +210,20 @@ def _stamp_journal_entries(merged: dict, stock: dict | None = None) -> dict:
 # "stock has empty string for this key" — the empty-string case is a
 # legitimate stock value that should still match an empty merged value.
 _SENTINEL_MISSING = object()
+
+
+def _blueprint_scan_since(force_rescan: bool, watermark):
+    """The effective watermark a "Scan Logs for Owned Blueprints" run should
+    pass to the scanner (#308).
+
+    A forced rescan (the Blueprint Tracker's "Rescan all logs" checkbox)
+    ignores any saved watermark and re-walks every log back to the
+    scanner's own March-2026 epoch floor -- for the rare case a user's
+    owned set drifted (e.g. an accidental unown) and a normal incremental
+    scan won't recover the missing blueprint. Pure/Qt-free so it's
+    directly testable -- see test_blueprint_force_rescan.py.
+    """
+    return None if force_rescan else watermark
 
 
 def _journal_stamp_for_entry(entry) -> str | None:
@@ -321,6 +357,11 @@ class MainWindow(QMainWindow):
         # apply_to_game. Cleared on completion or any failure.
         self._simple_run_active = False
 
+        # Import Settings: True while closing for the post-import restart, so
+        # closeEvent neither nags about unapplied edits nor autosaves the
+        # in-memory user.ini over the files the import just wrote.
+        self._suppress_user_ini_autosave = False
+
         # #157: item names (normalized) that appear in any POTENTIAL BLUEPRINTS
         # list — the rows eligible for the Owned star. Recomputed on each load.
         self._bp_item_names: set[str] = set()
@@ -413,6 +454,8 @@ class MainWindow(QMainWindow):
         self.config_tab.check_updates_requested.connect(self._on_check_updates_clicked)
         self.config_tab.data_dir_changed.connect(self._on_data_dir_changed)
         self.config_tab.cache_dir_changed.connect(self._on_cache_dir_changed)
+        self.config_tab.export_settings_requested.connect(self._handle_export_settings)
+        self.config_tab.import_settings_requested.connect(self._handle_import_settings)
         self._config_tab_index = self.tabs.addTab(self.config_tab, tr("tabs.config"))
 
         # Enhancements tab
@@ -432,6 +475,17 @@ class MainWindow(QMainWindow):
         )
         self._bp_log_scan_worker = None
         self._bp_log_scan_progress = None
+        # #268/#308: multi-channel scan state. _bp_scan_queue holds channels
+        # not yet started (the current one is popped off before its worker
+        # starts); _bp_scan_channel is whichever channel the in-flight
+        # worker is scanning; _bp_scan_new_names accumulates every channel's
+        # newly-discovered names so only one combined summary/owned-set
+        # write happens once the whole queue drains; _bp_scan_force_rescan
+        # is the "Rescan all logs" checkbox state, read once per run.
+        self._bp_scan_queue = []
+        self._bp_scan_channel = None
+        self._bp_scan_new_names = set()
+        self._bp_scan_force_rescan = False
 
         self.log_tab = LogTab()
         self._log_tab_index = self.tabs.addTab(self.log_tab, tr("tabs.log"))
@@ -690,6 +744,25 @@ class MainWindow(QMainWindow):
         self.hide_unmodified_check.setToolTip(tr("filters.hide_unmodified_tooltip"))
         self.hide_unmodified_check.stateChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.hide_unmodified_check)
+
+        # #329: narrows the table to ONLY ship/vehicle name rows -- the exact
+        # set the favorite prefix + ASOP sort-order mechanism reads. Ship
+        # descriptions share the "Ships" category but have no equivalent
+        # in-game behavior, and every other category is irrelevant when
+        # you're picking ASOP favorites, so both are hidden. Placed before
+        # Favorites Only per the report, since the two are meant to be used
+        # together.
+        #
+        # The label reads "Ship/Vehicle Names Only", NOT "Ship & Vehicle ...":
+        # Qt reads "&" in a widget label as a mnemonic marker, so the
+        # ampersand is swallowed and the following letter renders underlined
+        # ("Ship Vehicle Names Only" with a stray accelerator). Escaping it
+        # as "&&" would work but reads badly in the i18n files, so the slash
+        # form is used instead. Same applies to any translation of this key.
+        self.ship_vehicle_names_only_check = QCheckBox(tr("filters.ship_vehicle_names_only"))
+        self.ship_vehicle_names_only_check.setToolTip(tr("filters.ship_vehicle_names_only_tooltip"))
+        self.ship_vehicle_names_only_check.stateChanged.connect(self.apply_filters)
+        filter_layout.addWidget(self.ship_vehicle_names_only_check)
 
         self.favorites_only_check = QCheckBox(tr("filters.favorites_only"))
         self.favorites_only_check.setToolTip(tr("filters.favorites_only_tooltip"))
@@ -2315,6 +2388,260 @@ class MainWindow(QMainWindow):
             tr("restore_user_ini.restored_body", channel=channel, name=chosen.name),
         )
 
+    def _handle_export_settings(self):
+        """Export Settings: snapshot settings + per-channel user.ini into a zip.
+
+        The zip is a few KB — preferences and string overrides only, never
+        the regenerable cache. Works identically in registry and portable
+        builds (AppSettings.export_all_values is backend-agnostic).
+        """
+        from src.utils.settings_profile import (
+            SOURCE_MODE_PORTABLE,
+            SOURCE_MODE_REGISTRY,
+            default_backup_filename,
+            write_profile_zip,
+        )
+
+        # Flush on-screen Tag Builder edits first — same "what you see is
+        # what you save" rule Generate Enhancements follows (#215). Tag
+        # configs only reach settings via Save Tag Changes / Generate, so
+        # without this a user who tweaked tags and went straight to Export
+        # would back up their *previous* config.
+        self.enhancements_tab.flush_pending_tag_edits()
+
+        settings_values = AppSettings.export_all_values()
+        overrides = AppSettings.export_channel_overrides()
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            tr("settings_backup.export_dialog_title"),
+            default_backup_filename(),
+            tr("settings_backup.zip_filter"),
+        )
+        if not path:
+            return
+
+        try:
+            write_profile_zip(
+                path,
+                settings=settings_values,
+                overrides=overrides,
+                app_version=get_version(),
+                source_mode=SOURCE_MODE_PORTABLE if IS_PORTABLE else SOURCE_MODE_REGISTRY,
+            )
+        except OSError as e:
+            logger.exception(f"Export Settings failed writing {path}")
+            QMessageBox.critical(
+                self,
+                tr("settings_backup.export_failed_title"),
+                tr("settings_backup.export_failed_body",
+                   error_type=type(e).__name__, error=e),
+            )
+            return
+
+        self.statusBar().showMessage(tr("status_bar.settings_exported"), 5000)
+        QMessageBox.information(
+            self,
+            tr("settings_backup.export_done_title"),
+            tr("settings_backup.export_done_body",
+               path=path,
+               n_settings=len(settings_values),
+               channels=", ".join(sorted(overrides)) or tr("settings_backup.no_channels")),
+        )
+
+    def _handle_import_settings(self):
+        """Import Settings: restore a backup zip, then restart to load it.
+
+        Flow: pick zip → validate → confirm → snapshot current user.ini files
+        (rotating backups, so the import is reversible) → write overrides +
+        settings → re-detect the SC install (machine paths never travel in a
+        backup) → set the post-import flag so the NEXT launch offers to
+        regenerate + apply enhancements → offer restart.
+        """
+        from src.utils.settings_profile import InvalidProfileError, read_profile_zip
+        from src.utils.user_ini_manager import backup_user_ini
+
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            tr("settings_backup.import_dialog_title"),
+            "",
+            tr("settings_backup.zip_filter"),
+        )
+        if not path:
+            return
+
+        try:
+            profile = read_profile_zip(path)
+        except InvalidProfileError as e:
+            QMessageBox.critical(
+                self,
+                tr("settings_backup.import_invalid_title"),
+                tr("settings_backup.import_invalid_body", error=e),
+            )
+            return
+
+        made_with = profile.app_version or "?"
+        when = profile.exported_at.replace("T", " ") if profile.exported_at else "?"
+        channels = ", ".join(sorted(profile.overrides)) or tr("settings_backup.no_channels")
+        reply = QMessageBox.question(
+            self,
+            tr("settings_backup.import_confirm_title"),
+            tr("settings_backup.import_confirm_body",
+               version=made_with, when=when,
+               n_settings=len(profile.settings), channels=channels),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # Write per-channel overrides, snapshotting any existing user.ini
+        # into the channel's rotating backups first (#172 machinery) so an
+        # accidental import is recoverable.
+        try:
+            for channel, text in profile.overrides.items():
+                target = AppSettings.get_channel_user_ini_path(channel)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if target.exists():
+                    backup_user_ini(target)
+                target.write_text(text, encoding="utf-8")
+                logger.info(f"Import Settings: wrote {target}")
+        except OSError as e:
+            logger.exception("Import Settings failed writing overrides")
+            QMessageBox.critical(
+                self,
+                tr("settings_backup.import_failed_title"),
+                tr("settings_backup.import_failed_body",
+                   error_type=type(e).__name__, error=e),
+            )
+            return
+
+        applied = AppSettings.import_values(profile.settings)
+        logger.info(
+            f"Import Settings: {applied} settings applied, "
+            f"{len(profile.overrides)} channel override(s) from {path}"
+        )
+
+        # Resync widgets that cache settings at construction. Without this the
+        # Tag Builder pages still hold the pre-import config, and the next
+        # Save Tag Changes / Generate Enhancements / Export Settings would
+        # write that stale state back over what we just imported — which is
+        # exactly how imported tag configs were getting lost.
+        self.enhancements_tab.reload_tag_builder_from_settings()
+        self.enhancements_tab.revert_category_checkboxes()
+
+        # The backup carries the SC install path so a same-PC restore keeps
+        # it, but it's only trusted if the folder actually exists here —
+        # otherwise this clears it and falls back to auto-detection.
+        outcome = AppSettings.reconcile_imported_install_path()
+        resolved_root = AppSettings.get_sc_install_root()
+
+        # Next launch prompts to regenerate + apply enhancements against the
+        # imported settings (fresh cache, imported tag configs and overrides).
+        AppSettings.set_post_import_apply_pending(True)
+
+        if outcome == AppSettings.INSTALL_PATH_RESTORED:
+            body = tr("settings_backup.import_done_body_restored",
+                      applied=applied, channels=channels, root=resolved_root)
+        elif outcome == AppSettings.INSTALL_PATH_REDETECTED:
+            body = tr("settings_backup.import_done_body_detected",
+                      applied=applied, channels=channels, root=resolved_root)
+        else:
+            body = tr("settings_backup.import_done_body_no_install",
+                      applied=applied, channels=channels)
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setWindowTitle(tr("settings_backup.import_done_title"))
+        box.setText(body)
+        restart_btn = box.addButton(
+            tr("settings_backup.restart_now_btn"), QMessageBox.ButtonRole.AcceptRole
+        )
+        box.addButton(
+            tr("settings_backup.restart_later_btn"), QMessageBox.ButtonRole.RejectRole
+        )
+        box.setDefaultButton(restart_btn)
+        box.exec()
+
+        if box.clickedButton() is restart_btn:
+            self._relaunch_app()
+
+    def _relaunch_app(self) -> None:
+        """Restart Smart Citizen: spawn a detached copy, then close this one.
+
+        Used by Import Settings so the freshly-imported settings are what the
+        new process reads at startup. The suppress flag keeps closeEvent
+        from autosaving stale in-memory state over the imported files.
+        """
+        from PyQt6.QtCore import QProcess
+
+        self._suppress_user_ini_autosave = True
+
+        if getattr(sys, "frozen", False):
+            program, args = sys.executable, []
+        else:
+            program, args = sys.executable, [os.path.abspath(sys.argv[0])]
+        workdir = str(Path(program).resolve().parent)
+
+        if not QProcess.startDetached(program, args, workdir):
+            logger.error(f"Relaunch failed for {program} {args}")
+            QMessageBox.warning(
+                self,
+                tr("settings_backup.relaunch_failed_title"),
+                tr("settings_backup.relaunch_failed_body"),
+            )
+            # Fall through to close anyway — the user relaunches by hand and
+            # still gets the imported state + post-import prompt.
+        self.close()
+
+    def _maybe_prompt_post_import_apply(self) -> None:
+        """Offer to regenerate + apply enhancements after importing settings.
+
+        Runs once per import: the flag Import Settings left behind is cleared
+        the moment it's read, so declining just leaves the normal manual
+        Apply Enhancements path. Reuses the Simple-mode continuation
+        (#180) — generate, then apply_to_game — regardless of UI mode.
+        """
+        if not AppSettings.get_post_import_apply_pending():
+            return
+        AppSettings.set_post_import_apply_pending(False)
+
+        if not AppSettings.get_game_install_path():
+            QMessageBox.information(
+                self,
+                tr("settings_backup.post_import_no_install_title"),
+                tr("settings_backup.post_import_no_install_body"),
+            )
+            self.tabs.setCurrentIndex(self._config_tab_index)
+            return
+
+        # Named buttons rather than stock Yes/No: "Apply Now" / "Later" says
+        # what each choice does without the body having to end in a question,
+        # and "Later" reads as a real option rather than a refusal (declining
+        # is fine — the Apply Enhancements button does the same thing).
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle(tr("settings_backup.post_import_apply_title"))
+        box.setText(tr("settings_backup.post_import_apply_body"))
+        apply_btn = box.addButton(
+            tr("settings_backup.post_import_apply_now_btn"),
+            QMessageBox.ButtonRole.AcceptRole,
+        )
+        box.addButton(
+            tr("settings_backup.post_import_apply_later_btn"),
+            QMessageBox.ButtonRole.RejectRole,
+        )
+        box.setDefaultButton(apply_btn)
+        box.exec()
+        if box.clickedButton() is not apply_btn:
+            return
+
+        if self._enhancements_worker is not None or self._forge_worker is not None:
+            return  # a pipeline is somehow already running; don't stack
+        self._simple_run_active = True
+        self.simple_page.set_busy(True)
+        self._run_enhancements_pipeline()
+
     def _handle_import_ini(self):
         """Handle Import INI button: get source, validate, resolve conflicts, merge."""
         from PyQt6.QtWidgets import (
@@ -3047,6 +3374,7 @@ class MainWindow(QMainWindow):
         self._startup_gate_pending = False
         self._start_startup_sync()
         self._maybe_warn_onedrive_data_dir()
+        self._maybe_prompt_post_import_apply()
 
     def _maybe_warn_onedrive_data_dir(self) -> None:
         """Warn once when the data root is inside a OneDrive-managed folder (#172).
@@ -3423,6 +3751,8 @@ class MainWindow(QMainWindow):
         self.status_combo.setToolTip(tr("filters.status_tooltip"))
         self.hide_unmodified_check.setText(tr("filters.hide_unmodified"))
         self.hide_unmodified_check.setToolTip(tr("filters.hide_unmodified_tooltip"))
+        self.ship_vehicle_names_only_check.setText(tr("filters.ship_vehicle_names_only"))
+        self.ship_vehicle_names_only_check.setToolTip(tr("filters.ship_vehicle_names_only_tooltip"))
         self.favorites_only_check.setText(tr("filters.favorites_only"))
         self.favorites_only_check.setToolTip(tr("filters.favorites_only_tooltip"))
         self.bp_titles_check.setText(tr("filters.bp_titles_only"))
@@ -4325,6 +4655,7 @@ class MainWindow(QMainWindow):
             mission_title_tags=AppSettings.get_mission_title_tags(),
             stats_prepend=AppSettings.get_stats_prepend(),
             standardize_earnable_ship_names=AppSettings.get_standardize_earnable_ship_names(),
+            rs_ore_name_annotations=AppSettings.get_rs_ore_name_annotations(),
             language=language,
         )
         self.enhancements_tab.set_operation_running(tr("enhancements.generating_enhancements_tooltip"))
@@ -4531,7 +4862,7 @@ class MainWindow(QMainWindow):
         # _apply_dirty directly since the latter also starts True at launch
         # (see its comment) — that boot-time uncertainty shouldn't nag a user
         # who hasn't touched anything this session.
-        if self._session_has_unapplied_edit:
+        if self._session_has_unapplied_edit and not self._suppress_user_ini_autosave:
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Icon.Warning)
             box.setWindowTitle(tr("dialogs.unapplied_changes_title"))
@@ -4565,8 +4896,14 @@ class MainWindow(QMainWindow):
             # exit_btn: fall through to the normal close sequence below,
             # exiting without applying.
 
-        # Auto-save overrides if there are unsaved edits
-        if self.entries and not (self._loader_worker and self._loader_worker.isRunning()):
+        # Auto-save overrides if there are unsaved edits. Skipped when closing
+        # for a post-import restart — the in-memory entries reflect the OLD
+        # user.ini and would clobber the files Import Settings just wrote.
+        if (
+            self.entries
+            and not self._suppress_user_ini_autosave
+            and not (self._loader_worker and self._loader_worker.isRunning())
+        ):
             try:
                 from src.utils.user_ini_manager import save_user_ini, should_autosave_user_ini
                 user_ini_path = AppSettings.get_user_ini_path()
@@ -4608,6 +4945,7 @@ class MainWindow(QMainWindow):
             AppSettings.get_favorite_prefix(),
             bp_titles_only=self.bp_titles_check.isChecked(),
             bp_descs_only=self.bp_descs_check.isChecked(),
+            ship_vehicle_names_only=self.ship_vehicle_names_only_check.isChecked(),
         )
 
     @timed
@@ -4727,6 +5065,7 @@ class MainWindow(QMainWindow):
         self.category_combo.blockSignals(True)
         self.status_combo.blockSignals(True)
         self.hide_unmodified_check.blockSignals(True)
+        self.ship_vehicle_names_only_check.blockSignals(True)
         self.favorites_only_check.blockSignals(True)
         self.bp_titles_check.blockSignals(True)
         self.bp_descs_check.blockSignals(True)
@@ -4735,6 +5074,7 @@ class MainWindow(QMainWindow):
         self.category_combo.setCurrentIndex(0)
         self.status_combo.setCurrentIndex(0)
         self.hide_unmodified_check.setChecked(False)
+        self.ship_vehicle_names_only_check.setChecked(False)
         self.favorites_only_check.setChecked(False)
         self.bp_titles_check.setChecked(False)
         self.bp_descs_check.setChecked(False)
@@ -4742,6 +5082,7 @@ class MainWindow(QMainWindow):
         self.category_combo.blockSignals(False)
         self.status_combo.blockSignals(False)
         self.hide_unmodified_check.blockSignals(False)
+        self.ship_vehicle_names_only_check.blockSignals(False)
         self.favorites_only_check.blockSignals(False)
         self.bp_titles_check.blockSignals(False)
         self.bp_descs_check.blockSignals(False)
@@ -4799,7 +5140,7 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         menu.addAction(tr("strings_tab.context_copy_all_filtered"), lambda: self.copy_filtered_to_clipboard())
 
-        if entry.category == "Ships":
+        if is_favoritable_ship(entry):
             menu.addSeparator()
             if is_favorite:
                 menu.addAction(tr("strings_tab.context_remove_favorite"), lambda: self.toggle_favorite(proxy_row))
@@ -4852,8 +5193,10 @@ class MainWindow(QMainWindow):
         col = proxy_index.column()
         if col == COL_STAR:
             entry_idx = self._entry_index_for_row(proxy_index.row())
-            if entry_idx < len(self.entries) and self.entries[entry_idx].category == "Ships":
-                self.toggle_favorite(proxy_index.row())
+            if entry_idx < len(self.entries):
+                entry = self.entries[entry_idx]
+                if is_favoritable_ship(entry):
+                    self.toggle_favorite(proxy_index.row())
 
     @pyqtSlot(QModelIndex)
     def _on_cell_double_clicked(self, proxy_index: QModelIndex):
@@ -4917,17 +5260,27 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(tr("blueprint_tracker.owned_tags_refreshed"))
 
     def _run_blueprint_log_scan(self):
-        """Scan the active channel's SC logs for received-blueprint events and
-        fold them into the owned set. Launched by the Blueprint Tracker tab's
-        "BP Scan" button; runs in a background worker with a progress dialog.
+        """Scan SC logs for received-blueprint events and fold them into the
+        owned set. Launched by the Blueprint Tracker tab's "BP Scan" button;
+        runs in a background worker with a progress dialog.
 
-        Reads Game.log + logbackups/*.log from the active channel's install
-        dir for "Received Blueprint" reward notifications — the game's own
-        record of every blueprint the player has actually earned, independent
-        of whether it's shown up in a loaded mission's reward text yet. Only
-        events newer than the last scan's watermark are imported (#222), so
-        re-running the scan against a still-growing Game.log doesn't re-walk
-        the player's whole history every time.
+        Reads Game.log + logbackups/*.log for "Received Blueprint" reward
+        notifications — the game's own record of every blueprint the player
+        has actually earned, independent of whether it's shown up in a loaded
+        mission's reward text yet. Only events newer than the last scan's
+        watermark are imported (#222), so re-running the scan against a
+        still-growing Game.log doesn't re-walk the player's whole history
+        every time.
+
+        Always covers the active channel. If the Blueprint Tracker's "also
+        scan other channels" checkbox is on and the active channel is LIVE or
+        HOTFIX, also queues whichever of the two isn't active -- they share
+        the same account progression, so a blueprint earned on one shows up
+        in the other's logs too (#268). PTU/EPTU/TECH-PREVIEW are never
+        included; those are separate test builds with their own progression.
+        Each queued channel runs through the same single-channel worker in
+        turn; only one combined summary/owned-set write happens once every
+        queued channel has been scanned.
         """
         if self._bp_log_scan_worker is not None:
             return  # already scanning
@@ -4941,7 +5294,46 @@ class MainWindow(QMainWindow):
             )
             return
 
-        since = AppSettings.get_blueprint_log_watermark()
+        installed = AppSettings.get_available_channels()
+        other_enabled = AppSettings.get_scan_other_channels_enabled()
+        self._bp_scan_queue = _channels_to_scan(
+            AppSettings.get_active_channel(), other_enabled, installed
+        )
+        self._bp_scan_new_names = set()
+        # #308: "Rescan all logs" bypasses the saved watermark for every
+        # queued channel this run, re-walking each back to the scanner's
+        # epoch floor. Read once here (not inside the worker) so a scan
+        # already in flight isn't affected by the checkbox changing mid-scan.
+        self._bp_scan_force_rescan = self.blueprint_tracker_tab.is_force_rescan_checked()
+        self._start_next_blueprint_scan()
+
+    def _start_next_blueprint_scan(self):
+        """Pop the next queued channel and start its worker (#268).
+
+        Silently skips a queued channel with no valid install path (logged,
+        not surfaced as a dialog -- the active channel's own path was already
+        validated with a user-facing warning in _run_blueprint_log_scan;
+        this only guards the rarer case of a secondary channel whose install
+        turns out to be incomplete) and moves on to the next one. Finalizes
+        once the queue is empty.
+        """
+        if not self._bp_scan_queue:
+            self._finish_blueprint_scan_queue()
+            return
+
+        channel = self._bp_scan_queue.pop(0)
+        self._bp_scan_channel = channel
+
+        root = AppSettings.get_sc_install_root()
+        channel_path = str(Path(root) / channel) if root else ""
+        if not channel_path or not Path(channel_path).is_dir():
+            logger.warning(f"BP Scan: skipping {channel} -- no valid install path")
+            self._start_next_blueprint_scan()
+            return
+
+        since = _blueprint_scan_since(
+            self._bp_scan_force_rescan, AppSettings.get_blueprint_log_watermark(channel=channel)
+        )
         self._bp_log_scan_worker = BlueprintLogScanWorker(channel_path, since)
         self._bp_log_scan_progress = AnimatedProgressDialog(
             tr("enhancements.bp_scan_starting"),
@@ -4962,36 +5354,63 @@ class MainWindow(QMainWindow):
             self._bp_log_scan_progress = None
 
     def _on_blueprint_log_scan_finished(self, result):
-        """Fold a completed scan's names into the owned set and report.
+        """Fold one queued channel's scan result into the running total, then
+        either start the next queued channel or finalize (#268).
 
         Owns all owned-set / watermark mutation (the worker stays read-only),
         so every settings write happens on the main thread. ``result`` is a
         ``ScanResult`` or ``None`` when the scan errored (already surfaced via
-        ``_on_blueprint_log_scan_error``)."""
+        ``_on_blueprint_log_scan_error``) -- either way the queue still
+        advances, so one channel's failure doesn't abandon the rest.
+        """
         if self._bp_log_scan_progress is not None:
             self._bp_log_scan_progress.close()
             self._bp_log_scan_progress = None
         self._reap_worker(self._bp_log_scan_worker)
         self._bp_log_scan_worker = None
 
-        if result is None:
-            return
+        channel = self._bp_scan_channel
+        self._bp_scan_channel = None
 
-        from src.utils.owned_items import normalize_item_name
+        if result is not None:
+            from src.utils.owned_items import normalize_item_name
 
-        # Normalize raw log names to the shared owned-set identity; drop blanks.
-        scanned = {normalize_item_name(n) for n in result.names}
-        scanned.discard("")
+            # Normalize raw log names to the shared owned-set identity; drop blanks.
+            scanned = {normalize_item_name(n) for n in result.names}
+            scanned.discard("")
 
-        owned = AppSettings.get_owned_items()
-        new_names = sorted(scanned - owned)
+            owned = AppSettings.get_owned_items()
+            # Exclude names another queued channel already claimed this run,
+            # so a blueprint visible in both LIVE's and HOTFIX's logs isn't
+            # double-counted in the final summary.
+            new_this_channel = scanned - owned - self._bp_scan_new_names
+            self._bp_scan_new_names |= new_this_channel
 
-        # Advance the watermark even when nothing new was imported, so a
-        # growing Game.log's already-seen events aren't reparsed next time.
-        if result.latest_timestamp is not None:
-            prev = AppSettings.get_blueprint_log_watermark()
-            newest = result.latest_timestamp if prev is None else max(prev, result.latest_timestamp)
-            AppSettings.set_blueprint_log_watermark(newest)
+            # Advance this channel's own watermark even when nothing new was
+            # imported, so a growing Game.log's already-seen events aren't
+            # reparsed next time.
+            if result.latest_timestamp is not None:
+                prev = AppSettings.get_blueprint_log_watermark(channel=channel)
+                newest = (
+                    result.latest_timestamp if prev is None
+                    else max(prev, result.latest_timestamp)
+                )
+                AppSettings.set_blueprint_log_watermark(newest, channel=channel)
+
+        if self._bp_scan_queue:
+            self._start_next_blueprint_scan()
+        else:
+            self._finish_blueprint_scan_queue()
+
+    def _finish_blueprint_scan_queue(self):
+        """Write the combined owned-set change and show one summary dialog
+        covering every channel scanned this run (#268)."""
+        new_names = sorted(self._bp_scan_new_names)
+        self._bp_scan_new_names = set()
+        # #308: one-shot -- the checkbox is consumed by the whole queued run
+        # (every channel), whether it found anything new or errored, so it
+        # doesn't silently keep forcing a full rescan on every future click.
+        self.blueprint_tracker_tab.reset_force_rescan_checkbox()
 
         if not new_names:
             QMessageBox.information(
@@ -5001,6 +5420,7 @@ class MainWindow(QMainWindow):
             )
             return
 
+        owned = AppSettings.get_owned_items()
         AppSettings.set_owned_items(owned | set(new_names))
         self._recompute_owned()
         # _recompute_owned() just did the exact re-weave Apply Owned Tags
@@ -5026,12 +5446,20 @@ class MainWindow(QMainWindow):
         box.exec()
 
     def toggle_favorite(self, proxy_row: int):
-        """Add or remove the sort prefix from a ship's custom value."""
+        """Add or remove the sort prefix from a ship's custom value.
+
+        Both call sites (star click, context menu) already gate on
+        is_favoritable_ship, but a description's custom_value being modified
+        this way would silently do nothing useful in-game and confuse the
+        Favorites Only filter (#329), so guard here too.
+        """
         entry_idx = self._entry_index_for_row(proxy_row)
         if entry_idx >= len(self.entries):
             return
 
         entry = self.entries[entry_idx]
+        if not is_favoritable_ship(entry):
+            return
         prefix = AppSettings.get_favorite_prefix()
 
         if entry.custom_value.startswith(prefix):
