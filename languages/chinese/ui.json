@@ -1318,6 +1318,14 @@
       "ht": "",
       "at": "扫描你的《星际公民》日志文件（Game.log 及 logbackups）以查找“已获得蓝图”奖励通知，并自动将其标记为已拥有。"
     },
+    "scan_other_channels_checkbox": {
+      "ht": "",
+      "at": "同时扫描 LIVE/HOTFIX（无论当前未激活的是哪一个）"
+    },
+    "scan_other_channels_tooltip": {
+      "ht": "",
+      "at": "LIVE 和 HOTFIX 共享相同的账号进度，因此在其中一个频道获得的蓝图也会出现在另一个频道的日志中。如果已安装，也会扫描这两个频道中当前非激活的那一个。PTU、EPTU 和 TECH-PREVIEW 是拥有各自独立进度的测试版本，永远不会被扫描。"
+    },
     "apply_owned_tag_btn": {
       "ht": "",
       "at": "应用已拥有标签"

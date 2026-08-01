@@ -1318,6 +1318,14 @@
       "ht": "",
       "at": "Analizza i file di log di Star Citizen (Game.log e logbackups) alla ricerca delle notifiche di ricompensa \"Received Blueprint\" e li contrassegna automaticamente come posseduti."
     },
+    "scan_other_channels_checkbox": {
+      "ht": "",
+      "at": "Analizza anche LIVE/HOTFIX (quello non attivo)"
+    },
+    "scan_other_channels_tooltip": {
+      "ht": "",
+      "at": "LIVE e HOTFIX condividono la stessa progressione dell'account, quindi un blueprint ottenuto in uno appare anche nei log dell'altro. Analizza anche quello dei due che non è il tuo canale attivo, se installato. PTU, EPTU e TECH-PREVIEW sono build di test separate con una propria progressione e non vengono mai analizzate."
+    },
     "apply_owned_tag_btn": {
       "ht": "",
       "at": "Applica tag posseduto"
