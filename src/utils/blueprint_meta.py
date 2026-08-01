@@ -233,9 +233,29 @@ _BULLET_NAME_ALIASES: dict[str, str] = {
 }
 
 # Prefixes CIG strips off a blueprint XML's filename before the descriptive
-# part (mirrors generate_enhancements_ini.py's _name_from_blueprint_filename,
-# which uses this same transform when resolving a blueprint pool entry).
-_RAW_BLUEPRINT_FILENAME_PREFIXES = ("bp_craft_", "bp_rewards_", "bp_")
+# part. Shared with generate_enhancements_ini.py's _name_from_blueprint_filename
+# (imported from here, same deferred-import pattern as tag_builder/win_paths)
+# so the two don't hand-maintain separate copies of the same transform.
+RAW_BLUEPRINT_FILENAME_PREFIXES = ("bp_craft_", "bp_rewards_", "bp_")
+
+
+def strip_raw_blueprint_filename_prefix(stem: str) -> "tuple[str, bool]":
+    """Strip a known bp_* filename prefix (case-insensitively) from *stem*.
+
+    Returns ``(remainder, True)`` if a prefix matched, or ``(stem, False)``
+    unchanged if it didn't -- deliberately leaves "no prefix matched" for the
+    caller to interpret, since the two current callers disagree on what that
+    means: :func:`_raw_blueprint_filename_slug` below takes it as "this bullet
+    isn't shaped like a raw blueprint filename at all," while
+    generate_enhancements_ini.py's ``_name_from_blueprint_filename`` still
+    transforms the untouched stem (its caller already knows it's a genuine
+    blueprint XML path, so there's no "is this one at all" question to ask).
+    """
+    lowered = stem.lower()
+    for prefix in RAW_BLUEPRINT_FILENAME_PREFIXES:
+        if lowered.startswith(prefix):
+            return stem[len(prefix):], True
+    return stem, False
 
 
 def _raw_blueprint_filename_slug(raw_nm: str) -> "str | None":
@@ -254,12 +274,10 @@ def _raw_blueprint_filename_slug(raw_nm: str) -> "str | None":
     same title-cased string for the fuel-nozzle family), so no new aliases
     are needed, just the extra normalization step to reach them.
     """
-    lowered = raw_nm.lower()
-    for prefix in _RAW_BLUEPRINT_FILENAME_PREFIXES:
-        if lowered.startswith(prefix):
-            stem = raw_nm[len(prefix):]
-            return stem.replace("_", " ").replace("-", " ").title()
-    return None
+    stem, matched = strip_raw_blueprint_filename_prefix(raw_nm)
+    if not matched:
+        return None
+    return stem.replace("_", " ").replace("-", " ").title()
 
 
 # Fuel nozzle Name-key conventions (#266 follow-up): nozzles ship under two
