@@ -812,27 +812,27 @@
     },
     "backup_group": {
       "ht": "",
-      "at": "Backup de Configuracoes"
+      "at": "Backup de Configurações"
     },
     "backup_desc": {
       "ht": "",
-      "at": "Salve todas as suas configuracoes (preferencias, configuracoes de tags, sua pasta do Star Citizen e suas substituicoes de texto personalizadas para cada canal) em um unico arquivo de backup pequeno. Importe em um PC novo, apos descompactar uma versao portatil nova, ou para desfazer uma configuracao errada. Os backups funcionam entre versoes do Smart Citizen. Os caches do jogo nao sao incluidos; eles se reconstroem automaticamente a partir dos arquivos do seu jogo."
+      "at": "Salve todas as suas configurações (preferências, configurações de tags, sua pasta do Star Citizen e suas substituições de texto personalizadas para cada canal) em um único arquivo de backup pequeno. Importe em um PC novo, após descompactar uma versão portátil nova, ou para desfazer uma configuração errada. Os backups funcionam entre versões do Smart Citizen. Os caches do jogo não são incluídos; eles se reconstroem automaticamente a partir dos arquivos do seu jogo."
     },
     "export_settings_btn": {
       "ht": "",
-      "at": "Exportar Configuracoes..."
+      "at": "Exportar Configurações..."
     },
     "export_settings_tooltip": {
       "ht": "",
-      "at": "Salve suas preferencias, pasta do Star Citizen e substituicoes de texto personalizadas em um pequeno zip de backup (poucos KB). Guarde onde quiser (nuvem, pendrive) e importe depois, em qualquer versao do Smart Citizen, para restaurar suas configuracoes."
+      "at": "Salve suas preferências, pasta do Star Citizen e substituições de texto personalizadas em um pequeno zip de backup (poucos KB). Guarde onde quiser (nuvem, pendrive) e importe depois, em qualquer versão do Smart Citizen, para restaurar suas configurações."
     },
     "import_settings_btn": {
       "ht": "",
-      "at": "Importar Configuracoes..."
+      "at": "Importar Configurações..."
     },
     "import_settings_tooltip": {
       "ht": "",
-      "at": "Restaura um zip de backup de configuracoes feito por qualquer versao do Smart Citizen. Seus arquivos user.ini atuais sao capturados primeiro, sua pasta do Star Citizen e restaurada (ou detectada automaticamente se o caminho do backup nao estiver neste PC), e o Smart Citizen reinicia com as configuracoes importadas."
+      "at": "Restaura um zip de backup de configurações feito por qualquer versão do Smart Citizen. Seus arquivos user.ini atuais são salvos primeiro, sua pasta do Star Citizen é restaurada (ou detectada automaticamente se o caminho do backup não estiver neste PC), e o Smart Citizen reinicia com as configurações importadas."
     }
   },
   "enhancements": {
@@ -2676,15 +2676,15 @@
   "settings_backup": {
     "export_dialog_title": {
       "ht": "",
-      "at": "Exportar Backup de Configuracoes"
+      "at": "Exportar Backup de Configurações"
     },
     "export_done_title": {
       "ht": "",
-      "at": "Configuracoes Exportadas"
+      "at": "Configurações Exportadas"
     },
     "export_done_body": {
       "ht": "",
-      "at": "Suas configuracoes foram salvas em:\n{path}\n\nIncluido: {n_settings} configuracoes e substituicoes de texto personalizadas para: {channels}.\n\nGuarde este arquivo onde quiser, ele e pequeno. Use Importar Configuracoes para restaura-lo em um PC novo ou apos migrar para uma nova versao portatil."
+      "at": "Suas configurações foram salvas em:\n{path}\n\nIncluído: {n_settings} configurações e substituições de texto personalizadas para: {channels}.\n\nGuarde este arquivo onde quiser, ele é pequeno. Use Importar Configurações para restaurá-lo em um PC novo ou após migrar para uma nova versão portátil."
     },
     "export_failed_title": {
       "ht": "",
@@ -2692,35 +2692,35 @@
     },
     "export_failed_body": {
       "ht": "",
-      "at": "Nao foi possivel gravar o zip de backup.\n\n{error_type}: {error}"
+      "at": "Não foi possível gravar o zip de backup.\n\n{error_type}: {error}"
     },
     "import_dialog_title": {
       "ht": "",
-      "at": "Importar Backup de Configuracoes"
+      "at": "Importar Backup de Configurações"
     },
     "import_confirm_title": {
       "ht": "",
-      "at": "Importar estas configuracoes?"
+      "at": "Importar estas configurações?"
     },
     "import_confirm_body": {
       "ht": "",
-      "at": "Backup feito com Smart Citizen v{version} em {when}.\n\nContem {n_settings} configuracoes e substituicoes de texto para: {channels}.\n\nImportar sobrepoe isso as suas configuracoes atuais e substitui o user.ini dos canais listados (seus arquivos user.ini atuais sao capturados primeiro, entao isso e reversivel via Redefinir user.ini). Continuar?"
+      "at": "Backup feito com Smart Citizen v{version} em {when}.\n\nContém {n_settings} configurações e substituições de texto para: {channels}.\n\nImportar sobrepõe isso às suas configurações atuais e substitui o user.ini dos canais listados (seus arquivos user.ini atuais são salvos primeiro, então isso é reversível via Restaurar user.ini). Continuar?"
     },
     "import_done_title": {
       "ht": "",
-      "at": "Configuracoes Importadas"
+      "at": "Configurações Importadas"
     },
     "import_done_body_detected": {
       "ht": "",
-      "at": "{applied} configuracoes e substituicoes de texto importadas para: {channels}.\n\nA pasta do Star Citizen do backup nao esta neste PC, entao foi detectada automaticamente:\n{root}\n\nO Smart Citizen precisa reiniciar para carregar suas configuracoes importadas. Apos reiniciar, ele oferecera para regenerar e aplicar seus aprimoramentos."
+      "at": "{applied} configurações e substituições de texto importadas para: {channels}.\n\nA pasta do Star Citizen do backup não está neste PC, então foi detectada automaticamente:\n{root}\n\nO Smart Citizen precisa reiniciar para carregar suas configurações importadas. Após reiniciar, ele oferecerá regenerar e aplicar seus aprimoramentos."
     },
     "import_done_body_no_install": {
       "ht": "",
-      "at": "{applied} configuracoes e substituicoes de texto importadas para: {channels}.\n\nNenhuma instalacao do Star Citizen foi encontrada neste PC; defina-a na aba Configuracao apos reiniciar.\n\nO Smart Citizen precisa reiniciar para carregar suas configuracoes importadas."
+      "at": "{applied} configurações e substituições de texto importadas para: {channels}.\n\nNenhuma instalação do Star Citizen foi encontrada neste PC; defina-a na aba Configuração após reiniciar.\n\nO Smart Citizen precisa reiniciar para carregar suas configurações importadas."
     },
     "import_done_body_restored": {
       "ht": "",
-      "at": "{applied} configuracoes e substituicoes de texto importadas para: {channels}.\n\nSua pasta do Star Citizen foi restaurada a partir do backup:\n{root}\n\nO Smart Citizen precisa reiniciar para carregar suas configuracoes importadas. Apos reiniciar, ele oferecera para regenerar e aplicar seus aprimoramentos."
+      "at": "{applied} configurações e substituições de texto importadas para: {channels}.\n\nSua pasta do Star Citizen foi restaurada a partir do backup:\n{root}\n\nO Smart Citizen precisa reiniciar para carregar suas configurações importadas. Após reiniciar, ele oferecerá regenerar e aplicar seus aprimoramentos."
     },
     "import_failed_title": {
       "ht": "",
@@ -2728,15 +2728,15 @@
     },
     "import_failed_body": {
       "ht": "",
-      "at": "Nao foi possivel gravar as substituicoes importadas.\n\n{error_type}: {error}\n\nNenhuma configuracao foi alterada."
+      "at": "Não foi possível gravar as substituições importadas.\n\n{error_type}: {error}\n\nNenhuma configuração foi alterada."
     },
     "import_invalid_title": {
       "ht": "",
-      "at": "Isto Nao e um Backup de Configuracoes"
+      "at": "Isto Não é um Backup de Configurações"
     },
     "import_invalid_body": {
       "ht": "",
-      "at": "Este arquivo nao pode ser importado:\n\n{error}"
+      "at": "Este arquivo não pôde ser importado:\n\n{error}"
     },
     "no_channels": {
       "ht": "",
@@ -2744,11 +2744,11 @@
     },
     "post_import_apply_title": {
       "ht": "",
-      "at": "Quase Pronto — Aplicar ao Seu Jogo?"
+      "at": "Quase Pronto: Aplicar ao Seu Jogo?"
     },
     "post_import_apply_body": {
       "ht": "",
-      "at": "Suas configuracoes foram importadas. A ultima etapa e gerar seus aprimoramentos a partir dos arquivos de jogo deste PC e grava-los no jogo.\n\nOs backups guardam suas configuracoes, nao o texto de jogo gerado, entao isso precisa ser feito uma vez em cada PC novo. Geralmente leva alguns minutos, um pouco mais na primeira vez, enquanto os arquivos do jogo sao descompactados.\n\nVoce tambem pode fazer isso depois com o botao Aplicar Aprimoramentos."
+      "at": "Suas configurações foram importadas. A última etapa é gerar seus aprimoramentos a partir dos arquivos de jogo deste PC e gravá-los no jogo.\n\nOs backups guardam suas configurações, não o texto de jogo gerado, então isso precisa ser feito uma vez em cada PC novo. Geralmente leva alguns minutos, um pouco mais na primeira vez, enquanto os arquivos do jogo são descompactados.\n\nVocê também pode fazer isso depois com o botão Aplicar Aprimoramentos."
     },
     "post_import_apply_now_btn": {
       "ht": "",
@@ -2764,7 +2764,7 @@
     },
     "post_import_no_install_body": {
       "ht": "",
-      "at": "Suas configuracoes importadas foram carregadas, mas nenhuma instalacao do Star Citizen esta configurada ainda. Defina a pasta de instalacao na aba Configuracao e use Aplicar Aprimoramentos para colocar suas personalizacoes no jogo."
+      "at": "Suas configurações importadas foram carregadas, mas nenhuma instalação do Star Citizen está configurada ainda. Defina a pasta de instalação na aba Configuração e use Aplicar Aprimoramentos para colocar suas personalizações no jogo."
     },
     "relaunch_failed_title": {
       "ht": "",
@@ -2772,7 +2772,7 @@
     },
     "relaunch_failed_body": {
       "ht": "",
-      "at": "O Smart Citizen nao conseguiu reiniciar sozinho. Inicie-o novamente manualmente; suas configuracoes importadas serao carregadas entao."
+      "at": "O Smart Citizen não conseguiu reiniciar sozinho. Inicie-o novamente manualmente; suas configurações importadas serão carregadas então."
     },
     "restart_now_btn": {
       "ht": "",
@@ -2784,7 +2784,7 @@
     },
     "zip_filter": {
       "ht": "",
-      "at": "Backup de configuracoes (*.zip)"
+      "at": "Backup de configurações (*.zip)"
     }
   }
 }

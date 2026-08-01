@@ -50,6 +50,15 @@ them against the new source.
 
 ## Backfill log
 
+- **2.3.0 cycle (2026-08-01, Claude Fable 5):** Corrected the french, spanish,
+  and portuguese_br AI strings for the #311 Settings Backup feature (the
+  `settings_backup.*` and `config.backup*`/`config.*_settings_*` keys). Two
+  fixes: the import-confirm dialog pointed users at the Reset user.ini button
+  ("Réinitialiser"/"Restablecer"/"Redefinir") where English references
+  Restore user.ini (now "Restaurer"/"Restaurar"/"Restaurar", matching each
+  file's own `config.restore_user_ini_btn`), and the whole key set shipped
+  without diacritics ("parametres", "configuracoes"), inconsistent with the
+  rest of those files. All corrected strings stay `at`-only, `ht: ""`.
 - **2.2.1 pre-release (2026-07-18, Claude Fable 5):** AI backfill of the 215
   keys the #247 hardcoded-string sweep added in English only (Tag Builder
   tooltips and labels, Mission Titles page, mission detail fields, the Import
