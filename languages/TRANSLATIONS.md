@@ -124,6 +124,12 @@ them against the new source.
   `SC_LANGUAGE_IDS["japanese"] = "japanese_(japan)"`; installer
   `LanguageChoicePage` gained a Japanese option. Locked by
   `tests/test_japanese_activation.py`.
+- **2.3.0 cycle (2026-08-01, Claude Fable 5):** German top-up of the 45 keys
+  added in English by the 2.3.0 feature PRs that merged after German landed
+  (#272, #310, #332, #303, #311, #330). Translations taken verbatim from the
+  author's German backfill branch (PR #338), merged early in scoped form
+  because the German coverage test was red mid-cycle; #338 remains open for
+  the keys that depend on the still-open #336. All `at`-only, `ht: ""`.
 - **2.3.0 cycle (2026-08-01, Claude Sonnet 5):** AI translation of `FAQ.md`
   for **french**, **spanish**, and **portuguese_br** (#306). `docs/FAQ.md`
   (#152) landed after these three languages' initial doc translation work
