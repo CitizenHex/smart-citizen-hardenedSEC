@@ -5146,6 +5146,13 @@ class MainWindow(QMainWindow):
                 menu.addAction(tr("strings_tab.context_remove_favorite"), lambda: self.toggle_favorite(proxy_row))
             else:
                 menu.addAction(tr("strings_tab.context_add_favorite"), lambda: self.toggle_favorite(proxy_row))
+        elif prefix and is_favorite:
+            # Pre-#329 builds let any Ships row be favorited, so a stranded
+            # prefix can sit on a row that is no longer favoritable (still
+            # applied to the game text). Keep a removal path for those rows;
+            # adding stays name-row only.
+            menu.addSeparator()
+            menu.addAction(tr("strings_tab.context_remove_favorite"), lambda: self.toggle_favorite(proxy_row))
 
         menu.exec(self.table.mapToGlobal(position))
 
@@ -5448,19 +5455,22 @@ class MainWindow(QMainWindow):
     def toggle_favorite(self, proxy_row: int):
         """Add or remove the sort prefix from a ship's custom value.
 
-        Both call sites (star click, context menu) already gate on
-        is_favoritable_ship, but a description's custom_value being modified
-        this way would silently do nothing useful in-game and confuse the
-        Favorites Only filter (#329), so guard here too.
+        Adding is restricted to ship/vehicle NAME rows (#329): favoriting a
+        description edits text nothing in-game reads sorted or starred.
+        Removal is allowed on ANY row whose custom_value carries the prefix,
+        because pre-#329 builds let any Ships row be favorited and those
+        stranded prefixes still apply to the game text; without this they
+        would have no removal affordance at all (#330 follow-up).
         """
         entry_idx = self._entry_index_for_row(proxy_row)
         if entry_idx >= len(self.entries):
             return
 
         entry = self.entries[entry_idx]
-        if not is_favoritable_ship(entry):
-            return
         prefix = AppSettings.get_favorite_prefix()
+        stranded = bool(prefix) and entry.custom_value.startswith(prefix)
+        if not is_favoritable_ship(entry) and not stranded:
+            return
 
         if entry.custom_value.startswith(prefix):
             new_value = entry.custom_value[len(prefix):]

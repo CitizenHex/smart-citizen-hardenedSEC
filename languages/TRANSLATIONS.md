@@ -50,6 +50,15 @@ them against the new source.
 
 ## Backfill log
 
+- **2.3.0 cycle (2026-08-01, Claude Fable 5):** Corrected the french, spanish,
+  and portuguese_br AI strings for the #311 Settings Backup feature (the
+  `settings_backup.*` and `config.backup*`/`config.*_settings_*` keys). Two
+  fixes: the import-confirm dialog pointed users at the Reset user.ini button
+  ("Réinitialiser"/"Restablecer"/"Redefinir") where English references
+  Restore user.ini (now "Restaurer"/"Restaurar"/"Restaurar", matching each
+  file's own `config.restore_user_ini_btn`), and the whole key set shipped
+  without diacritics ("parametres", "configuracoes"), inconsistent with the
+  rest of those files. All corrected strings stay `at`-only, `ht: ""`.
 - **2.2.1 pre-release (2026-07-18, Claude Fable 5):** AI backfill of the 215
   keys the #247 hardcoded-string sweep added in English only (Tag Builder
   tooltips and labels, Mission Titles page, mission detail fields, the Import
@@ -124,6 +133,40 @@ them against the new source.
   `SC_LANGUAGE_IDS["japanese"] = "japanese_(japan)"`; installer
   `LanguageChoicePage` gained a Japanese option. Locked by
   `tests/test_japanese_activation.py`.
+- **2.3.0 cycle (2026-08-01, Claude Sonnet 5):** AI translation of `FAQ.md`
+  for **japanese**. The original #301 PR translated `HELP.md`/`ABOUT.md`/
+  `LEGAL.md` but missed `FAQ.md` (unlike italian and chinese, which both
+  shipped it from day one), so `get_localized_doc_path` was silently
+  falling back to the English FAQ tab. Found while portable-testing the
+  #306 fix above. Styled on the existing `HELP.md`/`ABOUT.md` terminology
+  (more menu, apply/restore/clear-localization action names) and register
+  (polite desu/masu form, matching the rest of the Japanese docs). Locked
+  by `tests/test_language_paths.py::TestIssue306FaqBackfill` (japanese
+  folded into the #306 parametrize on merge).
+- **2.3.0 cycle (2026-08-01, Claude Fable 5):** German top-up of the 45 keys
+  added in English by the 2.3.0 feature PRs that merged after German landed
+  (#272, #310, #332, #303, #311, #330). Translations taken verbatim from the
+  author's German backfill branch (PR #338), merged early in scoped form
+  because the German coverage test was red mid-cycle; #338 remains open for
+  the keys that depend on the still-open #336. All `at`-only, `ht: ""`.
+- **2.3.0 cycle (2026-08-01, Claude Sonnet 5):** AI translation of `FAQ.md`
+  for **french**, **spanish**, and **portuguese_br** (#306). `docs/FAQ.md`
+  (#152) landed after these three languages' initial doc translation work
+  (the #248 backfill above covers `HELP.md`/`ABOUT.md`/`LEGAL.md` only), so
+  `get_localized_doc_path` had been silently falling back to the English FAQ
+  tab for all three ever since. italian and chinese both shipped a
+  translated `FAQ.md` from day one; this closes the gap for the three
+  languages that predate #152 (japanese also missed it, tracked and fixed
+  separately since it wasn't part of #306's original scope). Styled on each
+  file's existing
+  human `HELP.md`/`ABOUT.md` terminology (french: "Effacer la localisation"
+  / "Restaurer une sauvegarde"; spanish: "Limpiar localización" / "Restaurar
+  copia"; portuguese_br: "Limpar Localização" / "Restaurar Backup") and
+  register (french *vous*, spanish *tú*, portuguese_br *você*), matching
+  what the translated UI actually shows today. Flagged for review by the
+  language leads (Akwa/Ishikudeska for french, Nxzzin for portuguese_br,
+  Thord82 for spanish) per the policy below. Locked by
+  `tests/test_language_paths.py::TestIssue306FaqBackfill`.
 - **2.3.0 (2026-07-25, Claude Sonnet 5):** New language **german** added (#299).
   Full AI translation of all 376 UI keys plus the 19-step guided tour
   (`tutorial.*`), all `at`-only (`ht` empty). Translated `HELP.md`, `ABOUT.md`,

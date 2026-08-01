@@ -451,6 +451,18 @@ DEFAULT_COMPONENT_TYPE_MAPPING: dict[str, tuple[str, str, str]] = {
     "Power Plant":      ("PW",  "POWR", "Power"),
     "Quantum Drive":    ("QD",  "QDRV", "Quantum"),
     "Radar":            ("RD",  "RADR", "Radar"),
+    # #266: components with no Class:/Size:/Grade: of their own, tagged via
+    # the Type-only fallback (see enhancements_bare_type_tags in
+    # generate_enhancements_ini.py) when the user has Type enabled. Same
+    # opt-in gate as every other entry here -- not force-shown just because
+    # they'd otherwise have no other tag; a user who leaves Type off simply
+    # gets these items bare, same as Shield Generator or Cooler.
+    "Fuel Nozzle":      ("FN",  "FNoz", "Fuel Nozzle"),
+    # #266: mining lasers live in ships/weapons/ (routed through
+    # _ship_weapon_name_tag_factory) but aren't combat weapons -- no
+    # resolvable damage type, so they're tagged as a component Type+Size
+    # instead of the ship-weapon damage-keyed style.
+    "Mining Laser":     ("ML",  "MineL", "Mining Laser"),
 }
 
 DEFAULT_COMMODITY_LABEL_MAPPING: dict[str, tuple[str, str, str]] = {
@@ -726,13 +738,15 @@ DEFAULT_TAG_CONFIGS: dict[str, TagConfig] = {
     # as Collection-mission objectives. When an item is both, render_tag joins
     # them with the separator, e.g. "[CF|Collection]"; when only one flag
     # applies, the other's empty value is dropped so a single-flag item stays
-    # "[CF]" or "[Collection]" (#97). Crafting-only output is unchanged from
-    # the pre-1.5.0 single-label default.
+    # "[CF]" or "[Collection]" (#97). All three elements default off (#325):
+    # users reported garbled/unknown text from commodity tagging in-game, so
+    # a fresh install now shows plain commodity names until the user opts in
+    # from the Tag Builder, instead of tagging being on and surprising them.
     "commodities": TagConfig(
         elements=[
-            ElementSpec("label", True, "short"),        # CF
-            ElementSpec("usage", True, "long"),         # QDRV|SHLD… (on by default)
-            ElementSpec("collection", True, "long"),    # Collection
+            ElementSpec("label", False, "short"),        # CF
+            ElementSpec("usage", False, "long"),         # QDRV|SHLD…
+            ElementSpec("collection", False, "long"),    # Collection
         ],
         separator="pipe",
         enclosing="square",
