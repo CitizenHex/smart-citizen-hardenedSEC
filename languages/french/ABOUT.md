@@ -30,6 +30,7 @@ Merci à celles et ceux qui ont contribué au code de Smart Citizen :
 - **denis-coach** (h0use)
 - **scubamount**
 - **hkstrongside**
+- **odw-okano**
 
 ## Traducteurs
 

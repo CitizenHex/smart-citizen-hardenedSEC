@@ -28,6 +28,7 @@
 - **denis-coach**（h0use）
 - **scubamount**
 - **hkstrongside**
+- **odw-okano**
 
 ## 翻译者
 

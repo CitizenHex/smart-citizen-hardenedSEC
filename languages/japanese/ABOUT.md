@@ -28,6 +28,7 @@ Smart Citizen にコードを貢献してくださった方々に感謝します
 - **denis-coach** (h0use)
 - **scubamount**
 - **hkstrongside**
+- **odw-okano**
 
 ## 翻訳者
 
