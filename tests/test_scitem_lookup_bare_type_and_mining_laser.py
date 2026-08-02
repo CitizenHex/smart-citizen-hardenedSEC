@@ -162,3 +162,51 @@ class TestMiningLaserEntityTag:
             tmp_path, loc=loc, tag_config=_components_cfg(gen_module),
         )
         assert ref not in entity_name_tags
+
+    def test_s_prefixed_size_line_still_yields_a_size(self, gen_module, tmp_path):
+        """#345: the four Mining Head lasers write CIG's S-prefixed size
+        form ("Size: S0") instead of the bare digit every other component
+        uses. The tagger's size regex only accepted digits, so Helix,
+        Hofstede, and Lawson rendered as a size-less "[MineL]" while their
+        S1/S2 siblings got "[MineL-S1]"."""
+        ref = "88888888-8888-8888-8888-888888888888"
+        self._write_mining_laser(tmp_path, ref)
+        loc = {
+            "nm_ml": "S00 Hofstede",
+            "ds_ml": "Manufacturer: Shubin Interstellar\\nItem Type: Mining Laser\\nSize: S0\\nGrade: B\\n",
+        }
+        _mag, _names, _by_file, entity_name_tags = gen_module.build_scitem_lookups(
+            tmp_path, loc=loc, tag_config=_components_cfg(gen_module),
+        )
+        assert entity_name_tags[ref] == "[MineL-S0]"
+
+
+class TestSizeLineRegex:
+    """#345: one shared _SIZE_LINE_RE across every tagger that reads a size
+    off description text. _component_name_tag already tolerated the
+    S-prefixed form; the missile, mining-laser, and ship-weapon taggers each
+    kept a bare-digit copy, so S-prefixed items (mining heads, bomb racks,
+    scopes, the NOVA gatling) silently lost their size."""
+
+    def test_accepts_both_cig_size_forms(self, gen_module):
+        rx = gen_module._SIZE_LINE_RE
+        assert rx.search("Size: 1").group(1) == "1"      # ship components
+        assert rx.search("Size: S0").group(1) == "0"     # mining heads
+        assert rx.search("Size: S10").group(1) == "10"   # bomb racks
+        assert rx.search("Size: 0").group(1) == "0"
+
+    def test_ignores_non_numeric_size(self, gen_module):
+        """"Size: SV" (the variable-size mining heads) has no numeric size;
+        it must stay unmatched rather than resolving to a bogus number."""
+        assert gen_module._SIZE_LINE_RE.search("Size: SV") is None
+
+    def test_every_desc_size_read_uses_the_shared_pattern(self):
+        """Drift guard: the bug was four copies of one regex. Any new
+        bare-digit `Size:` literal in the generator means a tagger has
+        forked its own copy again."""
+        import re as _re
+        from pathlib import Path
+        src = Path(__file__).resolve().parent.parent / "scripts" / "generate_enhancements_ini.py"
+        text = src.read_text(encoding="utf-8")
+        stray = _re.findall(r'r"Size:\\s\*\(\\d\+\)"', text)
+        assert not stray, f"tagger forked its own size regex: {stray}"

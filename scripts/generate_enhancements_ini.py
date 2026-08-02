@@ -348,6 +348,13 @@ def write_ini(path: Path, entries: dict[str, str]) -> None:
 #     an unchanged-DataForge regen would weave mission bullets from stale
 #     tags: mining lasers have no loc-derived name_fallback_tags rescue, so
 #     without this bump their bullets silently stay untagged.
+#   scitem_lookups v10 / blueprint_pools v14 (2.3.0, #345) — the size-line
+#     regex now tolerates CIG's S-prefixed form ("Size: S0"), so the four
+#     Mining Head lasers, bomb racks, scopes, and the NOVA gatling emit a
+#     size in their tags where they previously rendered size-less (e.g.
+#     "[Mining Laser]" -> "[Mining Laser-S0]"). Both caches bake rendered
+#     tags into their stored names, so both bump or a regen against an
+#     unchanged DataForge keeps serving the size-less text.
 #   xml_path_index v2 (2.2.0, #231 follow-up) — main() now wraps forge_dir
 #     (and everything derived from it, including records_dir) via
 #     win_paths.win_long_path before building this index, so its stored path
@@ -364,8 +371,8 @@ _LOOKUP_VERSIONS: dict[str, str] = {
     # from mission text) + #281 filename-fallback aliases. Without this
     # bump, a regen against an unchanged DataForge reuses pools baked
     # before those fixes and the mission text stays untagged/garbled.
-    "blueprint_pools": "v13",
-    "scitem_lookups": "v9",
+    "blueprint_pools": "v14",
+    "scitem_lookups": "v10",
     "standings": "v3",
     "xml_path_index": "v2",
 }
@@ -766,6 +773,21 @@ _ITEM_TYPE_ABBREV = {
 }
 
 
+# The "Size:" line in an item's description text. The leading 'S' is
+# optional because CIG writes the size two ways: the bare digit most ship
+# components use ("Size: 1") and an S-prefixed form on a handful of items
+# ("Size: S0" on the four Mining Head lasers, "Size: S3"/"S5"/"S10" on bomb
+# racks, scopes, and the NOVA gatling). The capture is the digits only, so
+# both forms normalise to f"S{captured}".
+#
+# Shared by every tagger that reads a size off description text. It was a
+# per-call-site literal until #345: _component_name_tag had been taught the
+# optional 'S' but the missile, mining-laser, and ship-weapon taggers each
+# kept their own bare-digit copy, so the S-prefixed items silently lost
+# their size and rendered as "[Mining Laser]" instead of "[Mining Laser-S0]".
+_SIZE_LINE_RE = re.compile(r"Size:\s*S?(\d+)")
+
+
 def _component_name_tag(desc_value: str, root: ET.Element | None = None,
                         config: "TagConfig | None" = None,
                         component_type: str = "") -> str | None:
@@ -811,10 +833,7 @@ def _component_name_tag(desc_value: str, root: ET.Element | None = None,
         if attach_el is not None:
             attach_def = attach_el.find("AttachDef")
 
-    # Optional leading 'S' on the size value covers mining heads (Size: S0,
-    # Size: S00) without breaking the bare-digit form ship components use
-    # (Size: 0, Size: 1). The capture is the digits only; "S0" → "0",
-    # "S00" → "00", "2" → "2", so the tag normalises to f"S{captured}".
+    # _SIZE_LINE_RE tolerates the optional leading 'S' (see its definition).
     # Fallback chain when the loc text doesn't match (translated base.ini,
     # e.g. French "Taille : 3" — #30): entity class name (_S03_ → S3), then
     # the loc-name key's size token, then the AttachDef Size attribute.
@@ -824,7 +843,7 @@ def _component_name_tag(desc_value: str, root: ET.Element | None = None,
     # like the desc text, the key token is the same whichever entity is
     # scanned last, so the emitted tag stays deterministic and matches the
     # English output.
-    size_m = re.search(r"Size:\s*S?(\d+)", desc_value)
+    size_m = _SIZE_LINE_RE.search(desc_value)
     size = size_m.group(1) if size_m else None
     if size is None and root is not None:
         root_tag = root.tag.split(".")[-1] if "." in root.tag else root.tag
@@ -935,7 +954,7 @@ def _missile_name_tag(desc_value: str, root: ET.Element | None = None,
     render_tag's empty-drop then falls through to the size element alone
     (e.g. ``[S2]``).
     """
-    size_m = re.search(r"Size:\s*(\d+)", desc_value)
+    size_m = _SIZE_LINE_RE.search(desc_value)
     size = size_m.group(1) if size_m else None
 
     seeker_raw = None
@@ -1045,7 +1064,7 @@ def _mining_laser_component_tag(desc_value: str, root: "ET.Element | None",
     if m:
         size = str(int(m.group(1)))
     if not size:
-        ds = re.search(r"Size:\s*(\d+)", desc_value)
+        ds = _SIZE_LINE_RE.search(desc_value)
         if ds:
             size = ds.group(1)
     out = render_tag(mining_tag_cfg, {"type": "Mining Laser", "size": size or ""})
@@ -1084,7 +1103,7 @@ def _ship_weapon_name_tag_factory(ammo_lookup: dict, config: "TagConfig | None" 
         if m:
             size = str(int(m.group(1)))
         if not size:
-            ds = re.search(r"Size:\s*(\d+)", desc_value)
+            ds = _SIZE_LINE_RE.search(desc_value)
             if ds:
                 size = ds.group(1)
 

@@ -62,6 +62,7 @@ _ARMOR_EXTRA_WORDS = (
     "gys_jacket", "gys_pants",
 )
 from src.utils.owned_items import (
+    BULLET_NAME_ALIASES,
     extract_bp_item_names,
     has_bp_section,
     normalize_item_name,
@@ -202,35 +203,10 @@ def _key_slug(key: str) -> str:
     return " ".join(seg.capitalize() for seg in segments)
 
 
-# Known one-off mismatches between a mission bullet's name and the item's
-# real localized display name that AREN'T explained by _key_slug's fallback
-# pattern -- just a mission author typing a short/informal name. Confirmed
-# via a live "Crew Hasn't Checked In" mining mission body listing "Helix" and
-# "Hofstede" as blueprint rewards; the real items are "S0 Helix" and "S00
-# Hofstede" (item_NameMining_Head_S00_<Name>_SCItem). All four "Mining Head"
-# variants share this exact bullet-uses-bare-manufacturer-name pattern
-# (confirmed via tests/fixtures/kraken_global_latest.ini: item_NameMining_
-# Head_S00_Arbor_SCItem=S0 Arbor, ..._Klein_SCItem=Lawson Mining Laser),
-# added preemptively rather than waiting for each to be individually
-# reported. Extend this dict for any other reported mismatch that isn't a
-# key-slug case.
-_BULLET_NAME_ALIASES: dict[str, str] = {
-    "Arbor": "S0 Arbor",
-    "Helix": "S0 Helix",
-    "Hofstede": "S00 Hofstede",
-    "Klein": "Lawson Mining Laser",
-    # Fuel nozzles (#266 follow-up): most manufacturer variants resolve
-    # generically via _key_slug (their real key genuinely follows
-    # Nozzle_FuelGiver_<MFR>_Nozzle<Variant>_Name), but these three still
-    # showed up ungarbled/untagged after that fix -- their real underlying
-    # key must not match that exact pattern. Confirmed via a live Blueprint
-    # Tracker screenshot listing all three as separate untagged entries
-    # while their siblings (Marlin, Lindstrom, Bendix, Torrez, Ezra) had
-    # already resolved correctly.
-    "Nozzle Fuelgiver Grin Nozzlefast": "Norfield",
-    "Nozzle Fuelgiver Grin Nozzleverysecure": "Harkin",
-    "Nozzle Fuelgiver Misc Nozzlestandard": "RN-7s",
-}
+# Bullet-name aliases now live in owned_items.BULLET_NAME_ALIASES so the
+# owned-tag matching folds through the same table (#346); this module
+# keeps using it for the resolution chain in build_blueprint_metadata.
+_BULLET_NAME_ALIASES = BULLET_NAME_ALIASES
 
 # Prefixes CIG strips off a blueprint XML's filename before the descriptive
 # part. Shared with generate_enhancements_ini.py's _name_from_blueprint_filename
