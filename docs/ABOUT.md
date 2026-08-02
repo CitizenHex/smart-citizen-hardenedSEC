@@ -105,7 +105,7 @@ The non-English game strings are community translations:
 - **Tag Builder**: Customize the bracketed tags on components, missiles, ship weapons, and commodities — reorder elements, change abbreviation length (M / MIL / Military), pick separators and brackets, or place the tag after the name instead of before. Components have an optional Type element (Shield, Cooler, etc.); commodities have a Usage element showing what their crafting materials feed into
 - **Mission Titles**: Lead hauling titles with their route (e.g. `Area18 > Lorville`) — configurable placement, arrow, separator, and location detail, plus optional stock-title shortening, with a live preview
 - **Stats Above or Below**: Choose whether a stat block sits at the top or the bottom of the description
-- **Blueprint Tracker**: A dedicated tab for marking the crafting blueprints you already own. Shuttle items between Available and Owned, filter by Mission / Type / Class / Size / Grade, and owned items get a blue `[Owned]` tag in mission blueprint lists. **Scan Logs for Owned Blueprints** populates ownership automatically from your Star Citizen log files, importing only what's new since the last scan
+- **Blueprint Tracker**: A dedicated tab for marking the crafting blueprints you already own. Shuttle items between Available and Owned, filter by Mission / Type / Class / Size / Grade, and owned items get a blue `[Owned]` tag in mission blueprint lists. **Scan Logs for Owned Blueprints** populates ownership automatically from your Star Citizen log files, importing only what's new since the last scan, and **Export / Import Owned Blueprints** moves the owned list between PCs (JSON or CSV; imports only ever add, and scmdb.net exports work too)
 - **Mission Labels**: Rename the section headers (MISSION DETAILS, POTENTIAL BLUEPRINTS, etc.), the XP label, and the emphasis tag used for headers
 - **Declarative CIG Data-Bug Patches**: A patch system applies fixes to known DataForge bugs at extraction time so in-game text reads correctly without waiting on CIG
 - **Selective Categories**: Enable or disable each enhancement category independently from the Enhancements tab
@@ -119,6 +119,7 @@ The non-English game strings are community translations:
 - **Automatic Backups**: Timestamped backups created before applying changes to your game (up to 5 per channel)
 - **Registry Persistence**: All paths and preferences saved securely in Windows Registry
 - **Configurable Data Storage**: Your custom edits are stored under `<data folder>\<channel>\` (default `Documents\Smart Citizen`, one isolated subtree per Star Citizen channel) for safe persistence across sessions
+- **Settings Backup**: Export your whole setup (preferences, tag configurations, and every channel's string overrides) to one small zip, then import it on a new PC or after a fresh portable unzip. Imports snapshot your current files first, so they're reversible
 - **In-App Log Viewer**: Real-time application log with level filter, auto-scroll, and an Export button for bug reports
 - **Auto-Updater**: Smart Citizen checks GitHub Releases at launch and shows the release notes in-app; one click (plus a Windows permission prompt) downloads the update, installs it, and reopens the app
 
