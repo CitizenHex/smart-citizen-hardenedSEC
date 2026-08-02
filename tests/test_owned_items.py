@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from utils.owned_items import (  # noqa: E402
+    BULLET_NAME_ALIASES,
     apply_owned_to_value,
     extract_bp_item_names,
     has_bp_section,
@@ -49,6 +50,31 @@ class TestNormalize:
 
     def test_bare_name_unchanged(self):
         assert normalize_item_name("Antium Core") == "Antium Core"
+
+    def test_folds_short_bullet_name_onto_real_item_name(self):
+        """#346: the generator strips CIG's leading size prefix from
+        blueprint-list output, so a mission bullet reads "Hofstede" while
+        the item (and therefore the owned set) is "S00 Hofstede". Both
+        sides must fold to the same key or the bullet never matches."""
+        assert normalize_item_name("Hofstede") == "S00 Hofstede"
+        assert normalize_item_name("Helix") == "S0 Helix"
+        assert normalize_item_name("Klein") == "Lawson Mining Laser"
+
+    def test_alias_fold_is_idempotent(self):
+        """The real name must not itself be an alias key, or normalizing
+        twice would walk the chain and land somewhere else."""
+        for real in BULLET_NAME_ALIASES.values():
+            assert normalize_item_name(real) == real
+
+    def test_alias_fold_runs_after_tag_and_annotation_strips(self):
+        """A decorated bullet reduces to the bare name first, then aliases."""
+        assert normalize_item_name("[Mining Laser-S0] Hofstede") == "S00 Hofstede"
+        assert normalize_item_name("Hofstede (Mining Laser)") == "S00 Hofstede"
+        assert normalize_item_name("Hofstede <EM4>[Owned]</EM4>") == "S00 Hofstede"
+
+    def test_unaliased_names_pass_through(self):
+        assert normalize_item_name("Norfield") == "Norfield"
+        assert normalize_item_name("Ferron Repeater") == "Ferron Repeater"
 
     def test_tagged_bullet_matches_bare_row(self):
         # The whole point: a tagged bullet and the bare item row normalize equal.
@@ -222,6 +248,21 @@ class TestApply:
         cleared = apply_owned_to_value(tagged, set())
         assert "[Owned]" not in cleared
         assert cleared == _DESC
+
+    def test_tags_size_prefixed_item_from_its_short_bullet(self):
+        """#346 end to end: the user owns "S00 Hofstede" (the tracker's
+        name for it), the mission bullet says "Hofstede", and the [Owned]
+        tag must still land. Before the fix the two never matched, so the
+        item showed as owned in the tracker but its in-game bullet stayed
+        untagged."""
+        desc = (
+            "POSTING: mining run.\\n\\n<EM3>POTENTIAL BLUEPRINTS</EM3>"
+            "\\n- Hofstede\\n- Helix\\n- Norfield"
+        )
+        out = apply_owned_to_value(desc, {normalize_item_name("S00 Hofstede")})
+        assert "- Hofstede <EM4>[Owned]</EM4>" in out
+        assert "- Helix\\n" in out          # owned set doesn't include it
+        assert out.count("[Owned]") == 1
 
     def test_no_bp_section_only_strips_stale_owned(self):
         v = "A plain line\\n- not a blueprint bullet <EM4>[Owned]</EM4>"
