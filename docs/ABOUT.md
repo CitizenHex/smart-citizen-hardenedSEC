@@ -64,7 +64,8 @@ Smart Citizen also bundles upstream tooling from:
 
 The non-English game strings are community translations:
 
-- [**Dymerz/StarCitizen-Localization**](https://github.com/Dymerz/StarCitizen-Localization) — the community-maintained `global.ini` translations that power the French, Spanish, Brazilian Portuguese, and Italian language options. Their translators do the real work here; we just deliver it.
+- [**Dymerz/StarCitizen-Localization**](https://github.com/Dymerz/StarCitizen-Localization) — the community-maintained `global.ini` translations that power the French, Brazilian Portuguese, and Italian language options. Their translators do the real work here; we just deliver it.
+- [**Thord82/Star_citizen_ES**](https://github.com/Thord82/Star_citizen_ES): the community-maintained `global.ini` translation that powers the Spanish language option.
 - [**stdblue/StarCitizenJapaneseResources**](https://github.com/stdblue/StarCitizenJapaneseResources) — the community-maintained `global.ini` translation that powers the Japanese language option.
 - [**42Kit**](https://ini.42kit.com/) — the community-maintained `global.ini` translation that powers the Chinese language option.
 - [**rjcncpt/StarCitizen-Deutsch-INI**](https://github.com/rjcncpt/StarCitizen-Deutsch-INI) — the community-maintained `global.ini` translation that powers the German language option.

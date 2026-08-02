@@ -64,7 +64,10 @@ Smart Citizen bündelt außerdem vorgelagerte Werkzeuge von:
 
 Die nicht-englischen Spieltexte sind Community-Übersetzungen:
 
-- [**Dymerz/StarCitizen-Localization**](https://github.com/Dymerz/StarCitizen-Localization) — die von der Community gepflegten `global.ini`-Übersetzungen, die die Sprachoptionen Französisch, Spanisch und brasilianisches Portugiesisch antreiben. Die eigentliche Arbeit leisten deren Übersetzer; wir liefern sie nur aus.
+- [**Dymerz/StarCitizen-Localization**](https://github.com/Dymerz/StarCitizen-Localization) — die von der Community gepflegten `global.ini`-Übersetzungen, die die Sprachoptionen Französisch, brasilianisches Portugiesisch und Italienisch antreiben. Die eigentliche Arbeit leisten deren Übersetzer; wir liefern sie nur aus.
+- [**Thord82/Star_citizen_ES**](https://github.com/Thord82/Star_citizen_ES): die von der Community gepflegte `global.ini`-Übersetzung, die die spanische Sprachoption antreibt.
+- [**stdblue/StarCitizenJapaneseResources**](https://github.com/stdblue/StarCitizenJapaneseResources): die von der Community gepflegte `global.ini`-Übersetzung, die die japanische Sprachoption antreibt.
+- [**42Kit**](https://ini.42kit.com/): die von der Community gepflegte `global.ini`-Übersetzung, die die chinesische Sprachoption antreibt.
 - [**rjcncpt/StarCitizen-Deutsch-INI**](https://github.com/rjcncpt/StarCitizen-Deutsch-INI) — die von der Community gepflegte `global.ini`-Übersetzung, die die deutsche Sprachoption antreibt.
 
 ## Hauptfunktionen
@@ -72,7 +75,7 @@ Die nicht-englischen Spieltexte sind Community-Übersetzungen:
 ### 🎯 Kernfunktionen
 - **Laden & Bearbeiten**: Lade `global.ini` aus deiner Star-Citizen-Installation und passe Strings in einer intuitiven Tabellenansicht an
 - **Unterstützung mehrerer Kanäle**: LIVE / PTU / EPTU / HOTFIX / TECH-PREVIEW erhalten jeweils eigene isolierte `user.ini`, Cache, Sicherungen und DataForge-Extraktion — Kanäle im Konfiguration-Tab ohne Neustart wechseln
-- **Unterstützung mehrerer Sprachen**: Wechsle App und Spieltexte zwischen Englisch, Französisch, Spanisch, brasilianischem Portugiesisch und Deutsch im Konfiguration-Tab. Nicht-englische Sprachen legen eine von der Community übersetzte `global.ini` über die englische Basis, mit englischem Rückfall für alles Unübersetzte. Weitere Sprachen werden freigeschaltet, sobald Community-Übersetzungen eintreffen (siehe `languages/TRANSLATIONS.md`)
+- **Unterstützung mehrerer Sprachen**: Wechsle App und Spieltexte zwischen Englisch, Französisch, Spanisch, brasilianischem Portugiesisch, Japanisch, Chinesisch, Italienisch und Deutsch im Konfiguration-Tab. Nicht-englische Sprachen legen eine von der Community übersetzte `global.ini` über die englische Basis, mit englischem Rückfall für alles Unübersetzte. Weitere Sprachen werden freigeschaltet, sobald Community-Übersetzungen eintreffen (siehe `languages/TRANSLATIONS.md`)
 - **Missionsverträge**: Bearbeite Missionsvertrags- und Briefing-Text aus der eigenen Kategorie Missionen
 - **Intelligente Filterung**: Strings durchsuchen, nach Kategorie (Schiffe, Schiffsgegenstände, Missionen, Ausrüstung, Rohstoffe, Journal, Sonstiges) oder Änderungsstatus filtern
 - **Spaltenfilter**: Direkt in Filterfelder unter jeder Spaltenüberschrift tippen für feingranulare Suche
@@ -96,14 +99,14 @@ Die nicht-englischen Spieltexte sind Community-Übersetzungen:
 - **Schiffswerte**: SCM-Geschwindigkeit, Wasserstoff-/Quantumtreibstoff, Frachtkapazität, vollständige Waffenausrüstung und Panzerungsmultiplikatoren (physisch / Energie / Distortion / thermisch), angehängt an Schiffsbeschreibungen
 - **Komponentenwerte**: Schild-HP, Energieverbrauch, Kühlrate, Regeneration und ähnliche Werte für Schilde, Kühler, Kraftwerke, Quantenantriebe und Radare — standardmäßig mit Namens-Tags im Stil `[MIL-S2-A]` (vollständig anpassbar im Tag-Generator)
 - **Waffenwerte**: DPS, Feuerrate, Reichweite und Schaden bei Schiffswaffen und Geschütztürmen von S1 bis Capital. Schiffswaffen erhalten ein Schaden+Größe-Tag im Stil `[E-S2]`, Raketen `[IR-S1] Arrester III` und Bomben `[S5] 500SCB Cluster`
-- **Missionsanmerkungen**: `[BP]` / `[BP?]`-Bauplan-Belohnungs-Tags bei Titeln, plus strukturierte Blöcke *MISSIONSDETAILS*, *MÖGLICHE BAUPLÄNE* und *GEGENSTANDSBELOHNUNGEN* in Beschreibungen. Ruf-Stufen-Zeilen zeigen echte Rangnamen (Rookie, Jr. Contractor usw.) statt generischer Nummerierung. Missions-XP nennt die Ruf-Spur, die sie speist, und Battaglias Scan-/Bergbau-Titel tragen `[RS ####]`-Ressourcensignatur-Tags
+- **Missionsanmerkungen**: `[BP]` / `[BP?]`-Bauplan-Belohnungs-Tags bei Titeln, plus strukturierte Blöcke *MISSIONSDETAILS*, *MÖGLICHE BAUPLÄNE* und *GEGENSTANDSBELOHNUNGEN* in Beschreibungen. Ruf-Stufen-Zeilen zeigen echte Rangnamen (Rookie, Jr. Contractor usw.) statt generischer Nummerierung. Missions-XP nennt die Ruf-Spur, die sie speist, und Battaglias Scan-/Bergbau-Titel tragen `[RS ####]`-Ressourcensignatur-Tags, ergänzt durch eine MISSIONSDETAILS-Aufschlüsselung „Ressourcensignaturen“ pro Zielerz und eine Erznamen-Anmerkung, die überall angezeigt wird, wo das Spiel diesen Namen darstellt, einschließlich des Missions-Trackers (zwei unabhängige Schalter, beide standardmäßig aktiviert)
 - **Journal-Querverweise**: Bergbau-Kompendium-Einträge erhalten Herstellungs-Querverweise und die Basis-Ressourcensignatur jedes Erzes; in der Herstellung verwendete Rohstoffe erhalten ein anpassbares `[CF]`-Namens-Tag und eine Liste aller Baupläne, die sie benötigen
 - **Effekte medizinischer Verbrauchsgüter**: Die Basis-CureLife-Pens (MedPen, OxyPen, AdrenaPen und Verwandte) erhalten eine verständliche Wirkungszeile, sodass die Beschreibung sagt, was der Pen tatsächlich bewirkt, statt nur seine Hintergrundgeschichte
 - **Schiffsfavoriten**: Markiere ein Schiff mit einem Stern, um ein konfigurierbares Präfix (Standard `*`) voranzustellen, damit Favoriten im In-Game-ASOP-Terminal ganz oben einsortiert werden
 - **Tag-Generator**: Passe die eingeklammerten Tags bei Komponenten, Raketen, Schiffswaffen und Rohstoffen an — Elemente neu anordnen, Abkürzungslänge ändern (M / MIL / Military), Trennzeichen und Klammern wählen oder das Tag statt davor dahinter platzieren. Komponenten haben ein optionales Typ-Element (Schild, Kühler usw.); Rohstoffe haben ein Verwendungs-Element, das zeigt, wofür ihre Herstellungsmaterialien verwendet werden
 - **Missionstitel**: Frachtmissionstitel mit ihrer Route einleiten (z. B. `Area18 > Lorville`) — konfigurierbare Platzierung, Pfeil, Trennzeichen und Ortsdetail, plus optionale Kürzung des Originaltitels, mit Live-Vorschau
 - **Werte oberhalb oder unterhalb**: Wähle, ob ein Statistikblock oben oder unten in der Beschreibung sitzt
-- **Bauplan-Tracker**: Ein eigener Tab zum Markieren der Herstellungs-Baupläne, die du bereits besitzt. Gegenstände zwischen Verfügbar und Besessen verschieben, nach Mission / Typ / Klasse / Größe / Grad filtern, und besessene Gegenstände erhalten ein blaues `[Besessen]`-Tag in Missions-Bauplan-Listen. **Protokolle nach besessenen Bauplänen durchsuchen** füllt den Besitz automatisch aus deinen Star-Citizen-Protokolldateien, wobei nur importiert wird, was seit dem letzten Scan neu ist
+- **Bauplan-Tracker**: Ein eigener Tab zum Markieren der Herstellungs-Baupläne, die du bereits besitzt. Gegenstände zwischen Verfügbar und Besessen verschieben, nach Mission / Typ / Klasse / Größe / Grad filtern, und besessene Gegenstände erhalten ein blaues `[Owned]`-Tag in Missions-Bauplan-Listen. **Protokolle nach besessenen Bauplänen durchsuchen** füllt den Besitz automatisch aus deinen Star-Citizen-Protokolldateien, wobei nur importiert wird, was seit dem letzten Scan neu ist, und **Eigene Baupläne exportieren / importieren** überträgt die Besessen-Liste zwischen PCs (JSON oder CSV; Importe fügen immer nur hinzu, und auch scmdb.net-Exporte funktionieren)
 - **Missionsbezeichnungen**: Die Abschnittsüberschriften (MISSIONSDETAILS, MÖGLICHE BAUPLÄNE usw.), die XP-Bezeichnung und das für Überschriften verwendete Hervorhebungs-Tag umbenennen
 - **Deklarative CIG-Datenfehler-Patches**: Ein Patch-System wendet Korrekturen für bekannte DataForge-Fehler zur Extraktionszeit an, sodass der In-Game-Text korrekt angezeigt wird, ohne auf CIG warten zu müssen
 - **Selektive Kategorien**: Jede Erweiterungskategorie unabhängig im Erweiterungen-Tab aktivieren oder deaktivieren
@@ -117,6 +120,7 @@ Die nicht-englischen Spieltexte sind Community-Übersetzungen:
 - **Automatische Sicherungen**: Sicherungen mit Zeitstempel werden vor dem Anwenden von Änderungen an deinem Spiel erstellt (bis zu 5 pro Kanal)
 - **Registry-Persistenz**: Alle Pfade und Einstellungen werden sicher in der Windows-Registry gespeichert
 - **Konfigurierbare Datenspeicherung**: Deine benutzerdefinierten Bearbeitungen werden unter `<Datenordner>\<Kanal>\` gespeichert (Standard `Dokumente\Smart Citizen`, ein isolierter Unterbaum pro Star-Citizen-Kanal) für sichere Persistenz über Sitzungen hinweg
+- **Einstellungssicherung**: Exportiere dein gesamtes Setup (Einstellungen, Tag-Konfigurationen und die String-Überschreibungen jedes Kanals) in ein kleines Zip und importiere es dann auf einem neuen PC oder nach dem Entpacken einer frischen portablen Version. Importe sichern zuerst deine aktuellen Dateien als Momentaufnahme, daher sind sie umkehrbar
 - **Protokollanzeige in der App**: Echtzeit-Anwendungsprotokoll mit Stufenfilter, automatischem Scrollen und einem Export-Knopf für Fehlerberichte
 - **Auto-Updater**: Smart Citizen prüft beim Start GitHub Releases und zeigt die Release-Notizen in der App; ein Klick (plus eine Windows-Berechtigungsabfrage) lädt das Update herunter, installiert es und öffnet die App neu
 
@@ -134,6 +138,9 @@ Die nicht-englischen Spieltexte sind Community-Übersetzungen:
 ### Tritt uns bei
 - 💬 [Discord-Community](https://discord.gg/BNzRegKZ7k) - Support erhalten, Konfigurationen teilen, Funktionen anfragen
 - 🐛 [Smart Citizen Feedback, Fehler & Funktionsabstimmung](https://discord.com/channels/1438175448420057323/1472394204347895890) - Eigener Kanal für Fehlerberichte, Feedback und Abstimmungen über kommende Funktionen (tritt zuerst über die obige Einladung dem Server bei)
+
+### Videoanleitungen
+- 🎥 [Star Citizen Hides Important Mission Info – This Tool Shows It In-Game & More!](https://www.youtube.com/watch?v=Xo1t404gsgs) von **Karolinger** - ein Community-Überblick über die Funktionen von Smart Citizen
 
 ### Dieses Projekt unterstützen
 Smart Citizen ist völlig kostenlos. Wenn du es wertvoll findest:

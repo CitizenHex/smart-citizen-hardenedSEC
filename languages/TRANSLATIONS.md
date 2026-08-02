@@ -50,6 +50,27 @@ them against the new source.
 
 ## Backfill log
 
+- **2.3.0 pre-release (2026-08-02, Claude Fable 5):** Full docs-parity sweep
+  for all 7 languages, bringing every `HELP.md` and `ABOUT.md` up to the
+  English originals at the 2.3.0 pre-release gate. Per language: the new
+  HELP section 13 (Export / Import Settings, #311) with renumbering of the
+  following sections to 14/15/16; the Blueprint Tracker additions (scan
+  LIVE/HOTFIX #268, rescan-all #308, export/import owned blueprints #336,
+  Ammo in the Type filter example #249); the Ship Favorites name-row rules
+  and the Ship/Vehicle Names Only filter (#329); the RS ore-name bullet and
+  Mission Details field-list rework with the General Tags `[BP]`/`[BP?]`
+  explanation (#331, #341); the commodities Tag Builder defaults (#325);
+  the Config Tab Export/Import entry and the locked-Data.p4k
+  troubleshooting bullet (#303); ABOUT's eight-language list, source
+  credits (incl. correcting Spanish to Thord82/Star_citizen_ES, which
+  `sources.json` actually pulls from, in English and all translations),
+  Settings Backup and blueprint export/import mentions. japanese and
+  german additionally caught up on Known Issues, the own-line watermark
+  wording (#304), and ABOUT's Video Guides section; german's literal
+  `[Besessen]` code spans were corrected to the in-game `[Owned]` token.
+  Also filled `extract.p4k_locked` (`at` only) for french, spanish, and
+  portuguese_br (#303 stubs). All new text is AI, `at`-only / prose-only,
+  flagged for the language leads per the policy below.
 - **2.3.0 cycle (2026-08-01, Claude Fable 5):** Corrected the french, spanish,
   and portuguese_br AI strings for the #311 Settings Backup feature (the
   `settings_backup.*` and `config.backup*`/`config.*_settings_*` keys). Two

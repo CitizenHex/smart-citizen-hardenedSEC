@@ -2506,7 +2506,7 @@
     },
     "p4k_locked": {
       "ht": "",
-      "at": ""
+      "at": "Star Citizen semble être en cours de mise à jour. Ses fichiers de jeu (Data.p4k) sont verrouillés par un autre programme, généralement le lanceur RSI qui télécharge ou vérifie une mise à jour.\n\nAttendez que toutes les mises à jour et vérifications soient terminées dans le lanceur RSI, puis réessayez."
     }
   },
   "apply": {

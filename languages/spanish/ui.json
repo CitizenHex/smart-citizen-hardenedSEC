@@ -2506,7 +2506,7 @@
     },
     "p4k_locked": {
       "ht": "",
-      "at": ""
+      "at": "Parece que Star Citizen se está actualizando ahora mismo. Sus archivos de juego (Data.p4k) están bloqueados por otro programa, normalmente el lanzador RSI descargando o verificando una actualización.\n\nEspera a que todas las actualizaciones y verificaciones terminen en el lanzador RSI, y vuelve a intentarlo."
     }
   },
   "apply": {
