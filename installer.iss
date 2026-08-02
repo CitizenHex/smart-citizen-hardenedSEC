@@ -9,7 +9,7 @@
 AppId={{9A8B7C6D-4E3F-5B2A-0D1E-8F7G6H5I4J3K}
 AppName=Smart Citizen
 AppVersion={#AppVer}
-AppPublisher=Osiris DevWorks
+AppPublisher=Osiris DevWorks, LLC
 AppPublisherURL=https://github.com/Osiris-DevWorks/smart-citizen
 DefaultDirName={localappdata}\Osiris DevWorks\Smart Citizen
 DefaultGroupName=Smart Citizen
