@@ -1,5 +1,5 @@
 ---
-description: Pre-release sanity check before merging release/X.Y.Z to main — runs quality checks, a language coverage audit, a tester Test Plan refresh, security review, a contributor + tester acknowledgement audit, an issue close-on-verify pass, then triggers the tester preview builds on the release PR
+description: Pre-release sanity check before merging release/X.Y.Z to main — runs quality checks, a language coverage audit, a tester Test Plan refresh, security review, a contributor + tester acknowledgement audit, triggers the tester preview builds on the release PR, then closes issues testers have verified
 ---
 
 # /pre_release
@@ -38,7 +38,7 @@ This is the pre-release docs-sync moment the translation policy points at: with 
 
 ## 4. Test Plan currency check
 
-The tester Test Plan (`TEST_SECTIONS` in `src/utils/test_plan.py`, surfaced by the in-app Test Plan panel, #144) must describe exactly what this release changed, because testers work through it on the preview builds and step 8's close-on-verify relies on their sign-offs.
+The tester Test Plan (`TEST_SECTIONS` in `src/utils/test_plan.py`, surfaced by the in-app Test Plan panel, #144) must describe exactly what this release changed, because testers work through it on the preview builds and step 9's close-on-verify relies on their sign-offs.
 
 **Sequencing note: this step is a prerequisite for the tester builds.** The plan ships inside the build, so it must land on the release branch *before* the `build-installer` / `build-portable` labels produce preview artifacts. If preview builds already went out with a stale plan, flag that: those testers are verifying the wrong checklist.
 
@@ -173,18 +173,36 @@ Add a second line if there are tester candidates: *"Tester candidates to conside
 
 **CHECKPOINT — pause and ask the user whether to draft additions to `docs/ABOUT.md` and `README.md`** (mirrored in both so they stay in sync): contributor names into the **Contributors** section, and any approved tester candidates into the **Acknowledgements** tester list. Do not edit either file without confirmation.
 
-## 8. Issue close-on-verify pass
+## 8. Final Test Plan refresh, then trigger the tester preview builds
+
+The plan ships inside the build, so this step does two things in order: bring the Test Plan checklist up to date one last time, then label the release PR — the `build-installer` and `build-portable` labels are what make `installer-preview.yml` and `portable-preview.yml` produce the downloadable artifacts testers verify against.
+
+Procedure:
+
+1. Find the release PR: `gh pr list --base main --head release/X.Y.Z --state open --json number,title`.
+2. If none exists, this is the moment to open it — `main` only ever receives the release-branch merge via PR, so it's needed for the ship step anyway. Title `Release X.Y.Z`, body summarizing the release scope (link the release notes if drafted). **Opening the PR is not merging it** — the merge stays the user's ship trigger.
+3. **Refresh the Test Plan checklist — always the step right before labeling.** Step 4 ran earlier, but steps 3–7 can land more commits on the branch (language backfills, acknowledgement edits, close-out fixes). Re-run step 4's delta pass — `git log main..HEAD --oneline` vs the current `TEST_SECTIONS` in `src/utils/test_plan.py` — and draft items for anything user-visible that landed since. If there are updates, present them, and on approval land them via a normal PR to the release branch (branch protection blocks direct pushes), so the plan is final before any artifact builds. If nothing changed since step 4, say so and move on.
+4. Add both labels: `gh pr edit <N> --add-label build-installer --add-label build-portable`.
+5. Report the two workflow runs once they start (`gh run list --limit 2`) so the user can watch them, and note the artifact names (`smartcitizen-installer-{SHA}`, `smartcitizen-portable-{SHA}`, 30-day retention).
+
+Mechanics to remember: later pushes to the labeled PR rebuild automatically (`synchronize`), so a post-audit fix landing on the release branch refreshes the artifacts without re-labeling. If the labels were already present from an earlier round, re-add them (remove + add) or dispatch the workflows manually so a build runs with the current head.
+
+**CHECKPOINT — confirm before opening the release PR (if needed) and adding the labels; both actions are visible on GitHub and start CI builds.** Wait for the user.
+
+## 9. Issue close-on-verify pass
 
 Every issue fixed this cycle should be resolved in the tracker before the merge. An open "fixed" issue at merge time means either a missed close or an unverified fix riding into the release. Close the ones a tester has confirmed; explicitly hold the ones still awaiting a test pass.
 
-### 8a. Gather the release's issues
+**This step runs last because it depends on step 8.** Verification comes from testers working through the Test Plan on the preview builds, which don't exist until the labels go on. On the day the audit runs, most issues will legitimately sit in "awaiting verification" — that is the expected outcome, not a failure. Report the buckets, close whatever is already confirmed, and expect to re-run this step (`/pre_release` step 9 alone is fine) once tester sign-offs come back, before the merge to `main`.
+
+### 9a. Gather the release's issues
 
 Two sources, unioned:
 
 - Issues tagged for this release: `gh issue list --state open --label next-release --json number,title,author`
 - Issues referenced by commits merged since the last release: `git log main..HEAD --oneline` and pull every `#NN` from the messages (these are the fixes that actually landed on the branch).
 
-### 8b. Classify each
+### 9b. Classify each
 
 For each issue, find out whether a tester has confirmed the fix. Look for a confirming comment from the reporter or a tester on a preview build, a Discord-synced follow-up, or a clear "works now" reaction. Pull the conversation when unsure:
 
@@ -198,7 +216,7 @@ Then bucket:
 - **Fixed, awaiting verification** → hold (these carry the "potential fix, please test" comment but no confirmation yet). Do not close on the developer's say-so alone — a passing local test is not a tester sign-off.
 - **Not addressed** → flag. It should not carry `next-release` into the merge if it isn't shipping this cycle; surface it for the user to re-label or defer.
 
-### 8c. Report
+### 9c. Report
 
 ```
 **Verified — close candidates:**
@@ -213,24 +231,10 @@ Then bucket:
 
 **CHECKPOINT — present the close / hold / flag list and ask before closing anything.** On confirmation, close each verified issue with a short comment in the project voice (plain thanks, the version the fix shipped in, a reopen path) and credit the tester who confirmed it. Do not close an issue without the user's go-ahead, and never close one that is only awaiting verification.
 
-## 9. Final Test Plan refresh, then trigger the tester preview builds
-
-The plan ships inside the build, so this step does two things in order: bring the Test Plan checklist up to date one last time, then label the release PR — the `build-installer` and `build-portable` labels are what make `installer-preview.yml` and `portable-preview.yml` produce the downloadable artifacts testers verify against.
-
-Procedure:
-
-1. Find the release PR: `gh pr list --base main --head release/X.Y.Z --state open --json number,title`.
-2. If none exists, this is the moment to open it — `main` only ever receives the release-branch merge via PR, so it's needed for the ship step anyway. Title `Release X.Y.Z`, body summarizing the release scope (link the release notes if drafted). **Opening the PR is not merging it** — the merge stays the user's ship trigger.
-3. **Refresh the Test Plan checklist — always the step right before labeling.** Step 4 ran earlier, but steps 3–8 can land more commits on the branch (language backfills, acknowledgement edits, close-out fixes). Re-run step 4's delta pass — `git log main..HEAD --oneline` vs the current `TEST_SECTIONS` in `src/utils/test_plan.py` — and draft items for anything user-visible that landed since. If there are updates, present them, and on approval land them via a normal PR to the release branch (branch protection blocks direct pushes), so the plan is final before any artifact builds. If nothing changed since step 4, say so and move on.
-4. Add both labels: `gh pr edit <N> --add-label build-installer --add-label build-portable`.
-5. Report the two workflow runs once they start (`gh run list --limit 2`) so the user can watch them, and note the artifact names (`smartcitizen-installer-{SHA}`, `smartcitizen-portable-{SHA}`, 30-day retention).
-
-Mechanics to remember: later pushes to the labeled PR rebuild automatically (`synchronize`), so a post-audit fix landing on the release branch refreshes the artifacts without re-labeling. If the labels were already present from an earlier round, re-add them (remove + add) or dispatch the workflows manually so a build runs with the current head.
-
-**CHECKPOINT — confirm before opening the release PR (if needed) and adding the labels; both actions are visible on GitHub and start CI builds.** Wait for the user.
-
 ## Final summary
 
 After all nine steps complete, give a one-line overall verdict for release readiness — the worst-case verdict across the checks. List any remaining Critical/Major findings the user needs to address before the `release/X.Y.Z` → `main` merge, plus any issues still open that were expected to ship this cycle.
+
+Say plainly where the release stands on testing: the builds are out, and anything step 9 left in "awaiting verification" is now waiting on testers, not on the audit. Re-run step 9 when their sign-offs land.
 
 Reminder: this command does not ship the release. Merging `release/X.Y.Z` to `main`, tagging, building the installer, and creating the GitHub release are separate steps documented in root `CLAUDE.md` → *Version & Release → Release checklist*.
