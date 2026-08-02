@@ -38,6 +38,7 @@ import os
 import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import PureWindowsPath
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -227,6 +228,9 @@ def read_profile_zip(zip_path) -> ProfileContents:
             # a backslash segment would otherwise let write_channel_user_ini
             # (called by the importer with this value) land outside the
             # data root on Windows, since only "/" was ever rejected here.
+            # The drive check is load-bearing too: pathlib re-anchors on a
+            # drive-qualified segment, so "D:evil" joins to D:\evil and even
+            # same-drive "C:.." escapes to the data root's parent.
             if (
                 not channel
                 or channel in (".", "..")
@@ -234,6 +238,7 @@ def read_profile_zip(zip_path) -> ProfileContents:
                 or "\\" in channel
                 or os.sep in channel
                 or (os.altsep and os.altsep in channel)
+                or PureWindowsPath(channel).drive
             ):
                 continue
             try:

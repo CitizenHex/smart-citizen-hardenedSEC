@@ -2499,8 +2499,20 @@ class MainWindow(QMainWindow):
         # into the channel's rotating backups first (#172 machinery) so an
         # accidental import is recoverable.
         try:
+            data_root = Path(os.path.abspath(AppSettings.get_user_data_dir()))
             for channel, text in profile.overrides.items():
                 target = AppSettings.get_channel_user_ini_path(channel)
+                # Belt-and-braces containment check against the untrusted
+                # channel name from the zip (read_profile_zip screens it
+                # first). Normalize before comparing: a lexical check on an
+                # unresolved "...\\Smart Citizen\\..\\user.ini" would pass.
+                resolved = Path(os.path.abspath(target))
+                if data_root not in resolved.parents:
+                    logger.warning(
+                        "Import Settings: refusing override outside the data "
+                        "root (channel %r -> %s)", channel, resolved,
+                    )
+                    continue
                 target.parent.mkdir(parents=True, exist_ok=True)
                 if target.exists():
                     backup_user_ini(target)

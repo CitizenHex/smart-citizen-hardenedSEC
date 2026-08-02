@@ -211,6 +211,21 @@ class TestValidation:
         p = read_profile_zip(out)
         assert p.overrides == {"LIVE": "good=1\n"}
 
+    def test_drive_qualified_channel_segment_rejected(self, tmp_path):
+        """A drive-qualified segment carries no separator at all, but pathlib
+        re-anchors on it: "D:evil" joins to D:\\evil, and even same-drive
+        "C:.." lands on the data root's parent. Both escape the data root."""
+        out = tmp_path / "x.zip"
+        with zipfile.ZipFile(out, "w") as zf:
+            zf.writestr(MANIFEST_NAME, json.dumps({"app": "SmartCitizen", "schema_version": 1}))
+            zf.writestr("overrides/D:evil/user.ini", "evil=1\n")
+            zf.writestr("overrides/D:/user.ini", "evil=1\n")
+            zf.writestr("overrides/C:../user.ini", "evil=1\n")
+            zf.writestr("overrides/C:foo/user.ini", "evil=1\n")
+            zf.writestr("overrides/LIVE/user.ini", "good=1\n")
+        p = read_profile_zip(out)
+        assert p.overrides == {"LIVE": "good=1\n"}
+
 
 class TestDefaultFilename:
     def test_format(self):
