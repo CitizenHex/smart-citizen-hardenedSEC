@@ -36,6 +36,7 @@ TEST_SECTIONS: list[dict] = [
             "Switch to Italian, restart: the UI, the guided tour, and the FAQ tab all show Italian text.",
             "Repeat for Chinese: game strings download from the 42Kit source without an error (this exercises the new download fix).",
             "Repeat for Japanese and German: UI translated, game strings load, Apply writes to the matching Localization folder and the game shows the language.",
+            "In each language, open Help, About, and the FAQ tab: the text is translated (not English), and Help carries the Export / Import Settings section at 13.",
             "Run the installer fresh: the Select Language page offers all 8 languages; pick German and the app opens in German.",
             "Reinstall over an existing install: the language page pre-selects your previously saved language.",
         ],
