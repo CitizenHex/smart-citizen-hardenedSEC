@@ -79,8 +79,13 @@ TEST_SECTIONS: list[dict] = [
         ],
     },
     {
-        "title": "Fit and finish (#292, #296, #302, #303, #304, #319)",
+        "title": "Fit and finish (#292, #296, #302, #303, #304, #319, #345, #346, #347, #349)",
         "items": [
+            "Open Help (and the Test Plan panel): each opens wide enough to read without dragging, and can still be dragged wider.",
+            "Blueprint Tracker: hover a blueprint that drops from several missions (e.g. the R97 Shotgun) — each mission is on its own line, not one long comma-separated run.",
+            "With Components > Type enabled, generate: the size-0 mining heads (S0 Helix, S00 Hofstede, Lawson) show a size in their tag, e.g. [Mining Laser-S0], matching their S1/S2 siblings.",
+            "Bomb racks, BEHR scopes, and the NOVA gatling also show a size in their tags (same underlying fix).",
+            "Mark S00 Hofstede owned, Apply Owned Tags, then find a mission listing it: the bullet carries the blue [Owned] tag in game.",
             "Simple mode's one-button apply: after the run, Generate Enhancements is green, not stuck red.",
             "After a log scan that applies owned tags, Apply Owned Tags is green, not stuck red.",
             "Switch channels: Save Tag Changes lights up correctly for the new channel (not stale-green from the old one).",

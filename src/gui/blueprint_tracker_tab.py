@@ -497,8 +497,20 @@ class BlueprintTrackerTab(QWidget):
             if attrs:
                 bits.append(attrs)
             if meta.missions:
-                bits.append(tr("enhancements.blueprints_tooltip_missions",
-                               missions=", ".join(sorted(meta.missions))))
+                # One mission per line (#347). Comma-joined, a popular item
+                # (the R97 Shotgun sits in ~37 mission bodies) rendered as a
+                # single unreadable run of text; a player scanning for which
+                # contract drops an item had to parse it word by word.
+                #
+                # The label comes from the translation with an empty
+                # placeholder and is rstripped: every language's string is
+                # "<Label>: {missions}", so this yields the label alone and
+                # the list starts on the next line, without needing a second
+                # translatable string for the header.
+                label = tr("enhancements.blueprints_tooltip_missions",
+                           missions="").rstrip()
+                listed = "\n".join(f"  • {m}" for m in sorted(meta.missions))
+                bits.append(f"{label}\n{listed}")
             if bits:
                 item.setToolTip("\n".join(bits))
         return item

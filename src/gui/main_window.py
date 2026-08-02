@@ -1241,7 +1241,16 @@ class MainWindow(QMainWindow):
         self.preview_pane.setReadOnly(True)
         self.preview_pane.setOpenExternalLinks(False)
         self.preview_pane.setPlaceholderText(tr("strings_tab.preview_placeholder"))
-        self.preview_pane.setMinimumWidth(420)
+        # 220, not the original 420 (#349). A minimum here is a floor on the
+        # whole central widget, and QMainWindow refuses to grow a dock past
+        # the point where the central widget would breach it — so every extra
+        # pixel demanded here is a pixel the Help and Test Plan docks can
+        # never occupy. At 420 the filter+preview row's minimum came to
+        # ~1026px, leaving a 1280-wide window only ~254px of dock: too narrow
+        # to read Help in. 220 still shows a comfortable phrase of the
+        # rendered preview and hands ~180px back to the docks at every window
+        # size; the pane keeps its own scrollbar for anything longer.
+        self.preview_pane.setMinimumWidth(220)
         # Capped so the row doesn't inflate when there's slack vertical space
         # to redistribute (the post-1.3.0 Config / Enhancements gap bug —
         # QTextBrowser's default Expanding vertical sizePolicy let the pane
@@ -2914,6 +2923,32 @@ class MainWindow(QMainWindow):
             finally:
                 self.help_btn.blockSignals(was_blocked)
 
+    # Below this a text dock is too cramped to read a HELP.md paragraph or a
+    # wrapped Test Plan item, so opening one at less than this is a bug in
+    # itself (#349). Also the trigger point for _widen_dock_for_reading: a
+    # dock already wider than this was sized deliberately, so leave it alone.
+    _READABLE_DOCK_WIDTH = 380
+
+    def _widen_dock_for_reading(self, dock) -> None:
+        """Give a text dock a readable width when it opens too narrow (#349).
+
+        Only ever widens, and only from below _READABLE_DOCK_WIDTH, so a
+        width the user dragged (or one restoreState brought back) survives.
+        Qt clamps the request to whatever the central widget's minimum
+        actually allows, so this can't force the window wider — it just
+        stops the dock opening at the sliver Qt defaults to.
+        """
+        try:
+            if dock.width() >= self._READABLE_DOCK_WIDTH:
+                return
+            # A bit over a third of the window reads well side by side with
+            # the table without swallowing it.
+            target = max(self._READABLE_DOCK_WIDTH, int(self.width() * 0.36))
+            self.resizeDocks([dock], [target], Qt.Orientation.Horizontal)
+        except Exception:
+            # Cosmetic only — never let a sizing hiccup block the panel.
+            logger.debug("Could not widen dock %s", dock.objectName(), exc_info=True)
+
     def show_help(self):
         """Toggle the Help side-panel."""
         dock = self._ensure_help_dock()
@@ -2922,6 +2957,7 @@ class MainWindow(QMainWindow):
         else:
             dock.show()
             dock.raise_()
+            self._widen_dock_for_reading(dock)
 
     def _render_help_html(self):
         """(Re)render the Help panel's HTML using the current palette.
@@ -2982,6 +3018,7 @@ class MainWindow(QMainWindow):
         else:
             dock.show()
             dock.raise_()
+            self._widen_dock_for_reading(dock)
 
     # ── Side-docked String Editor ────────────────────────────────────────────
 
