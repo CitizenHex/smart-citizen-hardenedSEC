@@ -13,6 +13,7 @@ change in their generated INIs until they edit a config.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -450,6 +451,18 @@ DEFAULT_COMPONENT_TYPE_MAPPING: dict[str, tuple[str, str, str]] = {
     "Power Plant":      ("PW",  "POWR", "Power"),
     "Quantum Drive":    ("QD",  "QDRV", "Quantum"),
     "Radar":            ("RD",  "RADR", "Radar"),
+    # #266: components with no Class:/Size:/Grade: of their own, tagged via
+    # the Type-only fallback (see enhancements_bare_type_tags in
+    # generate_enhancements_ini.py) when the user has Type enabled. Same
+    # opt-in gate as every other entry here -- not force-shown just because
+    # they'd otherwise have no other tag; a user who leaves Type off simply
+    # gets these items bare, same as Shield Generator or Cooler.
+    "Fuel Nozzle":      ("FN",  "FNoz", "Fuel Nozzle"),
+    # #266: mining lasers live in ships/weapons/ (routed through
+    # _ship_weapon_name_tag_factory) but aren't combat weapons -- no
+    # resolvable damage type, so they're tagged as a component Type+Size
+    # instead of the ship-weapon damage-keyed style.
+    "Mining Laser":     ("ML",  "MineL", "Mining Laser"),
 }
 
 DEFAULT_COMMODITY_LABEL_MAPPING: dict[str, tuple[str, str, str]] = {
@@ -648,6 +661,39 @@ class TagConfig:
         return cls.from_dict(json.loads(blob))
 
 
+def tag_config_fingerprint(
+    tag_configs: "dict[str, TagConfig]", annotate_mission_descs: bool
+) -> str:
+    """Stable 12-char hex fingerprint of the complete Tag Builder config state.
+
+    Two calls with equivalent config always return the same string, so a
+    channel's generated enhancement INIs can be stamped with the config they
+    were built from and a later channel switch can tell whether the current
+    Tag Builder config still matches (#292/#296 sibling: the Save Tag Changes
+    button used to light unconditionally after a switch because nothing
+    recorded which config a channel's INIs were generated with). Mirrors the
+    hashing shape of test_plan.plan_hash(): canonical JSON (sorted keys,
+    ASCII-escaped) → sha256 → first 12 hex chars.
+
+    Covers exactly what the "Save Tag Changes" button tracks in-session and
+    what _persist_tag_builder_state() writes: the per-category TagConfigs
+    (TagConfig.to_json() is itself canonical — sorted keys, frozensets sorted)
+    plus the annotate-mission-descriptions toggle. Deliberately excludes
+    generation *scope/target* inputs (which categories are enabled, the
+    selected language) since those pick what/where to generate, not the tag
+    content this button governs — folding them in would light the button for
+    changes it doesn't otherwise react to.
+    """
+    payload = {
+        "configs": {
+            cat: cfg.to_json() for cat, cfg in sorted(tag_configs.items())
+        },
+        "annotate_mission_descs": bool(annotate_mission_descs),
+    }
+    blob = json.dumps(payload, sort_keys=True, ensure_ascii=True)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:12]
+
+
 # ── Default configs (must match the previously hardcoded output) ─────────────
 
 DEFAULT_TAG_CONFIGS: dict[str, TagConfig] = {
@@ -692,13 +738,15 @@ DEFAULT_TAG_CONFIGS: dict[str, TagConfig] = {
     # as Collection-mission objectives. When an item is both, render_tag joins
     # them with the separator, e.g. "[CF|Collection]"; when only one flag
     # applies, the other's empty value is dropped so a single-flag item stays
-    # "[CF]" or "[Collection]" (#97). Crafting-only output is unchanged from
-    # the pre-1.5.0 single-label default.
+    # "[CF]" or "[Collection]" (#97). All three elements default off (#325):
+    # users reported garbled/unknown text from commodity tagging in-game, so
+    # a fresh install now shows plain commodity names until the user opts in
+    # from the Tag Builder, instead of tagging being on and surprising them.
     "commodities": TagConfig(
         elements=[
-            ElementSpec("label", True, "short"),        # CF
-            ElementSpec("usage", True, "long"),         # QDRV|SHLD… (on by default)
-            ElementSpec("collection", True, "long"),    # Collection
+            ElementSpec("label", False, "short"),        # CF
+            ElementSpec("usage", False, "long"),         # QDRV|SHLD…
+            ElementSpec("collection", False, "long"),    # Collection
         ],
         separator="pipe",
         enclosing="square",

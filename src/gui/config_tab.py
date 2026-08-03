@@ -53,6 +53,11 @@ class ConfigTab(QWidget):
     # Emitted when the user picks a different language. MainWindow listens and
     # triggers a merge+reload so the table reflects the new language strings.
     language_changed = pyqtSignal(str)
+    # Emitted by the Settings Backup buttons. MainWindow owns the file
+    # dialogs, the zip I/O (src/utils/settings_profile.py), and the
+    # post-import restart flow so this tab stays presentation-only.
+    export_settings_requested = pyqtSignal()
+    import_settings_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -89,7 +94,7 @@ class ConfigTab(QWidget):
         self._tools_desc_label.setWordWrap(True)
         tools_layout.addWidget(self._tools_desc_label)
 
-        self.include_new_cb = QCheckBox("Include discovered items")
+        self.include_new_cb = QCheckBox(tr("config.include_new_cb"))
         self.include_new_cb.setToolTip(tr("config.include_new_tooltip"))
         self.include_new_cb.setChecked(AppSettings.get_include_new_lines())
         self.include_new_cb.toggled.connect(self._on_include_new_toggled)
@@ -160,7 +165,7 @@ class ConfigTab(QWidget):
         appearance_layout.addWidget(self.theme_combo)
 
         appearance_layout.addSpacing(20)
-        self.disable_tutorial_cb = QCheckBox("Disable Tutorial")
+        self.disable_tutorial_cb = QCheckBox(tr("config.disable_tutorial_cb"))
         self.disable_tutorial_cb.setToolTip(tr("config.disable_tutorial_tooltip"))
         self.disable_tutorial_cb.setChecked(AppSettings.get_tutorial_disabled())
         self.disable_tutorial_cb.toggled.connect(AppSettings.set_tutorial_disabled)
@@ -190,9 +195,7 @@ class ConfigTab(QWidget):
         self.game_path_input = QLineEdit()
         _initial_game_root = AppSettings.get_sc_install_root()
         self.game_path_input.setText(os.path.normpath(_initial_game_root) if _initial_game_root else "")
-        self.game_path_input.setPlaceholderText(
-            r"C:\Program Files\Roberts Space Industries\StarCitizen"
-        )
+        self.game_path_input.setPlaceholderText(tr("config.game_path_placeholder"))
         self.game_path_input.setToolTip(tr("config.game_path_tooltip"))
         self.game_path_input.editingFinished.connect(self._save_game_path)
         game_input_layout.addWidget(self.game_path_input)
@@ -363,6 +366,34 @@ class ConfigTab(QWidget):
         # Tools last, so it sits at the bottom of the Config tab.
         layout.addWidget(self._tools_group)
 
+        # ── Settings Backup (Export / Import Settings) ───────────────────────
+        self._backup_group = QGroupBox(tr("config.backup_group"))
+        backup_layout = QVBoxLayout(self._backup_group)
+
+        self._backup_desc_label = QLabel(tr("config.backup_desc"))
+        self._backup_desc_label.setProperty("role", "secondary")
+        self._backup_desc_label.setStyleSheet("font-size: 11px;")
+        self._backup_desc_label.setWordWrap(True)
+        backup_layout.addWidget(self._backup_desc_label)
+
+        backup_btn_layout = QHBoxLayout()
+
+        self._export_settings_btn = QPushButton(tr("config.export_settings_btn"))
+        self._export_settings_btn.setMaximumWidth(150)
+        self._export_settings_btn.setToolTip(tr("config.export_settings_tooltip"))
+        self._export_settings_btn.clicked.connect(self.export_settings_requested.emit)
+        backup_btn_layout.addWidget(self._export_settings_btn)
+
+        self._import_settings_btn = QPushButton(tr("config.import_settings_btn"))
+        self._import_settings_btn.setMaximumWidth(150)
+        self._import_settings_btn.setToolTip(tr("config.import_settings_tooltip"))
+        self._import_settings_btn.clicked.connect(self.import_settings_requested.emit)
+        backup_btn_layout.addWidget(self._import_settings_btn)
+
+        backup_btn_layout.addStretch()
+        backup_layout.addLayout(backup_btn_layout)
+        layout.addWidget(self._backup_group)
+
         layout.addStretch()
 
         # Host the content in a scroll area. MainWindow adds the tab widget
@@ -390,6 +421,7 @@ class ConfigTab(QWidget):
         self._instructions_label.setText(tr("config.instructions"))
         self._tools_group.setTitle(tr("config.tools_group"))
         self._tools_desc_label.setText(tr("config.tools_desc"))
+        self.include_new_cb.setText(tr("config.include_new_cb"))
         self.include_new_cb.setToolTip(tr("config.include_new_tooltip"))
         self._import_btn.setText(tr("config.import_ini_btn"))
         self._import_btn.setToolTip(tr("config.import_ini_tooltip"))
@@ -401,6 +433,12 @@ class ConfigTab(QWidget):
         self._preview_btn.setToolTip(tr("config.preview_apply_tooltip"))
         self._check_updates_btn.setText(tr("config.check_updates_btn"))
         self._check_updates_btn.setToolTip(tr("config.check_updates_tooltip"))
+        self._backup_group.setTitle(tr("config.backup_group"))
+        self._backup_desc_label.setText(tr("config.backup_desc"))
+        self._export_settings_btn.setText(tr("config.export_settings_btn"))
+        self._export_settings_btn.setToolTip(tr("config.export_settings_tooltip"))
+        self._import_settings_btn.setText(tr("config.import_settings_btn"))
+        self._import_settings_btn.setToolTip(tr("config.import_settings_tooltip"))
         self._appearance_group.setTitle(tr("config.appearance_group"))
         self._theme_label.setText(tr("config.theme_label"))
         self.theme_combo.setToolTip(tr("config.theme_tooltip"))
@@ -412,10 +450,12 @@ class ConfigTab(QWidget):
             self.theme_combo.setItemText(3, tr("config.theme_odw"))
         finally:
             self.theme_combo.blockSignals(False)
+        self.disable_tutorial_cb.setText(tr("config.disable_tutorial_cb"))
         self.disable_tutorial_cb.setToolTip(tr("config.disable_tutorial_tooltip"))
         self._loc_group.setTitle(tr("config.star_citizen_group"))
         self._install_label.setText(tr("config.installation_label"))
         self._game_desc_label.setText(tr("config.installation_desc"))
+        self.game_path_input.setPlaceholderText(tr("config.game_path_placeholder"))
         self.game_path_input.setToolTip(tr("config.game_path_tooltip"))
         self._game_browse_btn.setText(tr("config.browse_btn"))
         self._game_browse_btn.setToolTip(tr("config.browse_game_tooltip"))
@@ -517,7 +557,7 @@ class ConfigTab(QWidget):
                     QMessageBox.warning(
                         self,
                         tr("config.invalid_data_folder_title"),
-                        f"The selected data folder is a file, not a directory:\n{target}",
+                        tr("config.invalid_data_folder_body", path=target),
                     )
                     self.data_dir_input.setText(str(current_dir))
                     return
@@ -527,11 +567,8 @@ class ConfigTab(QWidget):
                 if is_onedrive_path(target):
                     proceed = QMessageBox.warning(
                         self,
-                        "Data Folder Inside OneDrive",
-                        f"This folder is inside OneDrive:\n\n{target}\n\n"
-                        f"OneDrive can sync and even empty these files, which has "
-                        f"caused lost edits. A local folder outside OneDrive is "
-                        f"strongly recommended.\n\nUse this OneDrive folder anyway?",
+                        tr("config.onedrive_folder_title"),
+                        tr("config.onedrive_folder_body", path=target),
                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                         QMessageBox.StandardButton.No,
                     )
@@ -675,7 +712,7 @@ class ConfigTab(QWidget):
         prompt.setWindowTitle(tr("config.dataforge_cache_changed_title"))
         prompt.setIcon(QMessageBox.Icon.Question)
         prompt.setText(tr("config.dataforge_cache_changed_body"))
-        prompt.setInformativeText(f"Old: {old_leaf}\nNew: {new_leaf}")
+        prompt.setInformativeText(tr("config.dataforge_cache_old_new", old=old_leaf, new=new_leaf))
         delete_btn = prompt.addButton(tr("config.re_extract_delete_old"), QMessageBox.ButtonRole.AcceptRole)
         keep_btn = prompt.addButton(tr("config.re_extract_keep_old"), QMessageBox.ButtonRole.AcceptRole)
         cancel_btn = prompt.addButton(QMessageBox.StandardButton.Cancel)
@@ -807,7 +844,7 @@ class ConfigTab(QWidget):
             # a hint label so the user knows why things might not work.
             if root and active not in available_lookup:
                 self._channel_hint_label.setText(
-                    f"⚠ {active} isn't installed under this root — pick another channel"
+                    tr("config.channel_not_installed_hint", channel=active)
                 )
                 self._channel_hint_label.setStyleSheet("font-size: 10px; color: #ff9800;")
             else:
@@ -1019,7 +1056,7 @@ class ConfigTab(QWidget):
 
         except Exception as e:
             logger.exception(f"Error previewing merge: {e}")
-            QMessageBox.critical(self, tr("dialogs.error_title"), f"Failed to preview merge: {e}")
+            QMessageBox.critical(self, tr("dialogs.error_title"), tr("config.preview_merge_failed", error=e))
 
 
 class LanguageSourceDialog(QDialog):
@@ -1058,7 +1095,7 @@ class LanguageSourceDialog(QDialog):
             label = QLabel(lang.replace("_", " ").title())
             edit = QLineEdit(AppSettings.get_language_source_override(lang))
             edit.setPlaceholderText(
-                bundled.get(lang, "") or "https://…/global.ini"
+                bundled.get(lang, "") or tr("config.language_source_placeholder")
             )
             grid.addWidget(label, row, 0)
             grid.addWidget(edit, row, 1)

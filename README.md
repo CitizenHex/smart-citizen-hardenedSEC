@@ -10,7 +10,7 @@ A Windows desktop app for customizing Star Citizen's localization strings. Layer
 ## Features
 
 - **Multi-Channel Star Citizen Support**: LIVE / PTU / EPTU / HOTFIX / TECH-PREVIEW each get their own isolated workspace — independent `user.ini`, cache, backups, DataForge extraction, and enhancement INIs. Switch channels from the Config tab without restarting.
-- **Multi-Language Support**: Switch the app and game strings between English, French, Spanish, and Brazilian Portuguese from the Config tab. Non-English languages layer a community-translated `global.ini` (from [Dymerz/StarCitizen-Localization](https://github.com/Dymerz/StarCitizen-Localization)) over the English base, with English fallback for anything untranslated.
+- **Multi-Language Support**: Switch the app and game strings between English, French, Spanish, Brazilian Portuguese, Japanese, Chinese, Italian, and German from the Config tab. Non-English languages layer a community-translated `global.ini` (from [Dymerz/StarCitizen-Localization](https://github.com/Dymerz/StarCitizen-Localization), [42Kit](https://ini.42kit.com/), [stdblue/StarCitizenJapaneseResources](https://github.com/stdblue/StarCitizenJapaneseResources), [Thord82/Star_citizen_ES](https://github.com/Thord82/Star_citizen_ES), and [rjcncpt/StarCitizen-Deutsch-INI](https://github.com/rjcncpt/StarCitizen-Deutsch-INI)) over the English base, with English fallback for anything untranslated.
 - **Simple & Advanced Mode**: A two-button Simple screen (one applies enhancements with your saved settings, the other switches to Advanced), or the full Advanced UI (table, filters, Enhancements, Config) for hand-editing. Pick your default at install; switch anytime in-app.
 - **Multi-Source Merge System**: Sources (stock base, language overlay, enhancements, user) merge in a drag-and-drop priority order, with user overrides always applied last so your edits never get overwritten.
 - **Sourced from Data.p4k**: All stock localization and DataForge entity data is extracted directly from your installed game — no community mirrors, no version drift, no network required after install.
@@ -18,12 +18,13 @@ A Windows desktop app for customizing Star Citizen's localization strings. Layer
 - **Persistent Edits**: Your customizations are saved to `user.ini` per channel and automatically re-applied across game updates.
 - **Auto-Generated Enhancements**: Stat overlays for ships, ship components, ship weapons, FPS weapons, missions (with `[BP]`/`[BP?]` blueprint reward tags + structured detail blocks), journal entries, commodity crafting cross-references, and medical consumable effects — all togglable per category in the Enhancements tab. Stat blocks can sit above or below the description. Mission XP names the reputation track it feeds, Battaglia scan/mine titles carry `[RS ####]` resource-signature tags, and the Mining Compendium journal lists each ore's base RS.
 - **Tag Builder & Mission Titles**: Customize the bracketed name tags on components, missiles, ship weapons, and commodities, and lead hauling mission titles with their route (e.g. `Area18 > Lorville`) — configurable placement, arrow, separator, and location detail, plus optional stock-title shortening, with a live preview.
-- **Blueprint Tracker**: A dedicated tab for marking the crafting blueprints you already own. Shuttle items between Available and Owned, narrow the list with search and Mission / Type / Class / Size / Grade filters, and owned items get a blue `[Owned]` tag in mission blueprint lists. **Scan Logs for Owned Blueprints** reads your Star Citizen log files to populate ownership automatically, importing only what's new since the last scan.
+- **Blueprint Tracker**: A dedicated tab for marking the crafting blueprints you already own. Shuttle items between Available and Owned, narrow the list with search and Mission / Type / Class / Size / Grade filters, and owned items get a blue `[Owned]` tag in mission blueprint lists. **Scan Logs for Owned Blueprints** reads your Star Citizen log files to populate ownership automatically, importing only what's new since the last scan; an **Also scan LIVE/HOTFIX** toggle picks up blueprints earned on the sibling channel, and a **Rescan all logs** checkbox forces a full re-read when something looks off. **Export / Import Owned Blueprints** moves your owned list between PCs (JSON or CSV; imports only ever add, and scmdb.net exports work too).
 - **Declarative CIG Data-Bug Patches**: A patch system applies fixes to known DataForge bugs at extraction time so the in-game text reads correctly without waiting on CIG.
-- **Search & Filter**: Free-text search, category filter (Ships, Ship Items, Missions, Gear, Commodities, Journal, Other), modified/unmodified status, plus per-column filter rows under every header.
+- **Search & Filter**: Free-text search, category filter (Ships, Ship Items, Missions, Gear, Commodities, Journal, Other), modified/unmodified status, per-column filter rows under every header, and a **Ship/Vehicle Names Only** toggle that narrows the table to the ship name rows favoriting applies to.
 - **Ship Favorites**: Star a ship to prepend a configurable prefix (default `*`) so your favorites sort to the top of the in-game ASOP terminal.
 - **Apply Enhancements**: Writes the merged result to your `global.ini`, takes a timestamped backup first, and validates the output against the stock key set — auto-rolls back on any mismatch.
 - **Backup & Restore**: Up to 5 automatic backups per channel, oldest auto-pruned. One-click restore from any of them.
+- **Settings Backup**: Export your preferences, tag configurations, and every channel's string overrides to one small zip; import it on a new PC (or a fresh portable unzip) and Smart Citizen restores everything, snapshotting your current files first so the import is reversible.
 - **Clear Localization**: Revert your game to vanilla text without losing your saved overrides.
 - **Guided Tutorial**: A coach-mark tour walks new users through the workflow on first launch of each version. Replayable any time from the Tutorial button.
 - **In-App FAQ**: A FAQ tab answers the common questions (what files get touched, ban risk, the Windows unrecognized-app warning, undoing changes) without leaving the app.
@@ -104,7 +105,7 @@ All settings are stored in Windows Registry under:
 The Config tab lets you set:
 - **Star Citizen install path** (the SC root folder containing `LIVE/`, `PTU/`, etc. — auto-detected at install time)
 - **Active channel** (LIVE / PTU / EPTU / HOTFIX / TECH-PREVIEW)
-- **Language** (English, French, Spanish, Brazilian Portuguese; switches the app UI and the game strings)
+- **Language** (English, French, Spanish, Brazilian Portuguese, Japanese, Chinese, Italian, German; switches the app UI and the game strings)
 - **Smart Citizen data folder** (where `user.ini`, cache, DataForge extraction, enhancement INIs, and backups live)
 - **Theme**
 - **Data sources**: enable/disable, drag-drop merge priority
@@ -209,6 +210,7 @@ Thanks to those who've contributed code to Smart Citizen:
 - [**denis-coach**](https://github.com/denis-coach) (also [h0use](https://github.com/h0useRus))
 - [**scubamount**](https://github.com/scubamount)
 - **hkstrongside**
+- [**odw-okano**](https://github.com/odw-okano)
 
 ## Acknowledgments
 
@@ -216,6 +218,10 @@ Thanks to those who've contributed code to Smart Citizen:
 - **Akwa** — French interface translation
 - **Nxzzin** — Brazilian Portuguese interface translation
 - [**Thord82**](https://github.com/Thord82) — Spanish interface translation, plus the [Spanish `global.ini` source](https://github.com/Thord82/Star_citizen_ES) that powers the Spanish game strings
+- [**stdblue/StarCitizenJapaneseResources**](https://github.com/stdblue/StarCitizenJapaneseResources) — the Japanese `global.ini` source that powers the Japanese game strings; the Japanese interface translation is AI-generated pending a human reviewer
+- [**42Kit**](https://ini.42kit.com/) — the [Chinese `global.ini` source](https://ini.42kit.com/full/global.ini) that powers the Chinese game strings; the Chinese interface translation is AI-generated pending a human reviewer
+- The Italian interface translation is AI-generated pending a human reviewer; the Italian `global.ini` source is the same [Dymerz/StarCitizen-Localization](https://github.com/Dymerz/StarCitizen-Localization) repo credited below
+- [**rjcncpt**](https://github.com/rjcncpt) — the [German `global.ini` source](https://github.com/rjcncpt/StarCitizen-Deutsch-INI) that powers the German game strings; the German interface translation is AI-generated pending a human reviewer
 - [**Osiris-DevWorks/odw-fast-unp4k**](https://github.com/Osiris-DevWorks/odw-fast-unp4k) — Bundled `unp4k.exe` / `unforge.exe` used to unpack `Data.p4k` and convert DataForge to XML; our parallelized fork of the original [dolkensp/unp4k](https://github.com/dolkensp/unp4k)
 - [**Dymerz/StarCitizen-Localization**](https://github.com/Dymerz/StarCitizen-Localization) — Community-maintained `global.ini` translations that power the non-English language options
 - [**ExoAE**](https://github.com/ExoAE/ScCompLangPack) — Original ScCompLangPack concept and merge logic that inspired Smart Citizen's foundation
@@ -239,6 +245,10 @@ All bug reports, feature requests, and prioritization happen in the dedicated `#
 
 - **[Discord Server Invite](https://discord.gg/BNzRegKZ7k)** — join the server first, then jump into the [Smart Citizen feedback channel](https://discord.com/channels/1438175448420057323/1472394204347895890).
 - When reporting a bug, attach the log (Log tab → **Export**) and mention the SC version you're on.
+
+### Video Guides
+
+- **[Star Citizen Hides Important Mission Info – This Tool Shows It In-Game & More!](https://www.youtube.com/watch?v=Xo1t404gsgs)** by **Karolinger** — a community overview of Smart Citizen's features.
 
 ### Support the Project
 

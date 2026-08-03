@@ -99,6 +99,49 @@ class TestEnhancementsStamp:
         assert stamp.is_file()
 
 
+class TestTagConfigStamp:
+    """The .tag_config_stamp marker mirrors .dataforge_stamp: per-language,
+    round-trips, isolated between languages, and a corrupt (non-UTF-8) stamp
+    reads as missing rather than crashing (#251 bug class). Backs the Save Tag
+    Changes button's per-channel freshness check on switch."""
+
+    def test_absent_stamp_reads_empty(self, env):
+        assert AppSettings.get_tag_config_stamp("french") == ""
+
+    def test_round_trip(self, env):
+        AppSettings.set_tag_config_stamp("abc123def456", "french")
+        assert AppSettings.get_tag_config_stamp("french") == "abc123def456"
+
+    def test_stamps_are_per_language(self, env):
+        AppSettings.set_tag_config_stamp("french-fp", "french")
+        assert AppSettings.get_tag_config_stamp("portuguese_br") == ""
+
+    def test_independent_of_dataforge_stamp(self, env):
+        # Both stamps live in the same dir but must not read each other.
+        AppSettings.set_enhancements_stamp("p4k-key", "french")
+        AppSettings.set_tag_config_stamp("tag-fp", "french")
+        assert AppSettings.get_enhancements_stamp("french") == "p4k-key"
+        assert AppSettings.get_tag_config_stamp("french") == "tag-fp"
+
+    def test_stamp_file_lives_in_enhancements_dir(self, env):
+        AppSettings.set_tag_config_stamp("fp", "french")
+        stamp = (
+            AppSettings.get_enhancements_dir("french")
+            / AppSettings.TAG_CONFIG_STAMP_NAME
+        )
+        assert stamp.is_file()
+
+    def test_corrupt_stamp_reads_empty(self, env):
+        # A non-UTF-8 stamp must be treated as missing, not raise (#251).
+        stamp = (
+            AppSettings.get_enhancements_dir("french")
+            / AppSettings.TAG_CONFIG_STAMP_NAME
+        )
+        stamp.parent.mkdir(parents=True, exist_ok=True)
+        stamp.write_bytes(b"stamp\xa0value")
+        assert AppSettings.get_tag_config_stamp("french") == ""
+
+
 class TestLanguageBaseUrl:
     def test_unset_and_unbundled_resolves_empty(self, env, monkeypatch):
         monkeypatch.setattr(settings_module, "_bundled_language_sources", lambda: {})
@@ -177,6 +220,52 @@ class TestLocalizedDocPath:
         )
         path = AppSettings.get_localized_doc_path("HELP.md")
         assert path == docs_env / "french" / "HELP.md"
+
+
+class TestIssue306FaqBackfill:
+    """#306: french/spanish/portuguese_br predate docs/FAQ.md (#152) and never
+    got a translated copy, so get_localized_doc_path silently fell back to
+    the English FAQ for those three languages. italian, chinese, and german
+    shipped a translated FAQ from day one; japanese missed it too and was
+    backfilled separately (#334). Locks that the gap is closed and stays
+    closed for all four languages."""
+
+    REPO = Path(__file__).resolve().parent.parent
+    _ENGLISH_HEADINGS = None
+
+    @classmethod
+    def _english_headings(cls):
+        if cls._ENGLISH_HEADINGS is None:
+            text = (cls.REPO / "docs" / "FAQ.md").read_text(encoding="utf-8")
+            cls._ENGLISH_HEADINGS = [
+                line for line in text.splitlines() if line.startswith("## ")
+            ]
+        return cls._ENGLISH_HEADINGS
+
+    @pytest.mark.parametrize(
+        "language", ["french", "spanish", "portuguese_br", "japanese"]
+    )
+    def test_faq_exists_and_is_not_the_english_fallback(self, language):
+        faq_path = self.REPO / "languages" / language / "FAQ.md"
+        assert faq_path.exists(), f"languages/{language}/FAQ.md is missing"
+        translated = faq_path.read_text(encoding="utf-8")
+        english = (self.REPO / "docs" / "FAQ.md").read_text(encoding="utf-8")
+        assert translated != english, f"{language} FAQ.md is just the English source"
+
+    @pytest.mark.parametrize(
+        "language", ["french", "spanish", "portuguese_br", "japanese"]
+    )
+    def test_faq_section_count_matches_english(self, language):
+        faq_path = self.REPO / "languages" / language / "FAQ.md"
+        headings = [
+            line
+            for line in faq_path.read_text(encoding="utf-8").splitlines()
+            if line.startswith("## ")
+        ]
+        assert len(headings) == len(self._english_headings()), (
+            f"{language} FAQ.md has {len(headings)} sections, "
+            f"English has {len(self._english_headings())}"
+        )
 
 
 class TestScLanguageId:

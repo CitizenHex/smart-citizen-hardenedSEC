@@ -28,6 +28,7 @@ Thanks to those who've contributed code to Smart Citizen:
 - **denis-coach** (h0use)
 - **scubamount**
 - **hkstrongside**
+- **odw-okano**
 
 ## Translators
 
@@ -64,14 +65,18 @@ Smart Citizen also bundles upstream tooling from:
 
 The non-English game strings are community translations:
 
-- [**Dymerz/StarCitizen-Localization**](https://github.com/Dymerz/StarCitizen-Localization) — the community-maintained `global.ini` translations that power the French, Spanish, and Brazilian Portuguese language options. Their translators do the real work here; we just deliver it.
+- [**Dymerz/StarCitizen-Localization**](https://github.com/Dymerz/StarCitizen-Localization) — the community-maintained `global.ini` translations that power the French, Brazilian Portuguese, and Italian language options. Their translators do the real work here; we just deliver it.
+- [**Thord82/Star_citizen_ES**](https://github.com/Thord82/Star_citizen_ES): the community-maintained `global.ini` translation that powers the Spanish language option.
+- [**stdblue/StarCitizenJapaneseResources**](https://github.com/stdblue/StarCitizenJapaneseResources) — the community-maintained `global.ini` translation that powers the Japanese language option.
+- [**42Kit**](https://ini.42kit.com/) — the community-maintained `global.ini` translation that powers the Chinese language option.
+- [**rjcncpt/StarCitizen-Deutsch-INI**](https://github.com/rjcncpt/StarCitizen-Deutsch-INI) — the community-maintained `global.ini` translation that powers the German language option.
 
 ## Key Features
 
 ### 🎯 Core Features
 - **Load & Edit**: Load `global.ini` from your Star Citizen installation and customize strings in an intuitive table view
 - **Multi-Channel Support**: LIVE / PTU / EPTU / HOTFIX / TECH-PREVIEW each get their own isolated `user.ini`, cache, backups, and DataForge extraction — switch channels from the Config tab without restarting
-- **Multi-Language Support**: Switch the app and game strings between English, French, Spanish, and Brazilian Portuguese from the Config tab. Non-English languages layer a community-translated `global.ini` over the English base, with English fallback for anything untranslated. More languages will be exposed as community translations land (see `languages/TRANSLATIONS.md`)
+- **Multi-Language Support**: Switch the app and game strings between English, French, Spanish, Brazilian Portuguese, Japanese, Chinese, Italian, and German from the Config tab. Non-English languages layer a community-translated `global.ini` over the English base, with English fallback for anything untranslated. More languages will be exposed as community translations land (see `languages/TRANSLATIONS.md`)
 - **Mission Contracts**: Edit mission contract and briefing text from the dedicated Missions category
 - **Smart Filtering**: Search strings, filter by category (Ships, Ship Items, Missions, Gear, Commodities, Journal, Other), or modification status
 - **Per-Column Filters**: Type directly into filter boxes below each column header for fine-grained searching
@@ -95,14 +100,14 @@ The non-English game strings are community translations:
 - **Ship Stats**: SCM speed, hydrogen/quantum fuel, cargo capacity, full weapon loadouts, and armor multipliers (physical / energy / distortion / thermal) appended to ship descriptions
 - **Component Stats**: Shield HP, power draw, cooling rate, regen, and similar stats for shields, coolers, power plants, quantum drives, and radars — with `[MIL-S2-A]`-style name tags by default (fully customizable in the Tag Builder)
 - **Weapon Stats**: DPS, fire rate, range, and damage on ship guns and turrets from S1 through capital. Ship weapons get a `[E-S2]`-style damage+size tag, missiles `[IR-S1] Arrester III`, and bombs `[S5] 500SCB Cluster`
-- **Mission Annotations**: `[BP]` / `[BP?]` blueprint reward tags on titles, plus structured *MISSION DETAILS*, *POTENTIAL BLUEPRINTS*, and *ITEM REWARDS* blocks in descriptions. Reputation tier lines show actual rank names (Rookie, Jr. Contractor, etc.) instead of generic numbering. Mission XP names the reputation track it feeds, and Battaglia scan/mine titles carry `[RS ####]` resource-signature tags
+- **Mission Annotations**: `[BP]` / `[BP?]` blueprint reward tags on titles, plus structured *MISSION DETAILS*, *POTENTIAL BLUEPRINTS*, and *ITEM REWARDS* blocks in descriptions. Reputation tier lines show actual rank names (Rookie, Jr. Contractor, etc.) instead of generic numbering. Mission XP names the reputation track it feeds, and Battaglia scan/mine titles carry `[RS ####]` resource-signature tags, joined by a MISSION DETAILS "Resource Signatures" breakdown per targeted ore and an ore-name annotation shown everywhere the game displays that name, including the mission tracker (two independent toggles, both on by default)
 - **Journal Cross-References**: Mining Compendium entries get crafting cross-references and each ore's base resource signature; commodities used in crafting get a customizable `[CF]` name tag and a list of every blueprint that calls for them
 - **Medical Consumable Effects**: The base CureLife pens (MedPen, OxyPen, AdrenaPen, and friends) get a plain-language effect line, so the description says what the pen does instead of just its lore
 - **Ship Favorites**: Star a ship to prepend a configurable prefix (default `*`) so favorites sort to the top of the in-game ASOP terminal
 - **Tag Builder**: Customize the bracketed tags on components, missiles, ship weapons, and commodities — reorder elements, change abbreviation length (M / MIL / Military), pick separators and brackets, or place the tag after the name instead of before. Components have an optional Type element (Shield, Cooler, etc.); commodities have a Usage element showing what their crafting materials feed into
 - **Mission Titles**: Lead hauling titles with their route (e.g. `Area18 > Lorville`) — configurable placement, arrow, separator, and location detail, plus optional stock-title shortening, with a live preview
 - **Stats Above or Below**: Choose whether a stat block sits at the top or the bottom of the description
-- **Blueprint Tracker**: A dedicated tab for marking the crafting blueprints you already own. Shuttle items between Available and Owned, filter by Mission / Type / Class / Size / Grade, and owned items get a blue `[Owned]` tag in mission blueprint lists. **Scan Logs for Owned Blueprints** populates ownership automatically from your Star Citizen log files, importing only what's new since the last scan
+- **Blueprint Tracker**: A dedicated tab for marking the crafting blueprints you already own. Shuttle items between Available and Owned, filter by Mission / Type / Class / Size / Grade, and owned items get a blue `[Owned]` tag in mission blueprint lists. **Scan Logs for Owned Blueprints** populates ownership automatically from your Star Citizen log files, importing only what's new since the last scan, and **Export / Import Owned Blueprints** moves the owned list between PCs (JSON or CSV; imports only ever add, and scmdb.net exports work too)
 - **Mission Labels**: Rename the section headers (MISSION DETAILS, POTENTIAL BLUEPRINTS, etc.), the XP label, and the emphasis tag used for headers
 - **Declarative CIG Data-Bug Patches**: A patch system applies fixes to known DataForge bugs at extraction time so in-game text reads correctly without waiting on CIG
 - **Selective Categories**: Enable or disable each enhancement category independently from the Enhancements tab
@@ -116,6 +121,7 @@ The non-English game strings are community translations:
 - **Automatic Backups**: Timestamped backups created before applying changes to your game (up to 5 per channel)
 - **Registry Persistence**: All paths and preferences saved securely in Windows Registry
 - **Configurable Data Storage**: Your custom edits are stored under `<data folder>\<channel>\` (default `Documents\Smart Citizen`, one isolated subtree per Star Citizen channel) for safe persistence across sessions
+- **Settings Backup**: Export your whole setup (preferences, tag configurations, and every channel's string overrides) to one small zip, then import it on a new PC or after a fresh portable unzip. Imports snapshot your current files first, so they're reversible
 - **In-App Log Viewer**: Real-time application log with level filter, auto-scroll, and an Export button for bug reports
 - **Auto-Updater**: Smart Citizen checks GitHub Releases at launch and shows the release notes in-app; one click (plus a Windows permission prompt) downloads the update, installs it, and reopens the app
 
@@ -133,6 +139,9 @@ The non-English game strings are community translations:
 ### Join Us
 - 💬 [Discord Community](https://discord.gg/BNzRegKZ7k) - Get support, share configs, request features
 - 🐛 [Smart Citizen Feedback, Bugs, & Feature Voting](https://discord.com/channels/1438175448420057323/1472394204347895890) - Dedicated channel for bug reports, feedback, and voting on upcoming features (join the server first via the invite above)
+
+### Video Guides
+- 🎥 [Star Citizen Hides Important Mission Info – This Tool Shows It In-Game & More!](https://www.youtube.com/watch?v=Xo1t404gsgs) by **Karolinger** - a community overview of Smart Citizen's features
 
 ### Support This Project
 Smart Citizen is completely free. If you find it valuable:

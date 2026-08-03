@@ -628,6 +628,124 @@ class TestBlueprintNameTags:
         )
         assert pools["pool-uuid"] == ["Thing"]
 
+    @pytest.mark.regression
+    def test_blueprint_pool_tags_tier3_fallback_name(self, gen_module, tmp_path):
+        """A live in-game mission body reported fuel nozzle names correctly
+        resolved (#281 fix) but missing their [FN] tag, even though the tag
+        shows correctly in Smart Citizen's own String Editor. Root cause:
+        entity_name_tags is built from an entity's __ref + Description alone
+        (independent of whether its Name attribute ever resolved), so a fuel
+        nozzle can miss BOTH tier 1 (UUID) and tier 2 (filename) name
+        resolution -- landing on the tier-3 fallback -- while still having a
+        valid tag entry. The old code only ever checked entity_name_tags
+        inside the tier-1 branch, so the tag data sat unused. The tag must
+        now apply regardless of which tier supplied the name."""
+        pool_dir = tmp_path / "blueprintrewards"
+        bp_dir = tmp_path / "blueprints" / "crafting"
+        pool_dir.mkdir(parents=True)
+        bp_dir.mkdir(parents=True)
+
+        (pool_dir / "pool.xml").write_text(
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<BlueprintPoolRecord __ref="pool-uuid">\n'
+            '  <BlueprintReward blueprintRecord="bp-nozzle-uuid"/>\n'
+            '</BlueprintPoolRecord>\n',
+            encoding="utf-8",
+        )
+        (bp_dir / "bp_craft_nozzle_fuelgiver_grin_nozzlefast.xml").write_text(
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<CraftingBlueprintRecord __ref="bp-nozzle-uuid">\n'
+            '  <CraftingProcess_Creation entityClass="ent-nozzle-uuid"/>\n'
+            '</CraftingBlueprintRecord>\n',
+            encoding="utf-8",
+        )
+
+        # entity_names and entity_names_by_filename are both EMPTY for this
+        # entity ref -- reproducing tiers 1 and 2 both missing, exactly like
+        # the real fuel nozzle bug. entity_name_tags DOES have an entry,
+        # since that dict never depended on Name resolution succeeding.
+        pools, _pool_names = gen_module.build_blueprint_pool_lookup(
+            pool_dir, bp_dir, entity_names={},
+            entity_names_by_filename={},
+            entity_name_tags={"ent-nozzle-uuid": "[FN]"},
+        )
+
+        # Falls to tier 3's filename fallback, alias-corrected to "Norfield"
+        # (#281), and now carries the tag tier 3 previously dropped.
+        assert pools["pool-uuid"] == ["[FN] Norfield"]
+
+    @pytest.mark.regression
+    def test_blueprint_pool_name_fallback_tags_apply_without_any_entity_linkage(
+        self, gen_module, tmp_path
+    ):
+        """The real 2.3.0 live-report shape: the fuel nozzle's entity XML
+        isn't UUID-linked to its blueprint AT ALL (same broken linkage
+        behind #281's garbled names), so entity_name_tags -- keyed by
+        entity __ref -- can never supply the tag no matter which tier the
+        name came from. name_fallback_tags is keyed by display name and
+        derived purely from base.ini loc pairs (bare_type_name_tag_lookup),
+        so it covers exactly this hole: tier-3 alias gives "Norfield", the
+        name-keyed dict tags it."""
+        pool_dir = tmp_path / "blueprintrewards"
+        bp_dir = tmp_path / "blueprints" / "crafting"
+        pool_dir.mkdir(parents=True)
+        bp_dir.mkdir(parents=True)
+
+        (pool_dir / "pool.xml").write_text(
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<BlueprintPoolRecord __ref="pool-uuid">\n'
+            '  <BlueprintReward blueprintRecord="bp-nozzle-uuid"/>\n'
+            '</BlueprintPoolRecord>\n',
+            encoding="utf-8",
+        )
+        (bp_dir / "bp_craft_nozzle_fuelgiver_grin_nozzlefast.xml").write_text(
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<CraftingBlueprintRecord __ref="bp-nozzle-uuid">\n'
+            '  <CraftingProcess_Creation entityClass="ent-nozzle-uuid"/>\n'
+            '</CraftingBlueprintRecord>\n',
+            encoding="utf-8",
+        )
+
+        # ALL entity-XML-derived dicts empty -- no UUID hit, no filename
+        # hit, no UUID-keyed tag. Only the loc-derived name-keyed dict.
+        pools, _pool_names = gen_module.build_blueprint_pool_lookup(
+            pool_dir, bp_dir, entity_names={},
+            entity_names_by_filename={},
+            entity_name_tags={},
+            name_fallback_tags={"Norfield": "[FN]"},
+        )
+        assert pools["pool-uuid"] == ["[FN] Norfield"]
+
+    def test_blueprint_pool_entity_tag_wins_over_name_fallback(self, gen_module, tmp_path):
+        """When the entity-XML route DOES have a tag (normal components),
+        the name-keyed fallback must not double-weave or override it."""
+        pool_dir = tmp_path / "blueprintrewards"
+        bp_dir = tmp_path / "blueprints" / "crafting"
+        pool_dir.mkdir(parents=True)
+        bp_dir.mkdir(parents=True)
+
+        (pool_dir / "pool.xml").write_text(
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<BlueprintPoolRecord __ref="pool-uuid">\n'
+            '  <BlueprintReward blueprintRecord="bp-uuid"/>\n'
+            '</BlueprintPoolRecord>\n',
+            encoding="utf-8",
+        )
+        (bp_dir / "bp_craft_shield.xml").write_text(
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<CraftingBlueprintRecord __ref="bp-uuid">\n'
+            '  <CraftingProcess_Creation entityClass="ent-uuid"/>\n'
+            '</CraftingBlueprintRecord>\n',
+            encoding="utf-8",
+        )
+
+        pools, _pool_names = gen_module.build_blueprint_pool_lookup(
+            pool_dir, bp_dir, entity_names={"ent-uuid": "Aspirum"},
+            entity_name_tags={"ent-uuid": "[MIL-S1-A]"},
+            name_fallback_tags={"Aspirum": "[WRONG]"},
+        )
+        assert pools["pool-uuid"] == ["[MIL-S1-A] Aspirum"]
+
 
 class TestPoolRankLabels:
     """1.4.0 sub-section labels: progression-gated pool filenames
@@ -850,6 +968,13 @@ class TestCargoBpTitleDemotion:
         """Replica of the augment-loop BP-tag branch (generate_enhancements_ini)."""
         _bp_variants = [v[7] for v in variants]
         _all_have_bp = has_blueprints and all(_bp_variants)
+        # #341 follow-up: _all_have_bp only means every variant HAS a
+        # BlueprintRewards pool, not that its own chance (v[8]) is 1.0 -- a
+        # 100%-coverage-but-partial-chance mission must not read as
+        # guaranteed. Live repro: Rayari's chance="0.25" missions.
+        _all_bp_guaranteed = _all_have_bp and all(
+            v[8] >= 1.0 for v in variants if v[7]
+        )
         _any_variant_has_bp = any(_bp_variants)
         # Simplified partial detector: no dominant no-BP desc bucket. The real
         # loop weighs bucket share; for these single-bucket fixtures the result
@@ -859,9 +984,11 @@ class TestCargoBpTitleDemotion:
         _surviving_no_bp_cargo = bool(
             (pu_cargo_delivery_descs & pu_title_descs) - _cg_desc_keys
         )
-        if _all_have_bp and not _surviving_no_bp_cargo:
+        if _all_have_bp and _all_bp_guaranteed and not _surviving_no_bp_cargo:
             return "[BP]"
-        if _bp_partial or (_all_have_bp and _surviving_no_bp_cargo):
+        if _bp_partial or (
+            _all_have_bp and (_surviving_no_bp_cargo or not _all_bp_guaranteed)
+        ):
             return "[BP?]"
         return ""
 
@@ -905,6 +1032,61 @@ class TestCargoBpTitleDemotion:
             pu_title_descs={"D_CG", "HaulCargo_AtoB_desc"},
         )
         assert tag == ""
+
+    @pytest.mark.regression
+    def test_full_coverage_with_partial_chance_demotes(self, gen_module):
+        """#341 follow-up: every variant has a BlueprintRewards pool
+        (_all_have_bp is True) but its own chance is under 1.0 -- the
+        mission won't ALWAYS pay out, so the title must not read as the
+        guaranteed [BP]. Before the fix, _all_have_bp alone drove the tag
+        and this produced [BP] even though the mission DETAILS body (a
+        separate code path keying off the same v.bp_chance field) already
+        correctly said "25% chance", not "Guaranteed" -- the title and
+        body disagreed about the same mission. Live repro: Rayari's
+        RAIN_collectresources missions (chance="0.25"); verified against
+        the LIVE DataForge cache that exactly those two titles flip to
+        [BP?] and everything else, Battaglia included (chance="1"), keeps
+        its tag."""
+        variants = [("Pyro", 500, 0, "D_CG", [], 0, 0, True, 0.3, "", "")]
+        tag = self._tag(
+            variants,
+            has_blueprints=True,
+            pu_cargo_delivery_descs=set(),
+            pu_title_descs={"D_CG"},
+        )
+        assert tag == "[BP?]"
+
+    @pytest.mark.regression
+    def test_full_coverage_full_chance_stays_full_bp(self, gen_module):
+        """Every variant has a pool AND every one is chance=1.0 -- genuinely
+        guaranteed, keep the unqualified [BP] (control case for the fix
+        above, confirms it didn't just always demote to [BP?])."""
+        variants = [("Pyro", 500, 0, "D_CG", [], 0, 0, True, 1.0, "", "")]
+        tag = self._tag(
+            variants,
+            has_blueprints=True,
+            pu_cargo_delivery_descs=set(),
+            pu_title_descs={"D_CG"},
+        )
+        assert tag == "[BP]"
+
+    @pytest.mark.regression
+    def test_mixed_chance_across_variants_demotes(self, gen_module):
+        """One variant is guaranteed (chance=1.0), another sharing the same
+        title is only 50/50 -- the title as a whole is still not a sure
+        thing, so it must demote to [BP?] rather than let the guaranteed
+        variant win."""
+        variants = [
+            ("Stanton", 500, 0, "D_CG_A", [], 0, 0, True, 1.0, "", ""),
+            ("Pyro", 500, 0, "D_CG_B", [], 0, 0, True, 0.5, "", ""),
+        ]
+        tag = self._tag(
+            variants,
+            has_blueprints=True,
+            pu_cargo_delivery_descs=set(),
+            pu_title_descs={"D_CG_A", "D_CG_B"},
+        )
+        assert tag == "[BP?]"
 
 
 class TestTypelessTagFilter:

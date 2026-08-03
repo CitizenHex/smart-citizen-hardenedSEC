@@ -64,6 +64,38 @@ _TRAILING_CATEGORY_RE = re.compile(
     r"\s*\((" + "|".join(re.escape(w) for w in _BULLET_CATEGORY_ANNOTATIONS) + r")\)\s*$"
 )
 
+# Known one-off mismatches between a mission bullet's name and the item's real
+# localized display name that AREN'T explained by a key-slug or filename
+# fallback -- the mission author simply wrote a short/informal name, or the
+# generator deliberately strips a leading CIG size prefix from blueprint-list
+# output (_strip_cig_size_prefix in generate_enhancements_ini.py) so the list
+# reads with one size convention.
+#
+# Applied inside normalize_item_name, so BOTH sides of every comparison fold
+# to the real name. That symmetry is the point: this table used to live in
+# blueprint_meta.py, where it resolved bullets for the Blueprint Tracker's
+# item list only. The owned-set matching in apply_owned_to_value never saw it,
+# so a mission bullet reading "Hofstede" was compared against an owned entry
+# stored as "S00 Hofstede" and never matched -- the item showed as owned in
+# the tracker but its bullet never got an [Owned] tag in game (#346).
+#
+# Keys are what a bullet says; values are the item's real display name.
+# Extend for any other reported mismatch that isn't a key-slug case.
+BULLET_NAME_ALIASES: dict[str, str] = {
+    "Arbor": "S0 Arbor",
+    "Helix": "S0 Helix",
+    "Hofstede": "S00 Hofstede",
+    "Klein": "Lawson Mining Laser",
+    # Fuel nozzles (#266 follow-up): most manufacturer variants resolve
+    # generically via the key-slug fallback (their real key follows
+    # Nozzle_FuelGiver_<MFR>_Nozzle<Variant>_Name), but these three still
+    # showed up ungarbled/untagged after that fix -- their real underlying
+    # key must not match that exact pattern.
+    "Nozzle Fuelgiver Grin Nozzlefast": "Norfield",
+    "Nozzle Fuelgiver Grin Nozzleverysecure": "Harkin",
+    "Nozzle Fuelgiver Misc Nozzlestandard": "RN-7s",
+}
+
 # Marks the start of a blueprint-bearing section. The header text is
 # user-configurable (AppSettings.MISSION_HEADER_DEFAULTS["blueprints"]) but the
 # default is BP_SECTION_HEADER; we match that default case-insensitively. This
@@ -162,9 +194,15 @@ def normalize_item_name(name: str) -> str:
     trailing bracketed component tag (``[Mil-S1-A] Norfield`` and
     ``Norfield [Mil-S1-A]`` both reduce to the bare name), removal of a
     trailing bullet-only category annotation (``Bendix (Fuel Nozzle)`` ->
-    ``Bendix``), and whitespace collapse. Used for both the owned set and
+    ``Bendix``), whitespace collapse, and finally a BULLET_NAME_ALIASES
+    lookup that folds a known short bullet name onto the item's real display
+    name (``Hofstede`` -> ``S00 Hofstede``). Used for both the owned set and
     bullet matching, so a tagged bullet, a log-imported name, and a bare item
     row all resolve to one key.
+
+    The alias fold runs last, after the tag/annotation strips, so a decorated
+    bullet (``[Mining Laser-S0] Hofstede``) reduces to the bare name first and
+    then resolves like any other.
 
     Both sides of every comparison pass through here (the owned-set entries and
     the mission bullets in ``apply_owned_to_value``), so the folding is
@@ -180,7 +218,8 @@ def normalize_item_name(name: str) -> str:
     s = _LEADING_TAG_RE.sub("", s)
     s = _TRAILING_TAG_RE.sub("", s)
     s = _TRAILING_CATEGORY_RE.sub("", s)
-    return _WS_RE.sub(" ", s).strip()
+    s = _WS_RE.sub(" ", s).strip()
+    return BULLET_NAME_ALIASES.get(s, s)
 
 
 def extract_bp_item_names(value: str) -> set[str]:

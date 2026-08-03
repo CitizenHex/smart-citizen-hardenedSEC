@@ -19,7 +19,7 @@ from PyQt6.QtGui import QColor, QFont, QCursor, QPixmap, QIcon, QPalette
 from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices
 
-from src.gui.blueprint_tracker_tab import BlueprintTrackerTab
+from src.gui.blueprint_tracker_tab import BlueprintTrackerTab, _relabel_details_button
 from src.gui.coach_mark import CoachMarkStep, TutorialTour
 from src.gui.config_tab import ConfigTab
 from src.gui.error_dialog import ErrorDialogHandler, _ErrorDialogEmitter
@@ -50,7 +50,7 @@ from src.gui.workers import (
     StartupSyncWorker,
 )
 from src.merger.ini_merger import merge_sources_by_hierarchy
-from src.models.string_model import StringEntry
+from src.models.string_model import StringEntry, is_favoritable_ship
 from src.parser.ini_parser import load_source_files, load_sources_from_settings, parse_ini_file
 from src.gui.update_dialog import UpdateDialog
 from src.utils.app_updater import AppUpdateCheckWorker, AppUpdateDownloadWorker
@@ -101,25 +101,52 @@ _JOURNAL_TITLE_KEY_RE = _re_mod.compile(
 
 # Frontend version chip (main-menu watermark). CIG ships a key called
 # ``Frontend_PU_Version`` whose value the main menu renders verbatim.
-# We append " | Localizations Enhanced with Smart Citizen vX.Y.Z" so
-# users (and their screenshots / support tickets) can see at a glance
-# that the localization has been customized. Idempotency works the same
-# way as the journal stamp: ``_FRONTEND_VERSION_STAMP_RE`` strips any
+# We append a literal "\nLocalizations Enhanced with Smart Citizen vX.Y.Z" so
+# users (and their screenshots / support tickets) can see at a glance that
+# the localization has been customized, on its own second line rather than
+# crowding the build-info line — same literal-\n line-break convention the
+# journal stamp uses (see _JOURNAL_STAMP_RE above). Idempotency works the
+# same way as the journal stamp: ``_FRONTEND_VERSION_STAMP_RE`` strips any
 # prior watermark before re-appending the current one, so successive
 # applies and version bumps don't accumulate suffixes. The regex is
-# intentionally permissive — it matches the current "Enhanced with"
-# phrasing as well as the two legacy phrasings ("Enhanced by",
-# "Enhanced with <3 by"), with or without a leading ``v`` on the
-# version, so installs that already have an older watermark on disk
-# roll forward cleanly on the next apply.
+# intentionally permissive — it matches the current "\n"-separated form as
+# well as the original " | "-separated form (pre-2.3.0 installs already
+# have that on disk) and the two legacy phrasings ("Enhanced by", "Enhanced
+# with <3 by"), with or without a leading ``v`` on the version, so every
+# on-disk watermark generation rolls forward cleanly on the next apply.
 _FRONTEND_VERSION_KEY = "Frontend_PU_Version"
 _FRONTEND_VERSION_STAMP_RE = _re_mod.compile(
-    r"\s*\|\s*(?:Localizations Enhanced (?:with|by)|Enhanced with <3 by)\s+Smart Citizen\s+v?[^\s|]+\s*$"
+    r"\s*(?:\|\s*|(?:\\n)+\s*)"
+    r"(?:Localizations Enhanced (?:with|by)|Enhanced with <3 by)\s+Smart Citizen\s+v?[^\s|]+\s*$"
 )
+
+# #268: LIVE and HOTFIX share the same account/blueprint progression (HOTFIX
+# is a same-account emergency-patch channel), so a blueprint earned on one
+# shows up in the other's logs too. PTU/EPTU/TECH-PREVIEW are separate test
+# builds with their own progression -- never scanned regardless of the
+# "also scan other channels" checkbox.
+_LINKED_CHANNELS = frozenset({AppSettings.CHANNEL_LIVE, AppSettings.CHANNEL_HOTFIX})
+
+
+def _channels_to_scan(active_channel: str, other_enabled: bool, installed_channels) -> list:
+    """Which channels a "Scan Logs for Owned Blueprints" run should cover.
+
+    Always the active channel first. If *other_enabled*, and the active
+    channel is one of the linked pair, also includes whichever other linked
+    channel is actually installed (sorted, for a deterministic queue order).
+    Pure/Qt-free so it's directly testable -- see test_blueprint_scan_channels.py.
+    """
+    channels = [active_channel]
+    if other_enabled and active_channel in _LINKED_CHANNELS:
+        others = sorted((_LINKED_CHANNELS - {active_channel}) & set(installed_channels))
+        channels.extend(others)
+    return channels
 
 
 def _stamp_frontend_version(merged: dict) -> dict:
-    """Append the Smart Citizen watermark to Frontend_PU_Version in place.
+    """Append the Smart Citizen watermark to Frontend_PU_Version in place, on
+    its own line (a literal "\\n" — see the module comment above this
+    function's constants for why).
 
     Skips entirely if the key is not present in *merged* — we don't
     fabricate the key when stock doesn't have it. Mutates and returns
@@ -129,7 +156,7 @@ def _stamp_frontend_version(merged: dict) -> dict:
         return merged
     from src.utils.version import get_version
     base = _FRONTEND_VERSION_STAMP_RE.sub("", merged[_FRONTEND_VERSION_KEY]).rstrip()
-    merged[_FRONTEND_VERSION_KEY] = f"{base} | Localizations Enhanced with Smart Citizen v{get_version()}"
+    merged[_FRONTEND_VERSION_KEY] = f"{base}\\nLocalizations Enhanced with Smart Citizen v{get_version()}"
     return merged
 
 
@@ -183,6 +210,20 @@ def _stamp_journal_entries(merged: dict, stock: dict | None = None) -> dict:
 # "stock has empty string for this key" — the empty-string case is a
 # legitimate stock value that should still match an empty merged value.
 _SENTINEL_MISSING = object()
+
+
+def _blueprint_scan_since(force_rescan: bool, watermark):
+    """The effective watermark a "Scan Logs for Owned Blueprints" run should
+    pass to the scanner (#308).
+
+    A forced rescan (the Blueprint Tracker's "Rescan all logs" checkbox)
+    ignores any saved watermark and re-walks every log back to the
+    scanner's own March-2026 epoch floor -- for the rare case a user's
+    owned set drifted (e.g. an accidental unown) and a normal incremental
+    scan won't recover the missing blueprint. Pure/Qt-free so it's
+    directly testable -- see test_blueprint_force_rescan.py.
+    """
+    return None if force_rescan else watermark
 
 
 def _journal_stamp_for_entry(entry) -> str | None:
@@ -316,6 +357,11 @@ class MainWindow(QMainWindow):
         # apply_to_game. Cleared on completion or any failure.
         self._simple_run_active = False
 
+        # Import Settings: True while closing for the post-import restart, so
+        # closeEvent neither nags about unapplied edits nor autosaves the
+        # in-memory user.ini over the files the import just wrote.
+        self._suppress_user_ini_autosave = False
+
         # #157: item names (normalized) that appear in any POTENTIAL BLUEPRINTS
         # list — the rows eligible for the Owned star. Recomputed on each load.
         self._bp_item_names: set[str] = set()
@@ -408,6 +454,8 @@ class MainWindow(QMainWindow):
         self.config_tab.check_updates_requested.connect(self._on_check_updates_clicked)
         self.config_tab.data_dir_changed.connect(self._on_data_dir_changed)
         self.config_tab.cache_dir_changed.connect(self._on_cache_dir_changed)
+        self.config_tab.export_settings_requested.connect(self._handle_export_settings)
+        self.config_tab.import_settings_requested.connect(self._handle_import_settings)
         self._config_tab_index = self.tabs.addTab(self.config_tab, tr("tabs.config"))
 
         # Enhancements tab
@@ -427,6 +475,17 @@ class MainWindow(QMainWindow):
         )
         self._bp_log_scan_worker = None
         self._bp_log_scan_progress = None
+        # #268/#308: multi-channel scan state. _bp_scan_queue holds channels
+        # not yet started (the current one is popped off before its worker
+        # starts); _bp_scan_channel is whichever channel the in-flight
+        # worker is scanning; _bp_scan_new_names accumulates every channel's
+        # newly-discovered names so only one combined summary/owned-set
+        # write happens once the whole queue drains; _bp_scan_force_rescan
+        # is the "Rescan all logs" checkbox state, read once per run.
+        self._bp_scan_queue = []
+        self._bp_scan_channel = None
+        self._bp_scan_new_names = set()
+        self._bp_scan_force_rescan = False
 
         self.log_tab = LogTab()
         self._log_tab_index = self.tabs.addTab(self.log_tab, tr("tabs.log"))
@@ -686,6 +745,25 @@ class MainWindow(QMainWindow):
         self.hide_unmodified_check.stateChanged.connect(self.apply_filters)
         filter_layout.addWidget(self.hide_unmodified_check)
 
+        # #329: narrows the table to ONLY ship/vehicle name rows -- the exact
+        # set the favorite prefix + ASOP sort-order mechanism reads. Ship
+        # descriptions share the "Ships" category but have no equivalent
+        # in-game behavior, and every other category is irrelevant when
+        # you're picking ASOP favorites, so both are hidden. Placed before
+        # Favorites Only per the report, since the two are meant to be used
+        # together.
+        #
+        # The label reads "Ship/Vehicle Names Only", NOT "Ship & Vehicle ...":
+        # Qt reads "&" in a widget label as a mnemonic marker, so the
+        # ampersand is swallowed and the following letter renders underlined
+        # ("Ship Vehicle Names Only" with a stray accelerator). Escaping it
+        # as "&&" would work but reads badly in the i18n files, so the slash
+        # form is used instead. Same applies to any translation of this key.
+        self.ship_vehicle_names_only_check = QCheckBox(tr("filters.ship_vehicle_names_only"))
+        self.ship_vehicle_names_only_check.setToolTip(tr("filters.ship_vehicle_names_only_tooltip"))
+        self.ship_vehicle_names_only_check.stateChanged.connect(self.apply_filters)
+        filter_layout.addWidget(self.ship_vehicle_names_only_check)
+
         self.favorites_only_check = QCheckBox(tr("filters.favorites_only"))
         self.favorites_only_check.setToolTip(tr("filters.favorites_only_tooltip"))
         self.favorites_only_check.stateChanged.connect(self.apply_filters)
@@ -835,7 +913,7 @@ class MainWindow(QMainWindow):
                 discord_pixmap = discord_pixmap.scaledToHeight(40, Qt.TransformationMode.SmoothTransformation)
             self.feedback_label.setPixmap(discord_pixmap)
         else:
-            self.feedback_label.setText("Feedback, Bugs, & Feature Voting")
+            self.feedback_label.setText(tr("toolbar.feedback_fallback_text"))
             self.feedback_label.setStyleSheet("font-size: 12px;")
         self.feedback_label.setToolTip(tr("toolbar.feedback_tooltip"))
         self.feedback_label.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
@@ -858,7 +936,7 @@ class MainWindow(QMainWindow):
             self.paypal_button.setPixmap(paypal_pixmap)
         else:
             # Fallback to styled text button
-            self.paypal_button.setText("Donate via PayPal")
+            self.paypal_button.setText(tr("toolbar.paypal_fallback_text"))
             self.paypal_button.setStyleSheet("""
                 QLabel {
                     background-color: #0070ba;
@@ -893,7 +971,7 @@ class MainWindow(QMainWindow):
             self.venmo_button.setPixmap(venmo_pixmap)
         else:
             # Fallback to styled text button
-            self.venmo_button.setText("Venmo")
+            self.venmo_button.setText(tr("toolbar.venmo_fallback_text"))
             self.venmo_button.setStyleSheet("""
                 QLabel {
                     background-color: #008CFF;
@@ -1163,7 +1241,16 @@ class MainWindow(QMainWindow):
         self.preview_pane.setReadOnly(True)
         self.preview_pane.setOpenExternalLinks(False)
         self.preview_pane.setPlaceholderText(tr("strings_tab.preview_placeholder"))
-        self.preview_pane.setMinimumWidth(420)
+        # 220, not the original 420 (#349). A minimum here is a floor on the
+        # whole central widget, and QMainWindow refuses to grow a dock past
+        # the point where the central widget would breach it — so every extra
+        # pixel demanded here is a pixel the Help and Test Plan docks can
+        # never occupy. At 420 the filter+preview row's minimum came to
+        # ~1026px, leaving a 1280-wide window only ~254px of dock: too narrow
+        # to read Help in. 220 still shows a comfortable phrase of the
+        # rendered preview and hands ~180px back to the docks at every window
+        # size; the pane keeps its own scrollbar for anything longer.
+        self.preview_pane.setMinimumWidth(220)
         # Capped so the row doesn't inflate when there's slack vertical space
         # to redistribute (the post-1.3.0 Config / Enhancements gap bug —
         # QTextBrowser's default Expanding vertical sizePolicy let the pane
@@ -1298,7 +1385,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Error loading ABOUT.md: {e}", exc_info=True)
             self.about_browser.setHtml(
-                f"<h1>About</h1><p>Unable to load about information.</p>"
+                f"<h1>{tr('tabs.about')}</h1><p>{tr('tabs.about_load_failed')}</p>"
                 f"<p style='color: gray;'>{str(e)}</p>"
             )
 
@@ -1343,10 +1430,10 @@ class MainWindow(QMainWindow):
         self._error_dialog_showing = True
         try:
             if self._suppressed_error_count > 0:
-                suffix = (
-                    f"\n\n(+{self._suppressed_error_count} additional error"
-                    f"{'s' if self._suppressed_error_count != 1 else ''} "
-                    f"suppressed — see Log tab for details)"
+                suffix = tr(
+                    "dialogs.suppressed_errors_suffix",
+                    count=self._suppressed_error_count,
+                    plural="s" if self._suppressed_error_count != 1 else "",
                 )
                 body = message + suffix
                 self._suppressed_error_count = 0
@@ -1355,12 +1442,12 @@ class MainWindow(QMainWindow):
 
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Icon.Critical)
-            box.setWindowTitle("Smart Citizen — Error")
+            box.setWindowTitle(tr("dialogs.crash_error_title"))
             box.setText(body)
             if traceback_text:
                 box.setDetailedText(traceback_text)
-            show_log_btn = box.addButton("Show Log", QMessageBox.ButtonRole.ActionRole)
-            box.addButton("Dismiss", QMessageBox.ButtonRole.AcceptRole)
+            show_log_btn = box.addButton(tr("dialogs.show_log_btn"), QMessageBox.ButtonRole.ActionRole)
+            box.addButton(tr("dialogs.dismiss_btn"), QMessageBox.ButtonRole.AcceptRole)
             box.exec()
             if box.clickedButton() is show_log_btn:
                 log_idx = self.tabs.indexOf(self.log_tab)
@@ -1396,7 +1483,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Error loading FAQ.md: {e}", exc_info=True)
             self.faq_browser.setHtml(
-                "<h1>FAQ</h1><p>Unable to load the FAQ.</p>"
+                f"<h1>{tr('tabs.faq')}</h1><p>{tr('tabs.faq_load_failed')}</p>"
                 f"<p style='color: gray;'>{str(e)}</p>"
             )
 
@@ -1455,7 +1542,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Error loading LEGAL.md: {e}", exc_info=True)
             self.legal_browser.setHtml(
-                f"<h1>Legal</h1><p>Unable to load legal information.</p>"
+                f"<h1>{tr('tabs.legal')}</h1><p>{tr('tabs.legal_load_failed')}</p>"
                 f"<p style='color: gray;'>{str(e)}</p>"
             )
 
@@ -1548,16 +1635,9 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.exception(f"Failed to save user.ini before applying to game: {e}")
             QMessageBox.critical(
-                self, "Cannot Save Your Edits",
-                f"Smart Citizen could not write your edits to:\n\n"
-                f"  {user_ini_path}\n\n"
-                f"{type(e).__name__}: {e}\n\n"
-                f"The game file was NOT modified. Common causes:\n"
-                f"  • Antivirus / Windows Controlled Folder Access blocking "
-                f"writes under the game folder\n"
-                f"  • The user.ini file is open in another program\n"
-                f"  • The drive is read-only or out of space\n\n"
-                f"Resolve the underlying issue and Apply again."
+                self, tr("apply.cannot_save_edits_title"),
+                tr("apply.cannot_save_edits_body",
+                   path=user_ini_path, error_type=type(e).__name__, error=e),
             )
             return
 
@@ -1785,14 +1865,13 @@ class MainWindow(QMainWindow):
                 enhancement_block = f"  Smart Citizen enhancements: 0"
             QMessageBox.information(
                 self, tr("dialogs.success_title"),
-                f"Applied to {target_path}\n\n"
-                f"  User edits: {user_count:,}\n\n"
-                f"{enhancement_block}"
+                tr("apply.applied_body", target_path=target_path, user_count=f"{user_count:,}",
+                   enhancement_block=enhancement_block),
             )
             self._set_apply_btn_dirty(False)
             self._session_has_unapplied_edit = False
         except Exception as e:
-            QMessageBox.critical(self, tr("dialogs.error_title"), f"Failed to apply to game: {e}")
+            QMessageBox.critical(self, tr("dialogs.error_title"), tr("apply.failed_body", error=e))
             logger.error(f"Error applying to game: {e}")
 
     def _validate_applied_file(
@@ -1843,7 +1922,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, tr("dialogs.clear_localization_done_title"),
                 tr("dialogs.clear_localization_done_body"))
         except Exception as e:
-            QMessageBox.critical(self, tr("dialogs.error_title"), f"Failed to delete global.ini: {e}")
+            QMessageBox.critical(self, tr("dialogs.error_title"), tr("dialogs.failed_to_delete_global_ini", error=e))
             logger.error(f"Error clearing localization: {e}")
 
     @pyqtSlot()
@@ -2119,12 +2198,12 @@ class MainWindow(QMainWindow):
                 self._update_status_bar()
             except Exception as e:
                 logger.exception(f"Error during merge: {e}")
-                QMessageBox.critical(self, tr("dialogs.error_title"), f"Failed to merge sources: {e}")
+                QMessageBox.critical(self, tr("dialogs.error_title"), tr("dialogs.failed_to_merge_sources", error=e))
                 self.statusBar().showMessage(tr("dialogs.merge_failed"))
 
         except Exception as e:
             logger.exception(f"Error in perform_merge_and_reload: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to load sources: {e}")
+            QMessageBox.critical(self, tr("dialogs.error_title"), tr("dialogs.failed_to_load_sources", error=e))
 
     # ── INI Import ────────────────────────────────────────────────────────────
 
@@ -2239,15 +2318,14 @@ class MainWindow(QMainWindow):
             f"Reloading {channel} after user.ini reset..."
         )
 
-        backup_note = f"\n\nBackup saved to:\n{backup_path}" if backup_path else ""
+        backup_note = tr("user_ini_reset.backup_note", path=backup_path) if backup_path else ""
         self.statusBar().showMessage(
-            f"user.ini reset for {channel} (backup created)", 5000
+            tr("status_bar.user_ini_reset", channel=channel), 5000
         )
         QMessageBox.information(
             self,
-            "user.ini Reset",
-            f"All custom overrides for the {channel} channel have been "
-            f"cleared.{backup_note}",
+            tr("user_ini_reset.complete_title"),
+            tr("user_ini_reset.complete_body", channel=channel, backup_note=backup_note),
         )
 
     def _handle_restore_user_ini(self):
@@ -2271,11 +2349,8 @@ class MainWindow(QMainWindow):
         if not backups:
             QMessageBox.information(
                 self,
-                "No Snapshots Yet",
-                f"Smart Citizen has no automatic user.ini snapshots for the "
-                f"{channel} channel yet. A snapshot is saved each time your "
-                f"overrides change, so restore points appear once you've made "
-                f"and saved edits.",
+                tr("restore_user_ini.no_snapshots_title"),
+                tr("restore_user_ini.no_snapshots_body", channel=channel),
             )
             return
 
@@ -2289,15 +2364,14 @@ class MainWindow(QMainWindow):
                 when = _dt.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
                 lines = b.read_text(encoding="utf-8", errors="replace").count("\n")
                 size_kb = st.st_size / 1024
-                labels.append(f"{when}  —  {lines} overrides, {size_kb:.1f} KB")
+                labels.append(tr("restore_user_ini.snapshot_label", when=when, lines=lines, size_kb=f"{size_kb:.1f}"))
             except OSError:
                 labels.append(b.name)
 
         choice, ok = QInputDialog.getItem(
             self,
-            "Restore user.ini",
-            f"Pick a snapshot to restore for the {channel} channel.\n"
-            f"Your current user.ini is snapshotted first, so this is reversible.",
+            tr("restore_user_ini.picker_title"),
+            tr("restore_user_ini.picker_label", channel=channel),
             labels,
             0,
             False,
@@ -2311,18 +2385,283 @@ class MainWindow(QMainWindow):
         except OSError as e:
             logger.exception(f"Failed to restore user.ini from {chosen}")
             QMessageBox.critical(
-                self, "Restore Failed",
-                f"Smart Citizen could not restore the snapshot:\n\n{type(e).__name__}: {e}",
+                self, tr("restore_user_ini.restore_failed_title"),
+                tr("restore_user_ini.restore_failed_body", error_type=type(e).__name__, error=e),
             )
             return
 
-        self._show_loading_progress(f"Reloading {channel} after user.ini restore...")
-        self.statusBar().showMessage(f"Restored user.ini for {channel}", 5000)
+        self._show_loading_progress(tr("progress.reloading_after_user_ini_restore", channel=channel))
+        self.statusBar().showMessage(tr("status_bar.user_ini_restored", channel=channel), 5000)
         QMessageBox.information(
-            self, "user.ini Restored",
-            f"Restored your overrides for the {channel} channel from:\n{chosen.name}\n\n"
-            f"Run Apply Enhancements to push the restored overrides in-game.",
+            self, tr("restore_user_ini.restored_title"),
+            tr("restore_user_ini.restored_body", channel=channel, name=chosen.name),
         )
+
+    def _handle_export_settings(self):
+        """Export Settings: snapshot settings + per-channel user.ini into a zip.
+
+        The zip is a few KB — preferences and string overrides only, never
+        the regenerable cache. Works identically in registry and portable
+        builds (AppSettings.export_all_values is backend-agnostic).
+        """
+        from src.utils.settings_profile import (
+            SOURCE_MODE_PORTABLE,
+            SOURCE_MODE_REGISTRY,
+            default_backup_filename,
+            write_profile_zip,
+        )
+
+        # Flush on-screen Tag Builder edits first — same "what you see is
+        # what you save" rule Generate Enhancements follows (#215). Tag
+        # configs only reach settings via Save Tag Changes / Generate, so
+        # without this a user who tweaked tags and went straight to Export
+        # would back up their *previous* config.
+        self.enhancements_tab.flush_pending_tag_edits()
+
+        settings_values = AppSettings.export_all_values()
+        overrides = AppSettings.export_channel_overrides()
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            tr("settings_backup.export_dialog_title"),
+            default_backup_filename(),
+            tr("settings_backup.zip_filter"),
+        )
+        if not path:
+            return
+
+        try:
+            write_profile_zip(
+                path,
+                settings=settings_values,
+                overrides=overrides,
+                app_version=get_version(),
+                source_mode=SOURCE_MODE_PORTABLE if IS_PORTABLE else SOURCE_MODE_REGISTRY,
+            )
+        except OSError as e:
+            logger.exception(f"Export Settings failed writing {path}")
+            QMessageBox.critical(
+                self,
+                tr("settings_backup.export_failed_title"),
+                tr("settings_backup.export_failed_body",
+                   error_type=type(e).__name__, error=e),
+            )
+            return
+
+        self.statusBar().showMessage(tr("status_bar.settings_exported"), 5000)
+        QMessageBox.information(
+            self,
+            tr("settings_backup.export_done_title"),
+            tr("settings_backup.export_done_body",
+               path=path,
+               n_settings=len(settings_values),
+               channels=", ".join(sorted(overrides)) or tr("settings_backup.no_channels")),
+        )
+
+    def _handle_import_settings(self):
+        """Import Settings: restore a backup zip, then restart to load it.
+
+        Flow: pick zip → validate → confirm → snapshot current user.ini files
+        (rotating backups, so the import is reversible) → write overrides +
+        settings → re-detect the SC install (machine paths never travel in a
+        backup) → set the post-import flag so the NEXT launch offers to
+        regenerate + apply enhancements → offer restart.
+        """
+        from src.utils.settings_profile import InvalidProfileError, read_profile_zip
+        from src.utils.user_ini_manager import backup_user_ini
+
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            tr("settings_backup.import_dialog_title"),
+            "",
+            tr("settings_backup.zip_filter"),
+        )
+        if not path:
+            return
+
+        try:
+            profile = read_profile_zip(path)
+        except InvalidProfileError as e:
+            QMessageBox.critical(
+                self,
+                tr("settings_backup.import_invalid_title"),
+                tr("settings_backup.import_invalid_body", error=e),
+            )
+            return
+
+        made_with = profile.app_version or "?"
+        when = profile.exported_at.replace("T", " ") if profile.exported_at else "?"
+        channels = ", ".join(sorted(profile.overrides)) or tr("settings_backup.no_channels")
+        reply = QMessageBox.question(
+            self,
+            tr("settings_backup.import_confirm_title"),
+            tr("settings_backup.import_confirm_body",
+               version=made_with, when=when,
+               n_settings=len(profile.settings), channels=channels),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # Write per-channel overrides, snapshotting any existing user.ini
+        # into the channel's rotating backups first (#172 machinery) so an
+        # accidental import is recoverable.
+        try:
+            data_root = Path(os.path.abspath(AppSettings.get_user_data_dir()))
+            for channel, text in profile.overrides.items():
+                target = AppSettings.get_channel_user_ini_path(channel)
+                # Belt-and-braces containment check against the untrusted
+                # channel name from the zip (read_profile_zip screens it
+                # first). Normalize before comparing: a lexical check on an
+                # unresolved "...\\Smart Citizen\\..\\user.ini" would pass.
+                resolved = Path(os.path.abspath(target))
+                if data_root not in resolved.parents:
+                    logger.warning(
+                        "Import Settings: refusing override outside the data "
+                        "root (channel %r -> %s)", channel, resolved,
+                    )
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if target.exists():
+                    backup_user_ini(target)
+                target.write_text(text, encoding="utf-8")
+                logger.info(f"Import Settings: wrote {target}")
+        except OSError as e:
+            logger.exception("Import Settings failed writing overrides")
+            QMessageBox.critical(
+                self,
+                tr("settings_backup.import_failed_title"),
+                tr("settings_backup.import_failed_body",
+                   error_type=type(e).__name__, error=e),
+            )
+            return
+
+        applied = AppSettings.import_values(profile.settings)
+        logger.info(
+            f"Import Settings: {applied} settings applied, "
+            f"{len(profile.overrides)} channel override(s) from {path}"
+        )
+
+        # Resync widgets that cache settings at construction. Without this the
+        # Tag Builder pages still hold the pre-import config, and the next
+        # Save Tag Changes / Generate Enhancements / Export Settings would
+        # write that stale state back over what we just imported — which is
+        # exactly how imported tag configs were getting lost.
+        self.enhancements_tab.reload_tag_builder_from_settings()
+        self.enhancements_tab.revert_category_checkboxes()
+
+        # The backup carries the SC install path so a same-PC restore keeps
+        # it, but it's only trusted if the folder actually exists here —
+        # otherwise this clears it and falls back to auto-detection.
+        outcome = AppSettings.reconcile_imported_install_path()
+        resolved_root = AppSettings.get_sc_install_root()
+
+        # Next launch prompts to regenerate + apply enhancements against the
+        # imported settings (fresh cache, imported tag configs and overrides).
+        AppSettings.set_post_import_apply_pending(True)
+
+        if outcome == AppSettings.INSTALL_PATH_RESTORED:
+            body = tr("settings_backup.import_done_body_restored",
+                      applied=applied, channels=channels, root=resolved_root)
+        elif outcome == AppSettings.INSTALL_PATH_REDETECTED:
+            body = tr("settings_backup.import_done_body_detected",
+                      applied=applied, channels=channels, root=resolved_root)
+        else:
+            body = tr("settings_backup.import_done_body_no_install",
+                      applied=applied, channels=channels)
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setWindowTitle(tr("settings_backup.import_done_title"))
+        box.setText(body)
+        restart_btn = box.addButton(
+            tr("settings_backup.restart_now_btn"), QMessageBox.ButtonRole.AcceptRole
+        )
+        box.addButton(
+            tr("settings_backup.restart_later_btn"), QMessageBox.ButtonRole.RejectRole
+        )
+        box.setDefaultButton(restart_btn)
+        box.exec()
+
+        if box.clickedButton() is restart_btn:
+            self._relaunch_app()
+
+    def _relaunch_app(self) -> None:
+        """Restart Smart Citizen: spawn a detached copy, then close this one.
+
+        Used by Import Settings so the freshly-imported settings are what the
+        new process reads at startup. The suppress flag keeps closeEvent
+        from autosaving stale in-memory state over the imported files.
+        """
+        from PyQt6.QtCore import QProcess
+
+        self._suppress_user_ini_autosave = True
+
+        if getattr(sys, "frozen", False):
+            program, args = sys.executable, []
+        else:
+            program, args = sys.executable, [os.path.abspath(sys.argv[0])]
+        workdir = str(Path(program).resolve().parent)
+
+        if not QProcess.startDetached(program, args, workdir):
+            logger.error(f"Relaunch failed for {program} {args}")
+            QMessageBox.warning(
+                self,
+                tr("settings_backup.relaunch_failed_title"),
+                tr("settings_backup.relaunch_failed_body"),
+            )
+            # Fall through to close anyway — the user relaunches by hand and
+            # still gets the imported state + post-import prompt.
+        self.close()
+
+    def _maybe_prompt_post_import_apply(self) -> None:
+        """Offer to regenerate + apply enhancements after importing settings.
+
+        Runs once per import: the flag Import Settings left behind is cleared
+        the moment it's read, so declining just leaves the normal manual
+        Apply Enhancements path. Reuses the Simple-mode continuation
+        (#180) — generate, then apply_to_game — regardless of UI mode.
+        """
+        if not AppSettings.get_post_import_apply_pending():
+            return
+        AppSettings.set_post_import_apply_pending(False)
+
+        if not AppSettings.get_game_install_path():
+            QMessageBox.information(
+                self,
+                tr("settings_backup.post_import_no_install_title"),
+                tr("settings_backup.post_import_no_install_body"),
+            )
+            self.tabs.setCurrentIndex(self._config_tab_index)
+            return
+
+        # Named buttons rather than stock Yes/No: "Apply Now" / "Later" says
+        # what each choice does without the body having to end in a question,
+        # and "Later" reads as a real option rather than a refusal (declining
+        # is fine — the Apply Enhancements button does the same thing).
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle(tr("settings_backup.post_import_apply_title"))
+        box.setText(tr("settings_backup.post_import_apply_body"))
+        apply_btn = box.addButton(
+            tr("settings_backup.post_import_apply_now_btn"),
+            QMessageBox.ButtonRole.AcceptRole,
+        )
+        box.addButton(
+            tr("settings_backup.post_import_apply_later_btn"),
+            QMessageBox.ButtonRole.RejectRole,
+        )
+        box.setDefaultButton(apply_btn)
+        box.exec()
+        if box.clickedButton() is not apply_btn:
+            return
+
+        if self._enhancements_worker is not None or self._forge_worker is not None:
+            return  # a pipeline is somehow already running; don't stack
+        self._simple_run_active = True
+        self.simple_page.set_busy(True)
+        self._run_enhancements_pipeline()
 
     def _handle_import_ini(self):
         """Handle Import INI button: get source, validate, resolve conflicts, merge."""
@@ -2349,14 +2688,17 @@ class MainWindow(QMainWindow):
                     source = source.replace('https://github.com/', 'https://raw.githubusercontent.com/')
                     source = source.replace('/blob/', '/')
 
-                self.statusBar().showMessage("Downloading INI file...")
+                self.statusBar().showMessage(tr("status_bar.downloading_ini"))
                 try:
                     temp_file = tempfile.NamedTemporaryFile(suffix='.ini', delete=False)
                     temp_file.close()
                     urllib.request.urlretrieve(source, temp_file.name)
                     resolved_path = temp_file.name
                 except Exception as e:
-                    QMessageBox.critical(self, "Download Error", f"Failed to download:\n{source}\n\n{e}")
+                    QMessageBox.critical(
+                        self, tr("import_flow.download_error_title"),
+                        tr("import_flow.download_error_body", source=source, error=e),
+                    )
                     return
             else:
                 resolved_path = source
@@ -2372,17 +2714,20 @@ class MainWindow(QMainWindow):
 
             # Step 4: Validate against base.ini keys
             if not self.default_values:
-                QMessageBox.warning(self, "No Base Data",
-                    "Base INI not loaded yet. Extract from Data.p4k first.")
+                QMessageBox.warning(
+                    self, tr("import_flow.no_base_data_title"),
+                    tr("import_flow.no_base_data_body"),
+                )
                 return
 
             valid_keys = {k: v for k, v in imported.items() if k in self.default_values}
             excluded_count = len(imported) - len(valid_keys)
 
             if not valid_keys:
-                QMessageBox.warning(self, "No Valid Keys",
-                    f"None of the {len(imported)} imported keys exist in base.ini.\n"
-                    f"All keys were excluded.")
+                QMessageBox.warning(
+                    self, tr("import_flow.no_valid_keys_title"),
+                    tr("import_flow.no_valid_keys_body", count=len(imported)),
+                )
                 return
 
             # Step 5: Load current user.ini (strip_values=False so leading-space
@@ -2403,15 +2748,16 @@ class MainWindow(QMainWindow):
 
             # Step 7: Handle cases
             if not auto_add and not conflicts:
-                QMessageBox.information(self, "Nothing to Import",
-                    "All imported keys already exist in user.ini with the same values.")
+                QMessageBox.information(
+                    self, tr("import_flow.nothing_to_import_title"),
+                    tr("import_flow.nothing_to_import_body"),
+                )
                 return
 
             if not conflicts:
-                reply = QMessageBox.question(self, "Import INI",
-                    f"{len(auto_add)} new keys will be added to user.ini.\n"
-                    f"{excluded_count} keys excluded (not in base.ini).\n\n"
-                    "Proceed?",
+                reply = QMessageBox.question(
+                    self, tr("import_flow.confirm_title"),
+                    tr("import_flow.confirm_body", new_count=len(auto_add), excluded_count=excluded_count),
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
                 if reply != QMessageBox.StandardButton.Yes:
                     return
@@ -2432,18 +2778,18 @@ class MainWindow(QMainWindow):
             save_user_ini_dict(final, user_ini_path)
 
             # Step 10: Reload
-            self._show_loading_progress("Reloading with imported data...")
+            self._show_loading_progress(tr("import_flow.reload_status"))
 
             # Step 11: Summary
-            QMessageBox.information(self, "Import Complete",
-                f"Import successful.\n\n"
-                f"  Added: {len(auto_add)} keys\n"
-                f"  Conflicts resolved: {len(resolutions)} keys\n"
-                f"  Excluded: {excluded_count} keys")
+            QMessageBox.information(
+                self, tr("import_flow.complete_title"),
+                tr("import_flow.complete_body", added=len(auto_add),
+                   resolved=len(resolutions), excluded=excluded_count),
+            )
 
         except Exception as e:
             logger.exception(f"Import failed: {e}")
-            QMessageBox.critical(self, "Import Error", f"Failed to import INI file:\n{e}")
+            QMessageBox.critical(self, tr("import_flow.error_title"), tr("import_flow.error_body", error=e))
         finally:
             if temp_file:
                 try:
@@ -2459,22 +2805,22 @@ class MainWindow(QMainWindow):
         )
 
         dialog = QDialog(self)
-        dialog.setWindowTitle("Import INI File")
+        dialog.setWindowTitle(tr("import_flow.source_dialog_title"))
         dialog.setMinimumWidth(500)
         layout = QVBoxLayout(dialog)
 
-        layout.addWidget(QLabel("Enter a local file path or URL:"))
+        layout.addWidget(QLabel(tr("import_flow.source_dialog_label")))
 
         input_row = QHBoxLayout()
         line_edit = QLineEdit()
-        line_edit.setPlaceholderText(r"C:\path\to\file.ini or https://example.com/file.ini")
+        line_edit.setPlaceholderText(tr("import_flow.source_dialog_placeholder"))
         input_row.addWidget(line_edit)
 
-        browse_btn = QPushButton("Browse...")
+        browse_btn = QPushButton(tr("import_flow.browse_btn"))
         browse_btn.setToolTip(tr("dialogs.browse_ini_tooltip"))
         def browse():
             path, _ = QFileDialog.getOpenFileName(
-                dialog, "Select INI File", "", "INI Files (*.ini);;All Files (*)")
+                dialog, tr("import_flow.select_ini_file_title"), "", tr("import_flow.ini_file_filter"))
             if path:
                 line_edit.setText(path)
         browse_btn.clicked.connect(browse)
@@ -2504,9 +2850,9 @@ class MainWindow(QMainWindow):
         # Open file dialog to select backup
         backup_file, _ = QFileDialog.getOpenFileName(
             self,
-            "Select Backup File to Restore",
+            tr("restore_backup.select_file_title"),
             str(backup_dir),
-            "Backup Files (*.bak_*);;INI Files (*.ini);;All Files (*)"
+            tr("restore_backup.file_filter"),
         )
 
         if not backup_file:
@@ -2528,9 +2874,15 @@ class MainWindow(QMainWindow):
             self.perform_merge_and_reload()
 
             logger.info(f"Restored backup from {backup_file} to {target_path}")
-            QMessageBox.information(self, "Success", f"Backup restored from:\n{backup_file_path.name}")
+            QMessageBox.information(
+                self, tr("dialogs.success_title"),
+                tr("restore_backup.success_body", name=backup_file_path.name),
+            )
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to restore backup: {e}")
+            QMessageBox.critical(
+                self, tr("dialogs.error_title"),
+                tr("restore_backup.error_body", error=e),
+            )
             logger.error(f"Error restoring backup: {e}")
 
     @pyqtSlot()
@@ -2571,6 +2923,32 @@ class MainWindow(QMainWindow):
             finally:
                 self.help_btn.blockSignals(was_blocked)
 
+    # Below this a text dock is too cramped to read a HELP.md paragraph or a
+    # wrapped Test Plan item, so opening one at less than this is a bug in
+    # itself (#349). Also the trigger point for _widen_dock_for_reading: a
+    # dock already wider than this was sized deliberately, so leave it alone.
+    _READABLE_DOCK_WIDTH = 380
+
+    def _widen_dock_for_reading(self, dock) -> None:
+        """Give a text dock a readable width when it opens too narrow (#349).
+
+        Only ever widens, and only from below _READABLE_DOCK_WIDTH, so a
+        width the user dragged (or one restoreState brought back) survives.
+        Qt clamps the request to whatever the central widget's minimum
+        actually allows, so this can't force the window wider — it just
+        stops the dock opening at the sliver Qt defaults to.
+        """
+        try:
+            if dock.width() >= self._READABLE_DOCK_WIDTH:
+                return
+            # A bit over a third of the window reads well side by side with
+            # the table without swallowing it.
+            target = max(self._READABLE_DOCK_WIDTH, int(self.width() * 0.36))
+            self.resizeDocks([dock], [target], Qt.Orientation.Horizontal)
+        except Exception:
+            # Cosmetic only — never let a sizing hiccup block the panel.
+            logger.debug("Could not widen dock %s", dock.objectName(), exc_info=True)
+
     def show_help(self):
         """Toggle the Help side-panel."""
         dock = self._ensure_help_dock()
@@ -2579,6 +2957,7 @@ class MainWindow(QMainWindow):
         else:
             dock.show()
             dock.raise_()
+            self._widen_dock_for_reading(dock)
 
     def _render_help_html(self):
         """(Re)render the Help panel's HTML using the current palette.
@@ -2614,7 +2993,7 @@ class MainWindow(QMainWindow):
 
         from src.gui.test_plan_panel import TestPlanPanel
 
-        dock = QDockWidget("Test Plan", self)
+        dock = QDockWidget(tr("toolbar.menu_test_plan"), self)
         dock.setObjectName("testPlanDock")
         dock.setAllowedAreas(
             Qt.DockWidgetArea.RightDockWidgetArea
@@ -2625,7 +3004,8 @@ class MainWindow(QMainWindow):
             | QDockWidget.DockWidgetFeature.DockWidgetMovable
             | QDockWidget.DockWidgetFeature.DockWidgetFloatable
         )
-        dock.setWidget(TestPlanPanel(dock))
+        self.test_plan_panel = TestPlanPanel(dock)
+        dock.setWidget(self.test_plan_panel)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
         self.test_plan_dock = dock
         return dock
@@ -2638,6 +3018,7 @@ class MainWindow(QMainWindow):
         else:
             dock.show()
             dock.raise_()
+            self._widen_dock_for_reading(dock)
 
     # ── Side-docked String Editor ────────────────────────────────────────────
 
@@ -2660,7 +3041,7 @@ class MainWindow(QMainWindow):
         if getattr(self, "editor_dock", None) is not None:
             return self.editor_dock
 
-        dock = QDockWidget("String Editor", self)
+        dock = QDockWidget(tr("strings_tab.editor_dock_title"), self)
         dock.setObjectName("editorDock")
         dock.setAllowedAreas(
             Qt.DockWidgetArea.RightDockWidgetArea
@@ -2677,7 +3058,7 @@ class MainWindow(QMainWindow):
         vlayout.setContentsMargins(8, 8, 8, 8)
         vlayout.setSpacing(6)
 
-        self.editor_dock_key_label = QLabel("(no row selected)")
+        self.editor_dock_key_label = QLabel(tr("strings_tab.no_row_selected"))
         self.editor_dock_key_label.setProperty("role", "secondary")
         key_font = QFont("Consolas")
         key_font.setPointSize(9)
@@ -2687,21 +3068,19 @@ class MainWindow(QMainWindow):
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(4)
-        em3_btn = QPushButton("Underline")
-        em3_btn.setToolTip(tr("strings_tab.editor_underline_tooltip"))
-        em3_btn.clicked.connect(lambda: self._editor_dock_wrap("EM3"))
-        btn_row.addWidget(em3_btn)
-        em4_btn = QPushButton("Highlight")
-        em4_btn.setToolTip(tr("strings_tab.editor_highlight_tooltip"))
-        em4_btn.clicked.connect(lambda: self._editor_dock_wrap("EM4"))
-        btn_row.addWidget(em4_btn)
+        self._editor_underline_btn = QPushButton(tr("strings_tab.editor_underline_btn"))
+        self._editor_underline_btn.setToolTip(tr("strings_tab.editor_underline_tooltip"))
+        self._editor_underline_btn.clicked.connect(lambda: self._editor_dock_wrap("EM3"))
+        btn_row.addWidget(self._editor_underline_btn)
+        self._editor_highlight_btn = QPushButton(tr("strings_tab.editor_highlight_btn"))
+        self._editor_highlight_btn.setToolTip(tr("strings_tab.editor_highlight_tooltip"))
+        self._editor_highlight_btn.clicked.connect(lambda: self._editor_dock_wrap("EM4"))
+        btn_row.addWidget(self._editor_highlight_btn)
         btn_row.addStretch()
         vlayout.addLayout(btn_row)
 
         self.editor_dock_text = QPlainTextEdit()
-        self.editor_dock_text.setPlaceholderText(
-            "Select a row in the String Editor table to edit its custom value here."
-        )
+        self.editor_dock_text.setPlaceholderText(tr("strings_tab.editor_placeholder"))
         self.editor_dock_text.setEnabled(False)
         self.editor_dock_text.textChanged.connect(self._on_editor_dock_text_changed)
         self.editor_dock_text.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -2788,7 +3167,7 @@ class MainWindow(QMainWindow):
             self.editor_dock_text.setEnabled(False)
         finally:
             self._editor_dock_loading = False
-        self.editor_dock_key_label.setText("(no row selected)")
+        self.editor_dock_key_label.setText(tr("strings_tab.no_row_selected"))
         self.editor_dock_status_label.setText("")
 
     def _load_editor_dock_from_row(self, row: int) -> None:
@@ -3044,6 +3423,7 @@ class MainWindow(QMainWindow):
         self._startup_gate_pending = False
         self._start_startup_sync()
         self._maybe_warn_onedrive_data_dir()
+        self._maybe_prompt_post_import_apply()
 
     def _maybe_warn_onedrive_data_dir(self) -> None:
         """Warn once when the data root is inside a OneDrive-managed folder (#172).
@@ -3067,19 +3447,11 @@ class MainWindow(QMainWindow):
 
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Warning)
-        box.setWindowTitle("Your Smart Citizen Data Is in OneDrive")
-        box.setText(
-            "Smart Citizen stores your edits (user.ini), source cache, and "
-            "backups in:\n\n"
-            f"{data_dir}\n\n"
-            "That folder is inside OneDrive. OneDrive can sync and even empty "
-            "these files, which has caused lost edits. Moving your data to a "
-            "local folder outside OneDrive avoids this.\n\n"
-            f"Move it to:\n{local} ?"
-        )
-        move_btn = box.addButton("Move to a Local Folder", QMessageBox.ButtonRole.AcceptRole)
-        box.addButton("Keep Here", QMessageBox.ButtonRole.RejectRole)
-        dont_warn = QCheckBox("Don't warn me again")
+        box.setWindowTitle(tr("onedrive.warning_title"))
+        box.setText(tr("onedrive.warning_body", data_dir=data_dir, local=local))
+        move_btn = box.addButton(tr("onedrive.move_btn"), QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(tr("onedrive.keep_here_btn"), QMessageBox.ButtonRole.RejectRole)
+        dont_warn = QCheckBox(tr("onedrive.dont_warn_again"))
         box.setCheckBox(dont_warn)
         box.exec()
 
@@ -3259,7 +3631,7 @@ class MainWindow(QMainWindow):
         """Update the status-bar channel label to reflect AppSettings.get_active_channel()."""
         if getattr(self, "_channel_indicator", None) is None:
             return
-        self._channel_indicator.setText(f"Channel: {AppSettings.get_active_channel()}")
+        self._channel_indicator.setText(tr("status_bar.channel_indicator", channel=AppSettings.get_active_channel()))
 
     def _sync_canonical_source_paths(self, context: str) -> None:
         """Mirror canonical file-backed source paths into QSettings."""
@@ -3319,11 +3691,13 @@ class MainWindow(QMainWindow):
             # (re)generation, the button stayed disabled and clicks did
             # nothing until the user happened to retoggle some checkbox.
             self.enhancements_tab.refresh_enhancements_dirty_state()
-            # #273 follow-up: same stuck-button class for Save Tag Changes.
-            # Tag configs are global but the generated INIs are per-channel,
-            # and nothing records which configs a channel was last generated
-            # with — light the button so the user can stamp their tags onto
-            # the new channel instead of finding it greyed out.
+            # Save Tag Changes freshness check. Tag configs are global but the
+            # generated INIs are per-channel; generation now stamps each
+            # channel with a fingerprint of the tag config it was built from
+            # (.tag_config_stamp), so this does a real check — light the button
+            # only when the new channel's stamp is missing or differs from the
+            # live Tag Builder config, matching the Generate Enhancements
+            # freshness check above rather than always lighting it.
             self.enhancements_tab.refresh_tag_builder_dirty_state()
         if hasattr(self, "blueprint_tracker_tab"):
             # #273 follow-up: and for Apply Owned Tags. The reload's own
@@ -3331,6 +3705,14 @@ class MainWindow(QMainWindow):
             # left grey ("no changes") after a switch, so the user couldn't
             # force a re-weave for the new channel. Only the button's own
             # click clears this flag, so it survives the reload below.
+            #
+            # Deliberately NOT given the same real-freshness treatment as
+            # Save Tag Changes above: a prior attempt at that (mark_owned_
+            # clean() here, matching #296's scan-path fix) made the button
+            # stay grey on every switch, which took away the user's ability
+            # to force-reapply owned tags on a freshly-switched channel — an
+            # affordance they want to keep regardless of whether the reload
+            # already did the weave.
             self.blueprint_tracker_tab.mark_owned_dirty()
 
         # Reset the "already prompted once" flag so the category-selection
@@ -3351,7 +3733,7 @@ class MainWindow(QMainWindow):
         # finished handler will trigger the reload itself (don't double-run).
         if self._check_p4k_freshness():
             self.statusBar().showMessage(
-                f"Switched to {channel} — extracting Data.p4k…"
+                tr("status_bar.channel_switched_extracting", channel=channel)
             )
             return
 
@@ -3360,7 +3742,7 @@ class MainWindow(QMainWindow):
         # offer to re-extract if so (background — doesn't block reload).
         self._maybe_prompt_dataforge_refresh()
 
-        self.statusBar().showMessage(f"Switched to {channel} — reloading sources…")
+        self.statusBar().showMessage(tr("status_bar.channel_switched_reloading", channel=channel))
         self.perform_merge_and_reload()
 
     def retranslate_ui(self) -> None:
@@ -3418,6 +3800,8 @@ class MainWindow(QMainWindow):
         self.status_combo.setToolTip(tr("filters.status_tooltip"))
         self.hide_unmodified_check.setText(tr("filters.hide_unmodified"))
         self.hide_unmodified_check.setToolTip(tr("filters.hide_unmodified_tooltip"))
+        self.ship_vehicle_names_only_check.setText(tr("filters.ship_vehicle_names_only"))
+        self.ship_vehicle_names_only_check.setToolTip(tr("filters.ship_vehicle_names_only_tooltip"))
         self.favorites_only_check.setText(tr("filters.favorites_only"))
         self.favorites_only_check.setToolTip(tr("filters.favorites_only_tooltip"))
         self.bp_titles_check.setText(tr("filters.bp_titles_only"))
@@ -3467,15 +3851,57 @@ class MainWindow(QMainWindow):
         if not self.entries:
             self.table_status_label.setText(tr("strings_tab.no_data"))
 
+        # Side-docked String Editor (built lazily on first use — skip if never opened)
+        if getattr(self, "editor_dock", None) is not None:
+            self.editor_dock.setWindowTitle(tr("strings_tab.editor_dock_title"))
+            self._editor_underline_btn.setText(tr("strings_tab.editor_underline_btn"))
+            self._editor_underline_btn.setToolTip(tr("strings_tab.editor_underline_tooltip"))
+            self._editor_highlight_btn.setText(tr("strings_tab.editor_highlight_btn"))
+            self._editor_highlight_btn.setToolTip(tr("strings_tab.editor_highlight_tooltip"))
+            self.editor_dock_text.setPlaceholderText(tr("strings_tab.editor_placeholder"))
+            # Only reset the key label if it's still showing the empty-state
+            # text — a real row's key is the current content otherwise, and
+            # that shouldn't be clobbered by a language switch.
+            if self._editor_dock_entry_idx is None:
+                self.editor_dock_key_label.setText(tr("strings_tab.no_row_selected"))
+
+        # Side-docked Test Plan (built lazily on first use — skip if never opened)
+        if getattr(self, "test_plan_dock", None) is not None:
+            self.test_plan_dock.setWindowTitle(tr("toolbar.menu_test_plan"))
+            self.test_plan_panel.retranslate_ui()
+
+        # Footer donation fallback text (only set when the image asset failed
+        # to load — leave pixmap-backed buttons alone).
+        if self.feedback_label.pixmap() is None or self.feedback_label.pixmap().isNull():
+            self.feedback_label.setText(tr("toolbar.feedback_fallback_text"))
+        if self.paypal_button.pixmap() is None or self.paypal_button.pixmap().isNull():
+            self.paypal_button.setText(tr("toolbar.paypal_fallback_text"))
+        if self.venmo_button.pixmap() is None or self.venmo_button.pixmap().isNull():
+            self.venmo_button.setText(tr("toolbar.venmo_fallback_text"))
+
         # Cascade to child tabs
         self.config_tab.retranslate_ui()
         self.enhancements_tab.retranslate_ui()
         self.blueprint_tracker_tab.retranslate_ui()
 
+        # About / FAQ / Legal tab bodies — loaded from a per-language doc
+        # file (get_localized_doc_path) but only rendered at tab-creation
+        # time and on theme swap (refresh_action_buttons), never on a
+        # language switch. Without this, switching language mid-session
+        # left these three tabs showing whatever language was active at
+        # startup until the app was restarted.
+        if hasattr(self, "about_browser"):
+            self._render_about_html()
+        if hasattr(self, "faq_browser"):
+            self._render_faq_html()
+        if hasattr(self, "legal_browser"):
+            self._render_legal_html()
+
         # Status-bar version indicator + Config-tab update status hold the
         # last update-check result; re-render them in the new language
         # (after the cascade so this write wins).
         self._refresh_update_indicator_texts()
+        self._refresh_channel_indicator()
         self.log_tab.retranslate_ui()
 
     @pyqtSlot(str)
@@ -3538,7 +3964,7 @@ class MainWindow(QMainWindow):
         # Have a URL — download (freshness-checked) on a worker, then repoint.
         dialog = AnimatedProgressDialog(
             tr("dialogs.language_downloading", language=language),
-            parent=self, title="Smart Citizen",
+            parent=self, title=tr("dialogs.app_title"),
         )
         self._lang_dl_worker = LanguageBaseDownloadWorker(url, dest)
         self._lang_dl_worker.finished.connect(
@@ -3568,7 +3994,7 @@ class MainWindow(QMainWindow):
                 str(AppSettings.get_base_ini_path(AppSettings.DEFAULT_LANGUAGE)),
             )
             QMessageBox.warning(
-                self, "Smart Citizen",
+                self, tr("dialogs.app_title"),
                 tr("dialogs.language_download_failed", language=language),
             )
             self._show_loading_progress(tr("dialogs.merging_sources"))
@@ -3642,13 +4068,13 @@ class MainWindow(QMainWindow):
 
         if self._check_p4k_freshness():
             self.statusBar().showMessage(
-                f"Data folder changed to {data_dir} — extracting Data.p4k…"
+                tr("status_bar.data_folder_changed_extracting", data_dir=data_dir)
             )
             return
 
         self._maybe_prompt_dataforge_refresh()
         self.statusBar().showMessage(
-            f"Data folder changed to {data_dir} — reloading sources…"
+            tr("status_bar.data_folder_changed_reloading", data_dir=data_dir)
         )
         self.perform_merge_and_reload()
 
@@ -3663,7 +4089,7 @@ class MainWindow(QMainWindow):
         """
         logger.info(f"MainWindow reacting to cache folder change → {new_cache_leaf}")
         self.statusBar().showMessage(
-            "DataForge cache folder changed — re-extracting from Data.p4k…"
+            tr("status_bar.cache_folder_changed")
         )
         self._run_dataforge_extraction()
 
@@ -3718,9 +4144,9 @@ class MainWindow(QMainWindow):
         # Add entry and override counts if data is loaded
         if self.entries:
             modified_count = sum(1 for e in self.entries if e.status in ("Modified", "New"))
-            entry_info = f"{len(self.entries):,} entries"
+            entry_info = tr("status_bar.entry_count", count=f"{len(self.entries):,}")
             if modified_count:
-                entry_info += f" | {modified_count} overrides"
+                entry_info += tr("status_bar.override_count_suffix", count=modified_count)
             parts.append(entry_info)
 
         # Add game version + channel suffix. Reading build_manifest.id goes
@@ -3740,14 +4166,14 @@ class MainWindow(QMainWindow):
             # Channel selected but no manifest (folder missing / not installed);
             # surface the channel name so the user can see which one is active
             # and why the version's blank.
-            parts.append(f"SC {active_channel} (manifest missing)")
+            parts.append(tr("status_bar.manifest_missing", channel=active_channel))
 
         if parts:
             self.statusBar().showMessage("  |  ".join(parts))
         elif not self._has_long_running_worker():
             # Don't overwrite a progress message with "Ready" while a worker
             # is still running — the user reads the empty state as "done".
-            self.statusBar().showMessage("Ready")
+            self.statusBar().showMessage(tr("progress.ready"))
 
     def _set_source_status(self, source_name: str, status: str) -> None:
         """Set sync status for a specific source and update status bar.
@@ -3777,9 +4203,9 @@ class MainWindow(QMainWindow):
             self._on_startup_sync_finished()
             return
 
-        self.statusBar().showMessage("Starting up — syncing sources...")
+        self.statusBar().showMessage(tr("status_bar.starting_up"))
         self._startup_progress = AnimatedProgressDialog(
-            "Syncing sources...", parent=self, title="Starting Up"
+            tr("progress.syncing_sources"), parent=self, title=tr("progress.starting_up_title")
         )
         self._startup_sync_worker = StartupSyncWorker()
         self._startup_sync_worker.source_starting.connect(self._on_startup_source_starting)
@@ -3790,21 +4216,21 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(str)
     def _on_startup_source_starting(self, source_name: str):
-        self.statusBar().showMessage(f"Syncing {source_name}...")
+        self.statusBar().showMessage(tr("status_bar.syncing_source", source_name=source_name))
         if self._startup_progress is not None:
-            self._startup_progress.setLabelText(f"Syncing {source_name}...")
+            self._startup_progress.setLabelText(tr("status_bar.syncing_source", source_name=source_name))
 
     @pyqtSlot(str, bool)
     def _on_startup_source_synced(self, source_name: str, updated: bool):
         action = "updated" if updated else "up to date"
         logger.info(f"Startup sync: {source_name} {action}")
-        label = "updated ↑" if updated else "✓"
+        label = tr("status_bar.source_updated") if updated else "✓"
         self._set_source_status(source_name, f"{source_name.title()}: {label}")
 
     @pyqtSlot(str, str)
     def _on_startup_source_error(self, source_name: str, message: str):
         logger.warning(f"Startup sync error ({source_name}): {message}")
-        self._set_source_status(source_name, f"{source_name.title()}: ⚠ (offline?)")
+        self._set_source_status(source_name, f"{source_name.title()}: ⚠ {tr('status_bar.source_offline')}")
 
     @pyqtSlot()
     def _on_startup_sync_finished(self):
@@ -3825,19 +4251,13 @@ class MainWindow(QMainWindow):
         if not base_ini.exists() and not AppSettings.get_sc_install_root():
             QMessageBox.information(
                 self,
-                "Star Citizen Path Required",
-                "No Star Citizen install path is configured and no cached "
-                "localization data was found.\n\n"
-                "Please set your Star Citizen install path on the Config tab, "
-                "then click Extract to load your game's localization strings.",
+                tr("extract.path_required_title"),
+                tr("extract.path_required_body"),
             )
             # Switch to Config tab so the user lands in the right place.
-            tabs = self.findChild(QTabWidget)
-            if tabs is not None:
-                for i in range(tabs.count()):
-                    if tabs.tabText(i) == "Config":
-                        tabs.setCurrentIndex(i)
-                        break
+            config_idx = self.tabs.indexOf(self.config_tab)
+            if config_idx >= 0:
+                self.tabs.setCurrentIndex(config_idx)
             return
 
         # Prompt user to extract from p4k if base.ini is missing or outdated
@@ -3892,20 +4312,12 @@ class MainWindow(QMainWindow):
             return False  # cache is present and up to date
 
         if base_missing:
-            msg = (
-                "No base localization file found in cache.\n\n"
-                "Extract global.ini from Data.p4k now?\n"
-                "(Required to load and display localization strings.)"
-            )
+            msg = tr("extract.p4k_prompt_base_missing")
         else:
-            msg = (
-                "Data.p4k is newer than your cached base.ini.\n\n"
-                "Extract global.ini from Data.p4k now?\n"
-                "(This gives you stock strings matching your exact installed game version.)"
-            )
+            msg = tr("extract.p4k_prompt_p4k_newer")
 
         reply = QMessageBox.question(
-            self, "Extract from Data.p4k", msg,
+            self, tr("extract.p4k_prompt_title"), msg,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
@@ -3955,12 +4367,8 @@ class MainWindow(QMainWindow):
             return
 
         reply = QMessageBox.question(
-            self, "DataForge Cache Outdated",
-            "Your DataForge entity cache is older than the current Data.p4k.\n\n"
-            "Re-extract DataForge and regenerate enhancements now?\n\n"
-            "This takes a few minutes and runs in the background — you can keep "
-            "editing strings while it works. Skip for now if you'd rather not wait; "
-            "you can always trigger this from the Enhancements tab.",
+            self, tr("extract.dataforge_outdated_title"),
+            tr("extract.dataforge_outdated_body"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
@@ -4025,17 +4433,13 @@ class MainWindow(QMainWindow):
                 missing_checkbox_keys.add(checkbox_key)
 
         dialog = QDialog(self)
-        dialog.setWindowTitle("Generate Enhancements")
+        dialog.setWindowTitle(tr("extract.generate_dialog_title"))
         dialog.setMinimumWidth(400)
         layout = QVBoxLayout(dialog)
 
         n = len(missing_checkbox_keys)
-        noun = "category is" if n == 1 else "categories are"
-        layout.addWidget(QLabel(
-            f"{n} enhancement {noun} missing.\n"
-            "Select which to generate.\n"
-            "You can change this later in the Enhancements tab."
-        ))
+        noun = tr("extract.category_singular") if n == 1 else tr("extract.category_plural")
+        layout.addWidget(QLabel(tr("extract.missing_categories_body", count=n, noun=noun)))
 
         layout.addSpacing(8)
 
@@ -4044,7 +4448,7 @@ class MainWindow(QMainWindow):
             cb = QCheckBox(label)
             if key in missing_checkbox_keys:
                 cb.setChecked(True)
-                cb.setText(f"{label}  (missing)")
+                cb.setText(tr("extract.missing_category_label", label=label))
             else:
                 cb.setChecked(False)
             checkboxes[key] = cb
@@ -4052,10 +4456,7 @@ class MainWindow(QMainWindow):
 
         layout.addSpacing(8)
 
-        info = QLabel(
-            "DataForge data will be extracted automatically if not already cached.\n"
-            "First run takes a few minutes."
-        )
+        info = QLabel(tr("extract.dataforge_auto_extract_note"))
         info.setProperty("role", "secondary")
         info.setStyleSheet("font-size: 11px;")
         info.setWordWrap(True)
@@ -4064,10 +4465,10 @@ class MainWindow(QMainWindow):
         layout.addSpacing(8)
 
         button_row = QHBoxLayout()
-        generate_btn = QPushButton("Generate")
+        generate_btn = QPushButton(tr("extract.generate_btn"))
         generate_btn.setDefault(True)
         generate_btn.setToolTip(tr("dialogs.generate_now_tooltip"))
-        skip_btn = QPushButton("Skip")
+        skip_btn = QPushButton(tr("extract.skip_btn"))
         skip_btn.setToolTip(tr("dialogs.skip_generate_tooltip"))
 
         generate_btn.clicked.connect(dialog.accept)
@@ -4198,7 +4599,7 @@ class MainWindow(QMainWindow):
         """Handle file loading error."""
         self._loading_progress.close()
         self._loading_progress = None
-        QMessageBox.critical(self, "Error", f"Failed to load sources: {error_msg}")
+        QMessageBox.critical(self, tr("dialogs.error_title"), tr("dialogs.failed_to_load_sources", error=error_msg))
         if self._loader_worker:
             self._loader_worker.quit()
             self._loader_worker.wait()
@@ -4220,21 +4621,16 @@ class MainWindow(QMainWindow):
         # in Simple mode — so guide the user to Advanced rather than no-op.
         if not AppSettings.get_game_install_path():
             QMessageBox.information(
-                self, "Set Your Game Folder",
-                "Smart Citizen needs to know where Star Citizen is installed "
-                "before it can apply changes.\n\nSwitching to Advanced mode so "
-                "you can set the game folder on the Config tab.",
+                self, tr("simple_mode.set_game_folder_title"),
+                tr("simple_mode.set_game_folder_body"),
             )
             self._apply_ui_mode(AppSettings.UI_MODE_ADVANCED)
             self.tabs.setCurrentIndex(self._config_tab_index)
             return
 
         reply = QMessageBox.question(
-            self, "Apply Enhancements",
-            "This will generate the latest enhancements with your current "
-            "settings and apply them to your game's global.ini. A timestamped "
-            "backup is made first.\n\nThe first run can take a few minutes "
-            "while DataForge is extracted. Continue?",
+            self, tr("simple_mode.apply_enhancements_confirm_title"),
+            tr("simple_mode.apply_enhancements_confirm_body"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -4246,9 +4642,17 @@ class MainWindow(QMainWindow):
         self._run_enhancements_pipeline()
 
     def _run_enhancements_pipeline(self):
-        """Entry point for the enhancements button: extract DataForge if needed, then generate enhancements."""
+        """Entry point for every Generate Enhancements trigger — manual
+        click, Tag Builder apply, the simple-mode run button, and the
+        automated freshness check — so it's the single place to clear the
+        button's dirty flag (#292). Only the click handler used to clear it,
+        which left the button stuck red after a successful *automated* run
+        since that path calls straight in here. Extract DataForge if
+        needed, then generate enhancements."""
         if self._enhancements_worker is not None or self._forge_worker is not None:
             return  # already running
+
+        self.enhancements_tab.mark_enhancements_clean()
 
         from src.utils.pak_extractor import dataforge_cache_is_fresh
         forge_dir = AppSettings.get_dataforge_cache_dir()
@@ -4300,15 +4704,13 @@ class MainWindow(QMainWindow):
             mission_title_tags=AppSettings.get_mission_title_tags(),
             stats_prepend=AppSettings.get_stats_prepend(),
             standardize_earnable_ship_names=AppSettings.get_standardize_earnable_ship_names(),
+            rs_ore_name_annotations=AppSettings.get_rs_ore_name_annotations(),
             language=language,
         )
         self.enhancements_tab.set_operation_running(tr("enhancements.generating_enhancements_tooltip"))
-        self.statusBar().showMessage("Generating enhancements in background…")
+        self.statusBar().showMessage(tr("status_bar.generating_enhancements_background"))
 
-        enhancements_label = (
-            "Generating enhanced localizations from DataForge…\n\n"
-            "This may take a few minutes on the first run."
-        )
+        enhancements_label = tr("progress.enhancements_label")
 
         # Reuse the DataForge extraction dialog if it's still open — keeps
         # the progress UI continuous through the extraction → enhancements
@@ -4320,7 +4722,7 @@ class MainWindow(QMainWindow):
         if existing is not None:
             self._enhancements_progress_dialog = existing
             self._forge_progress_dialog = None
-            existing.setWindowTitle("Generating Enhancements")
+            existing.setWindowTitle(tr("progress.generating_enhancements_title"))
             # Reset bar to indeterminate (0,0) with the new label so the
             # stale "Snapshotting cache (28000/28000)" 100% bar from the
             # extraction phase doesn't sit on screen until the first
@@ -4330,7 +4732,7 @@ class MainWindow(QMainWindow):
             self._enhancements_progress_dialog = AnimatedProgressDialog(
                 enhancements_label,
                 parent=self,
-                title="Generating Enhancements",
+                title=tr("progress.generating_enhancements_title"),
             )
 
         self._enhancements_worker.progress.connect(self.statusBar().showMessage)
@@ -4375,14 +4777,14 @@ class MainWindow(QMainWindow):
             # below keeps the (hidden) Advanced view consistent afterward.
             if self._simple_run_active:
                 self._end_simple_run()
-                self.statusBar().showMessage("Enhancements generated — applying to game…")
+                self.statusBar().showMessage(tr("status_bar.enhancements_generated_applying"))
                 self.apply_to_game()
             else:
-                self.statusBar().showMessage("Enhancements generated — reloading entries…")
-            self._show_loading_progress("Reloading strings with updated enhancements…")
+                self.statusBar().showMessage(tr("status_bar.enhancements_generated_reloading"))
+            self._show_loading_progress(tr("progress.reloading_with_enhancements"))
         else:
             self._end_simple_run()
-            self.statusBar().showMessage("Enhancement generation failed — check the Log tab for details")
+            self.statusBar().showMessage(tr("status_bar.enhancement_generation_failed"))
 
     def _run_dataforge_extraction(self):
         """Launch DataForgeExtractWorker in the background (non-blocking)."""
@@ -4396,12 +4798,12 @@ class MainWindow(QMainWindow):
 
         self._forge_worker = DataForgeExtractWorker(p4k_path, unp4k_exe, unforge_exe, forge_dir)
         self.enhancements_tab.set_operation_running(tr("enhancements.extracting_dataforge_tooltip"))
-        self.statusBar().showMessage("Extracting DataForge in background — this takes several minutes…")
+        self.statusBar().showMessage(tr("extract.dataforge_extracting_background"))
 
         self._forge_progress_dialog = AnimatedProgressDialog(
-            "Extracting DataForge from Data.p4k — this takes several minutes…",
+            tr("extract.dataforge_extracting_label"),
             parent=self,
-            title="DataForge Extraction",
+            title=tr("extract.dataforge_extraction_title"),
         )
 
         self._forge_worker.progress.connect(self.statusBar().showMessage)
@@ -4419,9 +4821,8 @@ class MainWindow(QMainWindow):
             self._forge_progress_dialog.close()
             self._forge_progress_dialog = None
         QMessageBox.warning(
-            self, "DataForge Extraction Error",
-            f"DataForge extraction failed:\n\n{message}\n\n"
-            "Check the Log tab for details.",
+            self, tr("extract.dataforge_extraction_error_title"),
+            tr("extract.dataforge_extraction_error_body", message=message),
         )
 
     def _on_dataforge_extract_finished(self, success: bool):
@@ -4442,7 +4843,7 @@ class MainWindow(QMainWindow):
             # doing. _run_enhancements_generation reuses the existing
             # dialog window if one is present, so the title/label change
             # is the only thing the user sees.
-            self.statusBar().showMessage("DataForge extracted — generating enhancements…")
+            self.statusBar().showMessage(tr("extract.dataforge_extracted_generating"))
             self._run_enhancements_generation()
         else:
             # #180: extraction failed, so the Simple-mode flow can't continue.
@@ -4451,7 +4852,7 @@ class MainWindow(QMainWindow):
                 self._forge_progress_dialog.close()
                 self._forge_progress_dialog = None
             self.enhancements_tab.set_operation_idle(success=False)
-            self.statusBar().showMessage("DataForge extraction failed — check the Log tab for details")
+            self.statusBar().showMessage(tr("extract.dataforge_extraction_failed"))
 
     def _run_p4k_extraction(self):
         """Launch P4kExtractWorker with a progress dialog; reload sources on success."""
@@ -4461,14 +4862,14 @@ class MainWindow(QMainWindow):
 
         self._p4k_worker = P4kExtractWorker(p4k_path, output_path, unp4k_exe)
         self._p4k_progress = AnimatedProgressDialog(
-            "Extracting global.ini from Data.p4k...",
+            tr("extract.p4k_extracting_label"),
             parent=self,
-            title="P4K Extraction"
+            title=tr("extract.p4k_extraction_title")
         )
 
         self._p4k_worker.progress.connect(self._p4k_progress.setLabelText)
         self._p4k_worker.progress_pct.connect(self._p4k_progress.set_progress)
-        self._p4k_worker.error.connect(lambda err: QMessageBox.warning(self, "Extraction Error", err))
+        self._p4k_worker.error.connect(lambda err: QMessageBox.warning(self, tr("extract.extraction_error_title"), err))
         self._p4k_worker.finished.connect(self._on_p4k_extract_finished)
         self._p4k_worker.start()
 
@@ -4510,7 +4911,7 @@ class MainWindow(QMainWindow):
         # _apply_dirty directly since the latter also starts True at launch
         # (see its comment) — that boot-time uncertainty shouldn't nag a user
         # who hasn't touched anything this session.
-        if self._session_has_unapplied_edit:
+        if self._session_has_unapplied_edit and not self._suppress_user_ini_autosave:
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Icon.Warning)
             box.setWindowTitle(tr("dialogs.unapplied_changes_title"))
@@ -4544,8 +4945,14 @@ class MainWindow(QMainWindow):
             # exit_btn: fall through to the normal close sequence below,
             # exiting without applying.
 
-        # Auto-save overrides if there are unsaved edits
-        if self.entries and not (self._loader_worker and self._loader_worker.isRunning()):
+        # Auto-save overrides if there are unsaved edits. Skipped when closing
+        # for a post-import restart — the in-memory entries reflect the OLD
+        # user.ini and would clobber the files Import Settings just wrote.
+        if (
+            self.entries
+            and not self._suppress_user_ini_autosave
+            and not (self._loader_worker and self._loader_worker.isRunning())
+        ):
             try:
                 from src.utils.user_ini_manager import save_user_ini, should_autosave_user_ini
                 user_ini_path = AppSettings.get_user_ini_path()
@@ -4587,6 +4994,7 @@ class MainWindow(QMainWindow):
             AppSettings.get_favorite_prefix(),
             bp_titles_only=self.bp_titles_check.isChecked(),
             bp_descs_only=self.bp_descs_check.isChecked(),
+            ship_vehicle_names_only=self.ship_vehicle_names_only_check.isChecked(),
         )
 
     @timed
@@ -4692,7 +5100,7 @@ class MainWindow(QMainWindow):
             return
         indices = self._filtered_entry_indices()
         self._model.set_filtered_indices(indices)
-        self.table_status_label.setText(f"Showing {len(indices)} of {len(self.entries)} strings")
+        self.table_status_label.setText(tr("strings_tab.showing_count", shown=len(indices), total=len(self.entries)))
 
     @pyqtSlot()
     def _on_grouped_sort(self):
@@ -4706,6 +5114,7 @@ class MainWindow(QMainWindow):
         self.category_combo.blockSignals(True)
         self.status_combo.blockSignals(True)
         self.hide_unmodified_check.blockSignals(True)
+        self.ship_vehicle_names_only_check.blockSignals(True)
         self.favorites_only_check.blockSignals(True)
         self.bp_titles_check.blockSignals(True)
         self.bp_descs_check.blockSignals(True)
@@ -4714,6 +5123,7 @@ class MainWindow(QMainWindow):
         self.category_combo.setCurrentIndex(0)
         self.status_combo.setCurrentIndex(0)
         self.hide_unmodified_check.setChecked(False)
+        self.ship_vehicle_names_only_check.setChecked(False)
         self.favorites_only_check.setChecked(False)
         self.bp_titles_check.setChecked(False)
         self.bp_descs_check.setChecked(False)
@@ -4721,6 +5131,7 @@ class MainWindow(QMainWindow):
         self.category_combo.blockSignals(False)
         self.status_combo.blockSignals(False)
         self.hide_unmodified_check.blockSignals(False)
+        self.ship_vehicle_names_only_check.blockSignals(False)
         self.favorites_only_check.blockSignals(False)
         self.bp_titles_check.blockSignals(False)
         self.bp_descs_check.blockSignals(False)
@@ -4770,20 +5181,27 @@ class MainWindow(QMainWindow):
         is_favorite = entry.custom_value.startswith(prefix)
 
         menu = QMenu(self)
-        menu.addAction("Copy Cell", lambda: self.copy_cell(proxy_index))
-        menu.addAction("Copy Key", lambda: self.copy_key(proxy_row))
+        menu.addAction(tr("strings_tab.context_copy_cell"), lambda: self.copy_cell(proxy_index))
+        menu.addAction(tr("strings_tab.context_copy_key"), lambda: self.copy_key(proxy_row))
         menu.addSeparator()
-        menu.addAction("Edit", lambda: self.edit_cell(proxy_row))
-        menu.addAction("Reset to Original", lambda: self.reset_to_original(proxy_row))
+        menu.addAction(tr("strings_tab.context_edit"), lambda: self.edit_cell(proxy_row))
+        menu.addAction(tr("strings_tab.context_reset_to_original"), lambda: self.reset_to_original(proxy_row))
         menu.addSeparator()
-        menu.addAction("Copy All Filtered", lambda: self.copy_filtered_to_clipboard())
+        menu.addAction(tr("strings_tab.context_copy_all_filtered"), lambda: self.copy_filtered_to_clipboard())
 
-        if entry.category == "Ships":
+        if is_favoritable_ship(entry):
             menu.addSeparator()
             if is_favorite:
-                menu.addAction("★ Remove from Favorites", lambda: self.toggle_favorite(proxy_row))
+                menu.addAction(tr("strings_tab.context_remove_favorite"), lambda: self.toggle_favorite(proxy_row))
             else:
-                menu.addAction("★ Add to Favorites", lambda: self.toggle_favorite(proxy_row))
+                menu.addAction(tr("strings_tab.context_add_favorite"), lambda: self.toggle_favorite(proxy_row))
+        elif prefix and is_favorite:
+            # Pre-#329 builds let any Ships row be favorited, so a stranded
+            # prefix can sit on a row that is no longer favoritable (still
+            # applied to the game text). Keep a removal path for those rows;
+            # adding stays name-row only.
+            menu.addSeparator()
+            menu.addAction(tr("strings_tab.context_remove_favorite"), lambda: self.toggle_favorite(proxy_row))
 
         menu.exec(self.table.mapToGlobal(position))
 
@@ -4817,9 +5235,9 @@ class MainWindow(QMainWindow):
             import pyperclip
             try:
                 pyperclip.copy(self.entries[entry_idx].key)
-                self.statusBar().showMessage(f"Copied: {self.entries[entry_idx].key}")
+                self.statusBar().showMessage(tr("strings_tab.copied_key", loc_key=self.entries[entry_idx].key))
             except ImportError:
-                self.statusBar().showMessage("pyperclip not installed")
+                self.statusBar().showMessage(tr("strings_tab.pyperclip_missing"))
 
     @pyqtSlot(QModelIndex)
     def _on_cell_clicked(self, proxy_index: QModelIndex):
@@ -4831,8 +5249,10 @@ class MainWindow(QMainWindow):
         col = proxy_index.column()
         if col == COL_STAR:
             entry_idx = self._entry_index_for_row(proxy_index.row())
-            if entry_idx < len(self.entries) and self.entries[entry_idx].category == "Ships":
-                self.toggle_favorite(proxy_index.row())
+            if entry_idx < len(self.entries):
+                entry = self.entries[entry_idx]
+                if is_favoritable_ship(entry):
+                    self.toggle_favorite(proxy_index.row())
 
     @pyqtSlot(QModelIndex)
     def _on_cell_double_clicked(self, proxy_index: QModelIndex):
@@ -4893,20 +5313,30 @@ class MainWindow(QMainWindow):
         instead of relying on it happening as a side effect of moving an
         item between the Available/Owned lists or a log scan."""
         self._recompute_owned()
-        self.statusBar().showMessage("[Owned] tags refreshed to match your current Owned list.")
+        self.statusBar().showMessage(tr("blueprint_tracker.owned_tags_refreshed"))
 
     def _run_blueprint_log_scan(self):
-        """Scan the active channel's SC logs for received-blueprint events and
-        fold them into the owned set. Launched by the Blueprint Tracker tab's
-        "BP Scan" button; runs in a background worker with a progress dialog.
+        """Scan SC logs for received-blueprint events and fold them into the
+        owned set. Launched by the Blueprint Tracker tab's "BP Scan" button;
+        runs in a background worker with a progress dialog.
 
-        Reads Game.log + logbackups/*.log from the active channel's install
-        dir for "Received Blueprint" reward notifications — the game's own
-        record of every blueprint the player has actually earned, independent
-        of whether it's shown up in a loaded mission's reward text yet. Only
-        events newer than the last scan's watermark are imported (#222), so
-        re-running the scan against a still-growing Game.log doesn't re-walk
-        the player's whole history every time.
+        Reads Game.log + logbackups/*.log for "Received Blueprint" reward
+        notifications — the game's own record of every blueprint the player
+        has actually earned, independent of whether it's shown up in a loaded
+        mission's reward text yet. Only events newer than the last scan's
+        watermark are imported (#222), so re-running the scan against a
+        still-growing Game.log doesn't re-walk the player's whole history
+        every time.
+
+        Always covers the active channel. If the Blueprint Tracker's "also
+        scan other channels" checkbox is on and the active channel is LIVE or
+        HOTFIX, also queues whichever of the two isn't active -- they share
+        the same account progression, so a blueprint earned on one shows up
+        in the other's logs too (#268). PTU/EPTU/TECH-PREVIEW are never
+        included; those are separate test builds with their own progression.
+        Each queued channel runs through the same single-channel worker in
+        turn; only one combined summary/owned-set write happens once every
+        queued channel has been scanned.
         """
         if self._bp_log_scan_worker is not None:
             return  # already scanning
@@ -4920,7 +5350,46 @@ class MainWindow(QMainWindow):
             )
             return
 
-        since = AppSettings.get_blueprint_log_watermark()
+        installed = AppSettings.get_available_channels()
+        other_enabled = AppSettings.get_scan_other_channels_enabled()
+        self._bp_scan_queue = _channels_to_scan(
+            AppSettings.get_active_channel(), other_enabled, installed
+        )
+        self._bp_scan_new_names = set()
+        # #308: "Rescan all logs" bypasses the saved watermark for every
+        # queued channel this run, re-walking each back to the scanner's
+        # epoch floor. Read once here (not inside the worker) so a scan
+        # already in flight isn't affected by the checkbox changing mid-scan.
+        self._bp_scan_force_rescan = self.blueprint_tracker_tab.is_force_rescan_checked()
+        self._start_next_blueprint_scan()
+
+    def _start_next_blueprint_scan(self):
+        """Pop the next queued channel and start its worker (#268).
+
+        Silently skips a queued channel with no valid install path (logged,
+        not surfaced as a dialog -- the active channel's own path was already
+        validated with a user-facing warning in _run_blueprint_log_scan;
+        this only guards the rarer case of a secondary channel whose install
+        turns out to be incomplete) and moves on to the next one. Finalizes
+        once the queue is empty.
+        """
+        if not self._bp_scan_queue:
+            self._finish_blueprint_scan_queue()
+            return
+
+        channel = self._bp_scan_queue.pop(0)
+        self._bp_scan_channel = channel
+
+        root = AppSettings.get_sc_install_root()
+        channel_path = str(Path(root) / channel) if root else ""
+        if not channel_path or not Path(channel_path).is_dir():
+            logger.warning(f"BP Scan: skipping {channel} -- no valid install path")
+            self._start_next_blueprint_scan()
+            return
+
+        since = _blueprint_scan_since(
+            self._bp_scan_force_rescan, AppSettings.get_blueprint_log_watermark(channel=channel)
+        )
         self._bp_log_scan_worker = BlueprintLogScanWorker(channel_path, since)
         self._bp_log_scan_progress = AnimatedProgressDialog(
             tr("enhancements.bp_scan_starting"),
@@ -4941,36 +5410,63 @@ class MainWindow(QMainWindow):
             self._bp_log_scan_progress = None
 
     def _on_blueprint_log_scan_finished(self, result):
-        """Fold a completed scan's names into the owned set and report.
+        """Fold one queued channel's scan result into the running total, then
+        either start the next queued channel or finalize (#268).
 
         Owns all owned-set / watermark mutation (the worker stays read-only),
         so every settings write happens on the main thread. ``result`` is a
         ``ScanResult`` or ``None`` when the scan errored (already surfaced via
-        ``_on_blueprint_log_scan_error``)."""
+        ``_on_blueprint_log_scan_error``) -- either way the queue still
+        advances, so one channel's failure doesn't abandon the rest.
+        """
         if self._bp_log_scan_progress is not None:
             self._bp_log_scan_progress.close()
             self._bp_log_scan_progress = None
         self._reap_worker(self._bp_log_scan_worker)
         self._bp_log_scan_worker = None
 
-        if result is None:
-            return
+        channel = self._bp_scan_channel
+        self._bp_scan_channel = None
 
-        from src.utils.owned_items import normalize_item_name
+        if result is not None:
+            from src.utils.owned_items import normalize_item_name
 
-        # Normalize raw log names to the shared owned-set identity; drop blanks.
-        scanned = {normalize_item_name(n) for n in result.names}
-        scanned.discard("")
+            # Normalize raw log names to the shared owned-set identity; drop blanks.
+            scanned = {normalize_item_name(n) for n in result.names}
+            scanned.discard("")
 
-        owned = AppSettings.get_owned_items()
-        new_names = sorted(scanned - owned)
+            owned = AppSettings.get_owned_items()
+            # Exclude names another queued channel already claimed this run,
+            # so a blueprint visible in both LIVE's and HOTFIX's logs isn't
+            # double-counted in the final summary.
+            new_this_channel = scanned - owned - self._bp_scan_new_names
+            self._bp_scan_new_names |= new_this_channel
 
-        # Advance the watermark even when nothing new was imported, so a
-        # growing Game.log's already-seen events aren't reparsed next time.
-        if result.latest_timestamp is not None:
-            prev = AppSettings.get_blueprint_log_watermark()
-            newest = result.latest_timestamp if prev is None else max(prev, result.latest_timestamp)
-            AppSettings.set_blueprint_log_watermark(newest)
+            # Advance this channel's own watermark even when nothing new was
+            # imported, so a growing Game.log's already-seen events aren't
+            # reparsed next time.
+            if result.latest_timestamp is not None:
+                prev = AppSettings.get_blueprint_log_watermark(channel=channel)
+                newest = (
+                    result.latest_timestamp if prev is None
+                    else max(prev, result.latest_timestamp)
+                )
+                AppSettings.set_blueprint_log_watermark(newest, channel=channel)
+
+        if self._bp_scan_queue:
+            self._start_next_blueprint_scan()
+        else:
+            self._finish_blueprint_scan_queue()
+
+    def _finish_blueprint_scan_queue(self):
+        """Write the combined owned-set change and show one summary dialog
+        covering every channel scanned this run (#268)."""
+        new_names = sorted(self._bp_scan_new_names)
+        self._bp_scan_new_names = set()
+        # #308: one-shot -- the checkbox is consumed by the whole queued run
+        # (every channel), whether it found anything new or errored, so it
+        # doesn't silently keep forcing a full rescan on every future click.
+        self.blueprint_tracker_tab.reset_force_rescan_checkbox()
 
         if not new_names:
             QMessageBox.information(
@@ -4980,34 +5476,50 @@ class MainWindow(QMainWindow):
             )
             return
 
+        owned = AppSettings.get_owned_items()
         AppSettings.set_owned_items(owned | set(new_names))
         self._recompute_owned()
-        self.blueprint_tracker_tab.mark_owned_dirty()
+        # _recompute_owned() just did the exact re-weave Apply Owned Tags
+        # performs, so mark the button clean rather than dirty (#296) —
+        # otherwise it stayed red immediately after the summary below told
+        # the user its tags were applied.
+        self.blueprint_tracker_tab.mark_owned_clean()
 
-        # How many of the newly-added names are visible right now (i.e. appear
-        # as a blueprint bullet in the currently-loaded data). The rest light up
-        # automatically whenever their item next appears in a blueprint list.
-        visible_now = len(set(new_names) & getattr(self, "_bp_item_names", set()))
-        summary = tr(
-            "enhancements.bp_scan_summary",
-            count=len(new_names),
-            visible=visible_now,
+        summary = (
+            tr("blueprint_tracker.owned_added_singular") if len(new_names) == 1
+            else tr("blueprint_tracker.owned_added_plural", count=len(new_names))
         )
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Information)
         box.setWindowTitle(tr("enhancements.bp_scan_title"))
         box.setText(summary)
         box.setDetailedText("\n".join(new_names))
+        _relabel_details_button(
+            box,
+            tr("blueprint_tracker.show_added_btn"),
+            tr("blueprint_tracker.hide_added_btn"),
+        )
         box.exec()
 
     def toggle_favorite(self, proxy_row: int):
-        """Add or remove the sort prefix from a ship's custom value."""
+        """Add or remove the sort prefix from a ship's custom value.
+
+        Adding is restricted to ship/vehicle NAME rows (#329): favoriting a
+        description edits text nothing in-game reads sorted or starred.
+        Removal is allowed on ANY row whose custom_value carries the prefix,
+        because pre-#329 builds let any Ships row be favorited and those
+        stranded prefixes still apply to the game text; without this they
+        would have no removal affordance at all (#330 follow-up).
+        """
         entry_idx = self._entry_index_for_row(proxy_row)
         if entry_idx >= len(self.entries):
             return
 
         entry = self.entries[entry_idx]
         prefix = AppSettings.get_favorite_prefix()
+        stranded = bool(prefix) and entry.custom_value.startswith(prefix)
+        if not is_favoritable_ship(entry) and not stranded:
+            return
 
         if entry.custom_value.startswith(prefix):
             new_value = entry.custom_value[len(prefix):]

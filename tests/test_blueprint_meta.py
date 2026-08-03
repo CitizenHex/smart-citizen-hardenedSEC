@@ -134,6 +134,41 @@ def test_blueprint_type_buckets():
     assert blueprint_type_from_key(None) is None
 
 
+def test_blueprint_type_mining_head_family_not_ship_weapon():
+    """Reported: "S0 Helix" showed under Ship Weapon in the Blueprint
+    Tracker's Type filter while other mining lasers showed under Other.
+
+    Root cause: every real ship-mounted mining laser shares CIG's generic
+    "Mining_Head" entity-model key (item_NameMining_Head_S00_<Name>[_SCItem])
+    -- "Mining" starts with an uppercase letter like a manufacturer code, and
+    "_S00" is the head's own size-0 designator, so EVERY variant (not just
+    Helix) satisfies the #212 ship-weapon heuristic by coincidence. All four
+    real variants must land in Other, consistently."""
+    assert blueprint_type_from_key("item_NameMining_Head_S00_Arbor_SCItem") is None
+    assert blueprint_type_from_key("item_NameMining_Head_S00_Helix_SCItem") is None
+    assert blueprint_type_from_key("item_NameMining_Head_S00_Hofstede_SCItem") is None
+    assert blueprint_type_from_key("item_NameMining_Head_S00_Klein_SCItem") is None
+    # Real ship weapons must still classify correctly -- the carve-out is
+    # scoped to the "mining_head" token, not a blanket size-designator skip.
+    assert blueprint_type_from_key("item_NameKLWE_LaserCannon_S2") == "Ship Weapon"
+
+
+def test_build_metadata_mining_head_family_lands_in_other():
+    """End-to-end via build_blueprint_metadata, not just the key classifier
+    in isolation -- confirms the fix actually reaches the Blueprint Tracker's
+    Type filter for a real mission bullet + item_Name pair."""
+    desc = ("x\\n<EM4>POTENTIAL BLUEPRINTS</EM4>"
+            "\\n- S0 Helix\\n- S0 Arbor")
+    entries = [
+        _Entry("M_Desc_001", desc, "Missions"),
+        _Entry("item_NameMining_Head_S00_Helix_SCItem", "S0 Helix", "Ship Items"),
+        _Entry("item_NameMining_Head_S00_Arbor_SCItem", "S0 Arbor", "Ship Items"),
+    ]
+    meta = build_blueprint_metadata(entries)
+    assert meta["S0 Helix"].type == "Other"
+    assert meta["S0 Arbor"].type == "Other"
+
+
 def test_blueprint_type_armor_core_pieces():
     """FPS armor torso-platform pieces ("Core") reported showing up in the
     Blueprint Tracker's "Other" bucket instead of "Armor". Newer
@@ -154,6 +189,36 @@ def test_blueprint_type_armor_core_pieces():
     # bare form since every real armor "core" piece carries the underscore.
     assert blueprint_type_from_key("item_Name_gys_scoreboard_01_01_01") is None
     assert blueprint_type_from_key("item_Name_gys_highscore_01_01_01") is None
+
+
+def test_blueprint_type_ammo_and_magazines():
+    """Ammo/magazine blueprints (#249) get their own "Ammo" bucket instead of
+    landing in "Other" (or, worse, "FPS Weapon" — many mag keys carry a
+    "_rifle_"/"_pistol_"/etc token that would otherwise win first)."""
+    assert blueprint_type_from_key("item_Namebehr_rifle_ballistic_01_mag") == "Ammo"
+    assert blueprint_type_from_key("item_NameGMNI_smg_ballistic_01_mag") == "Ammo"
+    assert blueprint_type_from_key("item_Nameklwe_lmg_energy_01_mag") == "Ammo"
+    assert blueprint_type_from_key("item_Nameutfl_crossbow_ballistic_01_mag") == "Ammo"
+    # Salvage/healing canister pairs — "_mag" with an _empty/_filled state suffix.
+    assert blueprint_type_from_key("item_Namegrin_multitool_01_salvage_mag_empty") == "Ammo"
+    assert blueprint_type_from_key("item_Namegrin_multitool_01_salvage_mag_filled") == "Ammo"
+    assert blueprint_type_from_key("item_Namegrin_multitool_01_healing_mag") == "Ammo"
+    # Keys that merely contain "mag" mid-string (not a trailing _mag token) are
+    # NOT ammo — e.g. a physical magazine/poster item.
+    assert blueprint_type_from_key("item_NameFlair_Poster_SM_Mag_Cover") is None
+    # A recognized ship-component code still wins first (unaffected by this bucket).
+    assert blueprint_type_from_key("item_NameSHLD_ACOM_S01") == "Shield"
+
+
+def test_blueprint_type_ammo_suffix_checked_before_mining_head_carveout():
+    """Locks the classifier's ordering (#249 review): component-code -> Ammo
+    suffix -> FPS weapon/armor -> mining-head carve-out (#290) -> ship-weapon
+    heuristic (#212). Neither #249 nor #290 should ever shadow the other --
+    an ammo key ending in one of _AMMO_KEY_SUFFIXES must classify as Ammo
+    even if it also happens to contain "mining_head", and a real mining-head
+    key with no ammo suffix must still land in Other, not Ammo."""
+    assert blueprint_type_from_key("item_NameMining_Head_S00_Test_mag") == "Ammo"
+    assert blueprint_type_from_key("item_NameMining_Head_S00_Arbor_SCItem") is None
 
 
 def test_blueprint_type_gys_jacket_and_pants():
@@ -303,16 +368,47 @@ class TestManualBlueprintItems:
         second = build_blueprint_metadata([])
         assert first == second
 
+
+class TestBareTypeKeyConventions:
+    """#266 follow-up: fuel nozzles and mining lasers don't follow the
+    item_Name<code> / vehicle_Name prefix every other component uses, so
+    Pass 1 never recognised their key as a Name entry -- tagged_name fell
+    back to the untagged bare name in the Blueprint Tracker even though
+    the enhancement generator's output (and the String Editor) showed the
+    real tag correctly. ("Tags work right in string editor but not in
+    blueprint tracker.")"""
+
+    def test_fuel_nozzle_item_fuelnozzle_prefix_gets_tagged_name(self):
+        desc = "x\\n<EM4>POTENTIAL BLUEPRINTS</EM4>\\n- RN-7s"
+        entries = [
+            _Entry("M_Desc_001", desc, "Missions"),
+            _Entry("item_fuelnozzle_MISC_Standard_Name", "[FN] RN-7s", "Ship Items"),
+        ]
+        meta = build_blueprint_metadata(entries)
+        assert meta["RN-7s"].tagged_name == "[FN] RN-7s"
+
     def test_fuel_nozzle_nozzle_fuelgiver_prefix_gets_tagged_name(self):
         """Regression guard: Greycat/Shubin nozzles ship under the
         Nozzle_FuelGiver_* convention, not item_fuelnozzle_*."""
         desc = "x\\n<EM4>POTENTIAL BLUEPRINTS</EM4>\\n- Marlin"
         entries = [
             _Entry("M_Desc_001", desc, "Missions"),
-            _Entry("Nozzle_FuelGiver_GRIN_NozzleSecure_Name", "Marlin", "Ship Items"),
+            _Entry("Nozzle_FuelGiver_GRIN_NozzleSecure_Name", "[FN] Marlin", "Ship Items"),
         ]
         meta = build_blueprint_metadata(entries)
-        assert meta["Marlin"].tagged_name == "Marlin"
+        assert meta["Marlin"].tagged_name == "[FN] Marlin"
+
+    def test_mining_laser_bare_key_gets_tagged_name(self):
+        """Mining laser Name keys carry no "_Name" suffix at all -- the
+        bare key (ending in the size code) IS the Name entry."""
+        desc = "x\\n<EM4>POTENTIAL BLUEPRINTS</EM4>\\n- Lancet MH1 Mining Laser"
+        entries = [
+            _Entry("M_Desc_001", desc, "Missions"),
+            _Entry("item_Mining_MiningLaser_Greycat_1_S1",
+                   "[ML-S1] Lancet MH1 Mining Laser", "Ship Items"),
+        ]
+        meta = build_blueprint_metadata(entries)
+        assert meta["Lancet MH1 Mining Laser"].tagged_name == "[ML-S1] Lancet MH1 Mining Laser"
 
 
 class TestBulletNameMismatches:
@@ -415,6 +511,38 @@ class TestBulletNameMismatches:
         assert "Nozzle Fuelgiver Grin Nozzlefast" not in meta
         assert "Nozzle Fuelgiver Grin Nozzleverysecure" not in meta
         assert "Nozzle Fuelgiver Misc Nozzlestandard" not in meta
+
+    @pytest.mark.regression
+    def test_raw_blueprint_filename_bullet_resolves_via_alias(self):
+        """A different root cause than the key-slug bug above: some mission
+        text ships the raw blueprint XML filename stem verbatim rather than
+        a de-slugified loc key. Confirmed via the real "URGENT REFUEL
+        REQUEST" (UWC_Refueling_*) mission bodies in
+        tests/fixtures/kraken_global_latest.ini, which list
+        "bp_craft_nozzle_fuelgiver_grin_nozzleverysecure" (lowercase, with
+        the bp_craft_ prefix, plus the "(Fuel Nozzle)" category annotation)
+        instead of "Harkin" -- a shape _key_slug's title-cased-KEY transform
+        never produces, so it silently fell through to itself even though
+        the alias table already had the right answer."""
+        desc = (
+            "x\\n<EM4>POTENTIAL BLUEPRINTS</EM4>"
+            "\\n- bp_craft_nozzle_fuelgiver_grin_nozzlefast (Fuel Nozzle)"
+            "\\n- bp_craft_nozzle_fuelgiver_grin_nozzleverysecure (Fuel Nozzle)"
+            "\\n- bp_craft_nozzle_fuelgiver_misc_nozzlestandard (Fuel Nozzle)"
+        )
+        entries = [
+            _Entry("M_Desc_001", desc, "Missions"),
+            _Entry("item_fuelnozzle_GRIN_Fast_Name", "Norfield", "Ship Items"),
+            _Entry("item_fuelnozzle_GRIN_Safe_Name", "Harkin", "Ship Items"),
+            _Entry("item_fuelnozzle_MISC_Standard_Name", "RN-7s", "Ship Items"),
+        ]
+        meta = build_blueprint_metadata(entries)
+        assert meta["Norfield"].tagged_name == "Norfield"
+        assert meta["Harkin"].tagged_name == "Harkin"
+        assert meta["RN-7s"].tagged_name == "RN-7s"
+        assert "bp_craft_nozzle_fuelgiver_grin_nozzlefast" not in meta
+        assert "bp_craft_nozzle_fuelgiver_grin_nozzleverysecure" not in meta
+        assert "bp_craft_nozzle_fuelgiver_misc_nozzlestandard" not in meta
 
     def test_direct_match_is_not_overridden_by_alias_or_keyslug(self):
         """A bullet name that already matches a real item directly must

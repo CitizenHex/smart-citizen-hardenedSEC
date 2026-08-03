@@ -29,6 +29,7 @@ from src.utils.i18n import tr
 from src.utils.resource_path import resolve_patches_dir
 from src.utils.settings import AppSettings
 from src.utils.dataforge_diff import dirty_categories
+from src.utils.tag_builder import tag_config_fingerprint
 logger = logging.getLogger(__name__)
 
 
@@ -299,6 +300,7 @@ class EnhancementsGeneratorWorker(QThread):
                  mission_title_tags: dict | None = None,
                  stats_prepend: bool = False,
                  standardize_earnable_ship_names: bool = False,
+                 rs_ore_name_annotations: bool = True,
                  language: str | None = None):
         super().__init__()
         self.categories = categories
@@ -311,6 +313,7 @@ class EnhancementsGeneratorWorker(QThread):
         self.mission_title_tags = mission_title_tags
         self.stats_prepend = stats_prepend
         self.standardize_earnable_ship_names = standardize_earnable_ship_names
+        self.rs_ore_name_annotations = rs_ore_name_annotations
         # Which language's base.ini to generate against. None resolves to the
         # selected language at run time. English uses the P4K base.ini in the
         # channel cache root; other languages use the downloaded per-language
@@ -408,6 +411,7 @@ class EnhancementsGeneratorWorker(QThread):
                      mission_title_tags=self.mission_title_tags,
                      stats_prepend=self.stats_prepend,
                      standardize_earnable_ship_names=self.standardize_earnable_ship_names,
+                     rs_ore_name_annotations=self.rs_ore_name_annotations,
                      english_base_ini_path=AppSettings.get_base_ini_path(
                          AppSettings.DEFAULT_LANGUAGE))
             logger.info("Enhancements generation worker: mod.main() completed successfully")
@@ -417,6 +421,18 @@ class EnhancementsGeneratorWorker(QThread):
             # from stale and skip a redundant regen (#30, Approach 1).
             AppSettings.set_enhancements_stamp(
                 AppSettings.get_dataforge_build_key(), self.language
+            )
+            # And which Tag Builder config they were generated against, so a
+            # later channel switch can tell whether the Save Tag Changes button
+            # actually needs to light up instead of always lighting it. Uses
+            # the configs captured for THIS run (self.*), not live settings, so
+            # the stamp reflects exactly what was generated. Belongs beside the
+            # DataForge stamp: both mark "what these INIs were built from".
+            AppSettings.set_tag_config_stamp(
+                tag_config_fingerprint(
+                    self.tag_configs, self.annotate_mission_descs
+                ),
+                self.language,
             )
 
             self.finished.emit(True)
@@ -441,7 +457,7 @@ class P4kExtractWorker(QThread):
         self._exe = unp4k_exe
 
     def run(self):
-        from src.utils.pak_extractor import extract_global_ini
+        from src.utils.pak_extractor import P4kLockedError, extract_global_ini
         try:
             extract_global_ini(
                 self._p4k, self._out, self._exe,
@@ -449,6 +465,15 @@ class P4kExtractWorker(QThread):
                 progress_pct_callback=lambda c, t, m: self.progress_pct.emit(c, t, m),
             )
             self.finished.emit(True)
+        except P4kLockedError as e:
+            # Anticipated, already logged at WARNING by _raise_unp4k_failure
+            # with full diagnostic detail — logger.exception() here would
+            # independently trigger MainWindow's global ErrorDialogHandler
+            # (any ERROR-level record, app-wide) and duplicate the friendly
+            # dialog the `error` signal below shows.
+            logger.warning(f"P4K extraction: Data.p4k locked, likely updating: {e}")
+            self.error.emit(str(e))
+            self.finished.emit(False)
         except Exception as e:
             logger.exception(f"P4K extraction failed: {e}")
             self.error.emit(str(e))
@@ -471,7 +496,7 @@ class DataForgeExtractWorker(QThread):
         self._cache_dir = cache_dir
 
     def run(self):
-        from src.utils.pak_extractor import extract_dataforge
+        from src.utils.pak_extractor import P4kLockedError, extract_dataforge
         from src.utils.dataforge_patcher import apply_patches
         try:
             extract_dataforge(
@@ -503,6 +528,14 @@ class DataForgeExtractWorker(QThread):
                 for err in report.errors:
                     logger.warning(f"  patch error: {err}")
             self.finished.emit(True)
+        except P4kLockedError as e:
+            # See the matching comment in P4kExtractWorker.run(): already
+            # logged at WARNING by _raise_unp4k_failure; logger.exception()
+            # here would independently trigger the global ErrorDialogHandler
+            # and duplicate the friendly dialog the `error` signal shows.
+            logger.warning(f"DataForge extraction: Data.p4k locked, likely updating: {e}")
+            self.error.emit(str(e))
+            self.finished.emit(False)
         except Exception as e:
             logger.exception(f"DataForge extraction failed: {e}")
             self.error.emit(str(e))

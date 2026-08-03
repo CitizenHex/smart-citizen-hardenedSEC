@@ -64,9 +64,10 @@ Use the **Category** filter to focus on one domain:
 
 ## 6. Ship Favorites
 
-- Click the **★** column on any Ship row to mark it as a favorite.
+- Click the **★** column on any Ship row to mark it as a favorite. Only a ship's name row can be favorited; the description row for the same ship has no equivalent behavior in-game, so the star and sort-order columns stay blank there.
 - Favorited ships get a configurable prefix prepended to their name, sorting them to the top of the in-game ship list.
 - Change the prefix character in the **Enhancements** tab (default: `*`).
+- Check **Ship/Vehicle Names Only** in the Search & Filter row to narrow the table to just ship and vehicle name rows, hiding ship descriptions and every other category; pairs with **Favorites Only** to browse exactly the rows you can favorite.
 
 ## 7. Apply Changes to Game
 
@@ -74,7 +75,7 @@ Click **Apply Enhancements** to write your edits to the game installation. A tim
 
 The button's color tells you where you stand: **red** means something changed since your last apply (an edit, a regen, a language or channel switch) and the game doesn't have it yet; **green** means the game already matches what's loaded, and the button stays disabled so there's nothing to redo. The same red/green convention applies to **Generate Enhancements** and **Save Tag Changes** on the Enhancements tab. If you close the app while the Apply button is still red, Smart Citizen asks whether to apply now or exit without applying, so unapplied work can't slip away silently.
 
-Smart Citizen also stamps a small watermark onto the launcher version string (`Frontend_PU_Version`), appending `| Localizations Enhanced with Smart Citizen v{VERSION}`. That's how you can confirm in-game that your loc-pack is active — look at the version label on the Star Citizen main menu. The stamp is rewritten on each apply, so it never piles up across versions.
+Smart Citizen also stamps a small watermark onto the launcher version string (`Frontend_PU_Version`), appending `\nLocalizations Enhanced with Smart Citizen v{VERSION}` on its own line. That's how you can confirm in-game that your loc-pack is active — look at the version label on the Star Citizen main menu. The stamp is rewritten on each apply, so it never piles up across versions.
 
 ## 8. Restore a Backup
 
@@ -96,11 +97,15 @@ Open the **More** menu and choose **Export INI…** to bundle the currently appl
 
 Use **Reset user.ini** in the **Config** tab to wipe all of your personal edits for the active channel. A confirmation prompt makes sure it isn't a mis-click, and an automatic backup of the current `user.ini` is taken into `<data folder>\<channel>\backups\` first — so a reset is recoverable if you change your mind.
 
-## 13. After Game Updates
+## 13. Export / Import Settings
+
+Use **Export Settings…** and **Import Settings…** in the **Config** tab to move your whole Smart Citizen setup between PCs, or back it up before a fresh install. Export bundles your app settings and every channel's `user.ini` overrides into one small zip, including your Star Citizen install path; machine-specific paths that wouldn't make sense on another PC (your data folder, cache location, window geometry) are left out. Import layers that backup over your current settings and replaces `user.ini` for the channels it contains — your current `user.ini` files are snapshotted first via **Restore user.ini**, so an import is reversible. Your Star Citizen path is only kept if it still exists on the PC you're importing to; otherwise Smart Citizen auto-detects it instead. Smart Citizen restarts after an import to load the new settings, then offers to regenerate and apply your enhancements.
+
+## 14. After Game Updates
 
 When Star Citizen updates, your edits are preserved in `<data folder>\<channel>\user.ini`. Re-run **Extract from Data.p4k** to pull fresh stock strings from the patched game — the table reloads automatically and your customizations re-apply on top.
 
-## 14. Switch Languages
+## 15. Switch Languages
 
 Pick a language from the **Language** dropdown in the **Config** tab (next to Channel). Switching changes both the app's interface and the game strings in the table:
 
@@ -114,7 +119,7 @@ Applying writes to the matching language folder in your game install and sets `g
 
 Want to help translate? Translation status per language is tracked in `languages/TRANSLATIONS.md` in the repo, and we would much rather ship your words than a machine's. Reach out on the Discord.
 
-## 15. App Updates
+## 16. App Updates
 
 Smart Citizen checks for a new version every time it starts. When one is available, the release notes appear in a scrollable window with two choices:
 
@@ -128,13 +133,14 @@ You can also check manually anytime with **Check for Updates** on the Config tab
 - Toggle stat overlays that append numerical stats to descriptions — SCM speed, shield HP, DPS, cargo capacity, mining-laser beam stats (Fracture / Extraction), handheld salvage-tool rates, blueprint pools, mission XP, and more. Mission XP also names the reputation track it feeds (ex: `750 XP (Hauling)`), Battaglia scan/mine contracts carry a `[RS ####]` tag with the target ore's base resource signature, and the Mining Compendium journal lists each ore's base RS next to its mining locations.
 - **Medical Consumables** — adds a plain-language effect line to the base CureLife pens (MedPen, OxyPen, AdrenaPen, and friends), so the description tells you what the pen actually does instead of just its lore.
 - **Show stats above the description** — flip the stat block to sit at the top of a description instead of the bottom, so the numbers are the first thing you read in-game.
+- **Show Resource Signatures (RS) next to ore names** — appends each mineable ore's base Resource Signature to its own display name (e.g. "Aluminium (RS 4285)"), so it shows up everywhere the game renders that name, including the mission tracker. Independent of the Resource Signatures line under Mission Details fields below.
 - Enable or disable each enhancement category independently.
 - Configure the ship favorites prefix character.
 - **Blueprint ownership** moved to its own **Blueprint Tracker** tab; see the next section.
-- **Tag Builder** — customize the bracketed tags placed on component, missile, ship-weapon, and commodity names. Reorder elements with ▲/▼, toggle individual elements off, change abbreviation length (`M` / `MIL` / `Military`), pick separator (none, hyphen, space, etc.) and brackets (square, round, none, etc.), and choose whether the tag appears before or after the name. Components also have an optional **Type** element (Shield, Cooler, Power Plant, etc.) — disabled by default. Commodities have a **Usage** element that shows what a commodity's crafting materials feed into. Click **Save Tag Changes** to save and regenerate. (**Generate Enhancements** also saves any pending tag edits first, so an unsaved tweak can't slip out of a regen.)
-- **Mission Titles** (Tag Builder tab) — lead hauling mission titles with their route. Pick placement (Prepend, Append, or Replace the title), the route arrow (`>`, `->`, `to`, or the shape-encoding `->-`/`->=`/`=>-`/`=>=` that shows one-vs-many endpoints per side), the title separator, and how much of the location to show (full address by default; the short name can fail to display on rare missions), with a live preview. A hauling run reads like `Area18 > Lorville - <original title>` so you can see the job at a glance in the contract list, and multi-stop hauls list their drop-offs (`Area18 > Lorville, New Babbage`). Two independent toggles trim the stock title: **Shorten original titles** applies curated phrase shortenings (e.g. "Opportunity for Independent Cargo Hauler" → "Intro", "Local Shipment Route" → "Route", plus Ling Family and rank-prefix handling), and **Shorten cargo sizes** abbreviates cargo-grade sizes ("Extra Small" → "XS"). Individual checkboxes give finer control — remove "Cargo" or "Haul" outright, drop "Rank", or underline "Direct" hauls for emphasis — so the route and tags fit even on long titles.
+- **Tag Builder** — customize the bracketed tags placed on component, missile, ship-weapon, and commodity names. Reorder elements with ▲/▼, toggle individual elements off, change abbreviation length (`M` / `MIL` / `Military`), pick separator (none, hyphen, space, etc.) and brackets (square, round, none, etc.), and choose whether the tag appears before or after the name. Components also have an optional **Type** element (Shield, Cooler, Power Plant, etc.) — disabled by default. Commodities have **Label**, **Usage** (what a commodity's crafting materials feed into), and **Collection** elements, all disabled by default; enable the ones you want from the Tag Builder. Click **Save Tag Changes** to save and regenerate. (**Generate Enhancements** also saves any pending tag edits first, so an unsaved tweak can't slip out of a regen.)
+- **Mission Titles** (Tag Builder tab) — lead hauling mission titles with their route. Pick placement (Prepend, Append, or Replace the title), the route arrow (`>`, `->`, `to`, or the shape-encoding `->-`/`->=`/`=>-`/`=>=` that shows one-vs-many endpoints per side), the title separator, and how much of the location to show (full address by default; the short name can fail to display on rare missions), with a live preview. A hauling run reads like `Area18 > Lorville - <original title>` so you can see the job at a glance in the contract list, and multi-stop hauls list their drop-offs (`Area18 > Lorville, New Babbage`). Two independent toggles trim the stock title: **Shorten original titles** applies curated phrase shortenings (e.g. "Opportunity for Independent Cargo Hauler" → "Intro", "Local Shipment Route" → "Route", plus Ling Family and rank-prefix handling), and **Shorten cargo sizes** abbreviates cargo-grade sizes ("Extra Small" → "XS"). Individual checkboxes give finer control — remove "Cargo" or "Haul" outright, drop "Rank", or underline "Direct" hauls for emphasis — so the route and tags fit even on long titles. The **General Tags** checkboxes on the same page show or hide the title-only tags: the reputation reward, the blueprint tag, `[ACE]`, the Battaglia `[RS ####]` tag, and the reputation track name. The blueprint tag reads `[BP]` when every version of a mission pays out a blueprint, and `[BP?]` when it isn't a sure thing (only some versions carry one, or the game data marks the payout as a chance roll).
 - **Mission Labels** — customize the section headers used in mission enhancement blocks (MISSION DETAILS, POTENTIAL BLUEPRINTS, ITEM REWARDS, BLUEPRINT DATA), the XP label shown on missions without a specific reputation rank (default "Rep"), and the emphasis tag (EM3 = underline, EM4 = color) used for headers.
-- **Mission Details fields** — show or hide each line of the MISSION DETAILS block individually (mission type, difficulty, spawns, reputation, blueprints, and the `[BP]` title tag), so your mission descriptions carry only the data you care about.
+- **Mission Details fields** — show or hide each line of the MISSION DETAILS block individually (mission type, difficulty, spawns, reputation, blueprints, ace pilot, and resource signatures), so your mission descriptions carry only the data you care about. **Resource Signatures** adds a breakdown to Recco Battaglia scan/mining contracts listing each targeted ore's full RS value progression, separate from the mission-title `[RS ####]` tag and the ore-name annotation above.
 - Click **Generate Enhancements** to extract DataForge data from `Data.p4k` and rebuild the enhancement INI files. Declarative patches under `patches/` are re-applied idempotently on every regen so known CIG data bugs stay fixed without waiting for a game patch.
 
 ## Blueprint Tracker Tab
@@ -142,8 +148,12 @@ You can also check manually anytime with **Check for Updates** on the Config tab
 Track which crafting blueprints you already own, and see it reflected in-game: owned items get a blue `[Owned]` tag in mission POTENTIAL BLUEPRINTS lists, so a contract listing tells you at a glance what you still need to hunt down.
 
 - **Two lists, one shuttle.** Available blueprints on the left, your owned set on the right. Select items and move them with the arrow buttons. The owned set persists across restarts.
-- **Find things fast.** A search box narrows both lists, and the **Mission / Type / Class / Size / Grade** filters cut the available list down by where a blueprint drops and what kind of item it is (Armor, FPS Weapon, Ship Item, and so on).
+- **Find things fast.** A search box narrows both lists, and the **Mission / Type / Class / Size / Grade** filters cut the available list down by where a blueprint drops and what kind of item it is (Armor, Ammo, FPS Weapon, Ship Item, and so on).
+- **Hover any blueprint** to see its type, class, size, and grade, plus every mission that can drop it, listed one per line.
 - **Scan Logs for Owned Blueprints** fills the owned set automatically: it reads your Star Citizen log files for the blueprints you've received in-game and marks them owned. Only blueprints received since your last scan are imported, so re-running it any time is cheap. The scan needs your Star Citizen install path set on the Config tab.
+- **Also scan LIVE/HOTFIX (whichever isn't active)** checks whichever of those two isn't your current channel too, since they share the same account progression — a blueprint earned on LIVE shows up in HOTFIX's logs and vice versa. Enabled by default. PTU, EPTU, and TECH-PREVIEW are separate test builds with their own progression and are never scanned, regardless of this toggle.
+- **Rescan all logs (ignore last scan)** forces the next scan to re-read every log entry from scratch instead of only what's new since your last scan. Use it if your owned set looks wrong and a normal scan isn't fixing it. It unchecks itself once the scan finishes.
+- **Export Owned Blueprints… / Import Owned Blueprints…** move your owned list between PCs, or share it with a friend. Export writes everything you own to a JSON or CSV file; Import reads one back and adds whatever it finds, never removing anything you already own. Exports from scmdb.net import too. The import summary says how many blueprints were new and lists any names in the file Smart Citizen doesn't track.
 - **Apply Owned Tags** re-weaves the `[Owned]` tags into your loaded strings after you change the owned set. Like the other action buttons, it turns **red** when your owned list has changes the table hasn't picked up yet and **green** once everything matches.
 - The strings table's **Owned** column still shows a star and sorts owned-first, but it's read-only now; ownership is managed from this tab.
 
@@ -156,6 +166,7 @@ Track which crafting blueprints you already own, and see it reflected in-game: o
 - **Import INI** — fold an existing INI file into your overrides via the conflict-resolution dialog.
 - **Reset user.ini** — wipe all of your personal edits for the active channel. Prompts for confirmation and auto-backs up the current `user.ini` before clearing it.
 - **Restore user.ini** — roll your personal edits back to an earlier snapshot. Smart Citizen keeps rotating backups of `user.ini` (up to 5, taken automatically before each change), so if an import or edit goes wrong you can pick a previous version and get your strings back. The restore itself is reversible: the current file is snapshotted first.
+- **Export Settings… / Import Settings…** — back up your whole setup (settings plus every channel's `user.ini`) into one small zip, or restore it on a new PC. See *Export / Import Settings* above.
 
 ## Log Tab
 
@@ -191,17 +202,20 @@ The **FAQ** tab answers the questions we get most often, right inside the app �
 - **Nothing in the table** — Make sure **Extract from Data.p4k** has completed and the post-extract reload has finished, then check the **Log Tab** for parse errors.
 - **Enhancements empty or missing items** — Run **Generate Enhancements** from the Enhancements tab; it needs a DataForge cache (click **Extract from Data.p4k** first if you haven't).
 - **Apply Enhancements fails** — Confirm the Star Citizen install path in the **Config Tab** and that the game isn't running.
+- **Extraction says Data.p4k is locked** — The RSI Launcher is downloading or verifying an update. Wait for it to finish (or close the launcher), then click **Extract from Data.p4k** again.
 - **Stale data after game update** — Re-run **Extract from Data.p4k**, then regenerate enhancements.
 
 ## Known Issues
 
-Some mission text anomalies originate in Star Citizen's own data (wrong loc-key references in CIG's contract records). The game reads contracts from its own `Data.p4k` at runtime, so Smart Citizen can't change which loc-key the game looks up — it can only edit the *text* under each loc-key. Where practical, we work around these by merging the intended content into the loc key the game actually reads.
+Some mission text anomalies originate in Star Citizen's own data — a wrong loc-key reference in a contract record, or a blueprint reward whose data doesn't link back to a real display name. The game reads contracts and blueprint rewards from its own `Data.p4k` at runtime, so Smart Citizen can't fix these at the source; it can only correct the *text* it generates and applies. Where practical, we work around these at the data or generation level so the in-game result reads correctly anyway.
 
 - **Jorrit Dossier — "Updated Power Usage Data" shows Energy Anomaly text** — CIG Issue Council [STARC-176797](https://issue-council.robertsspaceindustries.com/projects/STAR-CITIZEN/issues/STARC-176797). CIG's `Hockrow_FacilityDelve_P2M4-Stanton4_Repeat` contract points its `Description` parameter at `@Hockrow_FacilityDelve_P2M1_Repeat_desc` instead of its own `P2M4_Repeat_desc`, so in-game players see P2M1's Energy Anomaly flavor text for a mission titled "Power Usage Data". Smart Citizen works around this in two steps, both declared in `patches/contracts/contractgenerator/mercenary_guild/hockrowagency/hockrowagency_facilitydelve.patch.json`:
   1. A DataForge XML edit so our enhancement generator attaches the correct P2M4 blueprint pool (Corbel Smolder, Geist Rogue/Whiteout) to `P2M4_Repeat_desc` instead of collapsing onto P2M1's.
   2. A loc-string workaround that appends `P2M4_Repeat_desc`'s full content (its flavor text plus its own blueprint pool) onto `P2M1_Repeat_desc`, separated by a labeled divider. Because the game reads the bugged pointer and looks up `P2M1_Repeat_desc` for both contracts, the P2M4 contract now displays its intended content. P2M1 players see the P2M4 block as a labeled appendix after their own description — noisier, but both contracts now show the right blueprint pool and the right flavor text.
 
   When CIG corrects STARC-176797, the whole patch file can be deleted and the next regenerate produces clean split descriptions again.
+
+- **Refueling missions showing garbled nozzle names** (e.g. "Nozzle Fuelgiver Grin Nozzlefast" instead of "Norfield") in a mission's POTENTIAL BLUEPRINTS list. Fuel nozzle blueprint rewards don't link back to a resolvable entity name in CIG's data the way other craftables do, so our enhancement generator was falling back to a de-slugified version of the internal filename instead of the real product name. Fixed for all 8 known fuel nozzle variants (Marlin, Lindstrom, Bendix, Torrez, Ezra, Norfield, Harkin, RN-7s) via a known-name correction in `scripts/generate_enhancements_ini.py`; re-run **Generate Enhancements** and **Apply to Game** to pick up the fix on missions you've already seen.
 
 ## Feedback, Bugs & Feature Voting
 

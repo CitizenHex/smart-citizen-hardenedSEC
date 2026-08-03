@@ -62,6 +62,7 @@ _ARMOR_EXTRA_WORDS = (
     "gys_jacket", "gys_pants",
 )
 from src.utils.owned_items import (
+    BULLET_NAME_ALIASES,
     extract_bp_item_names,
     has_bp_section,
     normalize_item_name,
@@ -112,7 +113,18 @@ _ITEM_NAME_PREFIX = "item_Name"
 _TYPE_FPS_WEAPON = "FPS Weapon"
 _TYPE_SHIP_WEAPON = "Ship Weapon"
 _TYPE_ARMOR = "Armor"
+_TYPE_AMMO = "Ammo"
 _TYPE_OTHER = "Other"
+
+# Ammo/magazine loc keys always end in "_mag" (optionally "_empty"/"_filled",
+# e.g. the salvage canister pair item_Name..._salvage_mag_empty /
+# ..._salvage_mag_filled) (#249). Anchored to the end of the key rather than a
+# bare "_mag" substring match: several weapon keys carry "_rifle_"/"_pistol_"/
+# etc tokens that would otherwise win the FPS Weapon bucket first (e.g.
+# item_Namebehr_rifle_ballistic_01_mag -> "P4-AR Magazine"), and an end anchor
+# also rules out unrelated items that merely contain "mag" mid-key (e.g.
+# item_NameFlair_Poster_SM_Mag_Cover, a physical magazine poster, not ammo).
+_AMMO_KEY_SUFFIXES = ("_mag", "_mag_empty", "_mag_filled")
 
 # Friendly labels for the component type codes that appear right after
 # ``item_Name`` / ``item_Name_`` in a component loc key. Codes not in this map
@@ -191,47 +203,76 @@ def _key_slug(key: str) -> str:
     return " ".join(seg.capitalize() for seg in segments)
 
 
-# Known one-off mismatches between a mission bullet's name and the item's
-# real localized display name that AREN'T explained by _key_slug's fallback
-# pattern -- just a mission author typing a short/informal name. Confirmed
-# via a live "Crew Hasn't Checked In" mining mission body listing "Helix" and
-# "Hofstede" as blueprint rewards; the real items are "S0 Helix" and "S00
-# Hofstede" (item_NameMining_Head_S00_<Name>_SCItem). All four "Mining Head"
-# variants share this exact bullet-uses-bare-manufacturer-name pattern
-# (confirmed via tests/fixtures/kraken_global_latest.ini: item_NameMining_
-# Head_S00_Arbor_SCItem=S0 Arbor, ..._Klein_SCItem=Lawson Mining Laser),
-# added preemptively rather than waiting for each to be individually
-# reported. Extend this dict for any other reported mismatch that isn't a
-# key-slug case.
-_BULLET_NAME_ALIASES: dict[str, str] = {
-    "Arbor": "S0 Arbor",
-    "Helix": "S0 Helix",
-    "Hofstede": "S00 Hofstede",
-    "Klein": "Lawson Mining Laser",
-    # Fuel nozzles (#266 follow-up): most manufacturer variants resolve
-    # generically via _key_slug (their real key genuinely follows
-    # Nozzle_FuelGiver_<MFR>_Nozzle<Variant>_Name), but these three still
-    # showed up ungarbled/untagged after that fix -- their real underlying
-    # key must not match that exact pattern. Confirmed via a live Blueprint
-    # Tracker screenshot listing all three as separate untagged entries
-    # while their siblings (Marlin, Lindstrom, Bendix, Torrez, Ezra) had
-    # already resolved correctly.
-    "Nozzle Fuelgiver Grin Nozzlefast": "Norfield",
-    "Nozzle Fuelgiver Grin Nozzleverysecure": "Harkin",
-    "Nozzle Fuelgiver Misc Nozzlestandard": "RN-7s",
-}
+# Bullet-name aliases now live in owned_items.BULLET_NAME_ALIASES so the
+# owned-tag matching folds through the same table (#346); this module
+# keeps using it for the resolution chain in build_blueprint_metadata.
+_BULLET_NAME_ALIASES = BULLET_NAME_ALIASES
 
-# Fuel nozzle Name-key conventions (#266 follow-up): nozzles ship under two
-# different manufacturer-specific prefixes (MISC's item_fuelnozzle_* vs
-# Greycat/Shubin's Nozzle_FuelGiver_*), neither matching the item_Name /
-# vehicle_Name convention every other component uses. Without these, Pass 1
-# never recognised a nozzle's key as a Name entry at all, so the _key_slug
-# fallback and the explicit aliases above had nothing to resolve against --
-# the bullet stayed as a separate untagged/garbled entry instead of joining
-# the real item.
+# Prefixes CIG strips off a blueprint XML's filename before the descriptive
+# part. Shared with generate_enhancements_ini.py's _name_from_blueprint_filename
+# (imported from here, same deferred-import pattern as tag_builder/win_paths)
+# so the two don't hand-maintain separate copies of the same transform.
+RAW_BLUEPRINT_FILENAME_PREFIXES = ("bp_craft_", "bp_rewards_", "bp_")
+
+
+def strip_raw_blueprint_filename_prefix(stem: str) -> "tuple[str, bool]":
+    """Strip a known bp_* filename prefix (case-insensitively) from *stem*.
+
+    Returns ``(remainder, True)`` if a prefix matched, or ``(stem, False)``
+    unchanged if it didn't -- deliberately leaves "no prefix matched" for the
+    caller to interpret, since the two current callers disagree on what that
+    means: :func:`_raw_blueprint_filename_slug` below takes it as "this bullet
+    isn't shaped like a raw blueprint filename at all," while
+    generate_enhancements_ini.py's ``_name_from_blueprint_filename`` still
+    transforms the untouched stem (its caller already knows it's a genuine
+    blueprint XML path, so there's no "is this one at all" question to ask).
+    """
+    lowered = stem.lower()
+    for prefix in RAW_BLUEPRINT_FILENAME_PREFIXES:
+        if lowered.startswith(prefix):
+            return stem[len(prefix):], True
+    return stem, False
+
+
+def _raw_blueprint_filename_slug(raw_nm: str) -> "str | None":
+    """Recover a real display name from a raw blueprint-XML-filename-shaped
+    bullet, or None if *raw_nm* doesn't look like one.
+
+    Some mission text ships the raw blueprint filename stem verbatim instead
+    of a resolved display name -- confirmed via a live "URGENT REFUEL
+    REQUEST" mission body listing "bp_craft_nozzle_fuelgiver_grin_
+    nozzleverysecure" for what should be "Harkin". This is a different root
+    cause than _key_slug's garbled-KEY bug above: the bullet here is the
+    blueprint's own filename, not a de-slugified loc key, so it needs its
+    own prefix-strip + title-case transform before _BULLET_NAME_ALIASES can
+    recognize it -- once transformed it lands on the exact same alias-table
+    entries the key-slug bug already uses (both bugs happen to produce the
+    same title-cased string for the fuel-nozzle family), so no new aliases
+    are needed, just the extra normalization step to reach them.
+    """
+    stem, matched = strip_raw_blueprint_filename_prefix(raw_nm)
+    if not matched:
+        return None
+    return stem.replace("_", " ").replace("-", " ").title()
+
+
+# Extra Name-key conventions for #266's bare-type components, which don't
+# follow the item_Name<code> / vehicle_Name prefix every other component
+# uses. Fuel nozzles ship under two different manufacturer-specific
+# prefixes (MISC's item_fuelnozzle_* vs Greycat/Shubin's
+# Nozzle_FuelGiver_*); mining lasers share one prefix across all
+# manufacturers but carry no "_Name" marker at all -- the bare key IS the
+# name entry. Without these, Pass 1 never recognised these keys as Name
+# entries at all, so the _key_slug fallback and the explicit aliases above
+# had nothing to resolve against, and the Blueprint Tracker's tagged_name
+# fell back to the untagged bare name even though the String Editor showed
+# the real tag correctly.
+# Extend this alongside _BARE_TYPE_NAMES in generate_enhancements_ini.py
+# whenever a new bare-type category ships (fuel tank, mining module, ...).
 _EXTRA_NAME_KEY_PREFIXES = (
     "item_fuelnozzle_",
     "nozzle_fuelgiver_",
+    "item_mining_mininglaser_",
 )
 
 # The bracketed component tag, e.g. "[MIL-S3-B]" or the user-reconfigured
@@ -351,10 +392,23 @@ def blueprint_type_from_key(key: str):
     if t:
         return t
     kl = key.lower()
+    if kl.endswith(_AMMO_KEY_SUFFIXES):
+        return _TYPE_AMMO
     if any(w in kl for w in _FPS_WEAPON_WORDS):
         return _TYPE_FPS_WEAPON
     if any(w in kl for w in _ARMOR_GEAR_WORDS) or any(w in kl for w in _ARMOR_EXTRA_WORDS):
         return _TYPE_ARMOR
+    # Ship-mounted mining lasers share CIG's generic "Mining_Head" entity-model
+    # key shape across every real variant (item_NameMining_Head_S00_Arbor_SCItem,
+    # ..._Helix_SCItem, ..._Hofstede_SCItem, ..._Klein_SCItem): "Mining" starts
+    # with an uppercase letter like a manufacturer code, and "_S00" is the
+    # head's own size-0 designator -- both signals the ship-weapon heuristic
+    # below looks for, so every one of them satisfies it by coincidence and
+    # misclassifies as "Ship Weapon". None of these are combat ship weapons;
+    # carve the family out before that check so they land in "Other", same as
+    # any mining laser CIG ships under a different key shape.
+    if "mining_head" in kl:
+        return None
     # Ship weapons (#212): an uppercase-manufacturer ship item (item_Name<UPPER>…)
     # carrying a weapon size designator (_S2 / _XL / _L-2) but no recognized
     # subsystem code — the same signal string_model uses to route ship weapons
@@ -450,16 +504,23 @@ def build_blueprint_metadata(entries) -> dict:
     # Pass 2: gather each blueprint item's missions, then attach type + attrs.
     # A bullet name that doesn't match any real item directly is checked
     # against the known one-off aliases, then against the key-slug fallback
-    # (see _BULLET_NAME_ALIASES / _key_slug) before falling back to itself —
-    # so a mismatched bullet still joins the real, tagged item instead of
-    # creating a separate untagged "Other" entry.
+    # (see _BULLET_NAME_ALIASES / _key_slug), then against the raw-filename
+    # fallback (see _raw_blueprint_filename_slug) before falling back to
+    # itself, so a mismatched bullet still joins the real, tagged item
+    # instead of creating a separate untagged "Other" entry.
     missions_by_name: dict = {}
     for pair, val in bp_descs:
         title = titles.get(pair) if pair else None
         for raw_nm in extract_bp_item_names(val):
-            nm = raw_nm if raw_nm in name_to_value else (
-                _BULLET_NAME_ALIASES.get(raw_nm) or keyslug_to_name.get(raw_nm, raw_nm)
-            )
+            if raw_nm in name_to_value:
+                nm = raw_nm
+            elif raw_nm in _BULLET_NAME_ALIASES:
+                nm = _BULLET_NAME_ALIASES[raw_nm]
+            elif raw_nm in keyslug_to_name:
+                nm = keyslug_to_name[raw_nm]
+            else:
+                slug = _raw_blueprint_filename_slug(raw_nm)
+                nm = _BULLET_NAME_ALIASES.get(slug, raw_nm) if slug else raw_nm
             bucket = missions_by_name.setdefault(nm, set())
             if title:
                 bucket.add(title)
