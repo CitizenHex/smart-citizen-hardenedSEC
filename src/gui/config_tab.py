@@ -36,10 +36,6 @@ class ConfigTab(QWidget):
     # has already been persisted via AppSettings.set_active_channel(). Main
     # window listens and triggers a reload against the new channel's data.
     channel_changed = pyqtSignal(str)
-    # Emitted when the user clicks the "Check for Updates" button in Tools.
-    # MainWindow owns the update-check worker and writes results back via
-    # set_update_status() so this tab stays decoupled from the network path.
-    check_updates_requested = pyqtSignal()
     # Emitted after the Smart Citizen data folder override has been saved.
     # MainWindow re-syncs source paths and reloads against the new location.
     data_dir_changed = pyqtSignal(str)
@@ -58,6 +54,7 @@ class ConfigTab(QWidget):
     # post-import restart flow so this tab stays presentation-only.
     export_settings_requested = pyqtSignal()
     import_settings_requested = pyqtSignal()
+    network_lock_changed = pyqtSignal(bool)
 
     def __init__(self):
         super().__init__()
@@ -126,17 +123,6 @@ class ConfigTab(QWidget):
         self._preview_btn.clicked.connect(self.preview_merge)
         button_layout.addWidget(self._preview_btn)
 
-        self._check_updates_btn = QPushButton(tr("config.check_updates_btn"))
-        self._check_updates_btn.setMaximumWidth(170)
-        self._check_updates_btn.setToolTip(tr("config.check_updates_tooltip"))
-        self._check_updates_btn.clicked.connect(self.check_updates_requested.emit)
-        button_layout.addWidget(self._check_updates_btn)
-
-        self._update_status_label = QLabel("")
-        self._update_status_label.setProperty("role", "secondary")
-        self._update_status_label.setStyleSheet("font-size: 11px;")
-        button_layout.addWidget(self._update_status_label)
-
         button_layout.addStretch()
         tools_layout.addLayout(button_layout)
         # _tools_group is added to the layout last (see the bottom of this
@@ -173,6 +159,25 @@ class ConfigTab(QWidget):
 
         appearance_layout.addStretch()
         layout.addWidget(self._appearance_group)
+
+        # Offline Security Mode is intentionally prominent but opt-in. The
+        # process-wide socket guard reads this setting
+        # for every connection attempt, so changes take effect immediately.
+        self._network_group = QGroupBox("Offline Security Mode")
+        network_layout = QVBoxLayout(self._network_group)
+        self.network_lock_cb = QCheckBox("Block all outbound network access (recommended)")
+        self.network_lock_cb.setChecked(AppSettings.get_network_lock_enabled())
+        self.network_lock_cb.setToolTip(
+            "Prevents Smart Citizen from opening network connections or external web links. "
+            "Local Data.p4k extraction and game-log features continue to work."
+        )
+        self.network_lock_cb.toggled.connect(self._on_network_lock_toggled)
+        network_layout.addWidget(self.network_lock_cb)
+        self._network_status_label = QLabel()
+        self._network_status_label.setWordWrap(True)
+        self._network_status_label.setStyleSheet("font-size: 11px;")
+        network_layout.addWidget(self._network_status_label)
+        layout.addWidget(self._network_group)
 
         # ── Star Citizen Installation (path, channel, language) ────────────
         self._loc_group = QGroupBox(tr("config.star_citizen_group"))
@@ -246,6 +251,7 @@ class ConfigTab(QWidget):
         self._map_lang_btn.setToolTip(tr("config.map_language_tooltip"))
         self._map_lang_btn.clicked.connect(self._open_language_source_dialog)
         language_row.addWidget(self._map_lang_btn)
+        self._refresh_network_security_ui()
 
         language_row.addStretch()
         game_layout.addLayout(language_row)
@@ -431,8 +437,6 @@ class ConfigTab(QWidget):
         self._restore_user_ini_btn.setToolTip(tr("config.restore_user_ini_tooltip"))
         self._preview_btn.setText(tr("config.preview_apply_btn"))
         self._preview_btn.setToolTip(tr("config.preview_apply_tooltip"))
-        self._check_updates_btn.setText(tr("config.check_updates_btn"))
-        self._check_updates_btn.setToolTip(tr("config.check_updates_tooltip"))
         self._backup_group.setTitle(tr("config.backup_group"))
         self._backup_desc_label.setText(tr("config.backup_desc"))
         self._export_settings_btn.setText(tr("config.export_settings_btn"))
@@ -483,6 +487,7 @@ class ConfigTab(QWidget):
         self._cache_reset_btn.setToolTip(tr("config.reset_cache_tooltip"))
         self._p4k_group.setTitle(tr("config.p4k_group"))
         self._p4k_desc_label.setText(tr("config.p4k_desc"))
+        self._refresh_network_security_ui()
 
     # ── Theme ────────────────────────────────────────────────────────────────
 
@@ -511,6 +516,49 @@ class ConfigTab(QWidget):
 
     def _on_include_new_toggled(self, checked: bool):
         AppSettings.set_include_new_lines(checked)
+
+    def _on_network_lock_toggled(self, checked: bool):
+        if not checked:
+            reply = QMessageBox.warning(
+                self,
+                "Disable Offline Security Mode?",
+                "This permits Smart Citizen to download allowlisted community language files "
+                "and open external web links. Application updates remain disabled.\n\n"
+                "Disable the network lock?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                blocker = self.network_lock_cb.blockSignals(True)
+                self.network_lock_cb.setChecked(True)
+                self.network_lock_cb.blockSignals(blocker)
+                checked = True
+        AppSettings.set_network_lock_enabled(checked)
+        logger.warning("Offline Security Mode changed: %s", "LOCKED" if checked else "UNLOCKED")
+        self._refresh_network_security_ui()
+        self.network_lock_changed.emit(checked)
+
+    def _refresh_network_security_ui(self):
+        locked = AppSettings.get_network_lock_enabled()
+        if hasattr(self, "_network_status_label"):
+            if locked:
+                self._network_status_label.setText(
+                    "LOCKED — local game data only. Network attempts are blocked and logged."
+                )
+                self._network_status_label.setStyleSheet("font-size: 11px; color: #4caf50;")
+            else:
+                self._network_status_label.setText(
+                    "UNLOCKED — allowlisted language downloads and external links are permitted."
+                )
+                self._network_status_label.setStyleSheet("font-size: 11px; color: #f0a020;")
+        if hasattr(self, "_map_lang_btn"):
+            self._map_lang_btn.setEnabled(not locked)
+            if locked:
+                self._map_lang_btn.setToolTip(
+                    "Disabled while Offline Security Mode is locked."
+                )
+            else:
+                self._map_lang_btn.setToolTip(tr("config.map_language_tooltip"))
 
     # ── Game path ────────────────────────────────────────────────────────────
 
@@ -961,20 +1009,6 @@ class ConfigTab(QWidget):
         )
 
     # ── Updates ──────────────────────────────────────────────────────────────
-
-    def set_update_status(self, text: str) -> None:
-        """Write a short status string next to the 'Check for Updates' button.
-
-        MainWindow calls this from its app-update signal handlers so the
-        result ("Up to date", "v0.9.4 available", "Check failed") sits
-        inline with the button without this tab needing to know about
-        the worker.
-        """
-        self._update_status_label.setText(text)
-
-    def set_check_updates_enabled(self, enabled: bool) -> None:
-        """Toggle the 'Check for Updates' button — disable while a check runs."""
-        self._check_updates_btn.setEnabled(enabled)
 
     # ── Preview ──────────────────────────────────────────────────────────────
 

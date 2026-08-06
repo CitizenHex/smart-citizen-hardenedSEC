@@ -69,11 +69,8 @@ class TestXmlPathIndexCacheVersion:
             "still matches."
         )
 
-    def test_matching_version_pickle_is_still_reused(self, gen_module, tmp_path):
-        """Sanity check the other half of the contract: a pickle already
-        written under the current version must still be a cache hit (this
-        fix isn't supposed to defeat caching entirely, just invalidate the
-        stale pre-#231 shape)."""
+    def test_matching_version_pickle_is_ignored(self, gen_module, tmp_path):
+        """Even a version-matching pickle is untrusted executable input."""
         forge_dir = tmp_path / "forge"
         (forge_dir / ".lookups").mkdir(parents=True)
         (forge_dir / ".p4k_mtime").write_text("teststamp456", encoding="utf-8")
@@ -91,5 +88,5 @@ class TestXmlPathIndexCacheVersion:
 
         result = gen_module._cached_lookup(forge_dir, "xml_path_index", _builder)
 
-        assert result == cached_value
-        assert not builder_called, "A matching-version pickle should be a cache hit"
+        assert result == {"different": ["should not be used"]}
+        assert builder_called, "The safe builder must run instead of loading pickle"

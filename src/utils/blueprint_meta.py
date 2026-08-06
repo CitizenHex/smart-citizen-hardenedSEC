@@ -436,7 +436,7 @@ def _title_pair_key(base: str, num) -> tuple:
     return (base.lower(), num or "")
 
 
-def build_blueprint_metadata(entries) -> dict:
+def build_blueprint_metadata(entries, blueprint_header: str | None = None) -> dict:
     """Scan loaded strings once and return ``{name: BlueprintItem}``.
 
     *entries* is any iterable of objects exposing ``key`` / ``original_value``
@@ -496,7 +496,7 @@ def build_blueprint_metadata(entries) -> dict:
             titles[_title_pair_key(tm.group("base"), tm.group("num"))] = \
                 clean_mission_title(val)
 
-        if has_bp_section(val):
+        if has_bp_section(val, blueprint_header):
             dm = _DESC_KEY_RE.match(key)
             pair = _title_pair_key(dm.group("base"), dm.group("num")) if dm else None
             bp_descs.append((pair, val))
@@ -511,7 +511,7 @@ def build_blueprint_metadata(entries) -> dict:
     missions_by_name: dict = {}
     for pair, val in bp_descs:
         title = titles.get(pair) if pair else None
-        for raw_nm in extract_bp_item_names(val):
+        for raw_nm in extract_bp_item_names(val, blueprint_header):
             if raw_nm in name_to_value:
                 nm = raw_nm
             elif raw_nm in _BULLET_NAME_ALIASES:

@@ -226,6 +226,13 @@ class TestExtract:
         assert not has_bp_section("A description with no rewards section")
         assert not has_bp_section("")
 
+    @pytest.mark.regression
+    def test_custom_blueprint_header_is_recognised(self):
+        desc = "x\\n<EM3>CRAFTING REWARDS</EM3>\\n- Antium Core"
+        assert has_bp_section(desc, "CRAFTING REWARDS")
+        assert extract_bp_item_names(desc, "CRAFTING REWARDS") == {"Antium Core"}
+        assert not has_bp_section(desc)
+
 
 class TestApply:
     def test_tags_only_owned_bullets(self):
@@ -296,6 +303,12 @@ class TestApply:
         assert out.count("<EM4>[Owned]</EM4>") == 2
         assert "Norfield <EM4>[Owned]" not in out  # not owned
         assert apply_owned_to_value(out, {"Lynx Legs", "Barbican"}) == out  # idempotent
+
+    @pytest.mark.regression
+    def test_custom_blueprint_header_tags_owned_items(self):
+        desc = "<EM3>CRAFTING REWARDS</EM3>\\n- Antium Core"
+        out = apply_owned_to_value(desc, {"Antium Core"}, "CRAFTING REWARDS")
+        assert "- Antium Core <EM4>[Owned]</EM4>" in out
 
 
 # ── AppSettings owned-set persistence + model rendering ──────────────────────

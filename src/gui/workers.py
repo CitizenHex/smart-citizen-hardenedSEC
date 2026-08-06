@@ -13,7 +13,6 @@ Contents:
 - DataForgeExtractWorker  — unp4k + unforge + patch pipeline
 - SelectAllDelegate       — Custom Value cell delegate (auto-select, EM3/EM4 wrap)
 - OrderSpinBoxDelegate    — Sort Order cell delegate (0-99 spin box, #142)
-- TestPlanSubmitWorker    — POSTs a tester's test-plan report to a Discord webhook
 """
 
 import logging
@@ -160,51 +159,6 @@ class FileLoaderWorker(QThread):
         except Exception as e:
             logger.exception(f"Error loading files: {e}")
             self.error.emit(str(e))
-
-
-class StartupSyncWorker(QThread):
-    """Worker thread that syncs all enabled remote sources on startup.
-
-    Uses conditional GET (If-Modified-Since) so only changed files are downloaded.
-    Emits source_starting before each download, source_synced after, source_error on
-    failure. Always emits finished so loading proceeds even when sources fail.
-    """
-
-    source_starting = pyqtSignal(str)        # source_name (about to sync)
-    source_synced = pyqtSignal(str, bool)    # (source_name, was_updated)
-    source_error = pyqtSignal(str, str)      # (source_name, error_message)
-    finished = pyqtSignal()
-
-    def run(self):
-        from src.utils.updater import download_file_if_changed
-
-        cache_dir = AppSettings.get_cache_dir()
-        cache_mapping = {
-            AppSettings.SOURCE_GLOBAL:      "base.ini",
-        }
-
-        for source_name in [
-            AppSettings.SOURCE_GLOBAL,
-        ]:
-            if not AppSettings.is_source_enabled(source_name):
-                continue
-            if not AppSettings.get_source_auto_update(source_name):
-                continue
-
-            source_url = AppSettings.get_source_path(source_name)
-            if not source_url or not source_url.startswith("http"):
-                continue
-
-            self.source_starting.emit(source_name)
-            cache_file = cache_dir / cache_mapping.get(source_name, f"{source_name}.ini")
-            try:
-                updated = download_file_if_changed(source_url, cache_file)
-                self.source_synced.emit(source_name, updated)
-            except Exception as e:
-                logger.warning(f"Startup sync failed for {source_name}: {e}")
-                self.source_error.emit(source_name, str(e))
-
-        self.finished.emit()
 
 
 class LanguageBaseDownloadWorker(QThread):
@@ -628,56 +582,3 @@ class OrderSpinBoxDelegate(QStyledItemDelegate):
         value = editor.value()
         # 0 clears the order; set_order() treats "" as "no order".
         model.setData(index, "" if value == 0 else str(value), Qt.ItemDataRole.EditRole)
-
-
-class TestPlanSubmitWorker(QThread):
-    """Post a tester's test-plan report to a Discord webhook (#144).
-
-    Network I/O off the main thread, per the project threading model. The
-    report is pre-split into Discord-sized chunks; each posts as its own
-    message in order. Emits finished(ok, message).
-    """
-
-    finished = pyqtSignal(bool, str)
-
-    def __init__(self, webhook_url: str, chunks: list, parent=None):
-        super().__init__(parent)
-        self._webhook_url = webhook_url
-        self._chunks = chunks
-
-    def _redact(self, text: str) -> str:
-        """Strip the webhook URL (a bearer secret) out of any message so it
-        never lands in the Log tab, an exported log bundle, or an error toast."""
-        if self._webhook_url:
-            return text.replace(self._webhook_url, "<webhook>")
-        return text
-
-    def run(self):
-        import json as _json
-        import urllib.request
-
-        # Only speak HTTPS to a webhook — reject file:// / ftp:// and other
-        # schemes rather than hand a user-supplied string straight to urlopen.
-        if not str(self._webhook_url).lower().startswith("https://"):
-            self.finished.emit(False, "Webhook URL must start with https://")
-            return
-
-        try:
-            for chunk in self._chunks:
-                data = _json.dumps({"content": chunk}).encode("utf-8")
-                req = urllib.request.Request(
-                    self._webhook_url,
-                    data=data,
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
-                with urllib.request.urlopen(req, timeout=15) as resp:
-                    if resp.status >= 300:
-                        self.finished.emit(False, f"Discord returned HTTP {resp.status}")
-                        return
-            self.finished.emit(True, "Report sent to Discord.")
-        except Exception as e:
-            # Static message + no traceback dump: the webhook URL can appear in
-            # a urllib exception's text, so scrub it before it reaches the log.
-            logger.error("Test plan report submission failed: %s", self._redact(str(e)))
-            self.finished.emit(False, f"Could not send report: {self._redact(str(e))}")

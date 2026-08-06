@@ -24,7 +24,6 @@ Usage:
 import io
 import logging
 import os
-import pickle
 import re
 import sys
 from collections import defaultdict
@@ -400,46 +399,13 @@ def _dataforge_cache_key(forge_dir: Path) -> str:
 
 
 def _cached_lookup(forge_dir: Path, name: str, builder, extra_key: str = ""):
-    """Memoize *builder*'s output to cache/dataforge/.lookups/{name}.pkl.
+    """Build a lookup without deserializing executable cache formats.
 
-    Cache key is ``{builder_version}:{dataforge_fingerprint}[:extra_key]``.
-    Any of the three changing invalidates the cache: re-extracting Data.p4k
-    changes the fingerprint; updating the builder's collection logic bumps
-    the version in _LOOKUP_VERSIONS; passing a different *extra_key* (used
-    by scitem_lookups + blueprint_pools to fold in the user's components
-    Tag Builder config so a config change rebuilds the baked-in tags)
-    bumps the third segment. Pickle errors silently fall back to rebuilding.
+    The upstream cache used ``pickle``, which can execute code when a cache
+    file is tampered with. The hardened build accepts slower regeneration in
+    exchange for treating the DataForge cache as untrusted data.
     """
-    cache_dir = forge_dir / ".lookups"
-    cache_file = cache_dir / f"{name}.pkl"
-    builder_version = _LOOKUP_VERSIONS.get(name, "v1")
-    key = f"{builder_version}:{_dataforge_cache_key(forge_dir)}"
-    if extra_key:
-        key = f"{key}:{extra_key}"
-
-    if cache_file.exists():
-        try:
-            with cache_file.open("rb") as f:
-                stored_key, value = pickle.load(f)
-            if stored_key == key:
-                logger.info(f"Lookup cache hit: {name} ({builder_version})")
-                return value
-            else:
-                logger.info(
-                    f"Lookup cache invalidated: {name} "
-                    f"(stored={stored_key!r}, expected={key!r})"
-                )
-        except (pickle.PickleError, OSError, EOFError, ValueError):
-            pass
-
-    value = builder()
-    try:
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        with cache_file.open("wb") as f:
-            pickle.dump((key, value), f, protocol=pickle.HIGHEST_PROTOCOL)
-    except (pickle.PickleError, OSError) as e:
-        logger.debug(f"Could not write lookup cache {name}: {e}")
-    return value
+    return builder()
 
 
 def _build_xml_path_index(records_dir: Path) -> dict[str, list[str]]:

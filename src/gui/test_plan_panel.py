@@ -2,7 +2,7 @@
 
 An interactive checklist of what changed in the release. Testers check items
 off as they verify them; progress persists across launches, and the run can be
-copied to the clipboard or posted to a Discord webhook. Modelled on the Help
+copied to the clipboard for local use. Modelled on the Help
 dock (right-side `QDockWidget`); the plan content and report formatting live in
 the Qt-free `src/utils/test_plan.py`.
 """
@@ -113,16 +113,6 @@ class TestPlanPanel(QWidget):
 
         # Actions.
         btn_row = QHBoxLayout()
-        self.submit_btn = QPushButton(tr("test_plan.submit_btn"))
-        self.submit_btn.clicked.connect(self._submit)
-        webhook = AppSettings.get_test_webhook_url()
-        if not webhook:
-            self.submit_btn.setEnabled(False)
-            self.submit_btn.setToolTip(
-                tr("test_plan.no_webhook_tooltip", env_var=AppSettings.TEST_WEBHOOK_ENV)
-            )
-        btn_row.addWidget(self.submit_btn)
-
         self.copy_btn = QPushButton(tr("test_plan.copy_report_btn"))
         self.copy_btn.clicked.connect(self._copy_report)
         btn_row.addWidget(self.copy_btn)
@@ -154,11 +144,6 @@ class TestPlanPanel(QWidget):
         self._intro_label.setText(tr("test_plan.intro"))
         self._tester_label.setText(tr("test_plan.tester_label"))
         self.tester_edit.setPlaceholderText(tr("test_plan.tester_placeholder"))
-        self.submit_btn.setText(tr("test_plan.submit_btn"))
-        if not AppSettings.get_test_webhook_url():
-            self.submit_btn.setToolTip(
-                tr("test_plan.no_webhook_tooltip", env_var=AppSettings.TEST_WEBHOOK_ENV)
-            )
         self.copy_btn.setText(tr("test_plan.copy_report_btn"))
         self.reset_btn.setText(tr("test_plan.reset_btn"))
         self._notes_label.setText(tr("test_plan.notes_label"))
@@ -227,25 +212,3 @@ class TestPlanPanel(QWidget):
             cb.blockSignals(False)
         self._refresh_progress()
         self.status_label.setText(tr("test_plan.reset_status"))
-
-    def _submit(self) -> None:
-        webhook = AppSettings.get_test_webhook_url()
-        if not webhook:
-            self.status_label.setText(tr("test_plan.no_webhook_status"))
-            return
-        from src.gui.workers import TestPlanSubmitWorker
-
-        chunks = test_plan.discord_chunks(self._build_report())
-        self.submit_btn.setEnabled(False)
-        self.status_label.setText(tr("test_plan.sending_status"))
-        self._submit_worker = TestPlanSubmitWorker(webhook, chunks, self)
-        self._submit_worker.finished.connect(self._on_submit_finished)
-        self._submit_worker.start()
-
-    def _on_submit_finished(self, ok: bool, message: str) -> None:
-        self.status_label.setText(message)
-        self.submit_btn.setEnabled(bool(AppSettings.get_test_webhook_url()))
-        if self._submit_worker is not None:
-            self._submit_worker.quit()
-            self._submit_worker.wait()
-            self._submit_worker = None

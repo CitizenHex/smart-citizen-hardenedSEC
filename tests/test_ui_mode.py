@@ -80,9 +80,11 @@ def test_simple_widget_signals(qapp):
     hits = []
     w.generate_and_apply_requested.connect(lambda: hits.append("generate"))
     w.switch_to_advanced_requested.connect(lambda: hits.append("advanced"))
+    w.import_settings_requested.connect(lambda: hits.append("import"))
     w.generate_apply_btn.click()
     w.advanced_btn.click()
-    assert hits == ["generate", "advanced"]
+    w.import_btn.click()
+    assert hits == ["generate", "advanced", "import"]
 
 
 def test_simple_widget_set_busy(qapp):
@@ -92,6 +94,8 @@ def test_simple_widget_set_busy(qapp):
     assert w.generate_apply_btn.isEnabled()
     w.set_busy(True)
     assert not w.generate_apply_btn.isEnabled()
+    assert not w.advanced_btn.isEnabled()
+    assert not w.import_btn.isEnabled()
     w.set_busy(False)
     assert w.generate_apply_btn.isEnabled()
 

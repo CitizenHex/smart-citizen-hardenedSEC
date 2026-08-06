@@ -47,13 +47,10 @@ from src.gui.workers import (
     OrderSpinBoxDelegate,
     P4kExtractWorker,
     SelectAllDelegate,
-    StartupSyncWorker,
 )
 from src.merger.ini_merger import merge_sources_by_hierarchy
 from src.models.string_model import StringEntry, is_favoritable_ship
 from src.parser.ini_parser import load_source_files, load_sources_from_settings, parse_ini_file
-from src.gui.update_dialog import UpdateDialog
-from src.utils.app_updater import AppUpdateCheckWorker, AppUpdateDownloadWorker
 from src.utils.applied_file_validator import validate_applied_file as _validate_applied_file_impl
 from src.utils.build_mode import IS_PORTABLE
 from src.utils.entry_filter import filter_entry_indices as _filter_entry_indices_impl
@@ -317,8 +314,8 @@ class MainWindow(QMainWindow):
         # File loader worker
         self._loader_worker: Optional[FileLoaderWorker] = None
 
-        # Startup sync worker
-        self._startup_sync_worker: Optional[StartupSyncWorker] = None
+        # Compatibility placeholder for the removed startup network worker.
+        self._startup_sync_worker = None
 
         # Per-language base.ini download worker (#30)
         self._lang_dl_worker: Optional[LanguageBaseDownloadWorker] = None
@@ -356,6 +353,10 @@ class MainWindow(QMainWindow):
         # enhancements-generation-finished slot should continue into
         # apply_to_game. Cleared on completion or any failure.
         self._simple_run_active = False
+        # A new install first needs a local base.ini from Data.p4k.  P4K
+        # extraction reloads sources asynchronously, so this flag resumes the
+        # normal simple pipeline only after that reload has finished.
+        self._simple_continue_after_base_load = False
 
         # Import Settings: True while closing for the post-import restart, so
         # closeEvent neither nags about unapplied edits nor autosaves the
@@ -383,15 +384,6 @@ class MainWindow(QMainWindow):
         self._startup_progress: Optional[AnimatedProgressDialog] = None
         self._loading_progress: Optional[QProgressDialog] = None
 
-        # App self-update check
-        self._update_check_worker: Optional[AppUpdateCheckWorker] = None
-        self._latest_release_url: Optional[str] = None
-        # #211: True while the rest of startup (source sync, extraction
-        # prompts, OneDrive warning) waits on the update check to resolve.
-        self._startup_gate_pending = False
-        self._update_download_worker: Optional[AppUpdateDownloadWorker] = None
-        self._update_download_progress: Optional[AnimatedProgressDialog] = None
-
         # Build UI
         self.setup_ui()
         self.restore_window_state()
@@ -405,10 +397,6 @@ class MainWindow(QMainWindow):
         # appear, their modal prompts (P4K extraction, "new version available",
         # enhancements pipeline) don't pop over the coach-mark overlay and
         # break the tour. See _start_post_tutorial_tasks.
-
-        # Ensure user.cfg has language setting
-        from src.utils.user_cfg import ensure_user_cfg_language
-        ensure_user_cfg_language()
 
         logger.info("MainWindow initialized")
 
@@ -451,7 +439,6 @@ class MainWindow(QMainWindow):
         self.config_tab.restore_user_ini_requested.connect(self._handle_restore_user_ini)
         self.config_tab.channel_changed.connect(self._on_channel_changed)
         self.config_tab.language_changed.connect(self._on_language_changed)
-        self.config_tab.check_updates_requested.connect(self._on_check_updates_clicked)
         self.config_tab.data_dir_changed.connect(self._on_data_dir_changed)
         self.config_tab.cache_dir_changed.connect(self._on_cache_dir_changed)
         self.config_tab.export_settings_requested.connect(self._handle_export_settings)
@@ -518,6 +505,7 @@ class MainWindow(QMainWindow):
         # placement inside the stack.
         self.simple_page = SimpleModeWidget()
         self.simple_page.generate_and_apply_requested.connect(self._run_simple_apply)
+        self.simple_page.import_settings_requested.connect(self._handle_import_settings)
         self.simple_page.switch_to_advanced_requested.connect(
             lambda: self._apply_ui_mode(AppSettings.UI_MODE_ADVANCED)
         )
@@ -672,6 +660,12 @@ class MainWindow(QMainWindow):
             tr("toolbar.restore_backup_btn"), self.restore_backup
         )
         self._action_restore_backup.setToolTip(tr("toolbar.restore_backup_tooltip"))
+        self._action_emergency_remove = more_menu.addAction(
+            "Emergency Remove From Game", self.emergency_remove_from_game
+        )
+        self._action_emergency_remove.setToolTip(
+            "Restore every game file changed by the most recent Apply."
+        )
         more_menu.addSeparator()
         self._action_clear_loc = more_menu.addAction(tr("toolbar.menu_clear_localization"), self.clear_localization)
         self._action_clear_cache = more_menu.addAction(tr("toolbar.menu_clear_cache"), self.clear_cache)
@@ -994,22 +988,37 @@ class MainWindow(QMainWindow):
 
     def open_osiris_github(self, event):
         """Open the Osiris DevWorks GitHub organization in browser."""
-        QDesktopServices.openUrl(QUrl("https://github.com/Osiris-DevWorks"))
+        self._open_external_url("https://github.com/Osiris-DevWorks")
 
     def open_feedback_link(self, event):
         """Open the dedicated Smart Citizen feedback channel in browser."""
         feedback_url = "https://discord.com/channels/1438175448420057323/1472394204347895890"
-        QDesktopServices.openUrl(QUrl(feedback_url))
+        self._open_external_url(feedback_url)
 
     def open_paypal_donation(self, event):
         """Open PayPal donation link in browser."""
         paypal_url = "https://paypal.me/RighteousKill"
-        QDesktopServices.openUrl(QUrl(paypal_url))
+        self._open_external_url(paypal_url)
 
     def open_venmo_donation(self, event):
         """Open Venmo donation link in browser."""
         venmo_url = "https://venmo.com/u/Amr-Abouelleil"
-        QDesktopServices.openUrl(QUrl(venmo_url))
+        self._open_external_url(venmo_url)
+
+    def _open_external_url(self, url: str) -> None:
+        """Open a browser only when the hardened network policy permits it."""
+        from src.utils.network_policy import NetworkBlockedError, require_network_allowed
+        try:
+            require_network_allowed("external web link", url)
+        except NetworkBlockedError:
+            QMessageBox.information(
+                self,
+                "Offline Security Mode",
+                "That web link was blocked. Disable Offline Security Mode in Config only if "
+                "you intentionally want to open external links.",
+            )
+            return
+        QDesktopServices.openUrl(QUrl(url))
 
     # ── App self-update ─────────────────────────────────────────────────────
 
@@ -1023,86 +1032,18 @@ class MainWindow(QMainWindow):
         self._run_app_update_check(force_dialog=True)
 
     def _run_app_update_check(self, force_dialog: bool) -> None:
-        """Spawn a single ``AppUpdateCheckWorker`` — no-op if one is running."""
-        if self._update_check_worker is not None:
-            logger.debug("Update check already in flight; ignoring new request")
-            return
-
-        worker = AppUpdateCheckWorker(self)
-        self._update_check_worker = worker
-        self._force_update_dialog = force_dialog
-
-        worker.update_available.connect(self._on_update_available)
-        worker.up_to_date.connect(self._on_update_up_to_date)
-        worker.check_error.connect(self._on_update_check_error)
-        worker.finished.connect(self._on_update_check_finished)
-
-        self.config_tab.set_check_updates_enabled(False)
-        self.config_tab.set_update_status(tr("status_bar.update_checking"))
-        worker.start()
+        """Self-update is disabled in the hardened build."""
+        logger.info("Self-update check suppressed by hardened build policy")
 
     @pyqtSlot(str, str, str, str, int)
     def _on_update_available(self, latest: str, url: str, body: str,
                              asset_url: str, asset_size: int) -> None:
-        current = get_version()
-        self._latest_release_url = url
-        self._update_check_state = ("available", latest)
-        self._app_version_indicator.setStyleSheet(
-            "font-size: 11px; padding: 0 8px; color: #c9a961; font-weight: bold;"
-        )
-        self._app_version_indicator.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self._app_version_indicator.setToolTip(tr("status_bar.open_release_page_tooltip", version=latest))
-        self._refresh_update_indicator_texts()
-
-        # Auto-update needs an installer asset on the release and a registry
-        # build — the portable variant has no installer to run, so it keeps
-        # the link-only prompt (#211).
-        can_auto_update = bool(asset_url) and not IS_PORTABLE
-
-        dlg = UpdateDialog(
-            self,
-            latest=latest,
-            current=current,
-            notes_html=self.markdown_to_html(body.strip()),
-            can_auto_update=can_auto_update,
-        )
-        dlg.exec()
-
-        if dlg.choice == UpdateDialog.CHOICE_UPDATE:
-            # Gate stays closed: the app exits to install. On download or
-            # launch failure the handlers reopen it so startup continues.
-            self._start_update_download(latest, url, asset_url, asset_size)
-            return
-        if dlg.choice == UpdateDialog.CHOICE_OPEN_PAGE:
-            QDesktopServices.openUrl(QUrl(url))
-        # Whether declined or sent to the release page, the app keeps
-        # running — open the startup gate.
-        self._continue_startup_after_update_gate()
+        raise RuntimeError("Automatic application updates are disabled")
 
     def _start_update_download(self, latest: str, url: str, asset_url: str,
                                asset_size: int) -> None:
-        """Download the release installer with progress, then install (#211)."""
-        label = tr("dialogs.update_download_label", latest=latest)
-        self._update_download_progress = AnimatedProgressDialog(
-            label, parent=self, title=tr("dialogs.update_download_title")
-        )
-        self._latest_release_url = url
-
-        worker = AppUpdateDownloadWorker(asset_url, asset_size, self)
-        self._update_download_worker = worker
-        worker.progress_pct.connect(
-            lambda done, total, msg: (
-                self._update_download_progress.set_progress(
-                    done, total, f"{label}\n{msg}"
-                )
-                if self._update_download_progress is not None
-                else None
-            )
-        )
-        worker.download_finished.connect(self._on_update_download_finished)
-        worker.download_error.connect(self._on_update_download_error)
-        worker.finished.connect(self._on_update_download_worker_done)
-        worker.start()
+        """Installer downloads are forbidden in the hardened build."""
+        raise RuntimeError("Automatic application updates are disabled")
 
     @pyqtSlot(str)
     def _on_update_download_finished(self, installer_path: str) -> None:
@@ -1111,100 +1052,26 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(str)
     def _on_update_download_error(self, message: str) -> None:
-        self._close_update_download_progress()
-        logger.error(f"Update download failed: {message}")
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Warning)
-        box.setWindowTitle(tr("dialogs.update_download_failed_title"))
-        box.setText(tr("dialogs.update_download_failed_body", message=message))
-        page_btn = box.addButton(
-            tr("dialogs.update_open_release"), QMessageBox.ButtonRole.AcceptRole
-        )
-        box.addButton(tr("dialogs.update_later"), QMessageBox.ButtonRole.RejectRole)
-        box.exec()
-        if box.clickedButton() is page_btn and self._latest_release_url:
-            QDesktopServices.openUrl(QUrl(self._latest_release_url))
-        # The update didn't happen — let startup proceed normally.
-        self._continue_startup_after_update_gate()
+        logger.warning("Suppressed obsolete update error: %s", message)
 
     @pyqtSlot()
     def _on_update_download_worker_done(self) -> None:
-        self._reap_worker(self._update_download_worker)
-        self._update_download_worker = None
+        return
 
     def _close_update_download_progress(self) -> None:
-        if self._update_download_progress is not None:
-            self._update_download_progress.close()
-            self._update_download_progress = None
+        return
 
     def _launch_installer_and_quit(self, installer_path: str) -> None:
-        """Spawn the silent installer and exit so file locks release (#211).
-
-        ShellExecuteW honors the installer's admin manifest, so this call is
-        what raises the UAC prompt — and it returns only after the user
-        answers it. A declined prompt (or any launch failure) returns <= 32,
-        in which case the app keeps running and startup proceeds normally.
-
-        Installer switches: /SILENT /NORESTART run the upgrade with just a
-        progress bar; /SUPPRESSMSGBOXES auto-answers the "previous version
-        found" box with its default (Yes = upgrade in place); /AUTOUPDATE=1
-        tells installer.iss to relaunch Smart Citizen when the install
-        finishes (the normal postinstall Run entry is skipifsilent).
-        """
-        import ctypes
-
-        args = "/SILENT /NORESTART /SUPPRESSMSGBOXES /AUTOUPDATE=1"
-        ret = ctypes.windll.shell32.ShellExecuteW(
-            None, "open", installer_path, args, None, 1
-        )
-        if ret <= 32:
-            logger.error(
-                f"Update installer launch failed or was declined "
-                f"(ShellExecuteW returned {ret}) for {installer_path}"
-            )
-            QMessageBox.warning(
-                self,
-                tr("dialogs.update_launch_failed_title"),
-                tr("dialogs.update_launch_failed_body", path=installer_path),
-            )
-            self._continue_startup_after_update_gate()
-            return
-
-        logger.info(f"Update installer launched ({installer_path}); exiting to install")
-        self.close()
+        """Execution of downloaded installers is forbidden."""
+        raise RuntimeError("Automatic application updates are disabled")
 
     @pyqtSlot(str)
     def _on_update_up_to_date(self, current: str) -> None:
-        self._latest_release_url = None
-        self._update_check_state = ("up_to_date", current)
-        self._app_version_indicator.setStyleSheet("font-size: 11px; padding: 0 8px;")
-        self._app_version_indicator.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
-        self._app_version_indicator.setToolTip("")
-        self._refresh_update_indicator_texts()
-        if getattr(self, "_force_update_dialog", False):
-            QMessageBox.information(
-                self,
-                tr("dialogs.up_to_date_title"),
-                tr("dialogs.up_to_date_body", current=current),
-            )
-        self._continue_startup_after_update_gate()
+        return
 
     @pyqtSlot(str)
     def _on_update_check_error(self, message: str) -> None:
-        self._latest_release_url = None
-        self._update_check_state = ("failed", None)
-        self._app_version_indicator.setStyleSheet("font-size: 11px; padding: 0 8px;")
-        self._app_version_indicator.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
-        self._app_version_indicator.setToolTip(message)
-        self._refresh_update_indicator_texts()
-        logger.warning(f"App update check error: {message}")
-        if getattr(self, "_force_update_dialog", False):
-            QMessageBox.warning(
-                self,
-                tr("dialogs.update_check_failed_title"),
-                tr("dialogs.update_check_failed_body", message=message),
-            )
-        self._continue_startup_after_update_gate()
+        logger.warning("Suppressed obsolete update-check error: %s", message)
 
     def _reap_worker(self, worker) -> None:
         """Standard QThread cleanup (quit + wait + deleteLater) for a
@@ -1216,15 +1083,10 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_update_check_finished(self) -> None:
-        self._reap_worker(self._update_check_worker)
-        self._update_check_worker = None
-        self._force_update_dialog = False
-        self.config_tab.set_check_updates_enabled(True)
+        return
 
     def _on_version_label_clicked(self, _event) -> None:
-        """Footer version label click — opens the release page when available."""
-        if self._latest_release_url:
-            QDesktopServices.openUrl(QUrl(self._latest_release_url))
+        return
 
     def create_strings_tab(self) -> QWidget:
         """Create strings table tab."""
@@ -1646,8 +1508,16 @@ class MainWindow(QMainWindow):
         try:
             import shutil
             from datetime import datetime
+            from src.utils.game_rollback import create_game_snapshot
 
             target_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Snapshot the complete game-side change set before touching any
+            # file. Missing files are recorded too, so emergency rollback can
+            # remove files that this Apply created.
+            game_targets = self._managed_game_files()
+            snapshot = create_game_snapshot(game_targets, AppSettings.get_backups_dir())
+            logger.info(f"Created full game rollback snapshot: {snapshot}")
 
             backup_path = None  # Tracks the backup created this apply (used for restore on validation failure)
 
@@ -1729,7 +1599,9 @@ class MainWindow(QMainWindow):
             if _owned:
                 from src.utils.owned_items import apply_owned_to_value
                 for _k, _v in list(merged_dict.items()):
-                    _nv = apply_owned_to_value(_v, _owned)
+                    _nv = apply_owned_to_value(
+                        _v, _owned, AppSettings.get_mission_headers()["blueprints"]
+                    )
                     if _nv != _v:
                         merged_dict[_k] = _nv
 
@@ -1924,6 +1796,60 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, tr("dialogs.error_title"), tr("dialogs.failed_to_delete_global_ini", error=e))
             logger.error(f"Error clearing localization: {e}")
+
+    def _managed_game_files(self) -> dict[str, Path]:
+        """Exact game-side files Apply may create or modify."""
+        channel_path = AppSettings.get_channel_install_path()
+        if not channel_path:
+            raise FileNotFoundError("The active Star Citizen channel path is not configured")
+        return {
+            "global_ini": AppSettings.get_global_ini_path(),
+            "languages_ini": AppSettings.get_languages_ini_dest_path(),
+            "user_cfg": Path(channel_path) / "user.cfg",
+        }
+
+    @pyqtSlot()
+    def emergency_remove_from_game(self):
+        """Restore the complete pre-Apply snapshot for the active channel."""
+        from src.utils.game_rollback import latest_game_snapshot, restore_game_snapshot
+
+        if not AppSettings.get_game_install_path():
+            QMessageBox.warning(self, "Emergency Remove", "No Star Citizen path is configured.")
+            return
+        try:
+            targets = self._managed_game_files()
+            snapshot = latest_game_snapshot(AppSettings.get_backups_dir())
+            if snapshot is None:
+                QMessageBox.warning(
+                    self,
+                    "Emergency Remove",
+                    "No full rollback snapshot exists. No game files were changed.",
+                )
+                return
+            file_list = "\n".join(f"  {path}" for path in targets.values())
+            reply = QMessageBox.question(
+                self,
+                "Emergency Remove From Game",
+                "Close Star Citizen before continuing.\n\n"
+                "This will restore the exact state from before the most recent Apply:\n\n"
+                f"{file_list}\n\nProceed?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+            actions = restore_game_snapshot(snapshot, targets)
+            logger.info("Emergency rollback completed from %s: %s", snapshot, "; ".join(actions))
+            QMessageBox.information(
+                self,
+                "Emergency Remove Complete",
+                "Smart Citizen's game-side changes were rolled back.\n\n"
+                + "\n".join(actions),
+            )
+            self.statusBar().showMessage("Emergency rollback completed")
+        except Exception as exc:
+            logger.exception("Emergency rollback failed")
+            QMessageBox.critical(self, "Emergency Remove Failed", str(exc))
 
     @pyqtSlot()
     def clear_cache(self):
@@ -2671,40 +2597,18 @@ class MainWindow(QMainWindow):
         )
         from src.parser.ini_parser import parse_ini_file
         from src.utils.user_ini_manager import save_user_ini_dict
-        import tempfile
-        import urllib.request
-
-        # Step 1: Get source path/URL from user
+        # Step 1: Get a local source path from the user
         source = self._get_import_source()
         if not source:
             return
 
-        temp_file = None
         try:
-            # Step 2: Resolve to local file
-            if source.startswith('http://') or source.startswith('https://'):
-                # Auto-convert GitHub web URLs to raw URLs
-                if source.startswith('https://github.com/'):
-                    source = source.replace('https://github.com/', 'https://raw.githubusercontent.com/')
-                    source = source.replace('/blob/', '/')
-
-                self.statusBar().showMessage(tr("status_bar.downloading_ini"))
-                try:
-                    temp_file = tempfile.NamedTemporaryFile(suffix='.ini', delete=False)
-                    temp_file.close()
-                    urllib.request.urlretrieve(source, temp_file.name)
-                    resolved_path = temp_file.name
-                except Exception as e:
-                    QMessageBox.critical(
-                        self, tr("import_flow.download_error_title"),
-                        tr("import_flow.download_error_body", source=source, error=e),
-                    )
-                    return
-            else:
-                resolved_path = source
-                if not Path(resolved_path).exists():
-                    QMessageBox.warning(self, tr("dialogs.file_not_found_title"), tr("dialogs.file_not_found_body", path=resolved_path))
-                    return
+            # Step 2: Resolve to a local file. Remote imports are deliberately
+            # unsupported in the hardened build.
+            resolved_path = source
+            if not Path(resolved_path).is_file():
+                QMessageBox.warning(self, tr("dialogs.file_not_found_title"), tr("dialogs.file_not_found_body", path=resolved_path))
+                return
 
             # Step 3: Parse imported file
             imported = parse_ini_file(resolved_path)
@@ -2790,52 +2694,16 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.exception(f"Import failed: {e}")
             QMessageBox.critical(self, tr("import_flow.error_title"), tr("import_flow.error_body", error=e))
-        finally:
-            if temp_file:
-                try:
-                    Path(temp_file.name).unlink(missing_ok=True)
-                except Exception:
-                    pass
 
     def _get_import_source(self) -> str | None:
-        """Show dialog to get a file path or URL for import."""
-        from PyQt6.QtWidgets import (
-            QDialog, QVBoxLayout, QHBoxLayout, QLineEdit,
-            QPushButton, QLabel, QDialogButtonBox, QFileDialog
+        """Select a local INI file; network imports are not permitted."""
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            tr("import_flow.select_ini_file_title"),
+            "",
+            tr("import_flow.ini_file_filter"),
         )
-
-        dialog = QDialog(self)
-        dialog.setWindowTitle(tr("import_flow.source_dialog_title"))
-        dialog.setMinimumWidth(500)
-        layout = QVBoxLayout(dialog)
-
-        layout.addWidget(QLabel(tr("import_flow.source_dialog_label")))
-
-        input_row = QHBoxLayout()
-        line_edit = QLineEdit()
-        line_edit.setPlaceholderText(tr("import_flow.source_dialog_placeholder"))
-        input_row.addWidget(line_edit)
-
-        browse_btn = QPushButton(tr("import_flow.browse_btn"))
-        browse_btn.setToolTip(tr("dialogs.browse_ini_tooltip"))
-        def browse():
-            path, _ = QFileDialog.getOpenFileName(
-                dialog, tr("import_flow.select_ini_file_title"), "", tr("import_flow.ini_file_filter"))
-            if path:
-                line_edit.setText(path)
-        browse_btn.clicked.connect(browse)
-        input_row.addWidget(browse_btn)
-        layout.addLayout(input_row)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
-
-        if dialog.exec() == QDialog.DialogCode.Accepted and line_edit.text().strip():
-            return line_edit.text().strip()
-        return None
+        return path or None
 
     @pyqtSlot()
     def restore_backup(self):
@@ -3407,8 +3275,9 @@ class MainWindow(QMainWindow):
         if getattr(self, "_post_tutorial_tasks_started", False):
             return
         self._post_tutorial_tasks_started = True
-        self._startup_gate_pending = True
-        self._run_app_update_check(force_dialog=False)
+        self._start_startup_sync()
+        self._maybe_warn_onedrive_data_dir()
+        self._maybe_prompt_post_import_apply()
 
     def _continue_startup_after_update_gate(self) -> None:
         """Run the gated startup tasks once the update check resolves (#211).
@@ -3582,50 +3451,23 @@ class MainWindow(QMainWindow):
         self._refresh_channel_indicator()
 
     def _ensure_app_version_indicator(self) -> None:
-        """Install a permanent status-bar widget for the app version + update state.
-
-        Sits immediately next to the SC version text (added before the
-        channel indicator so it lands leftmost in the permanent zone). Text
-        starts as plain ``v{version}`` and is suffixed with the check result
-        ("up to date" / "update available" / "check failed") once the
-        app-update worker reports back. Becomes clickable when an update is
-        available — the click opens the release page.
-        """
+        """Install a read-only status-bar widget for the local app version."""
         if getattr(self, "_app_version_indicator", None) is not None:
             return
         from PyQt6.QtWidgets import QLabel as _QLabel
         self._app_version_indicator = _QLabel(f"v{get_version()}")
         self._app_version_indicator.setStyleSheet("font-size: 11px; padding: 0 8px;")
         self._app_version_indicator.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
-        self._app_version_indicator.mousePressEvent = self._on_version_label_clicked
         self.statusBar().addPermanentWidget(self._app_version_indicator)
 
     def _refresh_update_indicator_texts(self) -> None:
-        """Render the version indicator + Config-tab update status in the
-        current UI language from the last update-check state.
-
-        The check slots set ``_update_check_state`` and delegate text here so
-        a language switch can re-render via retranslate_ui() — pre-fix the
-        labels kept whatever language was active when the check ran (#30).
-        """
+        """Keep the local version indicator free of network-derived state."""
         label = getattr(self, "_app_version_indicator", None)
         if label is None:
             return
         current = get_version()
-        state, version = getattr(self, "_update_check_state", (None, None))
-        if state == "available":
-            label.setText(tr("status_bar.update_indicator_available", current=current))
-            label.setToolTip(tr("status_bar.open_release_page_tooltip", version=version))
-            self.config_tab.set_update_status(tr("status_bar.update_available", version=version))
-        elif state == "up_to_date":
-            label.setText(tr("status_bar.update_indicator_up_to_date", current=current))
-            self.config_tab.set_update_status(tr("status_bar.update_up_to_date", version=version))
-        elif state == "failed":
-            label.setText(tr("status_bar.update_indicator_failed", current=current))
-            self.config_tab.set_update_status(tr("status_bar.update_check_failed"))
-        else:
-            # No check has completed yet — plain version, no status text.
-            label.setText(f"v{current}")
+        label.setText(f"v{current}")
+        label.setToolTip("")
 
     def _refresh_channel_indicator(self) -> None:
         """Update the status-bar channel label to reflect AppSettings.get_active_channel()."""
@@ -3946,6 +3788,23 @@ class MainWindow(QMainWindow):
         dest = AppSettings.get_base_ini_path(language)
         url = AppSettings.get_language_base_url(language)
 
+        if AppSettings.get_network_lock_enabled():
+            if dest.exists():
+                logger.info("Offline Security Mode: using cached %s base.ini", language)
+                AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, str(dest))
+                self._reload_with_language_enhancements(language)
+            else:
+                logger.warning(
+                    "Offline Security Mode blocked uncached %s language download; using English",
+                    language,
+                )
+                AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, str(english_base))
+                self.statusBar().showMessage(
+                    f"Offline Security Mode: no cached {language} language file; using English."
+                )
+                self._show_loading_progress(tr("dialogs.merging_sources"))
+            return
+
         if not url:
             # No URL mapped for this language. Use a cached copy if we have one,
             # otherwise fall back to the English base so the table still loads.
@@ -4186,33 +4045,8 @@ class MainWindow(QMainWindow):
         self._update_status_bar()
 
     def _start_startup_sync(self):
-        """Start async sync of all enabled remote sources, then load files when done.
-
-        If no remote sources need syncing, skip directly to loading.
-        """
-        # Check if any sources actually need syncing (remote URL + auto-update enabled)
-        has_remote_sync = any(
-            AppSettings.is_source_enabled(name)
-            and AppSettings.get_source_auto_update(name)
-            and AppSettings.get_source_path(name).startswith("http")
-            for name in AppSettings.AVAILABLE_SOURCES
-        )
-
-        if not has_remote_sync:
-            # Nothing to sync — go straight to loading
-            self._on_startup_sync_finished()
-            return
-
-        self.statusBar().showMessage(tr("status_bar.starting_up"))
-        self._startup_progress = AnimatedProgressDialog(
-            tr("progress.syncing_sources"), parent=self, title=tr("progress.starting_up_title")
-        )
-        self._startup_sync_worker = StartupSyncWorker()
-        self._startup_sync_worker.source_starting.connect(self._on_startup_source_starting)
-        self._startup_sync_worker.source_synced.connect(self._on_startup_source_synced)
-        self._startup_sync_worker.source_error.connect(self._on_startup_source_error)
-        self._startup_sync_worker.finished.connect(self._on_startup_sync_finished)
-        self._startup_sync_worker.start()
+        """Load local sources without performing background network sync."""
+        self._on_startup_sync_finished()
 
     @pyqtSlot(str)
     def _on_startup_source_starting(self, source_name: str):
@@ -4590,6 +4424,10 @@ class MainWindow(QMainWindow):
             self._check_enhancements_after_loading = False
             self._check_enhancements_freshness()
 
+        if self._simple_continue_after_base_load:
+            self._simple_continue_after_base_load = False
+            self._run_enhancements_pipeline()
+
         # From here on, dirty-marking reflects a real in-session change —
         # see _mark_apply_dirty / _session_has_unapplied_edit.
         self._initial_load_done = True
@@ -4614,7 +4452,8 @@ class MainWindow(QMainWindow):
         once generation completes; this adds one continuation, not a parallel
         pipeline.
         """
-        if self._enhancements_worker is not None or self._forge_worker is not None:
+        if (self._enhancements_worker is not None or self._forge_worker is not None
+                or self._p4k_worker is not None):
             return  # already running
 
         # Applying needs the game folder, but Config (where it's set) is hidden
@@ -4639,7 +4478,32 @@ class MainWindow(QMainWindow):
 
         self._simple_run_active = True
         self.simple_page.set_busy(True)
-        self._run_enhancements_pipeline()
+        # On a fresh portable install there is no cached base.ini yet.  Do
+        # that local extraction automatically, then resume the familiar
+        # DataForge -> generation -> apply chain. Existing cache is retained.
+        if self._simple_needs_base_extraction():
+            self._simple_continue_after_base_load = True
+            self.statusBar().showMessage("Preparing local game data...")
+            self._run_p4k_extraction()
+        else:
+            self._run_enhancements_pipeline()
+
+    @staticmethod
+    def _simple_needs_base_extraction() -> bool:
+        """Whether Simple Mode must prepare its local P4K base cache.
+
+        A newer Data.p4k means the cached English baseline may no longer
+        match the active game build.  This uses only local timestamps and
+        never downloads game data.
+        """
+        base_ini = AppSettings.get_base_ini_path(AppSettings.DEFAULT_LANGUAGE)
+        p4k_path = AppSettings.get_p4k_path()
+        if not base_ini.is_file():
+            return True
+        try:
+            return p4k_path.is_file() and p4k_path.stat().st_mtime > base_ini.stat().st_mtime
+        except OSError:
+            return True
 
     def _run_enhancements_pipeline(self):
         """Entry point for every Generate Enhancements trigger — manual
@@ -4747,6 +4611,7 @@ class MainWindow(QMainWindow):
         the Simple page leave its busy state. Idempotent — safe to call when no
         Simple run is in progress (both are already idle)."""
         self._simple_run_active = False
+        self._simple_continue_after_base_load = False
         self.simple_page.set_busy(False)
 
     def _on_enhancements_generation_error(self, message: str):
@@ -4764,9 +4629,10 @@ class MainWindow(QMainWindow):
             self._enhancements_progress_dialog.close()
             self._enhancements_progress_dialog = None
 
-        self._enhancements_worker.quit()
-        self._enhancements_worker.wait()
-        self._enhancements_worker = None
+        if self._enhancements_worker is not None:
+            self._enhancements_worker.quit()
+            self._enhancements_worker.wait()
+            self._enhancements_worker = None
         self.enhancements_tab.set_operation_idle(success)
         self.enhancements_tab.refresh_enhancements_status()
 
@@ -4826,9 +4692,10 @@ class MainWindow(QMainWindow):
         )
 
     def _on_dataforge_extract_finished(self, success: bool):
-        self._forge_worker.quit()
-        self._forge_worker.wait()
-        self._forge_worker = None
+        if self._forge_worker is not None:
+            self._forge_worker.quit()
+            self._forge_worker.wait()
+            self._forge_worker = None
         self.enhancements_tab.refresh_forge_status()
 
         if success:
@@ -4875,10 +4742,13 @@ class MainWindow(QMainWindow):
 
     def _on_p4k_extract_finished(self, success: bool):
         """Handle P4K extraction completion."""
-        self._p4k_progress.close()
-        self._p4k_worker.quit()
-        self._p4k_worker.wait()
-        self._p4k_worker = None
+        if self._p4k_progress is not None:
+            self._p4k_progress.close()
+            self._p4k_progress = None
+        if self._p4k_worker is not None:
+            self._p4k_worker.quit()
+            self._p4k_worker.wait()
+            self._p4k_worker = None
 
         if success:
             # Lock Global source to the local cache path with auto-update off,
@@ -4901,6 +4771,8 @@ class MainWindow(QMainWindow):
 
             # Show progress dialog while reloading with extracted data
             self._show_loading_progress("Reloading with extracted base.ini...")
+        elif self._simple_run_active:
+            self._end_simple_run()
 
     def closeEvent(self, event):
         """Save state and overrides before closing."""
@@ -5283,7 +5155,9 @@ class MainWindow(QMainWindow):
         it runs on load — not on every owned-toggle (that path re-partitions
         the cached result)."""
         from src.utils.blueprint_meta import build_blueprint_metadata
-        self._blueprint_meta = build_blueprint_metadata(self.entries)
+        self._blueprint_meta = build_blueprint_metadata(
+            self.entries, AppSettings.get_mission_headers()["blueprints"]
+        )
         self._bp_item_names = set(self._blueprint_meta)
 
     def _recompute_owned(self):
@@ -5295,7 +5169,10 @@ class MainWindow(QMainWindow):
         from src.utils.owned_items import apply_owned_to_value
         owned = AppSettings.get_owned_items()
         for e in self.entries:
-            new_val = apply_owned_to_value(e.original_value, owned)
+            new_val = apply_owned_to_value(
+                e.original_value, owned,
+                AppSettings.get_mission_headers()["blueprints"],
+            )
             if new_val != e.original_value:
                 e.original_value = new_val
         self._model.set_owned_state(self._bp_item_names, owned)

@@ -121,7 +121,24 @@ _BP_HEADER_RE = re.compile(
 )
 
 
-def has_bp_section(value: str) -> bool:
+def _bp_header_re(blueprint_header: str | None = None) -> re.Pattern:
+    """Build the recognised-header matcher for a user's current label.
+
+    The generator allows the Blueprint heading to be renamed.  Tracker and
+    owned-tag parsing must use that same label rather than silently depending
+    on the English default.  The legacy multi-pool heading is always accepted
+    because it is authored directly by the game rather than generated here.
+    """
+    header = (blueprint_header or "").strip()
+    if not header or header.casefold() == BP_SECTION_HEADER.casefold():
+        return _BP_HEADER_RE
+    return re.compile(
+        "(?:" + re.escape(header) + "|" + re.escape(_ALT_BP_SECTION_HEADER) + ")",
+        re.IGNORECASE,
+    )
+
+
+def has_bp_section(value: str, blueprint_header: str | None = None) -> bool:
     """True if *value* contains a recognised blueprint-section header.
 
     Single source of truth for the "is this a blueprint-bearing mission
@@ -131,7 +148,7 @@ def has_bp_section(value: str) -> bool:
     HEADER in value.upper()`` substring check, which missed the
     "MULTIPLE BLUEPRINT POOLS" header entirely.
     """
-    return bool(_BP_HEADER_RE.search(value or ""))
+    return bool(_bp_header_re(blueprint_header).search(value or ""))
 
 
 # A tag that MIGHT be a genuine section header (POTENTIAL BLUEPRINTS, ITEM
@@ -156,7 +173,7 @@ _AWARDED_FROM_RE = re.compile(r"^awarded from .+ variants$", re.IGNORECASE)
 _POOL_LABEL_RE = re.compile(r"^pool \d+$", re.IGNORECASE)
 
 
-def _bp_section_span(value: str):
+def _bp_section_span(value: str, blueprint_header: str | None = None):
     """Return (start, end) spanning just the blueprint section's bullet
     content — from right after its header (POTENTIAL BLUEPRINTS or MULTIPLE
     BLUEPRINT POOLS) up to the next real section header (or end of string).
@@ -172,7 +189,7 @@ def _bp_section_span(value: str):
     specific pool/tier a bullet belongs to, matching the pre-existing
     region-label behaviour.
     """
-    m = _BP_HEADER_RE.search(value)
+    m = _bp_header_re(blueprint_header).search(value)
     if not m:
         return None
     start = m.end()
@@ -222,7 +239,7 @@ def normalize_item_name(name: str) -> str:
     return BULLET_NAME_ALIASES.get(s, s)
 
 
-def extract_bp_item_names(value: str) -> set[str]:
+def extract_bp_item_names(value: str, blueprint_header: str | None = None) -> set[str]:
     """Return the normalized item names in *value*'s POTENTIAL BLUEPRINTS list.
 
     Empty when the value has no such section. Scoped to just that section's
@@ -232,7 +249,7 @@ def extract_bp_item_names(value: str) -> set[str]:
     """
     if not value:
         return set()
-    span = _bp_section_span(value)
+    span = _bp_section_span(value, blueprint_header)
     if span is None:
         return set()
     start, end = span
@@ -241,7 +258,9 @@ def extract_bp_item_names(value: str) -> set[str]:
             if normalize_item_name(m.group(1))}
 
 
-def apply_owned_to_value(value: str, owned: set[str]) -> str:
+def apply_owned_to_value(
+    value: str, owned: set[str], blueprint_header: str | None = None,
+) -> str:
     """Return *value* with ``[Owned]`` on bullets whose item is in *owned*.
 
     Idempotent: any existing ``[Owned]`` tag is removed first, so the result is
@@ -258,7 +277,7 @@ def apply_owned_to_value(value: str, owned: set[str]) -> str:
     value = _OWNED_STRIP_RE.sub("", value)
     if not owned:
         return value
-    span = _bp_section_span(value)
+    span = _bp_section_span(value, blueprint_header)
     if span is None:
         return value
     start, end = span

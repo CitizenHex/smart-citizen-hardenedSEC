@@ -1,5 +1,6 @@
 """Extracts files from Star Citizen's Data.p4k using bundled unp4k.exe."""
 import gc
+import hashlib
 import logging
 import os
 import shutil
@@ -17,6 +18,29 @@ from src.utils.i18n import tr
 from src.utils.win_paths import win_long_path as _win_long_path
 
 logger = logging.getLogger(__name__)
+
+# SHA-256 values reviewed and frozen with this hardened source snapshot.
+# Extraction stops before execution if any bundled native component changes.
+_BUNDLED_TOOL_HASHES = {
+    "unp4k.exe": "753ff2556729a2e6c3b936ab6a510d0c80861a6b66837f3948c224d1160cca54",
+    "unforge.exe": "6b7c07d8c61521e17951aa8cf7c63c624dfc093ac8afcc6daaf1be91c9954545",
+    "x86/libzstd.dll": "7b6d1d65b95f7f170568ed81298f3875b7990962229b526d4492cc67e4f7a7dd",
+    "x64/libzstd.dll": "9bef1e2c8eee89d9f54713f01808aacb195bbded5991e11f80b88d132b60f5e4",
+}
+
+
+def _verify_bundled_tools(tool_dir: Path, *, include_unforge: bool) -> None:
+    """Refuse to execute a modified extraction tool or native dependency."""
+    required = ["unp4k.exe", "x86/libzstd.dll", "x64/libzstd.dll"]
+    if include_unforge:
+        required.append("unforge.exe")
+    for relative in required:
+        path = tool_dir / Path(relative)
+        if not path.is_file():
+            raise FileNotFoundError(f"Required bundled extraction component is missing: {path}")
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        if digest != _BUNDLED_TOOL_HASHES[relative]:
+            raise RuntimeError(f"Security check failed: bundled extraction component was modified: {path}")
 
 # DataForge-cache freshness stamps, written after extraction and read by
 # dataforge_cache_is_fresh. Size is the primary signal (#209); mtime is the
@@ -270,6 +294,7 @@ def extract_global_ini(
             extracted file is not found after extraction.
         RuntimeError: If unp4k.exe exits with a non-zero return code.
     """
+    _verify_bundled_tools(unp4k_exe.parent, include_unforge=False)
     if not unp4k_exe.exists():
         raise FileNotFoundError(f"unp4k.exe not found at: {unp4k_exe}")
     if not p4k_path.exists():
@@ -348,6 +373,9 @@ def extract_dataforge(
         FileNotFoundError: If required executables or Data.p4k are missing.
         RuntimeError: If either subprocess fails.
     """
+    if unp4k_exe.parent.resolve() != unforge_exe.parent.resolve():
+        raise RuntimeError("Extraction tools must come from the same verified bundle")
+    _verify_bundled_tools(unp4k_exe.parent, include_unforge=True)
     for exe, name in [(unp4k_exe, "unp4k.exe"), (unforge_exe, "unforge.exe")]:
         if not exe.exists():
             raise FileNotFoundError(f"{name} not found at: {exe}")

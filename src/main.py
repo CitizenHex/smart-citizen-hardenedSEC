@@ -62,6 +62,12 @@ def main():
     # block right after handles).
     AppSettings.setup_portable_backend_if_needed()
 
+    # Install the hardened socket guard after the portable settings backend is
+    # selected. The guard checks the setting on every connection, so changing
+    # Offline Security Mode takes effect immediately without a restart.
+    from src.utils.network_policy import install_network_guard
+    install_network_guard()
+
     # Install crash handler as early as possible — must come AFTER
     # setup_portable_backend_if_needed() (so get_logs_dir resolves to the
     # right base in portable mode) but BEFORE the registry migrators run
@@ -147,28 +153,20 @@ def main():
     # kept pointing at the pre-migration flat location, so the loader
     # would read a file that no longer exists. Do this every startup (not
     # just once post-migration) so channel switches also refresh the
-    # path. Skip the rewrite if the current value is a URL — we don't
-    # want to clobber a user who's configured a custom remote global
-    # source.
+    # path. Hardened builds never retain a remote global-source setting.
     _global_stored = AppSettings.get_source_path(AppSettings.SOURCE_GLOBAL)
-    if not (_global_stored.startswith("http://") or _global_stored.startswith("https://")):
-        # Point at the selected language's base.ini (#30). English uses the
-        # P4K extraction; other languages use a downloaded global.ini. If a
-        # non-English language hasn't been downloaded yet, fall back to the
-        # English base so the table still loads — switching language in the
-        # Config tab fetches the language file and repoints the source.
-        _lang = AppSettings.get_selected_language()
-        _lang_base = AppSettings.get_base_ini_path(_lang)
-        if _lang != AppSettings.DEFAULT_LANGUAGE and not _lang_base.exists():
-            _canonical_global = str(AppSettings.get_base_ini_path(AppSettings.DEFAULT_LANGUAGE))
-        else:
-            _canonical_global = str(_lang_base)
-        if _global_stored != _canonical_global:
-            AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, _canonical_global)
-            logger.info(
-                f"Re-synced SOURCE_GLOBAL path to active channel cache: "
-                f"{_global_stored or '(unset)'} → {_canonical_global}"
-            )
+    _lang = AppSettings.get_selected_language()
+    _lang_base = AppSettings.get_base_ini_path(_lang)
+    if _lang != AppSettings.DEFAULT_LANGUAGE and not _lang_base.exists():
+        _canonical_global = str(AppSettings.get_base_ini_path(AppSettings.DEFAULT_LANGUAGE))
+    else:
+        _canonical_global = str(_lang_base)
+    if _global_stored != _canonical_global:
+        AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, _canonical_global)
+        logger.info(
+            f"Re-synced SOURCE_GLOBAL path to active channel cache: "
+            f"{_global_stored or '(unset)'} → {_canonical_global}"
+        )
 
     # Ensure user.ini exists (create empty if first run)
     AppSettings.ensure_user_ini_file()

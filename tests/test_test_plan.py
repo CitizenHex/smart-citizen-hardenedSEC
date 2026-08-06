@@ -105,13 +105,3 @@ def test_tester_name_round_trip(json_backend):
     assert AppSettings.get_tester_name() == ""
     AppSettings.set_tester_name("Goose")
     assert AppSettings.get_tester_name() == "Goose"
-
-
-def test_webhook_url_stored_then_env_fallback(json_backend, monkeypatch):
-    monkeypatch.delenv(AppSettings.TEST_WEBHOOK_ENV, raising=False)
-    assert AppSettings.get_test_webhook_url() == ""
-    monkeypatch.setenv(AppSettings.TEST_WEBHOOK_ENV, "https://discord/env")
-    assert AppSettings.get_test_webhook_url() == "https://discord/env"
-    # A stored override wins over the env var.
-    AppSettings.set_test_webhook_url("https://discord/stored")
-    assert AppSettings.get_test_webhook_url() == "https://discord/stored"

@@ -27,6 +27,7 @@ class SimpleModeWidget(QWidget):
 
     generate_and_apply_requested = pyqtSignal()
     switch_to_advanced_requested = pyqtSignal()
+    import_settings_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -67,10 +68,24 @@ class SimpleModeWidget(QWidget):
         )
         self.advanced_btn.clicked.connect(self.switch_to_advanced_requested)
 
+        # This is deliberately secondary to Apply: a fresh installation needs
+        # no setup file, while people moving from another Smart Citizen build
+        # can explicitly choose a backup without anything being overwritten.
+        self.import_btn = QPushButton("Import Previous Settings")
+        self.import_btn.setToolTip(
+            "Restore a settings backup from an earlier Smart Citizen build."
+        )
+        self.import_btn.setMinimumHeight(34)
+        self.import_btn.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self.import_btn.clicked.connect(self.import_settings_requested)
+
         btn_col = QVBoxLayout()
         btn_col.setSpacing(12)
         btn_col.addWidget(self.generate_apply_btn)   # Apply Enhancements on top
         btn_col.addWidget(self.advanced_btn)         # Switch to Advanced below
+        btn_col.addWidget(self.import_btn)            # Optional migration path
         btn_wrap = QWidget()
         btn_wrap.setLayout(btn_col)
         btn_wrap.setMaximumWidth(320)
@@ -91,6 +106,8 @@ class SimpleModeWidget(QWidget):
     def set_busy(self, busy: bool) -> None:
         """Disable the action button while a run is in progress."""
         self.generate_apply_btn.setEnabled(not busy)
+        self.advanced_btn.setEnabled(not busy)
+        self.import_btn.setEnabled(not busy)
 
     def retranslate_ui(self) -> None:
         """Re-pull strings after a language switch."""

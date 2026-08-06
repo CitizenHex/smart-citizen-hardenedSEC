@@ -5,7 +5,7 @@ work through what changed in the release and check items off as they verify
 them. This module is the Qt-free core: the plan content itself, the
 progress/key helpers, and the markdown report a tester submits. The Qt panel
 (`src/gui/test_plan_panel.py`) and the Discord-submit worker
-(`TestPlanSubmitWorker` in `src/gui/workers.py`) build on these.
+(`src/gui/test_plan_panel.py`) builds on these.
 
 The content tracks the diff that the active release branch carries over its
 integration base, so each release's plan covers exactly what's new. Update

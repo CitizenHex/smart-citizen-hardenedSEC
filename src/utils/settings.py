@@ -160,8 +160,6 @@ class AppSettings:
     # Settings keys - Test Plan panel (#144)
     TEST_PLAN_CHECKS = "test_plan/checks"        # JSON: {"hash": ..., "checked": [...]}
     TEST_PLAN_TESTER = "test_plan/tester_name"
-    TEST_WEBHOOK_URL = "test_plan/webhook_url"   # falls back to env var when unset
-    TEST_WEBHOOK_ENV = "SMART_CITIZEN_TEST_WEBHOOK_URL"
 
     # Settings keys - Mission labels
     REP_XP_LABEL = "rep_xp_label"
@@ -259,6 +257,10 @@ class AppSettings:
     UI_MODE = "ui_mode"
     UI_MODE_SIMPLE = "simple"
     UI_MODE_ADVANCED = "advanced"
+
+    # Hardened-build network policy. It is opt-in; application self-updates
+    # and startup network sync remain disabled independently of this switch.
+    NETWORK_LOCK_ENABLED = "security/network_lock_enabled"
 
     # Settings keys - Enhancements
     ENHANCEMENTS_ENABLED = "enhancements_enabled"
@@ -450,6 +452,7 @@ class AppSettings:
         "base_global_path",
         "vehicles_path",
         "last_overrides_path",
+        "security/network_lock_enabled",
         POST_IMPORT_APPLY_PENDING,
     })
 
@@ -585,6 +588,20 @@ class AppSettings:
         if mode not in (AppSettings.UI_MODE_SIMPLE, AppSettings.UI_MODE_ADVANCED):
             mode = AppSettings.UI_MODE_SIMPLE
         AppSettings.settings().setValue(AppSettings.UI_MODE, mode)
+
+    @staticmethod
+    def get_network_lock_enabled() -> bool:
+        """Return Offline Security Mode state (default: disabled)."""
+        return AppSettings.settings().value(
+            AppSettings.NETWORK_LOCK_ENABLED, False, type=bool
+        )
+
+    @staticmethod
+    def set_network_lock_enabled(enabled: bool) -> None:
+        """Persist Offline Security Mode state."""
+        AppSettings.settings().setValue(
+            AppSettings.NETWORK_LOCK_ENABLED, bool(enabled)
+        )
 
     @staticmethod
     def get_selected_language() -> str:
@@ -752,20 +769,6 @@ class AppSettings:
     @staticmethod
     def set_tester_name(name: str) -> None:
         AppSettings.settings().setValue(AppSettings.TEST_PLAN_TESTER, name)
-
-    @staticmethod
-    def get_test_webhook_url() -> str:
-        """Resolve the test-report Discord webhook: stored override, then env.
-
-        Returns "" when neither is set; the panel disables Submit in that case
-        and falls back to Copy Report. No webhook URL is ever bundled.
-        """
-        stored = AppSettings.settings().value(AppSettings.TEST_WEBHOOK_URL, "")
-        return (stored or os.environ.get(AppSettings.TEST_WEBHOOK_ENV, "")).strip()
-
-    @staticmethod
-    def set_test_webhook_url(url: str) -> None:
-        AppSettings.settings().setValue(AppSettings.TEST_WEBHOOK_URL, url)
 
     @staticmethod
     def get_rep_xp_label() -> str:
