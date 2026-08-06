@@ -86,4 +86,4 @@ requirements file, and build offline from that local wheel set.
 
 `dist/SmartCitizen-Portable-v2.3.0.zip`
 
-SHA-256: `e8afe35285c785a8fd524bc5fc84b7095c829046a1667825328e88075b61517a`
+SHA-256: `bf9dcd84cb7b8faf9811be7c3e07ad06bc3679851d2ea22b5e33be30ae291a92`

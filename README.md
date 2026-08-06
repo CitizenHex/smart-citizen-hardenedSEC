@@ -1,4 +1,14 @@
-# Smart Citizen
+# Smart Citizen Hardened
+
+> A security-focused, portable fork of
+> [Osiris DevWorks' Smart Citizen](https://github.com/Osiris-DevWorks/smart-citizen).
+> It preserves the project’s localization and enhancement features while
+> removing application self-update behavior and tightening local-data safety.
+
+**This is an independent community fork, not an official Osiris DevWorks
+release.** Original authorship, contributors, license, and acknowledgements
+remain credited below. See [CHANGELOG.md](CHANGELOG.md) for fork changes and
+[SECURITY_HARDENING.md](SECURITY_HARDENING.md) for the security policy.
 
 *Smarter Strings for Star Citizen*
 
@@ -29,7 +39,10 @@ A Windows desktop app for customizing Star Citizen's localization strings. Layer
 - **Guided Tutorial**: A coach-mark tour walks new users through the workflow on first launch of each version. Replayable any time from the Tutorial button.
 - **In-App FAQ**: A FAQ tab answers the common questions (what files get touched, ban risk, the Windows unrecognized-app warning, undoing changes) without leaving the app.
 - **In-App Log Viewer**: Real-time application log with level filter, auto-scroll, and an Export button for bug reports.
-- **Auto-Updater**: Smart Citizen checks GitHub Releases at every launch. When a new version is out, review the release notes in-app and click **Update Now**: the installer downloads, Windows asks for permission, and the app reopens updated. Portable builds link to the release page instead.
+- **Hardened portable distribution**: Application update checks, downloads,
+  installer execution, startup synchronization, and Discord test-report
+  submission are removed. The portable build keeps its settings alongside the
+  application rather than using an installer.
 - **Themes**: Four built-in themes — SCLE (default deep-navy mobiGlas), Light, Dark, and ODW (Osiris DevWorks signature).
 
 ## Screenshots
@@ -55,7 +68,21 @@ A Windows desktop app for customizing Star Citizen's localization strings. Layer
 
 ## Quick Start
 
-### Using the Release
+### Using this Hardened Fork
+
+Download the portable ZIP from this fork’s Releases page, extract it to a
+folder you control, and run `SmartCitizen-Portable-v{VERSION}.exe`. No
+installer is used. On first run, choose **Apply Enhancements** and confirm the
+change; the app prepares required data from your local `Data.p4k`.
+
+If you are moving from another Smart Citizen installation, choose **Import
+Previous Settings** and select an exported settings ZIP. Existing settings are
+never imported automatically.
+
+### Upstream installer notes
+
+> These installer instructions are retained for upstream-reference purposes.
+> They do not apply to this portable hardened fork.
 Grab the latest release here: [Smart Citizen Releases](https://github.com/Osiris-DevWorks/smart-citizen/releases)
 
 Download the **`SmartCitizen-{VERSION}-Setup.exe`** installer and run it. The app auto-detects your Star Citizen installation.
