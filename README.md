@@ -1,23 +1,65 @@
 # Smart Citizen Hardened
 
-> A security-focused, portable fork of
-> [Osiris DevWorks' Smart Citizen](https://github.com/Osiris-DevWorks/smart-citizen).
-> It preserves the project’s localization and enhancement features while
-> removing application self-update behavior and tightening local-data safety.
+> A portable, security-focused Star Citizen localization enhancer.
+> It adds clearer mission, blueprint, item, ship, and crafting information to
+> the game without an installer, self-updater, or background service.
+
+**[Download the latest hardened portable release](../../releases/latest)**
+
+## Start Here
+
+1. Download `SmartCitizen-Portable-...zip` from **Releases**.
+2. Extract the ZIP to a folder you control, such as `Documents\SmartCitizen`.
+3. Run `SmartCitizen-Portable-...exe`.
+4. On the first screen, click **Apply Enhancements** and confirm.
+
+That is all most players need to do. The app reads game data from your local
+Star Citizen installation, imports blueprint ownership from local game logs
+when available, creates backups before it changes anything, and applies the
+enhancements to the selected game channel.
+
+## Why This Hardened Fork
+
+| Feature | What it means for you |
+| --- | --- |
+| **Portable** | No installer and no Windows Registry requirement. Settings, cache, backups, and logs remain in the application's local `data` folder. |
+| **No application auto-updates** | The app never checks for, downloads, or installs its own updates. You choose when to download a new release. |
+| **No telemetry or Discord reporting** | This fork removes the automatic reporting and test-submission features. |
+| **Local game data** | English game strings, missions, blueprints, and item data come from your installed `Data.p4k`, not a community mirror. |
+| **Integrity checks** | The bundled extraction tools are hash-checked before use, and the portable package verifies its packaged files at startup. |
+| **Recovery built in** | Apply creates backups. **More → Emergency Remove From Game** restores the files from before the last Apply. |
+| **Optional Offline Security Mode** | You can block all app network access. The core English workflow does not need network access. |
+
+## What It Does to Star Citizen
+
+Smart Citizen is a **localization mod**, not an injector or game launcher. It
+adds or improves text the game already displays: mission reward details,
+blueprint indicators, reputation information, component and ship statistics,
+crafting references, and more. It changes only localization-related files for
+the selected Star Citizen channel and keeps a rollback snapshot first.
+
+Useful highlights include:
+
+- Mission indicators for blueprints, potential blueprints, and reputation.
+- Blueprint Tracker with local log scanning for blueprints you have already earned.
+- Searchable item, ship, weapon, and crafting information.
+- Configurable name tags for components, missiles, and ship weapons.
+- One-click first-run setup, plus Advanced mode for detailed control.
+
+## Moving from another Smart Citizen build
+
+Choose **Import Previous Settings** on the start screen and select an exported
+settings ZIP. Nothing is imported automatically and your existing settings are
+not overwritten without your action.
+
+---
 
 **This is an independent community fork, not an official Osiris DevWorks
 release.** Original authorship, contributors, license, and acknowledgements
 remain credited below. See [CHANGELOG.md](CHANGELOG.md) for fork changes and
-[SECURITY_HARDENING.md](SECURITY_HARDENING.md) for the security policy.
+[SECURITY_HARDENING.md](SECURITY_HARDENING.md) for the detailed security policy.
 
-*Smarter Strings for Star Citizen*
-
-A Windows desktop app for customizing Star Citizen's localization strings. Layer auto-generated stat and crafting enhancements on top of stock text, edit any in-game string in a sortable filterable table, and apply the result to your game install with a single click and an automatic backup.
-
-> [!NOTE]
-> This project was originally inspired by [ExoAE's ScCompLangPack](https://github.com/ExoAE/ScCompLangPack) and the merge concepts from [MrKraken's ASOP terminal enhancements](https://www.youtube.com/@MrKraken). Smart Citizen evolved into a standalone desktop app sourcing its data directly from your installed `Data.p4k`.
-
-## Features
+## Original Smart Citizen Features
 
 - **Multi-Channel Star Citizen Support**: LIVE / PTU / EPTU / HOTFIX / TECH-PREVIEW each get their own isolated workspace — independent `user.ini`, cache, backups, DataForge extraction, and enhancement INIs. Switch channels from the Config tab without restarting.
 - **Multi-Language Support**: Switch the app and game strings between English, French, Spanish, Brazilian Portuguese, Japanese, Chinese, Italian, and German from the Config tab. Non-English languages layer a community-translated `global.ini` (from [Dymerz/StarCitizen-Localization](https://github.com/Dymerz/StarCitizen-Localization), [42Kit](https://ini.42kit.com/), [stdblue/StarCitizenJapaneseResources](https://github.com/stdblue/StarCitizenJapaneseResources), [Thord82/Star_citizen_ES](https://github.com/Thord82/Star_citizen_ES), and [rjcncpt/StarCitizen-Deutsch-INI](https://github.com/rjcncpt/StarCitizen-Deutsch-INI)) over the English base, with English fallback for anything untranslated.
@@ -66,9 +108,12 @@ A Windows desktop app for customizing Star Citizen's localization strings. Layer
   </tr>
 </table>
 
-## Quick Start
+## Advanced and Upstream Reference
 
-### Using this Hardened Fork
+Most hardened-fork users can stop after **Start Here** above. The remaining
+sections retain detailed application and upstream reference material.
+
+### Manual hardened-fork setup
 
 Download the portable ZIP from this fork’s Releases page, extract it to a
 folder you control, and run `SmartCitizen-Portable-v{VERSION}.exe`. No
@@ -79,7 +124,7 @@ If you are moving from another Smart Citizen installation, choose **Import
 Previous Settings** and select an exported settings ZIP. Existing settings are
 never imported automatically.
 
-### Upstream installer notes
+### Do not use: upstream installer notes
 
 > These installer instructions are retained for upstream-reference purposes.
 > They do not apply to this portable hardened fork.
