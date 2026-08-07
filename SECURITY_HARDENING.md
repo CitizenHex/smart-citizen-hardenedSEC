@@ -94,6 +94,6 @@ requirements file, and build offline from that local wheel set.
 
 ## Current local artifact
 
-`dist/SmartCitizen-Portable-v2.3.0.zip`
+`dist/SmartCitizen-Portable-v2.3.0-hardened.2.zip`
 
-SHA-256: `8c47670ab4432ced6ef812c67d8bace1b92236ce8bf4db87584f217149f71108`
+SHA-256: `16593ec6b99fb1af5ad81a6e978839c9ef801e393ba1143eddfec8ecda985091`
