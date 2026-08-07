@@ -32,6 +32,26 @@ from src.utils.tag_builder import tag_config_fingerprint
 logger = logging.getLogger(__name__)
 
 
+class CraftingRecipeScanWorker(QThread):
+    """Read local crafting records off the UI thread."""
+
+    finished = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def __init__(self, forge_dir: Path, loc: dict[str, str]):
+        super().__init__()
+        self._forge_dir = forge_dir
+        self._loc = loc
+
+    def run(self):
+        try:
+            from src.utils.crafting_recipes import load_crafting_recipes
+            self.finished.emit(load_crafting_recipes(self._forge_dir, self._loc))
+        except Exception as exc:
+            logger.exception("Crafting recipe scan failed")
+            self.failed.emit(str(exc))
+
+
 class AnimatedProgressDialog(QProgressDialog):
     """Reusable progress dialog that toggles between indeterminate and determinate.
 

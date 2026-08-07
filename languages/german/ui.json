@@ -70,6 +70,7 @@
       "ht": "",
       "at": "Bauplan-Tracker"
     },
+    "crafting_planner": {"ht": "", "at": "Crafting Planner"},
     "log": {
       "ht": "",
       "at": "Protokoll"
@@ -1344,6 +1345,9 @@
       "ht": "",
       "at": "Hängt die Basis-Ressourcensignatur jedes abbaubaren Erzes an dessen Anzeigenamen an (z. B. „Aluminium (RS 4285)“), sodass sie überall erscheint, wo das Spiel diesen Namen anzeigt — einschließlich des Missions-Trackers. Unabhängig von den Ressourcensignaturen unter Missions-Detailfeldern. Wird beim nächsten Generieren von Verbesserungen wirksam."
     }
+  },
+  "crafting_planner": {
+    "title": {"ht": "", "at": "Crafting Planner"}, "description": {"ht": "", "at": "Search crafting recipes from your locally extracted Star Citizen game data. This is read-only: it never changes Data.p4k or your game files."}, "refresh": {"ht": "", "at": "Load Recipes from Local Game Data"}, "not_loaded": {"ht": "", "at": "Load your local recipe data to begin. If this is your first run, use Apply Enhancements once so Smart Citizen can extract DataForge from Data.p4k."}, "loading": {"ht": "", "at": "Reading local crafting records…"}, "loaded": {"ht": "", "at": "Loaded {count} recipes from the current channel's local game data."}, "search": {"ht": "", "at": "Search an item or recipe category…"}, "no_matches": {"ht": "", "at": "No recipes match your search."}, "no_data": {"ht": "", "at": "No crafting records were found. Extract DataForge from the current Star Citizen installation first, then try again."}, "failed": {"ht": "", "at": "Could not read the local recipe data: {error}"}
   },
   "blueprint_tracker": {
     "title": {

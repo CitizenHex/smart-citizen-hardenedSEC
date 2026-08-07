@@ -70,6 +70,7 @@
       "ht": "",
       "at": "蓝图追踪器"
     },
+    "crafting_planner": {"ht": "", "at": "Crafting Planner"},
     "log": {
       "ht": "",
       "at": "日志"
@@ -1344,6 +1345,9 @@
       "ht": "",
       "at": "将每种可开采矿石的基础资源信号附加到其显示名称后（例如“Aluminium (RS 4285)”），使其在游戏渲染该名称的所有位置都会显示——包括任务追踪器。与“任务详情字段”下的“资源信号”相互独立。将在下次生成增强内容时生效。"
     }
+  },
+  "crafting_planner": {
+    "title": {"ht": "", "at": "Crafting Planner"}, "description": {"ht": "", "at": "Search crafting recipes from your locally extracted Star Citizen game data. This is read-only: it never changes Data.p4k or your game files."}, "refresh": {"ht": "", "at": "Load Recipes from Local Game Data"}, "not_loaded": {"ht": "", "at": "Load your local recipe data to begin. If this is your first run, use Apply Enhancements once so Smart Citizen can extract DataForge from Data.p4k."}, "loading": {"ht": "", "at": "Reading local crafting records…"}, "loaded": {"ht": "", "at": "Loaded {count} recipes from the current channel's local game data."}, "search": {"ht": "", "at": "Search an item or recipe category…"}, "no_matches": {"ht": "", "at": "No recipes match your search."}, "no_data": {"ht": "", "at": "No crafting records were found. Extract DataForge from the current Star Citizen installation first, then try again."}, "failed": {"ht": "", "at": "Could not read the local recipe data: {error}"}
   },
   "blueprint_tracker": {
     "title": {

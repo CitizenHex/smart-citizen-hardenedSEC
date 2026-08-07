@@ -20,6 +20,7 @@ from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices
 
 from src.gui.blueprint_tracker_tab import BlueprintTrackerTab, _relabel_details_button
+from src.gui.crafting_planner_tab import CraftingPlannerTab
 from src.gui.coach_mark import CoachMarkStep, TutorialTour
 from src.gui.config_tab import ConfigTab
 from src.gui.error_dialog import ErrorDialogHandler, _ErrorDialogEmitter
@@ -40,6 +41,7 @@ from src.gui.theme import (
 from src.gui.workers import (
     AnimatedProgressDialog,
     BlueprintLogScanWorker,
+    CraftingRecipeScanWorker,
     DataForgeExtractWorker,
     EnhancementsGeneratorWorker,
     FileLoaderWorker,
@@ -477,6 +479,15 @@ class MainWindow(QMainWindow):
         # blueprints before it starts generation.  This continuation flag
         # keeps that scan within the same one-button operation.
         self._simple_continue_after_blueprint_scan = False
+
+        # Crafting Planner is intentionally read-only: it opens the local
+        # DataForge cache in a worker and never writes to it or game files.
+        self.crafting_planner_tab = CraftingPlannerTab()
+        self.crafting_planner_tab.refresh_requested.connect(self._load_crafting_recipes)
+        self._crafting_planner_tab_index = self.tabs.addTab(
+            self.crafting_planner_tab, tr("tabs.crafting_planner")
+        )
+        self._crafting_recipe_worker = None
 
         self.log_tab = LogTab()
         self._log_tab_index = self.tabs.addTab(self.log_tab, tr("tabs.log"))
@@ -3662,6 +3673,31 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(tr("status_bar.channel_switched_reloading", channel=channel))
         self.perform_merge_and_reload()
 
+    def _load_crafting_recipes(self) -> None:
+        """Scan the current channel's local DataForge cache for recipes."""
+        if self._crafting_recipe_worker is not None and self._crafting_recipe_worker.isRunning():
+            return
+        loc = {entry.key: entry.current_value for entry in self.entries}
+        self.crafting_planner_tab.set_loading(True)
+        self._crafting_recipe_worker = CraftingRecipeScanWorker(
+            AppSettings.get_dataforge_cache_dir(), loc
+        )
+        self._crafting_recipe_worker.finished.connect(self._on_crafting_recipes_loaded)
+        self._crafting_recipe_worker.failed.connect(self._on_crafting_recipes_failed)
+        self._crafting_recipe_worker.start()
+
+    def _on_crafting_recipes_loaded(self, recipes) -> None:
+        self.crafting_planner_tab.set_loading(False)
+        self.crafting_planner_tab.set_recipes(recipes)
+        if not recipes:
+            self.crafting_planner_tab.set_error(tr("crafting_planner.no_data"))
+
+    def _on_crafting_recipes_failed(self, message: str) -> None:
+        self.crafting_planner_tab.set_loading(False)
+        self.crafting_planner_tab.set_error(
+            tr("crafting_planner.failed", error=message)
+        )
+
     def retranslate_ui(self) -> None:
         """Re-apply tr() to every text-bearing widget after a language switch."""
         self.setWindowTitle(tr("window.title", version=get_version()))
@@ -3673,6 +3709,7 @@ class MainWindow(QMainWindow):
         self.tabs.setTabText(self._config_tab_index, tr("tabs.config"))
         self.tabs.setTabText(self._enhancements_tab_index, tr("tabs.enhancements"))
         self.tabs.setTabText(self._blueprint_tracker_tab_index, tr("tabs.blueprint_tracker"))
+        self.tabs.setTabText(self._crafting_planner_tab_index, tr("tabs.crafting_planner"))
         self.tabs.setTabText(self._log_tab_index, tr("tabs.log"))
         self.tabs.setTabText(self._about_tab_index, tr("tabs.about"))
         self.tabs.setTabText(self._faq_tab_index, tr("tabs.faq"))
@@ -3800,6 +3837,7 @@ class MainWindow(QMainWindow):
         self.config_tab.retranslate_ui()
         self.enhancements_tab.retranslate_ui()
         self.blueprint_tracker_tab.retranslate_ui()
+        self.crafting_planner_tab.retranslate_ui()
 
         # About / FAQ / Legal tab bodies — loaded from a per-language doc
         # file (get_localized_doc_path) but only rendered at tab-creation

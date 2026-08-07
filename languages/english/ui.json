@@ -70,6 +70,10 @@
       "ht": "Blueprint Tracker",
       "at": ""
     },
+    "crafting_planner": {
+      "ht": "Crafting Planner",
+      "at": ""
+    },
     "log": {
       "ht": "Log",
       "at": ""
@@ -1344,6 +1348,18 @@
       "ht": "Preview:  {name}   (no tag — every element is empty or disabled)",
       "at": ""
     }
+  },
+  "crafting_planner": {
+    "title": {"ht": "Crafting Planner", "at": ""},
+    "description": {"ht": "Search crafting recipes from your locally extracted Star Citizen game data. This is read-only: it never changes Data.p4k or your game files.", "at": ""},
+    "refresh": {"ht": "Load Recipes from Local Game Data", "at": ""},
+    "not_loaded": {"ht": "Load your local recipe data to begin. If this is your first run, use Apply Enhancements once so Smart Citizen can extract DataForge from Data.p4k.", "at": ""},
+    "loading": {"ht": "Reading local crafting records…", "at": ""},
+    "loaded": {"ht": "Loaded {count} recipes from the current channel's local game data.", "at": ""},
+    "search": {"ht": "Search an item or recipe category…", "at": ""},
+    "no_matches": {"ht": "No recipes match your search.", "at": ""},
+    "no_data": {"ht": "No crafting records were found. Extract DataForge from the current Star Citizen installation first, then try again.", "at": ""},
+    "failed": {"ht": "Could not read the local recipe data: {error}", "at": ""}
   },
   "blueprint_tracker": {
     "title": {
