@@ -12,6 +12,7 @@
 2. Extract the ZIP to a folder you control, such as `Documents\SmartCitizen`.
 3. Run `SmartCitizen-Portable-...exe`.
 4. On the first screen, click **Apply Enhancements** and confirm.
+**Important Note - windows defender my try and block the app from running. If it does, in the popup click more info, then click Run Anyways** (same as the main branch, this is due to smaller developer teams not having Microsoft reputation) Hash is provided for safety and verification.
 
 That is all most players need to do. The app reads game data from your local
 Star Citizen installation, imports blueprint ownership from local game logs
