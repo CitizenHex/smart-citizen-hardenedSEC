@@ -29,15 +29,17 @@ _BULLET_RE = re.compile(re.escape(_NL) + r"- ([^\\]+)")
 _OWNED_TAG = " <EM4>[Owned]</EM4>"
 # Strip a previously-applied owned tag (with or without the leading space).
 _OWNED_STRIP_RE = re.compile(r"\s*<EM4>\[Owned\]</EM4>")
-# A leading bracketed component tag on a bullet name, e.g. "[Mil-S1-A] ".
-_LEADING_TAG_RE = re.compile(r"^\[[^\]]*\]\s*")
-# A trailing bracketed tag, e.g. "10-Series Greatsword Cannon [B-S2-A]". The
-# Tag Builder's placement setting is per-category and user-configurable
-# (prepend/append), so the same class/size/grade tag can land on either side
-# of the name depending on which category (components vs. ship_weapons vs.
-# missiles) it came from. Stripping both sides keeps matching independent of
-# that setting instead of only handling the default leading placement.
-_TRAILING_TAG_RE = re.compile(r"\s*\[[^\]]*\]\s*$")
+# Tag Builder supports square, round, and curly wrappers. Tracker matching
+# must understand all three; otherwise a Ship Weapons tag configured as
+# ``(Energy-S2)`` becomes part of the item identity (#352). For round/curly
+# forms, require a tag separator so a legitimate name such as
+# ``Artimex Arms (Modified)`` and ``Ballistic Gatling (x2)`` remain untouched.
+_LEADING_TAG_RE = re.compile(
+    r"^(?:\[[^\]]*\]|\((?=[^)]*[-_|])[^)]*\)|\{(?=[^}]*[-_|])[^}]*\})\s*"
+)
+_TRAILING_TAG_RE = re.compile(
+    r"\s*(?:\[[^\]]*\]|\((?=[^)]*[-_|])[^)]*\)|\{(?=[^}]*[-_|])[^}]*\})$"
+)
 # Collapse any run of whitespace to a single space. Runs after NFKC folds a
 # non-breaking space (U+00A0, seen in log names like "Lynx\xa0Legs") into a
 # plain space, so the same item from a log and from loc data normalize alike.
@@ -207,9 +209,10 @@ def normalize_item_name(name: str) -> str:
     """Reduce a bullet/name to a stable identity for matching.
 
     Applies, in order: NFKC unicode folding (so a non-breaking space becomes a
-    plain space), removal of any ``[Owned]`` tag, removal of a leading *and* a
-    trailing bracketed component tag (``[Mil-S1-A] Norfield`` and
-    ``Norfield [Mil-S1-A]`` both reduce to the bare name), removal of a
+    plain space), removal of any ``[Owned]`` tag, removal of repeated leading
+    and trailing Tag Builder wrappers (square, round, or curly; e.g.
+    ``[Mil-S1-A] Norfield`` and ``Norfield (Energy-S2)`` both reduce to the
+    bare name), removal of a
     trailing bullet-only category annotation (``Bendix (Fuel Nozzle)`` ->
     ``Bendix``), whitespace collapse, and finally a BULLET_NAME_ALIASES
     lookup that folds a known short bullet name onto the item's real display
@@ -232,8 +235,14 @@ def normalize_item_name(name: str) -> str:
         return ""
     s = unicodedata.normalize("NFKC", name)
     s = _OWNED_STRIP_RE.sub("", s)
-    s = _LEADING_TAG_RE.sub("", s)
-    s = _TRAILING_TAG_RE.sub("", s)
+    # Repeating is intentional: stale generations may contain multiple tags.
+    # They must still collapse to one Blueprint Tracker identity (#354).
+    while True:
+        stripped = _LEADING_TAG_RE.sub("", s)
+        stripped = _TRAILING_TAG_RE.sub("", stripped)
+        if stripped == s:
+            break
+        s = stripped
     s = _TRAILING_CATEGORY_RE.sub("", s)
     s = _WS_RE.sub(" ", s).strip()
     return BULLET_NAME_ALIASES.get(s, s)

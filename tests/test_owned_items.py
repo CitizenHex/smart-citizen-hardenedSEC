@@ -95,6 +95,15 @@ class TestNormalize:
     def test_leading_and_trailing_tag_together(self):
         assert normalize_item_name("[E-S2] Omnisky VI Cannon") == "Omnisky VI Cannon"
 
+    def test_round_or_curly_ship_weapon_tags_are_stripped(self):
+        # #352: Tag Builder supports non-square wrappers too.
+        assert normalize_item_name("(Energy-S2) Omnisky VI Cannon") == "Omnisky VI Cannon"
+        assert normalize_item_name("Omnisky VI Cannon {E-S2}") == "Omnisky VI Cannon"
+
+    def test_stacked_tags_reduce_to_one_item_identity(self):
+        # #354: stale tag generations must not create a second tracker item.
+        assert normalize_item_name("[MIL-S2-A] [Type-S2] Balandin") == "Balandin"
+
     def test_empty_value(self):
         assert normalize_item_name("") == ""
 

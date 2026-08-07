@@ -278,6 +278,20 @@ def test_build_type_buckets_fps_and_armor():
     assert meta["Mystery Widget"].type == "Other"
 
 
+def test_ship_weapon_round_tag_joins_bare_mission_bullet():
+    """#352: a non-square Ship Weapons Tag Builder wrapper must still
+    join the bare mission reward in Blueprint Tracker."""
+    desc = "x\\n<EM4>POTENTIAL BLUEPRINTS</EM4>\\n- Omnisky VI Cannon"
+    entries = [
+        _Entry("M_Desc_001", desc, "Missions"),
+        _Entry("item_NameKLWE_Omnisky_S02", "Omnisky VI Cannon (Energy-S2)", "Ship Items"),
+    ]
+    meta = build_blueprint_metadata(entries)
+    item = meta["Omnisky VI Cannon"]
+    assert item.type == "Ship Weapon"
+    assert item.tagged_name == "Omnisky VI Cannon (Energy-S2)"
+
+
 def test_build_attaches_mission_name():
     meta = build_blueprint_metadata(_sample_entries())
     assert meta["Balandin"].missions == frozenset({"Salvager Needed"})

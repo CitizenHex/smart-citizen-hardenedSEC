@@ -12,6 +12,8 @@ Usage:
 """
 
 import PyInstaller.__main__
+import hashlib
+import json
 import os
 import sys
 import shutil
@@ -96,6 +98,28 @@ def _cleanup_build_info() -> None:
             print(f"  - Cleaned up {os.path.relpath(build_info_path, root_dir)}")
     except OSError as e:
         print(f"  WARNING: could not delete {build_info_path}: {e}")
+
+
+def _write_package_integrity_manifest(package_dir: str) -> None:
+    """Write hashes for every packaged runtime file after build cleanup."""
+    entries = {}
+    for walk_root, _dirs, files in os.walk(package_dir):
+        for filename in sorted(files):
+            if filename == "package-integrity.json":
+                continue
+            full_path = os.path.join(walk_root, filename)
+            relative = os.path.relpath(full_path, package_dir).replace(os.sep, "/")
+            digest = hashlib.sha256()
+            with open(full_path, "rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            entries[relative] = {"size": os.path.getsize(full_path), "sha256": digest.hexdigest()}
+    manifest = {"format": 1, "version": current_version, "files": entries}
+    path = os.path.join(package_dir, "package-integrity.json")
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        json.dump(manifest, handle, sort_keys=True, separators=(",", ":"))
+        handle.write("\n")
+    print(f"  - Wrote package-integrity.json ({len(entries)} files)")
 
 # Clean previous builds
 print("Cleaning old builds...")
@@ -232,6 +256,10 @@ try:
     if os.path.exists(isoschematron_resources):
         shutil.rmtree(isoschematron_resources)
         print("  - Removed unused lxml isoschematron resources (dead weight, deep paths)")
+        print()
+
+    if portable_mode:
+        _write_package_integrity_manifest(os.path.join(root_dir, 'dist', exe_name))
         print()
 
     # Portable distribution: zip up the onedir output for a no-install

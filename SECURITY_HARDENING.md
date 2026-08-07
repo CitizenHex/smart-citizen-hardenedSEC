@@ -54,6 +54,19 @@ copies the local JSON Lines record to a user-selected destination. Audit records
 are never transmitted and currently cover Apply, emergency rollback, and audit
 exports.
 
+## Portable package integrity
+
+Every portable build includes a `package-integrity.json` manifest containing
+the size and SHA-256 hash of every packaged runtime file. The application
+verifies that manifest before it creates its user interface and refuses to
+launch if a listed file is missing or changed. The local `data/` folder is not
+part of the manifest so normal settings, cache, backup, and audit-log writes
+remain possible.
+
+This is a tamper/corruption check, not a substitute for release verification:
+always compare the downloaded ZIP's detached SHA-256 value with the value
+published on the GitHub release page.
+
 These two executables were built locally from the source snapshot in
 `../odw-fast-unp4k` using the .NET 10 SDK. The reviewed source was hardened
 before compilation:
@@ -94,6 +107,6 @@ requirements file, and build offline from that local wheel set.
 
 ## Current local artifact
 
-`dist/SmartCitizen-Portable-v2.3.0-hardened.2.zip`
+`dist/SmartCitizen-Portable-v2.3.0-hardened.3.zip`
 
-SHA-256: `16593ec6b99fb1af5ad81a6e978839c9ef801e393ba1143eddfec8ecda985091`
+SHA-256: `7025241905594a3573d3dbedca9bda892bec75841fd0084067a526572a39373f`

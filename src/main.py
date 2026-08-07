@@ -54,6 +54,25 @@ def main():
     """Application entry point."""
     logger.info(f"Starting Smart Citizen v{get_version()}")
 
+    # Validate the extracted portable package before importing or running its
+    # GUI. This covers every file created by our build manifest, including
+    # bundled Python, Qt, native tools, and app resources. Development runs
+    # deliberately have no manifest requirement.
+    from src.utils.package_integrity import verify_portable_package
+    integrity = verify_portable_package()
+    if not integrity.ok:
+        logger.critical("Portable package integrity check failed: %s", integrity.message)
+        if sys.platform == "win32":
+            ctypes.windll.user32.MessageBoxW(
+                None,
+                "Smart Citizen refused to start because its portable package failed an integrity check.\n\n"
+                + integrity.message
+                + "\n\nDownload and extract a fresh verified release.",
+                "Smart Citizen — Package Integrity Failed",
+                0x10,
+            )
+        return
+
     # Portable mode: swap the JSON backend in BEFORE any AppSettings
     # accessor runs. No-op in registry mode (the default). Must run
     # before the migrators below — they all read/write the active

@@ -24,6 +24,8 @@ For the full security model and verification details, see
   extraction tools and DLLs against their pinned SHA-256 values on demand.
 - Added an exportable, local-only JSON audit log for successful/failed Apply,
   emergency rollback, and audit-log export operations.
+- Portable packages now verify their complete build manifest at startup and
+  refuse to launch when a listed runtime file is missing or modified.
 
 ### Portability and recovery
 
@@ -41,6 +43,8 @@ For the full security model and verification details, see
 
 - Fixed the tracker and `[Owned]` tags when the user renames the mission
   **POTENTIAL BLUEPRINTS** heading.
+- Fixed Ship Weapons tags using round or curly Tag Builder wrappers and
+  collapsed stale stacked tags into one Blueprint Tracker item.
 
 ### Verification
 

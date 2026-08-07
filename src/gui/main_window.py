@@ -1883,6 +1883,7 @@ class MainWindow(QMainWindow):
     def show_hardened_integrity_report(self):
         """Show the current local security posture without changing any files."""
         from src.utils.pak_extractor import verify_bundled_tool_integrity
+        from src.utils.package_integrity import verify_portable_package
         lines = [
             "Smart Citizen Hardened Build",
             f"Version: {get_version()}",
@@ -1899,6 +1900,9 @@ class MainWindow(QMainWindow):
             lines.extend(f"  {path}: {digest}" for path, digest in hashes.items())
         except Exception as exc:
             lines.append(f"  FAILED — {exc}")
+        package = verify_portable_package()
+        lines.extend(("", "Portable package:",
+                      f"  {'PASS' if package.ok else 'FAILED'} — {package.message}"))
         lines.extend(("", f"Local data folder: {AppSettings.get_user_data_dir()}",
                       f"Audit log: {AppSettings.get_logs_dir() / 'security-audit.jsonl'}"))
         QMessageBox.information(self, "Hardened Build & Integrity Report", "\n".join(lines))
