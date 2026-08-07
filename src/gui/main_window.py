@@ -473,6 +473,10 @@ class MainWindow(QMainWindow):
         self._bp_scan_channel = None
         self._bp_scan_new_names = set()
         self._bp_scan_force_rescan = False
+        # The first-run Simple flow scans locally for previously earned
+        # blueprints before it starts generation.  This continuation flag
+        # keeps that scan within the same one-button operation.
+        self._simple_continue_after_blueprint_scan = False
 
         self.log_tab = LogTab()
         self._log_tab_index = self.tabs.addTab(self.log_tab, tr("tabs.log"))
@@ -4520,7 +4524,7 @@ class MainWindow(QMainWindow):
         pipeline.
         """
         if (self._enhancements_worker is not None or self._forge_worker is not None
-                or self._p4k_worker is not None):
+                or self._p4k_worker is not None or self._bp_log_scan_worker is not None):
             return  # already running
 
         # Applying needs the game folder, but Config (where it's set) is hidden
@@ -4545,6 +4549,16 @@ class MainWindow(QMainWindow):
 
         self._simple_run_active = True
         self.simple_page.set_busy(True)
+        # Import the player's existing earned-blueprint history first. This
+        # reads only local Game.log/logbackups files and has no network path.
+        # A missing/unreadable log simply yields no additions and continues.
+        self._simple_continue_after_blueprint_scan = True
+        self.statusBar().showMessage("Importing locally recorded blueprints...")
+        self._run_blueprint_log_scan()
+
+    def _continue_simple_after_blueprint_scan(self):
+        """Resume Quick Setup after its local blueprint-history import."""
+        self._simple_continue_after_blueprint_scan = False
         # On a fresh portable install there is no cached base.ini yet.  Do
         # that local extraction automatically, then resume the familiar
         # DataForge -> generation -> apply chain. Existing cache is retained.
@@ -4679,6 +4693,7 @@ class MainWindow(QMainWindow):
         Simple run is in progress (both are already idle)."""
         self._simple_run_active = False
         self._simple_continue_after_base_load = False
+        self._simple_continue_after_blueprint_scan = False
         self.simple_page.set_busy(False)
 
     def _on_enhancements_generation_error(self, message: str):
@@ -5287,6 +5302,13 @@ class MainWindow(QMainWindow):
 
         channel_path = AppSettings.get_channel_install_path()
         if not channel_path or not Path(channel_path).is_dir():
+            if self._simple_continue_after_blueprint_scan:
+                logger.info("Quick Setup: no readable game-log folder; skipping blueprint import")
+                self.statusBar().showMessage(
+                    "Blueprint history was unavailable; continuing setup without an import."
+                )
+                self._continue_simple_after_blueprint_scan()
+                return
             QMessageBox.warning(
                 self,
                 tr("enhancements.bp_scan_title"),
@@ -5411,6 +5433,23 @@ class MainWindow(QMainWindow):
         # (every channel), whether it found anything new or errored, so it
         # doesn't silently keep forcing a full rescan on every future click.
         self.blueprint_tracker_tab.reset_force_rescan_checkbox()
+
+        # Quick Setup deliberately stays a one-action path: report its local
+        # scan in the status bar and continue into generation rather than
+        # interrupting first-run setup with a summary dialog.
+        if self._simple_continue_after_blueprint_scan:
+            if new_names:
+                owned = AppSettings.get_owned_items()
+                AppSettings.set_owned_items(owned | set(new_names))
+                self._recompute_owned()
+                self.blueprint_tracker_tab.mark_owned_clean()
+                self.statusBar().showMessage(
+                    f"Imported {len(new_names)} earned blueprint(s) from local game logs."
+                )
+            else:
+                self.statusBar().showMessage("No additional earned blueprints found in local game logs.")
+            self._continue_simple_after_blueprint_scan()
+            return
 
         if not new_names:
             QMessageBox.information(

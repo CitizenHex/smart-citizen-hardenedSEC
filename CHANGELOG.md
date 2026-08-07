@@ -34,6 +34,8 @@ For the full security model and verification details, see
   generation and Apply.
 - Added explicit **Import Previous Settings** support for migrations; existing
   settings are never replaced automatically.
+- Quick Setup now scans the local Star Citizen log history and imports earned
+  blueprints before generating and applying enhancements.
 
 ### Blueprint Tracker
 

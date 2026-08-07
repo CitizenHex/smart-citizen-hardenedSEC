@@ -21,6 +21,9 @@ dependencies as untrusted until reviewed.
 - The Test Plan cannot submit data to Discord.
 - English localization, blueprints, missions, and item data come from the local
   Star Citizen `Data.p4k` installed and updated by the RSI Launcher.
+- During Quick Setup, previously earned blueprints are imported only by reading
+  the local `Game.log` and `logbackups` files in the selected game channel; no
+  account service or network request is used.
 - A network request occurs only when the user selects a non-English language
   whose community localization file is not cached.
 - Language requests are restricted to the exact URLs committed in
