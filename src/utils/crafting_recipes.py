@@ -7,6 +7,7 @@ display-ready recipe catalogue for the Crafting Planner.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
@@ -19,6 +20,7 @@ class RecipeIngredient:
     name: str
     quantity: str
     resolved: bool = True
+    identifier: str = ""
 
 
 @dataclass(frozen=True)
@@ -26,6 +28,41 @@ class CraftingRecipe:
     name: str
     category: str
     ingredients: tuple[RecipeIngredient, ...]
+
+
+def build_shopping_list(recipes) -> list[RecipeIngredient]:
+    """Combine numeric ingredients from one or more recipes.
+
+    Unresolved records are kept separate by their DataForge identifier, so two
+    unrelated unknown materials are never silently combined. Non-numeric
+    quantities are retained as individual lines rather than guessed at.
+    """
+    totals: dict[tuple[str, str], tuple[str, bool, Decimal]] = {}
+    passthrough: list[RecipeIngredient] = []
+    for recipe in recipes:
+        for ingredient in recipe.ingredients:
+            try:
+                quantity = Decimal(ingredient.quantity)
+                if not quantity.is_finite():
+                    raise InvalidOperation
+            except (InvalidOperation, ValueError):
+                passthrough.append(ingredient)
+                continue
+            identity = ingredient.name.casefold() if ingredient.resolved else ingredient.identifier
+            key = (identity, ingredient.name)
+            previous = totals.get(key)
+            totals[key] = (ingredient.name, ingredient.resolved, quantity if previous is None else previous[2] + quantity)
+
+    def _format_quantity(quantity: Decimal) -> str:
+        rendered = format(quantity, "f")
+        return rendered.rstrip("0").rstrip(".") if "." in rendered else rendered
+
+    out = [
+        RecipeIngredient(name, _format_quantity(quantity), resolved, identity)
+        for (identity, _), (name, resolved, quantity) in totals.items()
+    ]
+    out.extend(passthrough)
+    return sorted(out, key=lambda ingredient: (not ingredient.resolved, ingredient.name.casefold()))
 
 
 def _records_dir(forge_dir: Path) -> Path:
@@ -122,7 +159,7 @@ def load_crafting_recipes(forge_dir: Path, loc: dict[str, str] | None = None) ->
         output = names.get(output_id, _fallback_name(xml_file.stem))
         category = str(xml_file.relative_to(bp_dir).parent).replace("\\", "/")
         ingredients = tuple(
-            RecipeIngredient(names.get(uid, "Unknown material"), quantity, uid in names)
+            RecipeIngredient(names.get(uid, "Unknown material"), quantity, uid in names, uid)
             for uid, quantity in costs
         )
         recipes.append(CraftingRecipe(output, category, ingredients))

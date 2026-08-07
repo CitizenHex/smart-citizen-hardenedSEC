@@ -1,7 +1,9 @@
 """Tests for the local-only Crafting Planner recipe reader."""
 from pathlib import Path
 
-from src.utils.crafting_recipes import load_crafting_recipes
+from src.utils.crafting_recipes import (
+    CraftingRecipe, RecipeIngredient, build_shopping_list, load_crafting_recipes,
+)
 
 
 def test_load_crafting_recipes_resolves_resource_item_and_quantity(tmp_path: Path):
@@ -54,3 +56,15 @@ def test_load_crafting_recipes_keeps_unknown_material_visible(tmp_path: Path):
     assert recipes[0].ingredients[0].name == "Unknown material"
     assert recipes[0].ingredients[0].quantity == "2"
     assert not recipes[0].ingredients[0].resolved
+
+
+def test_build_shopping_list_combines_matching_materials():
+    recipes = [
+        CraftingRecipe("One", "test", (RecipeIngredient("Iron", "12"), RecipeIngredient("Hadanite", "3"))),
+        CraftingRecipe("Two", "test", (RecipeIngredient("Iron", "7"), RecipeIngredient("Copper", "10"))),
+    ]
+    shopping_list = build_shopping_list(recipes)
+    assert [(item.name, item.quantity) for item in shopping_list] == [
+        ("Copper", "10"),
+        ("Hadanite", "3"), ("Iron", "19"),
+    ]

@@ -33,6 +33,10 @@ quantities authored in your current Star Citizen game data, so you can make a
 shopping list before using an in-game fabricator. It is read-only: it never
 changes `Data.p4k` or game files.
 
+To plan several crafts at once, Ctrl-select multiple recipes. The planner
+combines matching materials into one total shopping list, which you can copy
+to the clipboard.
+
 ## Why This Hardened Fork
 
 | Feature | What it means for you |
@@ -57,7 +61,8 @@ Useful highlights include:
 
 - Mission indicators for blueprints, potential blueprints, and reputation.
 - Blueprint Tracker with local log scanning for blueprints you have already earned.
-- Crafting Planner: search local recipes and view required materials and quantities.
+- Crafting Planner: search local recipes, view required materials and quantities,
+  and combine several recipes into a copyable shopping list.
 - Searchable item, ship, weapon, and crafting information.
 - Configurable name tags for components, missiles, and ship weapons.
 - One-click first-run setup, plus Advanced mode for detailed control.

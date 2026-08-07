@@ -4,9 +4,10 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QListWidgetItem, QPushButton, QScrollArea, QVBoxLayout, QWidget, QApplication,
 )
 from src.utils.i18n import tr
+from src.utils.crafting_recipes import build_shopping_list
 
 
 class CraftingPlannerTab(QWidget):
@@ -42,10 +43,15 @@ class CraftingPlannerTab(QWidget):
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self._render_list)
         layout.addWidget(self.search)
+        self.selection_note = QLabel("Select one recipe to inspect it, or Ctrl-select several recipes to combine their materials.")
+        self.selection_note.setWordWrap(True)
+        self.selection_note.setProperty("role", "secondary")
+        layout.addWidget(self.selection_note)
         row = QHBoxLayout()
         self.recipe_list = QListWidget()
-        self.recipe_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.recipe_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.recipe_list.currentRowChanged.connect(self._render_details)
+        self.recipe_list.itemSelectionChanged.connect(self._render_selected_details)
         row.addWidget(self.recipe_list, 1)
         self.details = QLabel()
         self.details.setWordWrap(True)
@@ -56,6 +62,10 @@ class CraftingPlannerTab(QWidget):
         self.details.setContentsMargins(12, 12, 12, 12)
         row.addWidget(self.details, 1)
         layout.addLayout(row, 1)
+        self.copy_shopping_list_button = QPushButton("Copy Shopping List")
+        self.copy_shopping_list_button.setEnabled(False)
+        self.copy_shopping_list_button.clicked.connect(self._copy_shopping_list)
+        layout.addWidget(self.copy_shopping_list_button)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -98,12 +108,49 @@ class CraftingPlannerTab(QWidget):
         item = self.recipe_list.item(row)
         if item is None:
             return
+        selected = self._selected_recipes()
+        if len(selected) > 1:
+            self._render_shopping_list(selected)
+            return
         recipe = item.data(Qt.ItemDataRole.UserRole)
         lines = [f"<b>{recipe.name}</b>", f"<br><span style='color:#888'>{recipe.category}</span>", "<br><br><b>Materials needed</b>"]
         for ingredient in recipe.ingredients:
             suffix = "" if ingredient.resolved else " <span style='color:#c88'>(unresolved)</span>"
             lines.append(f"<br>• {ingredient.quantity} × {ingredient.name}{suffix}")
         self.details.setText("".join(lines))
+        self.copy_shopping_list_button.setEnabled(False)
+
+    def _selected_recipes(self):
+        return [item.data(Qt.ItemDataRole.UserRole) for item in self.recipe_list.selectedItems()]
+
+    def _render_selected_details(self):
+        selected = self._selected_recipes()
+        if len(selected) > 1:
+            self._render_shopping_list(selected)
+        elif selected:
+            self._render_details(self.recipe_list.currentRow())
+
+    def _shopping_list_text(self, recipes) -> str:
+        lines = [f"Crafting shopping list ({len(recipes)} recipe{'s' if len(recipes) != 1 else ''})", ""]
+        for ingredient in build_shopping_list(recipes):
+            suffix = " (unresolved)" if not ingredient.resolved else ""
+            lines.append(f"- {ingredient.quantity} x {ingredient.name}{suffix}")
+        return "\n".join(lines)
+
+    def _render_shopping_list(self, recipes):
+        ingredients = build_shopping_list(recipes)
+        lines = [f"<b>Shopping List — {len(recipes)} recipes</b>", "<br><br><b>Total materials needed</b>"]
+        for ingredient in ingredients:
+            suffix = " <span style='color:#c88'>(unresolved)</span>" if not ingredient.resolved else ""
+            lines.append(f"<br>• {ingredient.quantity} × {ingredient.name}{suffix}")
+        self.details.setText("".join(lines))
+        self.copy_shopping_list_button.setEnabled(bool(ingredients))
+
+    def _copy_shopping_list(self):
+        recipes = self._selected_recipes()
+        if recipes:
+            QApplication.clipboard().setText(self._shopping_list_text(recipes))
+            self.status.setText("Shopping list copied to the clipboard.")
 
     def retranslate_ui(self):
         self.title.setText(tr("crafting_planner.title"))
