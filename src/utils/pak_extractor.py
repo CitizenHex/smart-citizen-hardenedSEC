@@ -42,6 +42,24 @@ def _verify_bundled_tools(tool_dir: Path, *, include_unforge: bool) -> None:
         if digest != _BUNDLED_TOOL_HASHES[relative]:
             raise RuntimeError(f"Security check failed: bundled extraction component was modified: {path}")
 
+
+def verify_bundled_tool_integrity(tool_dir: Path | None = None) -> dict[str, str]:
+    """Verify every bundled native extraction component and return its hash.
+
+    This is the public, read-only counterpart to the checks performed before
+    extraction.  The UI uses it for the Hardened Build report so users can
+    inspect the same boundary that protects execution, without running an
+    extraction job.
+    """
+    if tool_dir is None:
+        from src.utils.resource_path import get_resource_path
+        tool_dir = Path(get_resource_path("assets/unp4k"))
+    _verify_bundled_tools(tool_dir, include_unforge=True)
+    return {
+        relative: hashlib.sha256((tool_dir / Path(relative)).read_bytes()).hexdigest()
+        for relative in _BUNDLED_TOOL_HASHES
+    }
+
 # DataForge-cache freshness stamps, written after extraction and read by
 # dataforge_cache_is_fresh. Size is the primary signal (#209); mtime is the
 # legacy fallback for caches written before the size stamp existed.

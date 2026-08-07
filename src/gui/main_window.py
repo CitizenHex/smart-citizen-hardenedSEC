@@ -666,6 +666,12 @@ class MainWindow(QMainWindow):
         self._action_emergency_remove.setToolTip(
             "Restore every game file changed by the most recent Apply."
         )
+        self._action_hardened_report = more_menu.addAction(
+            "Hardened Build & Integrity Report", self.show_hardened_integrity_report
+        )
+        self._action_export_audit = more_menu.addAction(
+            "Export Local Security Audit Log", self.export_security_audit_log
+        )
         more_menu.addSeparator()
         self._action_clear_loc = more_menu.addAction(tr("toolbar.menu_clear_localization"), self.clear_localization)
         self._action_clear_cache = more_menu.addAction(tr("toolbar.menu_clear_cache"), self.clear_cache)
@@ -1721,6 +1727,14 @@ class MainWindow(QMainWindow):
             ensure_user_cfg_language()
 
             logger.info(f"Applied to game: {target_path}")
+            from src.utils.audit_log import record as record_audit
+            record_audit(
+                AppSettings.get_logs_dir(), "apply_completed",
+                channel=AppSettings.get_active_channel(),
+                target=str(target_path),
+                managed_files=[str(path) for path in game_targets.values()],
+                enhancement_count=enhancement_count,
+            )
             self.statusBar().showMessage(
                 tr("dialogs.apply_status", user_count=user_count, enhancement_count=enhancement_count)
             )
@@ -1743,6 +1757,11 @@ class MainWindow(QMainWindow):
             self._set_apply_btn_dirty(False)
             self._session_has_unapplied_edit = False
         except Exception as e:
+            try:
+                from src.utils.audit_log import record as record_audit
+                record_audit(AppSettings.get_logs_dir(), "apply_failed", error=type(e).__name__)
+            except Exception:
+                logger.debug("Could not write local security audit record", exc_info=True)
             QMessageBox.critical(self, tr("dialogs.error_title"), tr("apply.failed_body", error=e))
             logger.error(f"Error applying to game: {e}")
 
@@ -1840,6 +1859,11 @@ class MainWindow(QMainWindow):
                 return
             actions = restore_game_snapshot(snapshot, targets)
             logger.info("Emergency rollback completed from %s: %s", snapshot, "; ".join(actions))
+            from src.utils.audit_log import record as record_audit
+            record_audit(
+                AppSettings.get_logs_dir(), "emergency_rollback_completed",
+                channel=AppSettings.get_active_channel(), snapshot=str(snapshot), actions=actions,
+            )
             QMessageBox.information(
                 self,
                 "Emergency Remove Complete",
@@ -1850,6 +1874,49 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             logger.exception("Emergency rollback failed")
             QMessageBox.critical(self, "Emergency Remove Failed", str(exc))
+
+    @pyqtSlot()
+    def show_hardened_integrity_report(self):
+        """Show the current local security posture without changing any files."""
+        from src.utils.pak_extractor import verify_bundled_tool_integrity
+        lines = [
+            "Smart Citizen Hardened Build",
+            f"Version: {get_version()}",
+            f"Portable settings: {'yes' if IS_PORTABLE else 'no'}",
+            f"Offline Security Mode: {'enabled' if AppSettings.get_network_lock_enabled() else 'disabled'}",
+            "Automatic update checks/installers: disabled",
+            "Telemetry/report submission: disabled",
+            "",
+            "Bundled native extraction tools:",
+        ]
+        try:
+            hashes = verify_bundled_tool_integrity()
+            lines.append("  PASS — every pinned file matches its reviewed SHA-256.")
+            lines.extend(f"  {path}: {digest}" for path, digest in hashes.items())
+        except Exception as exc:
+            lines.append(f"  FAILED — {exc}")
+        lines.extend(("", f"Local data folder: {AppSettings.get_user_data_dir()}",
+                      f"Audit log: {AppSettings.get_logs_dir() / 'security-audit.jsonl'}"))
+        QMessageBox.information(self, "Hardened Build & Integrity Report", "\n".join(lines))
+
+    @pyqtSlot()
+    def export_security_audit_log(self):
+        """Copy the local-only security audit trail to a user-selected file."""
+        import shutil
+        from src.utils.audit_log import audit_path, record as record_audit
+
+        source = audit_path(AppSettings.get_logs_dir())
+        if not source.exists():
+            record_audit(AppSettings.get_logs_dir(), "audit_log_created")
+        destination, _ = QFileDialog.getSaveFileName(
+            self, "Export Local Security Audit Log", "security-audit.jsonl",
+            "JSON Lines (*.jsonl);;All files (*)",
+        )
+        if not destination:
+            return
+        shutil.copy2(source, destination)
+        record_audit(AppSettings.get_logs_dir(), "audit_log_exported", destination=str(destination))
+        QMessageBox.information(self, "Security Audit Exported", f"Saved a local copy to:\n{destination}")
 
     @pyqtSlot()
     def clear_cache(self):

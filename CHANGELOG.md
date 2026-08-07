@@ -20,6 +20,10 @@ For the full security model and verification details, see
 - Restricted optional language downloads to approved HTTPS sources with
   redirect checks, a size limit, content validation, and atomic writes.
 - Added an opt-in Offline Security Mode that blocks and logs network access.
+- Added a visible Hardened Build & Integrity Report that verifies the
+  extraction tools and DLLs against their pinned SHA-256 values on demand.
+- Added an exportable, local-only JSON audit log for successful/failed Apply,
+  emergency rollback, and audit-log export operations.
 
 ### Portability and recovery
 

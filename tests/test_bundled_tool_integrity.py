@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from src.utils.pak_extractor import _verify_bundled_tools
+from src.utils.pak_extractor import _verify_bundled_tools, verify_bundled_tool_integrity
 
 
 pytestmark = pytest.mark.unit
@@ -16,6 +16,12 @@ def _tool_dir() -> Path:
 
 def test_reviewed_bundled_tools_match_frozen_hashes():
     _verify_bundled_tools(_tool_dir(), include_unforge=True)
+
+
+def test_integrity_report_api_returns_all_reviewed_hashes():
+    hashes = verify_bundled_tool_integrity(_tool_dir())
+    assert set(hashes) == {"unp4k.exe", "unforge.exe", "x86/libzstd.dll", "x64/libzstd.dll"}
+    assert all(len(digest) == 64 for digest in hashes.values())
 
 
 def test_modified_native_component_is_rejected(tmp_path):

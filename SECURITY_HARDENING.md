@@ -44,6 +44,13 @@ Changing a native component requires a new source review and an intentional
 hash update. Hash matching detects modification; it does not prove the original
 binary is harmless.
 
+The Advanced view's **More** menu provides a *Hardened Build & Integrity
+Report*. It repeats this same verification without running an extraction and
+shows the result locally. The adjacent *Export Local Security Audit Log* action
+copies the local JSON Lines record to a user-selected destination. Audit records
+are never transmitted and currently cover Apply, emergency rollback, and audit
+exports.
+
 These two executables were built locally from the source snapshot in
 `../odw-fast-unp4k` using the .NET 10 SDK. The reviewed source was hardened
 before compilation:
@@ -86,4 +93,4 @@ requirements file, and build offline from that local wheel set.
 
 `dist/SmartCitizen-Portable-v2.3.0.zip`
 
-SHA-256: `6209438dbe009e153dd7fdf9938a3352abb5f8641366344874dbac759d1d0100`
+SHA-256: `9ee40817a453a4bde9536c908c860015ab3a8d82c56863db5f2d37c8993fc5ea`
