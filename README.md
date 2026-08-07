@@ -13,12 +13,25 @@
 3. Run `SmartCitizen-Portable-...exe`.
 4. On the first screen, click **Apply Enhancements** and confirm.
 
-**Important Note - windows defender may try and block the app from running. If it does, in the popup click more info, then click Run Anyways** (same as the main branch, this is due to smaller developer teams not having Microsoft reputation) Hash is provided for safety and verification.
+**Windows SmartScreen note:** Windows may initially show an “unrecognized app”
+warning because this community build is not code-signed and has not built up
+Microsoft reputation. Only continue after downloading from this repository’s
+**Releases** page and verifying the published SHA-256 checksum. If it matches,
+select **More info**, then **Run anyway**.
 
 That is all most players need to do. The app reads game data from your local
 Star Citizen installation, imports blueprint ownership from local game logs
 when available, creates backups before it changes anything, and applies the
 enhancements to the selected game channel.
+
+### Crafting Planner
+
+After the first Apply completes, choose **Switch to Advanced** and open
+**Crafting Planner**. Select **Load Recipes from Local Game Data**, then
+search for the item you want to craft. The planner shows the materials and
+quantities authored in your current Star Citizen game data, so you can make a
+shopping list before using an in-game fabricator. It is read-only: it never
+changes `Data.p4k` or game files.
 
 ## Why This Hardened Fork
 
@@ -44,6 +57,7 @@ Useful highlights include:
 
 - Mission indicators for blueprints, potential blueprints, and reputation.
 - Blueprint Tracker with local log scanning for blueprints you have already earned.
+- Crafting Planner: search local recipes and view required materials and quantities.
 - Searchable item, ship, weapon, and crafting information.
 - Configurable name tags for components, missiles, and ship weapons.
 - One-click first-run setup, plus Advanced mode for detailed control.
