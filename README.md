@@ -6,12 +6,36 @@
 
 **[Download the latest hardened portable release](../../releases/latest)**
 
+## Major Highlights
+
+- **Hardened security design** — no application self-updater, no startup
+  synchronization, no telemetry or Discord test reporting, local-only imports,
+  hash checks for packaged extraction tools, and a package-integrity check.
+- **Portable, not installed** — unzip it where you control it and run it.
+  Settings, cache, logs, and backups stay beside the application; there is no
+  installer or background service.
+- **Blueprint intelligence** — mission text can show blueprint rewards,
+  potential blueprints, reputation, and useful contract details. The Blueprint
+  Tracker can scan local game logs to identify blueprints already earned.
+- **Crafting Planner** — reads recipes and material quantities from your
+  locally extracted game data. Search recipes and build a combined shopping
+  list without changing `Data.p4k` or game files.
+- **Loot Tags / shop identification** — optional `[Shop]` and `[Unlisted]`
+  labels help evaluate items while looting. They use exact Finder community
+  catalog matches, never guesses; manual `[Keep]` and `[Limited]` tags remain
+  available too.
+- **One-click first use with control later** — Apply Enhancements handles the
+  normal initial flow; Advanced mode exposes previews, backups, restore, and
+  detailed configuration whenever you want it.
+
 ## Start Here
 
 1. Download `SmartCitizen-Portable-...zip` from **Releases**.
 2. Extract the ZIP to a folder you control, such as `Documents\SmartCitizen`.
 3. Run `SmartCitizen-Portable-...exe`.
 4. On the first screen, click **Apply Enhancements** and confirm.
+
+**Important Note - windows defender may try and block the app from running. If it does, in the popup click more info, then click Run Anyways** (same as the main branch, this is due to smaller developer teams not having Microsoft reputation). Hash is provided for safety and verification.
 
 **Windows SmartScreen note:** Windows may initially show an “unrecognized app”
 warning because this community build is not code-signed and has not built up
@@ -23,6 +47,8 @@ That is all most players need to do. The app reads game data from your local
 Star Citizen installation, imports blueprint ownership from local game logs
 when available, creates backups before it changes anything, and applies the
 enhancements to the selected game channel.
+
+## Featured Tools
 
 ### Crafting Planner
 
@@ -36,6 +62,49 @@ changes `Data.p4k` or game files.
 To plan several crafts at once, Ctrl-select multiple recipes. The planner
 combines matching materials into one total shopping list, which you can copy
 to the clipboard.
+
+### Loot Tags
+
+After loading your local game data, **Switch to Advanced** and open **Loot
+Tags**. This tab labels actual in-game item names with `[Shop]`, `[Keep]`,
+`[Limited]`, or `[Unlisted]` so they are easier to judge while looting. The
+game files do not reliably say where an item is sold or how rare it is, so this
+fork never guesses. Mark items you have reviewed, then Apply Enhancements to
+write the labels to your local localization mod.
+
+Use **Export Catalog** to save your reviewed list or **Import Catalog** to
+explicitly replace it with a catalog file you trust. There are no automatic
+catalog downloads or background update checks. **Refresh Finder Shop Data** is
+an optional, confirmed action: it makes one HTTPS request to the displayed
+Finder endpoint, rejects redirects, limits and validates the response, and
+keeps your manual tags. `[Unlisted]` means an exact
+item-name match was marked not sold by its reviewed catalog source; it does
+not mean rare or loot-only.
+
+This build includes a one-time Finder GetSearch starter snapshot supplied by a
+user on 2026-08-09. Exact matched item names marked sold receive `[Shop]`;
+exact matched names marked not sold receive `[Unlisted]`. Names absent from the
+snapshot remain untagged rather than being guessed as rare or loot-only.
+
+Loot Tags are grouped so the useful loot signals stay readable. Weapons,
+armor, and other gear are enabled by default; clothing/accessories, food/drink,
+and medical supplies start disabled. The catalog still retains those records,
+so enabling a group later does not require another download.
+
+## Supporting Features
+
+- Mission, ship, FPS weapon, component, commodity, journal, and medical-text
+  enhancements generated from your installed game data.
+- Searchable String Editor with ship-first loading, live preview, direct text
+  editing, and configurable component/weapon name tags.
+- Blueprint ownership import/export, local log scanning, and in-game `[Owned]`
+  mission-list markers.
+- Per-channel LIVE / PTU / EPTU / HOTFIX / TECH-PREVIEW settings, cache, and
+  backups, plus multi-language support.
+- Automatic backups before Apply, Preview Apply, Restore, and **Emergency
+  Remove From Game** for a clear rollback path.
+- Explicit security controls: Offline Security Mode, local catalog
+  import/export, and the separately confirmed Finder refresh option.
 
 ## Why This Hardened Fork
 
@@ -61,8 +130,11 @@ Useful highlights include:
 
 - Mission indicators for blueprints, potential blueprints, and reputation.
 - Blueprint Tracker with local log scanning for blueprints you have already earned.
-- Optional `[Limited]` blueprint markers for confirmed limited-time rewards and
-  items you personally identify as non-shop or otherwise hard to acquire.
+- Local Loot Tags for actual item names: `[Shop]`, `[Keep]`, `[Limited]`, and
+  cautious `[Unlisted]` labels. Tags are user-reviewed, exportable/importable
+  JSON; the app never infers availability or downloads a catalog automatically.
+  An optional, confirmed Finder refresh is available for its reviewed shop
+  endpoint and preserves manual tags.
 - Crafting Planner: search local recipes, view required materials and quantities,
   and combine several recipes into a copyable shopping list.
 - Searchable item, ship, weapon, and crafting information.

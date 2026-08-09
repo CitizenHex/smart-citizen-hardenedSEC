@@ -58,6 +58,25 @@ def test_load_crafting_recipes_keeps_unknown_material_visible(tmp_path: Path):
     assert not recipes[0].ingredients[0].resolved
 
 
+def test_load_crafting_recipes_reads_nested_standard_cargo_quantity(tmp_path: Path):
+    records = tmp_path / "crafting" / "blueprints" / "crafting"
+    items = tmp_path / "entities" / "scitem"
+    records.mkdir(parents=True)
+    items.mkdir(parents=True)
+    resource = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    (records / "bp_craft_nested.xml").write_text(
+        "<Blueprint><CraftingCost_Resource resource=\"%s\"><quantity>"
+        "<SStandardCargoUnit standardCargoUnits=\"0.03\"/></quantity>"
+        "</CraftingCost_Resource></Blueprint>" % resource,
+        encoding="utf-8",
+    )
+    (items / "resource.xml").write_text(
+        f'<Item __ref="{resource}"><Params Name="@item_iron"/></Item>', encoding="utf-8"
+    )
+    recipe = load_crafting_recipes(tmp_path, {"item_iron": "Iron"})[0]
+    assert recipe.ingredients[0].quantity == "0.03"
+
+
 def test_build_shopping_list_combines_matching_materials():
     recipes = [
         CraftingRecipe("One", "test", (RecipeIngredient("Iron", "12"), RecipeIngredient("Hadanite", "3"))),

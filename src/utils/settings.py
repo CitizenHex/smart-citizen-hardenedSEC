@@ -399,7 +399,8 @@ class AppSettings:
     # for being too broad, now split into its own toggle).
     RS_ORE_NAME_ANNOTATIONS = "enhancements/rs_ore_name_annotations"
     OWNED_ITEMS = "owned_items"      # #157: blueprint items the user owns (JSON list of names)
-    LIMITED_BLUEPRINT_ITEMS = "limited_blueprint_items"
+    ACQUISITION_CATALOG = "acquisition_catalog"
+    LOOT_TAG_CATEGORIES = "loot_tags/categories"
     # #222: newest "Received Blueprint" log event a BP Scan has already
     # consumed, so a re-scan only imports genuinely new blueprints. Per-channel
     # (each SC channel has its own LogBackups), stored as an ISO-8601 string
@@ -1169,32 +1170,34 @@ class AppSettings:
         AppSettings.settings().sync()
 
     @staticmethod
-    def get_limited_blueprint_items() -> set:
-        """Return locally curated blueprint items marked ``[Limited]``.
-
-        The local game cache has no complete authoritative shop inventory, so
-        the app never guesses that an item is non-purchasable or rare. On a
-        fresh install, only the existing documented limited-time event rewards
-        are seeded; saving any change turns the set into the user's own list.
-        """
-        import json
-        raw = AppSettings.settings().value(AppSettings.LIMITED_BLUEPRINT_ITEMS, "", type=str)
-        try:
-            if raw:
-                return set(json.loads(raw))
-            # Kept with the Blueprint Tracker's existing manual event source:
-            # those entries are explicitly documented as limited-time rewards,
-            # unlike normal mission blueprint pools which may be shop-buyable.
-            from src.utils.blueprint_meta import MANUAL_BLUEPRINT_ITEMS
-            return {name for name, _type in MANUAL_BLUEPRINT_ITEMS}
-        except (ValueError, TypeError):
-            return set()
+    def get_acquisition_catalog() -> dict:
+        """Return the user's reviewed local loot/acquisition catalog."""
+        from src.utils.acquisition_catalog import catalog_from_json
+        raw = AppSettings.settings().value(AppSettings.ACQUISITION_CATALOG, "", type=str)
+        return catalog_from_json(raw)
 
     @staticmethod
-    def set_limited_blueprint_items(names) -> None:
-        import json
+    def set_acquisition_catalog(catalog: dict) -> None:
+        from src.utils.acquisition_catalog import catalog_to_json
+        AppSettings.settings().setValue(AppSettings.ACQUISITION_CATALOG, catalog_to_json(catalog))
+        AppSettings.settings().sync()
+
+    @staticmethod
+    def get_loot_tag_categories() -> dict:
+        """Return visible Loot Tag group choices, using safe first-run defaults."""
+        from src.utils.loot_tag_categories import normalize_category_settings
+        raw = AppSettings.settings().value(AppSettings.LOOT_TAG_CATEGORIES, "", type=str)
+        try:
+            return normalize_category_settings(json.loads(raw)) if raw else normalize_category_settings({})
+        except (TypeError, ValueError):
+            return normalize_category_settings({})
+
+    @staticmethod
+    def set_loot_tag_categories(categories: dict) -> None:
+        from src.utils.loot_tag_categories import normalize_category_settings
         AppSettings.settings().setValue(
-            AppSettings.LIMITED_BLUEPRINT_ITEMS, json.dumps(sorted(names))
+            AppSettings.LOOT_TAG_CATEGORIES,
+            json.dumps(normalize_category_settings(categories), sort_keys=True),
         )
         AppSettings.settings().sync()
 

@@ -27,10 +27,8 @@ _BULLET_RE = re.compile(re.escape(_NL) + r"- ([^\\]+)")
 # The owned tag we weave in. EM4 renders blue in-game — the visibility the
 # request asked for ("so it's in blue").
 _OWNED_TAG = " <EM4>[Owned]</EM4>"
-_LIMITED_TAG = " <EM4>[Limited]</EM4>"
 # Strip a previously-applied owned tag (with or without the leading space).
 _OWNED_STRIP_RE = re.compile(r"\s*<EM4>\[Owned\]</EM4>")
-_LIMITED_STRIP_RE = re.compile(r"\s*<EM4>\[Limited\]</EM4>")
 # Tag Builder supports square, round, and curly wrappers. Tracker matching
 # must understand all three; otherwise a Ship Weapons tag configured as
 # ``(Energy-S2)`` becomes part of the item identity (#352). For round/curly
@@ -237,7 +235,6 @@ def normalize_item_name(name: str) -> str:
         return ""
     s = unicodedata.normalize("NFKC", name)
     s = _OWNED_STRIP_RE.sub("", s)
-    s = _LIMITED_STRIP_RE.sub("", s)
     # Repeating is intentional: stale generations may contain multiple tags.
     # They must still collapse to one Blueprint Tracker identity (#354).
     while True:
@@ -272,7 +269,6 @@ def extract_bp_item_names(value: str, blueprint_header: str | None = None) -> se
 
 def apply_owned_to_value(
     value: str, owned: set[str], blueprint_header: str | None = None,
-    limited: set[str] | None = None,
 ) -> str:
     """Return *value* with status tags on blueprint bullets.
 
@@ -288,9 +284,7 @@ def apply_owned_to_value(
         return value
     # Strip prior status tags first (handles unmarking + idempotency).
     value = _OWNED_STRIP_RE.sub("", value)
-    value = _LIMITED_STRIP_RE.sub("", value)
-    limited = limited or set()
-    if not owned and not limited:
+    if not owned:
         return value
     span = _bp_section_span(value, blueprint_header)
     if span is None:
@@ -300,9 +294,8 @@ def apply_owned_to_value(
     def _retag(m: re.Match) -> str:
         raw = m.group(1)
         name = normalize_item_name(raw)
-        tags = (_OWNED_TAG if name in owned else "") + (_LIMITED_TAG if name in limited else "")
-        if tags:
-            return f"{_NL}- {raw}{tags}"
+        if name in owned:
+            return f"{_NL}- {raw}{_OWNED_TAG}"
         return m.group(0)
 
     return value[:start] + _BULLET_RE.sub(_retag, value[start:end]) + value[end:]

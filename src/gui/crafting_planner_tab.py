@@ -76,15 +76,20 @@ class CraftingPlannerTab(QWidget):
 
     def set_loading(self, loading: bool):
         self.refresh_button.setEnabled(not loading)
+        self.search.setEnabled(not loading)
         if loading:
             self.status.setText(tr("crafting_planner.loading"))
+            self.recipe_list.clear()
+            self.details.setText("Reading local crafting records. Search becomes available when the catalogue is ready.")
 
     def set_recipes(self, recipes):
         self._recipes = list(recipes)
+        self.search.setEnabled(True)
         self.status.setText(tr("crafting_planner.loaded", count=len(self._recipes)))
         self._render_list()
 
     def set_error(self, message: str):
+        self.search.setEnabled(True)
         self.status.setText(message)
 
     def _filtered_recipes(self):

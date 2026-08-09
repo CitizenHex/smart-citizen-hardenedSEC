@@ -52,6 +52,26 @@ class CraftingRecipeScanWorker(QThread):
             self.failed.emit(str(exc))
 
 
+class FinderCatalogRefreshWorker(QThread):
+    """Refresh the user-requested Finder catalog without blocking the UI."""
+
+    finished = pyqtSignal(object, int)
+    failed = pyqtSignal(str)
+
+    def __init__(self, existing_catalog: dict):
+        super().__init__()
+        self._existing_catalog = existing_catalog
+
+    def run(self):
+        try:
+            from src.utils.finder_catalog import refresh_finder_catalog
+            catalog, count = refresh_finder_catalog(self._existing_catalog)
+            self.finished.emit(catalog, count)
+        except Exception as exc:
+            logger.exception("Finder catalog refresh failed")
+            self.failed.emit(str(exc))
+
+
 class AnimatedProgressDialog(QProgressDialog):
     """Reusable progress dialog that toggles between indeterminate and determinate.
 

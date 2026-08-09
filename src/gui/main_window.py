@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QThread, pyqtSignal, QModelIndex, QPropertyAnimation, QEasingCurve
+from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QThread, pyqtSignal, QModelIndex, QPropertyAnimation, QEasingCurve, QSize, QRectF
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QComboBox, QCheckBox,
@@ -15,11 +15,12 @@ from PyQt6.QtWidgets import (
     QTableView, QStackedLayout, QStackedWidget, QGraphicsOpacityEffect,
     QDockWidget, QPlainTextEdit, QInputDialog,
 )
-from PyQt6.QtGui import QColor, QFont, QCursor, QPixmap, QIcon, QPalette
+from PyQt6.QtGui import QColor, QFont, QCursor, QPixmap, QIcon, QPalette, QBrush, QPainter, QPen
 from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices
 
 from src.gui.blueprint_tracker_tab import BlueprintTrackerTab, _relabel_details_button
+from src.gui.acquisition_catalog_tab import AcquisitionCatalogTab
 from src.gui.crafting_planner_tab import CraftingPlannerTab
 from src.gui.coach_mark import CoachMarkStep, TutorialTour
 from src.gui.config_tab import ConfigTab
@@ -42,6 +43,7 @@ from src.gui.workers import (
     AnimatedProgressDialog,
     BlueprintLogScanWorker,
     CraftingRecipeScanWorker,
+    FinderCatalogRefreshWorker,
     DataForgeExtractWorker,
     EnhancementsGeneratorWorker,
     FileLoaderWorker,
@@ -63,6 +65,40 @@ from src.utils.i18n import tr
 from src.utils.version import get_version
 
 logger = logging.getLogger(__name__)
+
+
+class HardenedStamp(QWidget):
+    """Crisp, resolution-independent in-app mark for this hardened fork."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setToolTip("Open the Smart Citizen Hardened project page")
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.setFixedSize(215, 72)
+
+    def sizeHint(self):
+        return QSize(215, 72)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            QDesktopServices.openUrl(QUrl("https://github.com/ZeroDiv1de/smart-citizen-hardenedSEC"))
+        super().mouseReleaseEvent(event)
+
+    def paintEvent(self, _event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.translate(self.width() / 2, self.height() / 2)
+        painter.rotate(-8)
+        # Coordinates are relative to the translated painter origin.  Keeping
+        # them centred around (0, 0) prevents the rotated stamp from clipping.
+        rect = QRectF(-96, -22, 192, 44)
+        color = QColor("#D6A33A")
+        painter.setPen(QPen(color, 3))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(rect, 4, 4)
+        painter.setFont(QFont(BRAND_FONT_FAMILY, 20, QFont.Weight.Bold))
+        painter.setPen(color)
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "HARDENED")
 
 
 # Preview-pane token translation — turns the raw loc-string format the game
@@ -411,11 +447,18 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(8)
 
         # Title bar — branded font (Hyperspace Race Expanded Bold)
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(8)
         self.title_label = QLabel(tr("branding.title"))
         title_font = QFont(BRAND_FONT_FAMILY)
         title_font.setPointSize(22)
         self.title_label.setFont(title_font)
-        main_layout.addWidget(self.title_label)
+        title_row.addWidget(self.title_label)
+        self.hardened_stamp = HardenedStamp()
+        title_row.addWidget(self.hardened_stamp)
+        title_row.addStretch(1)
+        main_layout.addLayout(title_row)
 
         self.tagline_label = QLabel(tr("branding.tagline"))
         main_layout.addWidget(self.tagline_label)
@@ -459,7 +502,6 @@ class MainWindow(QMainWindow):
         self.blueprint_tracker_tab.owned_items_changed.connect(self._recompute_owned)
         self.blueprint_tracker_tab.scan_logs_requested.connect(self._run_blueprint_log_scan)
         self.blueprint_tracker_tab.apply_owned_requested.connect(self._on_apply_owned_tags_clicked)
-        self.blueprint_tracker_tab.limited_items_changed.connect(self._recompute_owned)
         self._blueprint_tracker_tab_index = self.tabs.addTab(
             self.blueprint_tracker_tab, tr("tabs.blueprint_tracker")
         )
@@ -489,6 +531,14 @@ class MainWindow(QMainWindow):
             self.crafting_planner_tab, tr("tabs.crafting_planner")
         )
         self._crafting_recipe_worker = None
+
+        self.acquisition_catalog_tab = AcquisitionCatalogTab()
+        self.acquisition_catalog_tab.catalog_changed.connect(self._recompute_acquisition_tags)
+        self.acquisition_catalog_tab.refresh_requested.connect(self._refresh_finder_catalog)
+        self._acquisition_catalog_tab_index = self.tabs.addTab(
+            self.acquisition_catalog_tab, "Loot Tags"
+        )
+        self._finder_catalog_worker = None
 
         self.log_tab = LogTab()
         self._log_tab_index = self.tabs.addTab(self.log_tab, tr("tabs.log"))
@@ -1613,6 +1663,19 @@ class MainWindow(QMainWindow):
 
             # Merge all sources in hierarchy order, with user edits on top
             merged_dict = merge_sources_by_hierarchy(sources_dict, hierarchy, user_overrides_dict)
+
+            # Loot Tags are normally woven into the editor's in-memory rows.
+            # Apply intentionally rebuilds from source files, however, so the
+            # same deterministic transform must run here as well or the UI can
+            # show [Shop] while the written game localization remains untagged.
+            from src.utils.acquisition_catalog import apply_acquisition_tag
+            from src.utils.loot_tag_categories import enabled_categories
+            _loot_catalog = AppSettings.get_acquisition_catalog()
+            _loot_groups = enabled_categories(AppSettings.get_loot_tag_categories())
+            for _key, _value in list(merged_dict.items()):
+                _tagged = apply_acquisition_tag(_value, _key, _loot_catalog, _loot_groups)
+                if _tagged != _value:
+                    merged_dict[_key] = _tagged
 
             # #157: weave [Owned] into blueprint lists so the tag reaches the
             # applied game file (apply re-loads sources from disk, where the
@@ -3678,7 +3741,14 @@ class MainWindow(QMainWindow):
         """Scan the current channel's local DataForge cache for recipes."""
         if self._crafting_recipe_worker is not None and self._crafting_recipe_worker.isRunning():
             return
-        loc = {entry.key: entry.current_value for entry in self.entries}
+        # StringEntry stores its effective UI value as a user override when
+        # present, otherwise the merged/original text; it has no
+        # ``current_value`` attribute.  Keep the planner read-only while
+        # letting its recipe names reflect a user's local edits.
+        loc = {
+            entry.key: (entry.custom_value or entry.original_value)
+            for entry in self.entries
+        }
         self.crafting_planner_tab.set_loading(True)
         self._crafting_recipe_worker = CraftingRecipeScanWorker(
             AppSettings.get_dataforge_cache_dir(), loc
@@ -5008,10 +5078,19 @@ class MainWindow(QMainWindow):
         standard_categories = {"Ships", "Ship Items", "Missions", "Commodities", "Other"}
         categories = sorted(standard_categories | entry_categories)
 
+        previous_category = self.category_combo.currentData() or self.category_combo.currentText()
         self.category_combo.blockSignals(True)
         self.category_combo.clear()
         self.category_combo.addItem(tr("filters.status_all"), userData="All")
         self.category_combo.addItems(categories)
+        # Loading the entire localization set is unnecessary for the most
+        # common first task (ship browsing) and makes the editor feel slow.
+        # Preserve a deliberate later choice; only first load defaults Ships.
+        selected = previous_category if previous_category in categories or previous_category == "All" else "Ships"
+        selected_index = self.category_combo.findData(selected)
+        if selected_index < 0:
+            selected_index = self.category_combo.findText(selected)
+        self.category_combo.setCurrentIndex(max(0, selected_index))
         self.category_combo.blockSignals(False)
 
     def _entry_index_for_row(self, row: int) -> int:
@@ -5293,12 +5372,10 @@ class MainWindow(QMainWindow):
         `_rebuild_blueprint_metadata` (cached, not rescanned here)."""
         from src.utils.owned_items import apply_owned_to_value
         owned = AppSettings.get_owned_items()
-        limited = AppSettings.get_limited_blueprint_items()
         for e in self.entries:
             new_val = apply_owned_to_value(
                 e.original_value, owned,
                 AppSettings.get_mission_headers()["blueprints"],
-                limited,
             )
             if new_val != e.original_value:
                 e.original_value = new_val
@@ -5307,10 +5384,65 @@ class MainWindow(QMainWindow):
         # see the loaded strings the data is derived from).
         if hasattr(self, "blueprint_tracker_tab"):
             self.blueprint_tracker_tab.set_blueprint_items(self._blueprint_meta)
+        self._recompute_acquisition_tags()
         # Called after every reload (category/tag/enhancements apply, channel
         # and language switches, import, restore) and every Owned-set change
         # — in every case Apply to Game's output could now differ.
         self._mark_apply_dirty()
+
+    def _recompute_acquisition_tags(self):
+        """Apply the explicitly reviewed loot tags to item names only."""
+        from src.utils.acquisition_catalog import apply_acquisition_tag
+        from src.utils.loot_tag_categories import enabled_categories
+        catalog = AppSettings.get_acquisition_catalog()
+        enabled_groups = enabled_categories(AppSettings.get_loot_tag_categories())
+        for entry in self.entries:
+            new_value = apply_acquisition_tag(
+                entry.original_value, entry.key, catalog, enabled_groups,
+                getattr(entry, "category", ""),
+            )
+            if new_value != entry.original_value:
+                entry.original_value = new_value
+        if hasattr(self, "acquisition_catalog_tab"):
+            self.acquisition_catalog_tab.set_entries(self.entries)
+        self._mark_apply_dirty()
+
+    def _refresh_finder_catalog(self):
+        """Make one explicit, confirmed Finder request; never run at startup."""
+        if self._finder_catalog_worker is not None:
+            return
+        from src.utils.finder_catalog import FINDER_CATALOG_URL
+        result = QMessageBox.question(
+            self,
+            "Refresh Finder Shop Data",
+            "This will make one HTTPS request to:\n\n"
+            f"{FINDER_CATALOG_URL}\n\n"
+            "It replaces only Finder-derived Shop/Unlisted matches. Your manual "
+            "Shop, Keep, and Limited tags are preserved. Offline Security Mode "
+            "can block this request. Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if result != QMessageBox.StandardButton.Yes:
+            return
+        self.acquisition_catalog_tab.set_refreshing(True)
+        self._finder_catalog_worker = FinderCatalogRefreshWorker(AppSettings.get_acquisition_catalog())
+        self._finder_catalog_worker.finished.connect(self._finder_catalog_refreshed)
+        self._finder_catalog_worker.failed.connect(self._finder_catalog_refresh_failed)
+        self._finder_catalog_worker.finished.connect(self._finder_catalog_worker.deleteLater)
+        self._finder_catalog_worker.failed.connect(self._finder_catalog_worker.deleteLater)
+        self._finder_catalog_worker.start()
+
+    def _finder_catalog_refreshed(self, catalog: dict, count: int):
+        self.acquisition_catalog_tab.set_refreshing(False)
+        self.acquisition_catalog_tab.replace_finder_catalog(catalog, count)
+        self._finder_catalog_worker = None
+        self.statusBar().showMessage(f"Finder shop data refreshed: {count:,} exact-name records.", 8000)
+
+    def _finder_catalog_refresh_failed(self, message: str):
+        self.acquisition_catalog_tab.set_refreshing(False)
+        self._finder_catalog_worker = None
+        QMessageBox.warning(self, "Finder data was not refreshed", message)
 
     def _on_apply_owned_tags_clicked(self):
         """Manual "Apply Owned Tags" button: force a re-weave on demand

@@ -259,17 +259,6 @@ class TestApply:
         assert once == twice
         assert once.count("[Owned]") == 1
 
-    def test_limited_tag_is_user_curated_and_idempotent(self):
-        once = apply_owned_to_value(_DESC, set(), limited={"Antium Core"})
-        twice = apply_owned_to_value(once, set(), limited={"Antium Core"})
-        assert "- Antium Core <EM4>[Limited]</EM4>" in once
-        assert once == twice
-        assert "[Limited]" not in apply_owned_to_value(once, set(), limited=set())
-
-    def test_owned_and_limited_tags_can_share_a_blueprint(self):
-        out = apply_owned_to_value(_DESC, {"Antium Core"}, limited={"Antium Core"})
-        assert "- Antium Core <EM4>[Owned]</EM4> <EM4>[Limited]</EM4>" in out
-
     def test_unowning_removes_tag(self):
         tagged = apply_owned_to_value(_DESC, {"Antium Core"})
         cleared = apply_owned_to_value(tagged, set())

@@ -13,6 +13,10 @@ import re
 import xml.etree.ElementTree as ET
 
 _NULL_UUID = "00000000-0000-0000-0000-000000000000"
+_UUID_RE = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -87,6 +91,20 @@ def _element_name(root: ET.Element, loc: dict[str, str]) -> str | None:
     return None
 
 
+def _cost_quantity(elem: ET.Element) -> str:
+    """Read direct and current nested DataForge quantity formats."""
+    if elem.get("quantity"):
+        return elem.get("quantity", "1")
+    # Current crafting records place quantities under ``<quantity>`` as
+    # SStandardCargoUnit.standardCargoUnits rather than on CraftingCost_*.
+    for child in elem.iter():
+        for attribute in ("standardCargoUnits", "quantity", "count", "amount"):
+            value = child.get(attribute)
+            if value:
+                return value
+    return "1"
+
+
 def load_crafting_recipes(forge_dir: Path, loc: dict[str, str] | None = None) -> list[CraftingRecipe]:
     """Return recipes from *forge_dir*, retaining every authored quantity.
 
@@ -117,12 +135,12 @@ def load_crafting_recipes(forge_dir: Path, loc: dict[str, str] | None = None) ->
             elif kind == "CraftingCost_Resource":
                 uid = elem.get("resource", "")
                 if uid and uid != _NULL_UUID:
-                    costs.append((uid, elem.get("quantity", "1")))
+                    costs.append((uid, _cost_quantity(elem)))
                     wanted_ids.add(uid)
             elif kind == "CraftingCost_Item":
                 uid = elem.get("entityClass", "")
                 if uid and uid != _NULL_UUID:
-                    costs.append((uid, elem.get("quantity", "1")))
+                    costs.append((uid, _cost_quantity(elem)))
                     wanted_ids.add(uid)
         if output_id:
             wanted_ids.add(output_id)
@@ -130,12 +148,20 @@ def load_crafting_recipes(forge_dir: Path, loc: dict[str, str] | None = None) ->
             parsed.append((xml_file, output_id, costs))
 
     names: dict[str, str] = {}
+    unresolved_ids = set(wanted_ids)
     for xml_file in scitem_dir.rglob("*.xml"):
         try:
-            text = xml_file.read_text(encoding="utf-8", errors="ignore")
+            # The old implementation compared every wanted UUID against the
+            # full text of every one of ~24,000 item records. That becomes
+            # tens of millions of scans and leaves the UI at "Reading...".
+            # A record's identifiers live near its XML header, so first screen
+            # a small prefix with one compiled UUID expression and parse only
+            # the few records that actually refer to recipe data.
+            with xml_file.open("r", encoding="utf-8", errors="ignore") as handle:
+                text = handle.read(16 * 1024)
         except OSError:
             continue
-        matches = [uid for uid in wanted_ids if uid not in names and uid in text]
+        matches = set(_UUID_RE.findall(text)) & unresolved_ids
         if not matches:
             continue
         try:
@@ -148,11 +174,13 @@ def load_crafting_recipes(forge_dir: Path, loc: dict[str, str] | None = None) ->
         # a carryable record, so retain the broader text-match fallback only
         # for IDs that do not have an owning record.
         own_ref = root.get("__ref", "")
-        if own_ref in wanted_ids:
+        if own_ref in unresolved_ids:
             names[own_ref] = display
+            unresolved_ids.discard(own_ref)
         for uid in matches:
             if uid != own_ref:
                 names.setdefault(uid, display)
+                unresolved_ids.discard(uid)
 
     recipes: list[CraftingRecipe] = []
     for xml_file, output_id, costs in parsed:
