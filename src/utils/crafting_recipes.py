@@ -17,6 +17,10 @@ _UUID_RE = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
     re.IGNORECASE,
 )
+_ROOT_REF_RE = re.compile(
+    r'\b__ref="([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"',
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -161,12 +165,26 @@ def load_crafting_recipes(forge_dir: Path, loc: dict[str, str] | None = None) ->
                 text = handle.read(16 * 1024)
         except OSError:
             continue
-        matches = set(_UUID_RE.findall(text)) & unresolved_ids
+        own_match = _ROOT_REF_RE.search(text)
+        own_ref = own_match.group(1) if own_match else ""
+        # Prefer a record's authoritative root ID. A wanted ID can appear as
+        # a reference in unrelated ship/loadout records before its own item
+        # record is encountered; accepting that first gave real items generic
+        # fallback names (for example, M6A Cannon became "Behr Lasercannon").
+        matches = {own_ref} if own_ref in unresolved_ids else set()
+        # Some resource records use a legacy <Ref value="…"> instead of an
+        # authoritative __ref. Keep this narrow fallback only for records
+        # without a root reference so it cannot steal another item's name.
+        if not matches and not own_ref:
+            matches = set(_UUID_RE.findall(text)) & unresolved_ids
         if not matches:
             continue
         try:
-            root = ET.fromstring(text)
-        except ET.ParseError:
+            # ``text`` is only a small header used for fast UUID discovery;
+            # full records can exceed that window, so parse the actual file
+            # once it has been identified as relevant.
+            root = ET.parse(xml_file).getroot()
+        except (ET.ParseError, OSError):
             continue
         display = _element_name(root, loc) or xml_file.stem.replace("_", " ").title()
         # A record's own UUID is authoritative for output items and direct

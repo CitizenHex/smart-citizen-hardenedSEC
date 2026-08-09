@@ -201,6 +201,14 @@ remain credited below. See [CHANGELOG.md](CHANGELOG.md) for fork changes and
     <td width="50%"><img src="assets/screenshots/journal.png" alt="Journal entries"/><br/><em>Journal entries</em></td>
     <td width="50%"><img src="assets/screenshots/radar.png" alt="Mission contract radar"/><br/><em>Mission contract radar</em></td>
   </tr>
+  <tr>
+    <td width="50%"><img src="assets/screenshots/LootTags.jpg" alt="Loot Tags catalog and category controls"/><br/><em>Loot Tags and shop identification</em></td>
+    <td width="50%"><img src="assets/screenshots/CraftingPlanner.jpg" alt="Crafting Planner recipe and materials view"/><br/><em>Crafting Planner from local game data</em></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="assets/screenshots/NewTag.jpg" alt="New in-game item tag"/><br/><em>New item tags in game</em></td>
+    <td width="50%"></td>
+  </tr>
 </table>
 
 ## Advanced and Upstream Reference
