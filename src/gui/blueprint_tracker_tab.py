@@ -130,6 +130,7 @@ class BlueprintTrackerTab(QWidget):
     # Owned set is reflected on demand, without needing to move an item
     # between the two lists first.
     apply_owned_requested = pyqtSignal()
+    limited_items_changed = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -240,6 +241,16 @@ class BlueprintTrackerTab(QWidget):
         self._import_owned_btn.setToolTip(tr("blueprint_tracker.import_owned_tooltip"))
         self._import_owned_btn.clicked.connect(self._import_owned_blueprints)
         top_grid.addWidget(self._import_owned_btn, 1, 3)
+
+        self._mark_limited_btn = QPushButton("Mark Selected Limited")
+        self._mark_limited_btn.setToolTip(
+            "Add a local [Limited] marker for confirmed non-shop, event, or otherwise hard-to-acquire items."
+        )
+        self._mark_limited_btn.clicked.connect(lambda: self._set_selected_limited(True))
+        top_grid.addWidget(self._mark_limited_btn, 2, 0, 1, 2)
+        self._unmark_limited_btn = QPushButton("Remove Limited Mark")
+        self._unmark_limited_btn.clicked.connect(lambda: self._set_selected_limited(False))
+        top_grid.addWidget(self._unmark_limited_btn, 2, 2, 1, 2)
 
         layout.addLayout(top_grid)
 
@@ -489,6 +500,8 @@ class BlueprintTrackerTab(QWidget):
         display = name
         if AppSettings.get_blueprint_show_tags() and meta is not None and meta.tagged_name:
             display = meta.tagged_name
+        if name in AppSettings.get_limited_blueprint_items():
+            display += " [Limited]"
         item = QListWidgetItem(display)
         item.setData(Qt.ItemDataRole.UserRole, name)
         if meta is not None:
@@ -545,6 +558,7 @@ class BlueprintTrackerTab(QWidget):
             self._blueprints_available_list, self._blueprints_owned_list,
             self._blueprints_add_btn, self._blueprints_remove_btn,
             self._blueprints_available_label, self._blueprints_owned_label,
+            self._mark_limited_btn, self._unmark_limited_btn,
             *self._blueprints_facet_combos.values(),
             *self._blueprints_facet_labels.values(),
         ):
@@ -611,6 +625,21 @@ class BlueprintTrackerTab(QWidget):
         self._render_blueprint_lists()
         self.owned_items_changed.emit()
         self.mark_owned_dirty()
+
+    def _set_selected_limited(self, limited: bool) -> None:
+        """Mark selected Available or Owned blueprint rows as locally limited."""
+        names = set(self._selected_names(self._blueprints_available_list))
+        names.update(self._selected_names(self._blueprints_owned_list))
+        if not names:
+            return
+        marked = AppSettings.get_limited_blueprint_items()
+        if limited:
+            marked.update(names)
+        else:
+            marked.difference_update(names)
+        AppSettings.set_limited_blueprint_items(marked)
+        self._render_blueprint_lists()
+        self.limited_items_changed.emit()
 
     def _export_owned_blueprints(self) -> None:
         """Export the Owned set to a JSON (SCMDB-shaped) or CSV file (#234).

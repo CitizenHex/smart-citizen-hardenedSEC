@@ -459,6 +459,7 @@ class MainWindow(QMainWindow):
         self.blueprint_tracker_tab.owned_items_changed.connect(self._recompute_owned)
         self.blueprint_tracker_tab.scan_logs_requested.connect(self._run_blueprint_log_scan)
         self.blueprint_tracker_tab.apply_owned_requested.connect(self._on_apply_owned_tags_clicked)
+        self.blueprint_tracker_tab.limited_items_changed.connect(self._recompute_owned)
         self._blueprint_tracker_tab_index = self.tabs.addTab(
             self.blueprint_tracker_tab, tr("tabs.blueprint_tracker")
         )
@@ -5292,10 +5293,12 @@ class MainWindow(QMainWindow):
         `_rebuild_blueprint_metadata` (cached, not rescanned here)."""
         from src.utils.owned_items import apply_owned_to_value
         owned = AppSettings.get_owned_items()
+        limited = AppSettings.get_limited_blueprint_items()
         for e in self.entries:
             new_val = apply_owned_to_value(
                 e.original_value, owned,
                 AppSettings.get_mission_headers()["blueprints"],
+                limited,
             )
             if new_val != e.original_value:
                 e.original_value = new_val

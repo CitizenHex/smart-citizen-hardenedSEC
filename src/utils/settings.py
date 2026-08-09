@@ -399,6 +399,7 @@ class AppSettings:
     # for being too broad, now split into its own toggle).
     RS_ORE_NAME_ANNOTATIONS = "enhancements/rs_ore_name_annotations"
     OWNED_ITEMS = "owned_items"      # #157: blueprint items the user owns (JSON list of names)
+    LIMITED_BLUEPRINT_ITEMS = "limited_blueprint_items"
     # #222: newest "Received Blueprint" log event a BP Scan has already
     # consumed, so a re-scan only imports genuinely new blueprints. Per-channel
     # (each SC channel has its own LogBackups), stored as an ISO-8601 string
@@ -1164,6 +1165,36 @@ class AppSettings:
         import json
         AppSettings.settings().setValue(
             AppSettings.OWNED_ITEMS, json.dumps(sorted(names))
+        )
+        AppSettings.settings().sync()
+
+    @staticmethod
+    def get_limited_blueprint_items() -> set:
+        """Return locally curated blueprint items marked ``[Limited]``.
+
+        The local game cache has no complete authoritative shop inventory, so
+        the app never guesses that an item is non-purchasable or rare. On a
+        fresh install, only the existing documented limited-time event rewards
+        are seeded; saving any change turns the set into the user's own list.
+        """
+        import json
+        raw = AppSettings.settings().value(AppSettings.LIMITED_BLUEPRINT_ITEMS, "", type=str)
+        try:
+            if raw:
+                return set(json.loads(raw))
+            # Kept with the Blueprint Tracker's existing manual event source:
+            # those entries are explicitly documented as limited-time rewards,
+            # unlike normal mission blueprint pools which may be shop-buyable.
+            from src.utils.blueprint_meta import MANUAL_BLUEPRINT_ITEMS
+            return {name for name, _type in MANUAL_BLUEPRINT_ITEMS}
+        except (ValueError, TypeError):
+            return set()
+
+    @staticmethod
+    def set_limited_blueprint_items(names) -> None:
+        import json
+        AppSettings.settings().setValue(
+            AppSettings.LIMITED_BLUEPRINT_ITEMS, json.dumps(sorted(names))
         )
         AppSettings.settings().sync()
 

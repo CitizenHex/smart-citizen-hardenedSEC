@@ -61,6 +61,8 @@ Useful highlights include:
 
 - Mission indicators for blueprints, potential blueprints, and reputation.
 - Blueprint Tracker with local log scanning for blueprints you have already earned.
+- Optional `[Limited]` blueprint markers for confirmed limited-time rewards and
+  items you personally identify as non-shop or otherwise hard to acquire.
 - Crafting Planner: search local recipes, view required materials and quantities,
   and combine several recipes into a copyable shopping list.
 - Searchable item, ship, weapon, and crafting information.
