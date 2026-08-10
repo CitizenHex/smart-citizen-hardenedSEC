@@ -5283,7 +5283,9 @@ class MainWindow(QMainWindow):
         it runs on load — not on every owned-toggle (that path re-partitions
         the cached result)."""
         from src.utils.blueprint_meta import build_blueprint_metadata
-        self._blueprint_meta = build_blueprint_metadata(self.entries)
+        self._blueprint_meta = build_blueprint_metadata(
+            self.entries, AppSettings.get_mission_headers()["blueprints"]
+        )
         self._bp_item_names = set(self._blueprint_meta)
 
     def _recompute_owned(self):
@@ -5295,7 +5297,9 @@ class MainWindow(QMainWindow):
         from src.utils.owned_items import apply_owned_to_value
         owned = AppSettings.get_owned_items()
         for e in self.entries:
-            new_val = apply_owned_to_value(e.original_value, owned)
+            new_val = apply_owned_to_value(
+                e.original_value, owned, AppSettings.get_mission_headers()["blueprints"]
+            )
             if new_val != e.original_value:
                 e.original_value = new_val
         self._model.set_owned_state(self._bp_item_names, owned)

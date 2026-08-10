@@ -37,6 +37,14 @@ class _Entry:
     category: str = "Other"
 
 
+def test_metadata_accepts_configured_blueprint_heading():
+    entries = [
+        _Entry("item_Name_Test", "Test Blueprint", "Ship Items"),
+        _Entry("Mission_Desc_001", "<EM4>MY REWARDS</EM4>\\n- Test Blueprint", "Missions"),
+    ]
+    assert "Test Blueprint" in build_blueprint_metadata(entries, "MY REWARDS")
+
+
 def test_parse_component_tag():
     assert parse_component_tag("[MIL-S3-B] Balandin") == ("MIL", "S3", "B")
     assert parse_component_tag("[ind-s1-a] Palisade") == ("IND", "S1", "A")
