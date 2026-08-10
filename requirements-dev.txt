@@ -6,6 +6,9 @@ PyInstaller==6.3.0
 pyperclip==1.8.2
 lxml==6.1.1
 
+# Hash-locked dependency used to verify signed update manifests.
+-r requirements-update-security.txt
+
 # Testing
 pytest==9.0.2
 pytest-mock==3.15.1

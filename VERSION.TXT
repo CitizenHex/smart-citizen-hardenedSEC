@@ -1,1 +1,1 @@
-2.3.0-hardened.16
+2.3.0-hardened.18

@@ -72,6 +72,21 @@ class FinderCatalogRefreshWorker(QThread):
             self.failed.emit(str(exc))
 
 
+class SignedReleaseCheckWorker(QThread):
+    """Fetch user-requested release metadata off the GUI thread."""
+
+    finished = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def run(self):
+        try:
+            from src.utils.release_update import fetch_latest_signed_release
+            self.finished.emit(fetch_latest_signed_release())
+        except Exception as exc:
+            logger.exception("Manual signed update check failed")
+            self.failed.emit(str(exc))
+
+
 class AnimatedProgressDialog(QProgressDialog):
     """Reusable progress dialog that toggles between indeterminate and determinate.
 

@@ -134,14 +134,11 @@ _cleanup_build_info()
 print()
 
 # Build executable with PyInstaller.
-# The registry / installer build uses a STABLE exe name (SmartCitizen.exe) so
-# the installed path and the desktop / Start Menu shortcuts survive version
-# updates (#104): a copied or pinned shortcut keeps working because the target
-# no longer changes every release. The portable build keeps the versioned name
-# so the downloadable zip and its folder identify the version at a glance.
-exe_name = (
-    f"SmartCitizen-Portable-v{current_version}" if portable_mode else "SmartCitizen"
-)
+# The release ZIP remains versioned, while the executable is deliberately
+# stable. A portable user can extract an approved update over the same folder
+# and keep an existing shortcut working; the version is still visible in the
+# app window, release ZIP name, and package-integrity manifest.
+exe_name = "SmartCitizen-Hardened" if portable_mode else "SmartCitizen"
 
 # Write PyInstaller's generated .spec into build/ (ephemeral, wiped each run)
 # instead of the repo root, so the stable --name never clobbers the
@@ -268,7 +265,10 @@ try:
     # The standard build doesn't get a zip — Inno Setup is its
     # distribution artifact, attached separately by release.yml.
     if portable_mode:
-        zip_name = f"{exe_name}.zip"
+        # The executable/folder name stays stable for shortcuts and in-place
+        # updates. The downloadable release ZIP remains versioned so it is
+        # unambiguous what a user is about to install.
+        zip_name = f"SmartCitizen-Hardened-v{current_version}.zip"
         zip_path = os.path.join(root_dir, 'dist', zip_name)
         onedir_path = os.path.join(root_dir, 'dist', exe_name)
         print(f"Packaging portable zip: dist/{zip_name}")
@@ -289,6 +289,33 @@ try:
                     zf.write(full, arcname=arcname)
         zip_size_mb = os.path.getsize(zip_path) / (1024 * 1024)
         print(f"  Portable zip ready: dist/{zip_name} ({zip_size_mb:.1f} MB)")
+        zip_hash = hashlib.sha256()
+        with open(zip_path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                zip_hash.update(chunk)
+        digest = zip_hash.hexdigest()
+        hash_path = zip_path + ".sha256"
+        with open(hash_path, "w", encoding="ascii", newline="\n") as handle:
+            handle.write(f"{digest}  {zip_name}\n")
+        # This deliberately remains unsigned in the build directory. Copy it
+        # to the separate trusted signing machine, sign it there, then upload
+        # the ZIP, this manifest, and its detached .sig together as release
+        # assets. The app will not accept a ZIP unless this signature verifies.
+        release_manifest = {
+            "format": 1,
+            "application": "Smart Citizen Hardened",
+            "version": current_version,
+            "zip_name": zip_name,
+            "zip_size": os.path.getsize(zip_path),
+            "zip_sha256": digest,
+            "executable": "SmartCitizen-Hardened.exe",
+            "package_manifest": "package-integrity.json",
+        }
+        manifest_path = os.path.join(root_dir, "dist", "release-manifest.json")
+        with open(manifest_path, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(release_manifest, handle, sort_keys=True, separators=(",", ":"))
+            handle.write("\n")
+        print(f"  Release manifest ready for offline signing: dist/release-manifest.json")
         print()
 except Exception as e:
     print(f"\nError building --onedir executable: {e}")

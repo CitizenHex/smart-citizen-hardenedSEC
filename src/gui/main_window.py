@@ -44,6 +44,7 @@ from src.gui.workers import (
     BlueprintLogScanWorker,
     CraftingRecipeScanWorker,
     FinderCatalogRefreshWorker,
+    SignedReleaseCheckWorker,
     DataForgeExtractWorker,
     EnhancementsGeneratorWorker,
     FileLoaderWorker,
@@ -735,6 +736,12 @@ class MainWindow(QMainWindow):
         self._action_hardened_report = more_menu.addAction(
             "Hardened Build & Integrity Report", self.show_hardened_integrity_report
         )
+        self._action_check_hardened_updates = more_menu.addAction(
+            "Check for Hardened Updates", self._on_check_updates_clicked
+        )
+        self._action_check_hardened_updates.setToolTip(
+            "Manually check for a signed update. Nothing runs automatically."
+        )
         self._action_export_audit = more_menu.addAction(
             "Export Local Security Audit Log", self.export_security_audit_log
         )
@@ -1100,8 +1107,43 @@ class MainWindow(QMainWindow):
     # startup.
 
     def _on_check_updates_clicked(self) -> None:
-        """Handle the Config tab's 'Check for Updates' button."""
-        self._run_app_update_check(force_dialog=True)
+        """Manually check only signed release metadata; never auto-install."""
+        from src.utils.network_policy import NetworkBlockedError, require_network_allowed
+        try:
+            require_network_allowed("manual signed update check", "api.github.com")
+        except NetworkBlockedError:
+            QMessageBox.information(self, "Offline Security Mode",
+                "Updates are blocked by Offline Security Mode. Disable it in Config only when you intentionally want to check for an update.")
+            return
+        self._action_check_hardened_updates.setEnabled(False)
+        self._update_check_progress = QProgressDialog("Verifying signed release metadata…", None, 0, 0, self)
+        self._update_check_progress.setWindowTitle("Check for Hardened Updates")
+        self._update_check_progress.setModal(True)
+        self._update_check_progress.show()
+        self._signed_release_worker = SignedReleaseCheckWorker()
+        self._signed_release_worker.finished.connect(self._on_signed_release_checked)
+        self._signed_release_worker.failed.connect(self._on_signed_release_check_failed)
+        self._signed_release_worker.finished.connect(self._signed_release_worker.deleteLater)
+        self._signed_release_worker.failed.connect(self._signed_release_worker.deleteLater)
+        self._signed_release_worker.start()
+
+    def _on_signed_release_checked(self, release: dict) -> None:
+        self._update_check_progress.close()
+        self._action_check_hardened_updates.setEnabled(True)
+        manifest = release["manifest"]
+        latest = manifest.get("version", "unknown")
+        if latest == get_version():
+            QMessageBox.information(self, "Hardened Updates", "You are already running the latest signed release.")
+            return
+        QMessageBox.information(self, "Signed Update Available",
+            f"A signed update is available: {latest}\n\n"
+            "Its manifest and published ZIP size were verified. Automatic download and replacement will be added in the next hardened update step.")
+
+    def _on_signed_release_check_failed(self, message: str) -> None:
+        self._update_check_progress.close()
+        self._action_check_hardened_updates.setEnabled(True)
+        QMessageBox.warning(self, "Hardened Update Check Failed",
+            "No update was accepted. The release may be unsigned, incomplete, unavailable, or blocked by your network policy.\n\n" + message)
 
     def _run_app_update_check(self, force_dialog: bool) -> None:
         """Self-update is disabled in the hardened build."""

@@ -94,16 +94,50 @@ local game data because deserializing a tampered pickle can execute code.
 1. Build from a reviewed commit with a clean worktree.
 2. Create a fresh virtual environment.
 3. Install only the exact versions in `requirements.txt`.
-4. Run the full test suite.
-5. Build the portable artifact with `python scripts/build/build_exe.py --portable`.
-6. Record a SHA-256 hash for the completed portable ZIP and retain it with this
+4. For the signed-update feature, install the separately hash-locked
+   `requirements-update-security.txt` file from a reviewed local wheel
+   directory. This prevents a build from silently fetching a replacement
+   cryptography package during installation.
+5. Run the full test suite.
+6. Build the portable artifact with `python scripts/build/build_exe.py --portable`.
+7. Record a SHA-256 hash for the completed portable ZIP and retain it with this
    source revision.
-7. Do not replace the executable or any `_internal` file without rebuilding and
+8. Do not replace the executable or any `_internal` file without rebuilding and
    repeating verification.
 
-Package hashes are not yet recorded. Before treating a release build as final,
-download the pinned wheels once, review their origin, generate a hash-locked
-requirements file, and build offline from that local wheel set.
+The update-signature dependency is locked in
+`requirements-update-security.txt` for this Windows x86-64 build VM. Other
+application dependencies remain version-pinned but are not yet fully
+hash-locked across all platforms.
+
+## Signed release keys
+
+The future manual updater trusts an Ed25519 public key bundled in
+`assets/release-signing-public-key.txt`. Its matching private key must stay on
+a separate trusted signing machine and must never be placed in this repository,
+a GitHub secret visible to untrusted workflows, or a portable package.
+
+On that trusted machine, generate the pair once:
+
+```powershell
+python scripts/release/sign_release_manifest.py keygen C:\Secure\release-signing-private.pem C:\Secure\release-signing-public.txt
+```
+
+Copy only the generated public-key text into
+`assets/release-signing-public-key.txt`, commit that public file, and keep the
+private `.pem` offline/backed up. Every release manifest will be canonicalized
+and signed there before the app accepts its ZIP hash.
+
+For a machine that should not have Python installed, build and transfer the
+offline `SmartCitizen-ReleaseSigner.exe` instead. It has no network features
+and contains no private key:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\release\build_release_signer.py
+```
+
+Verify the adjacent `.exe.sha256` file before transferring the EXE to the
+trusted signing machine.
 
 ## Current local artifact
 

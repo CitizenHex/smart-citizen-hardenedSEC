@@ -1,6 +1,7 @@
 # IDE & Local
 .idea/
 .vscode/
+.vs/
 .claude/*
 !.claude/commands/
 *.swp
@@ -86,3 +87,13 @@ src/utils/_build_info.py
 *-RELEASE_NOTES.md
 
 /scratch/
+
+# Locally reviewed wheels used only to bootstrap the update-signature feature.
+# The lock file records their identities; binaries stay out of source control.
+/.dependency-staging/
+
+# Release-signing key material belongs on the separate trusted signing machine.
+*.release-signing-private.pem
+release-signing-private.pem
+/dist/release-signer/
+/build/release-signer/
