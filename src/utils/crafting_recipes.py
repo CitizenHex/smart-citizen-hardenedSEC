@@ -124,7 +124,10 @@ def load_crafting_recipes(forge_dir: Path, loc: dict[str, str] | None = None) ->
         return []
 
     parsed: list[tuple[Path, str, list[tuple[str, str]]]] = []
-    wanted_ids: set[str] = set()
+    # Outputs/items need an authoritative record root; resource costs are
+    # references inside carryable records with a different root UUID.
+    direct_ids: set[str] = set()
+    resource_ids: set[str] = set()
     for xml_file in bp_dir.rglob("*.xml"):
         try:
             root = ET.parse(xml_file).getroot()
@@ -140,19 +143,20 @@ def load_crafting_recipes(forge_dir: Path, loc: dict[str, str] | None = None) ->
                 uid = elem.get("resource", "")
                 if uid and uid != _NULL_UUID:
                     costs.append((uid, _cost_quantity(elem)))
-                    wanted_ids.add(uid)
+                    resource_ids.add(uid)
             elif kind == "CraftingCost_Item":
                 uid = elem.get("entityClass", "")
                 if uid and uid != _NULL_UUID:
                     costs.append((uid, _cost_quantity(elem)))
-                    wanted_ids.add(uid)
+                    direct_ids.add(uid)
         if output_id:
-            wanted_ids.add(output_id)
+            direct_ids.add(output_id)
         if costs:
             parsed.append((xml_file, output_id, costs))
 
     names: dict[str, str] = {}
-    unresolved_ids = set(wanted_ids)
+    unresolved_direct = set(direct_ids)
+    unresolved_resources = set(resource_ids)
     for xml_file in scitem_dir.rglob("*.xml"):
         try:
             # The old implementation compared every wanted UUID against the
@@ -171,13 +175,14 @@ def load_crafting_recipes(forge_dir: Path, loc: dict[str, str] | None = None) ->
         # a reference in unrelated ship/loadout records before its own item
         # record is encountered; accepting that first gave real items generic
         # fallback names (for example, M6A Cannon became "Behr Lasercannon").
-        matches = {own_ref} if own_ref in unresolved_ids else set()
+        direct_match = own_ref if own_ref in unresolved_direct else ""
+        # Current mineral UUIDs are references inside a carryable record whose
+        # own root UUID is unrelated, so resources must accept such references.
+        resource_matches = set(_UUID_RE.findall(text)) & unresolved_resources
         # Some resource records use a legacy <Ref value="…"> instead of an
         # authoritative __ref. Keep this narrow fallback only for records
         # without a root reference so it cannot steal another item's name.
-        if not matches and not own_ref:
-            matches = set(_UUID_RE.findall(text)) & unresolved_ids
-        if not matches:
+        if not direct_match and not resource_matches:
             continue
         try:
             # ``text`` is only a small header used for fast UUID discovery;
@@ -192,13 +197,12 @@ def load_crafting_recipes(forge_dir: Path, loc: dict[str, str] | None = None) ->
         # a carryable record, so retain the broader text-match fallback only
         # for IDs that do not have an owning record.
         own_ref = root.get("__ref", "")
-        if own_ref in unresolved_ids:
+        if direct_match:
             names[own_ref] = display
-            unresolved_ids.discard(own_ref)
-        for uid in matches:
-            if uid != own_ref:
-                names.setdefault(uid, display)
-                unresolved_ids.discard(uid)
+            unresolved_direct.discard(own_ref)
+        for uid in resource_matches:
+            names.setdefault(uid, display)
+            unresolved_resources.discard(uid)
 
     recipes: list[CraftingRecipe] = []
     for xml_file, output_id, costs in parsed:

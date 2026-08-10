@@ -58,6 +58,25 @@ def test_load_crafting_recipes_keeps_unknown_material_visible(tmp_path: Path):
     assert not recipes[0].ingredients[0].resolved
 
 
+def test_resource_reference_resolves_inside_record_with_own_root(tmp_path: Path):
+    records = tmp_path / "raw" / "libs" / "foundry" / "records"
+    recipes_dir = records / "crafting" / "blueprints" / "crafting"
+    items = records / "entities" / "scitem"
+    recipes_dir.mkdir(parents=True)
+    items.mkdir(parents=True)
+    resource = "11111111-1111-1111-1111-111111111111"
+    own_ref = "22222222-2222-2222-2222-222222222222"
+    (recipes_dir / "bp.xml").write_text(
+        f'<Blueprint><CraftingCost_Resource resource="{resource}" quantity="2"/></Blueprint>', encoding="utf-8"
+    )
+    (items / "ore.xml").write_text(
+        f'<Item __ref="{own_ref}"><Ref value="{resource}"/><Params Name="@item_ore"/></Item>', encoding="utf-8"
+    )
+    recipe = load_crafting_recipes(tmp_path, {"item_ore": "Test Ore"})[0]
+    assert recipe.ingredients[0].name == "Test Ore"
+    assert recipe.ingredients[0].resolved
+
+
 def test_load_crafting_recipes_reads_nested_standard_cargo_quantity(tmp_path: Path):
     records = tmp_path / "crafting" / "blueprints" / "crafting"
     items = tmp_path / "entities" / "scitem"

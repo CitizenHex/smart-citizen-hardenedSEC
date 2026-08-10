@@ -139,6 +139,18 @@ and contains no private key:
 Verify the adjacent `.exe.sha256` file before transferring the EXE to the
 trusted signing machine.
 
+To prepare a built release without manually copying/signing each asset, run
+the local-only helper from the project root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\release\prepare_signed_release.ps1
+```
+
+It checks the ZIP hash and size against `release-manifest.json`, signs that
+manifest, and creates `dist/release-upload-v<version>/` containing exactly the
+ZIP, its SHA-256 file, the manifest, and its `.sig`. It does not upload to
+GitHub or copy either key.
+
 ## Current local artifact
 
 `dist/SmartCitizen-Portable-v2.3.0-hardened.3.zip`
