@@ -45,6 +45,7 @@ from src.gui.workers import (
     CraftingRecipeScanWorker,
     FinderCatalogRefreshWorker,
     SignedReleaseCheckWorker,
+    SignedReleaseDownloadWorker,
     DataForgeExtractWorker,
     EnhancementsGeneratorWorker,
     FileLoaderWorker,
@@ -1135,9 +1136,59 @@ class MainWindow(QMainWindow):
         if latest == get_version():
             QMessageBox.information(self, "Hardened Updates", "You are already running the latest signed release.")
             return
-        QMessageBox.information(self, "Signed Update Available",
-            f"A signed update is available: {latest}\n\n"
-            "Its manifest and published ZIP size were verified. Automatic download and replacement will be added in the next hardened update step.")
+        size_mb = manifest["zip_size"] / (1024 * 1024)
+        answer = QMessageBox.question(self, "Signed Update Available",
+            f"Install signed update {latest}?\n\n"
+            f"Download: {manifest['zip_name']} ({size_mb:.1f} MiB)\n"
+            f"SHA-256: {manifest['zip_sha256']}\n\n"
+            "The app will close, replace only verified package files, preserve your data folder, and relaunch.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if answer == QMessageBox.StandardButton.Yes:
+            self._download_signed_release(release)
+
+    def _download_signed_release(self, release: dict) -> None:
+        import tempfile
+        from pathlib import Path
+        version = release["manifest"]["version"]
+        self._pending_signed_release = release
+        destination = Path(tempfile.gettempdir()) / "SmartCitizen-Hardened-Update" / version / release["manifest"]["zip_name"]
+        self._update_download_progress = QProgressDialog("Downloading verified update…", None, 0, 100, self)
+        self._update_download_progress.setWindowTitle("Install Hardened Update")
+        self._update_download_progress.setModal(True)
+        self._update_download_progress.show()
+        self._signed_download_worker = SignedReleaseDownloadWorker(release, destination)
+        self._signed_download_worker.progress.connect(lambda done, total: self._update_download_progress.setValue(int(done * 100 / total)))
+        self._signed_download_worker.finished.connect(self._launch_verified_update_helper)
+        self._signed_download_worker.failed.connect(self._on_signed_release_download_failed)
+        self._signed_download_worker.start()
+
+    def _on_signed_release_download_failed(self, message: str) -> None:
+        self._update_download_progress.close()
+        QMessageBox.warning(self, "Hardened Update Download Failed",
+            "No files were installed because the downloaded ZIP could not be verified.\n\n" + message)
+
+    def _launch_verified_update_helper(self, zip_path: str) -> None:
+        import shutil, subprocess, tempfile
+        from pathlib import Path
+        self._update_download_progress.close()
+        if not getattr(sys, "frozen", False):
+            QMessageBox.information(self, "Update Ready", "The verified ZIP was downloaded. Automatic replacement is available only in the portable build.")
+            return
+        app_dir = Path(sys.executable).resolve().parent
+        helper = app_dir / "SmartCitizen-UpdateHelper.exe"
+        if not helper.is_file():
+            QMessageBox.warning(self, "Update Helper Missing", "This build does not include the update helper. Download a fresh release manually.")
+            return
+        staged_helper = Path(tempfile.gettempdir()) / "SmartCitizen-Hardened-Update" / "SmartCitizen-UpdateHelper.exe"
+        staged_helper.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(helper, staged_helper)
+        manifest = self._pending_signed_release["manifest"]
+        subprocess.Popen([
+            str(staged_helper), "--zip", zip_path, "--app-dir", str(app_dir),
+            "--pid", str(os.getpid()), "--relaunch", app_dir.joinpath(sys.executable.name).name,
+            "--sha256", manifest["zip_sha256"], "--size", str(manifest["zip_size"]),
+        ], cwd=staged_helper.parent)
+        QApplication.instance().quit()
 
     def _on_signed_release_check_failed(self, message: str) -> None:
         self._update_check_progress.close()

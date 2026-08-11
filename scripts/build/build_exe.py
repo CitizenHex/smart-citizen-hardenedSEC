@@ -231,6 +231,20 @@ try:
         print()
 
     PyInstaller.__main__.run(onedir_args)
+    if portable_mode:
+        # The GUI cannot replace its own running executable on Windows. Build
+        # a small console helper into the same verified package; at update
+        # time the GUI copies it to staging and launches that copy.
+        helper_args = [
+            os.path.join(root_dir, 'src', 'update_helper.py'),
+            '--name', 'SmartCitizen-UpdateHelper', '--onefile', '--console',
+            '--paths', root_dir,
+            '--distpath', os.path.join(root_dir, 'dist', exe_name),
+            '--workpath', os.path.join(root_dir, 'build', 'update-helper'),
+            '--specpath', os.path.join(root_dir, 'build', 'update-helper'),
+            '--clean', '--noconfirm',
+        ]
+        PyInstaller.__main__.run(helper_args)
     print(f"\n{'='*60}")
     print("Build successful!")
     print(f"{'='*60}")

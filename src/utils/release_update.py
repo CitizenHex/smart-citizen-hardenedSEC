@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
@@ -9,6 +11,7 @@ from src.utils.release_signatures import ReleaseSignatureError, verify_release_m
 
 RELEASE_API = "https://api.github.com/repos/ZeroDiv1de/smart-citizen-hardenedSEC/releases/latest"
 MAX_RESPONSE_BYTES = 1024 * 1024
+MAX_ZIP_BYTES = 600 * 1024 * 1024
 
 
 def _read(url: str, accept: str = "application/vnd.github+json") -> bytes:
@@ -44,3 +47,36 @@ def fetch_latest_signed_release() -> dict:
     if not zip_asset or int(zip_asset.get("size", -1)) != manifest.get("zip_size"):
         raise ReleaseSignatureError("signed manifest does not match the published ZIP")
     return {"manifest": manifest, "release_url": release.get("html_url", ""), "zip_url": zip_asset.get("browser_download_url", "")}
+
+
+def download_verified_release(release: dict, destination: Path, progress=None) -> Path:
+    """Download one user-approved ZIP and verify its signed size/hash."""
+    manifest = release["manifest"]
+    expected_size = int(manifest["zip_size"])
+    if expected_size < 1 or expected_size > MAX_ZIP_BYTES:
+        raise ValueError("signed update ZIP size is outside safe limits")
+    parsed = urlparse(release["zip_url"])
+    if parsed.scheme != "https" or parsed.hostname != "github.com":
+        raise ValueError("release ZIP URL is not an approved GitHub HTTPS URL")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    partial = destination.with_suffix(destination.suffix + ".part")
+    digest = hashlib.sha256()
+    written = 0
+    request = Request(release["zip_url"], headers={"User-Agent": "SmartCitizen-Hardened"})
+    with urlopen(request, timeout=30) as response, partial.open("wb") as output:
+        while True:
+            chunk = response.read(1024 * 1024)
+            if not chunk:
+                break
+            written += len(chunk)
+            if written > expected_size:
+                raise ValueError("download exceeded signed ZIP size")
+            digest.update(chunk)
+            output.write(chunk)
+            if progress:
+                progress(written, expected_size)
+    if written != expected_size or digest.hexdigest() != manifest["zip_sha256"]:
+        partial.unlink(missing_ok=True)
+        raise ValueError("downloaded ZIP does not match its signed manifest")
+    partial.replace(destination)
+    return destination

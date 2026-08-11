@@ -87,6 +87,25 @@ class SignedReleaseCheckWorker(QThread):
             self.failed.emit(str(exc))
 
 
+class SignedReleaseDownloadWorker(QThread):
+    progress = pyqtSignal(int, int)
+    finished = pyqtSignal(str)
+    failed = pyqtSignal(str)
+
+    def __init__(self, release: dict, destination: Path):
+        super().__init__()
+        self._release, self._destination = release, destination
+
+    def run(self):
+        try:
+            from src.utils.release_update import download_verified_release
+            path = download_verified_release(self._release, self._destination, self.progress.emit)
+            self.finished.emit(str(path))
+        except Exception as exc:
+            logger.exception("Signed release download failed")
+            self.failed.emit(str(exc))
+
+
 class AnimatedProgressDialog(QProgressDialog):
     """Reusable progress dialog that toggles between indeterminate and determinate.
 
