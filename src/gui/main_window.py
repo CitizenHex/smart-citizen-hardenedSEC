@@ -460,6 +460,8 @@ class MainWindow(QMainWindow):
         self.hardened_stamp = HardenedStamp()
         title_row.addWidget(self.hardened_stamp)
         title_row.addStretch(1)
+        self.quick_setup_panel = self._create_quick_setup_panel()
+        title_row.addWidget(self.quick_setup_panel)
         main_layout.addLayout(title_row)
 
         self.tagline_label = QLabel(tr("branding.tagline"))
@@ -490,7 +492,11 @@ class MainWindow(QMainWindow):
         self.config_tab.cache_dir_changed.connect(self._on_cache_dir_changed)
         self.config_tab.export_settings_requested.connect(self._handle_export_settings)
         self.config_tab.import_settings_requested.connect(self._handle_import_settings)
+        # The compact Quick Setup strip deliberately mirrors this field so a
+        # user can set the directory either way without stale step status.
+        self.config_tab.game_path_input.editingFinished.connect(self._refresh_quick_setup)
         self._config_tab_index = self.tabs.addTab(self.config_tab, tr("tabs.config"))
+        self._refresh_quick_setup()
 
         # Enhancements tab
         self.enhancements_tab = EnhancementsTab()
@@ -1065,6 +1071,134 @@ class MainWindow(QMainWindow):
         footer_layout.addWidget(self.venmo_button)
 
         return footer_layout
+
+    # ── Quick Setup ─────────────────────────────────────────────────
+
+    def _create_quick_setup_panel(self) -> QFrame:
+        """Create the compact first-run path shown at the top right.
+
+        This is intentionally an action sequence rather than a second copy of
+        the Config tab.  It covers the three things a new player must do; all
+        detailed controls remain available in Advanced tabs below.
+        """
+        panel = QFrame()
+        panel.setObjectName("quickSetupPanel")
+        panel.setStyleSheet(
+            "QFrame#quickSetupPanel { border: 1px solid #53657a; border-radius: 4px; "
+            "background: rgba(21, 37, 56, 0.65); }"
+        )
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(8, 5, 8, 5)
+        layout.setSpacing(4)
+
+        heading = QLabel("QUICK SETUP")
+        heading.setStyleSheet("font-size: 10px; font-weight: bold; letter-spacing: 1px;")
+        layout.addWidget(heading)
+
+        steps = QHBoxLayout()
+        steps.setSpacing(5)
+        self.quick_directory_btn = QPushButton("1  Confirm Directory")
+        self.quick_directory_btn.setToolTip(
+            "Confirm the folder containing your LIVE/PTU Star Citizen folders."
+        )
+        self.quick_directory_btn.clicked.connect(self._quick_confirm_directory)
+        steps.addWidget(self.quick_directory_btn)
+
+        self.quick_import_btn = QPushButton("2  Import Data.p4k")
+        self.quick_import_btn.setToolTip(
+            "Extract the local English base strings from your installed Data.p4k."
+        )
+        self.quick_import_btn.clicked.connect(self._quick_import_data_p4k)
+        steps.addWidget(self.quick_import_btn)
+
+        self.quick_apply_btn = QPushButton("3  Apply Enhancements")
+        self.quick_apply_btn.setToolTip(
+            "Generate local enhancements, back up the current game file, and apply them."
+        )
+        self.quick_apply_btn.clicked.connect(self._quick_apply_enhancements)
+        steps.addWidget(self.quick_apply_btn)
+        layout.addLayout(steps)
+        return panel
+
+    def _quick_has_valid_game_directory(self) -> bool:
+        """Return whether the selected channel has a readable local Data.p4k."""
+        try:
+            return AppSettings.get_p4k_path().is_file()
+        except (OSError, ValueError):
+            return False
+
+    def _quick_base_is_ready(self) -> bool:
+        """Return whether the selected game version has a current base cache."""
+        if not self._quick_has_valid_game_directory():
+            return False
+        return not self._simple_needs_base_extraction()
+
+    def _refresh_quick_setup(self) -> None:
+        """Refresh step labels and prevent out-of-order first-run actions."""
+        if not hasattr(self, "quick_directory_btn"):
+            return
+        directory_ready = self._quick_has_valid_game_directory()
+        base_ready = directory_ready and self._quick_base_is_ready()
+        busy = any(getattr(self, name, None) is not None for name in (
+            "_p4k_worker", "_forge_worker", "_enhancements_worker", "_bp_log_scan_worker",
+            "_loader_worker",
+        ))
+
+        self.quick_directory_btn.setText(
+            "1  ✓ Directory" if directory_ready else "1  Confirm Directory"
+        )
+        self.quick_import_btn.setText(
+            "2  ✓ Data Ready" if base_ready else "2  Import Data.p4k"
+        )
+        self.quick_apply_btn.setText("3  Apply Enhancements")
+        self.quick_directory_btn.setEnabled(not busy)
+        self.quick_import_btn.setEnabled(directory_ready and not base_ready and not busy)
+        self.quick_apply_btn.setEnabled(base_ready and not busy)
+
+    def _quick_confirm_directory(self) -> None:
+        """Confirm the current game root or route the user to a folder picker."""
+        current = AppSettings.get_game_install_path()
+        if self._quick_has_valid_game_directory():
+            answer = QMessageBox.question(
+                self, "Confirm Star Citizen Directory",
+                "Use this Star Citizen directory?\n\n" + current,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                self._refresh_quick_setup()
+                return
+
+        start_dir = current or str(AppSettings.get_sc_install_root())
+        chosen = QFileDialog.getExistingDirectory(
+            self, "Select Star Citizen Install Root", start_dir
+        )
+        if not chosen:
+            return
+        self.config_tab.game_path_input.setText(chosen)
+        self.config_tab._save_game_path()
+        self._refresh_quick_setup()
+        if not self._quick_has_valid_game_directory():
+            QMessageBox.warning(
+                self, "Data.p4k Not Found",
+                "Choose the Star Citizen install root containing LIVE, PTU, or another channel folder.",
+            )
+
+    def _quick_import_data_p4k(self) -> None:
+        """Run the existing local-only P4K extraction for step two."""
+        if not self._quick_has_valid_game_directory():
+            self._quick_confirm_directory()
+            return
+        self._run_p4k_extraction()
+        self._refresh_quick_setup()
+
+    def _quick_apply_enhancements(self) -> None:
+        """Use the proven simple Apply flow after Quick Setup is complete."""
+        if not self._quick_base_is_ready():
+            self._quick_import_data_p4k()
+            return
+        self._run_simple_apply()
+        self._refresh_quick_setup()
 
     def open_osiris_github(self, event):
         """Open the Osiris DevWorks GitHub organization in browser."""
@@ -4939,6 +5073,7 @@ class MainWindow(QMainWindow):
         else:
             self._end_simple_run()
             self.statusBar().showMessage(tr("status_bar.enhancement_generation_failed"))
+        self._refresh_quick_setup()
 
     def _run_dataforge_extraction(self):
         """Launch DataForgeExtractWorker in the background (non-blocking)."""
@@ -5061,6 +5196,8 @@ class MainWindow(QMainWindow):
             self._show_loading_progress("Reloading with extracted base.ini...")
         elif self._simple_run_active:
             self._end_simple_run()
+
+        self._refresh_quick_setup()
 
     def closeEvent(self, event):
         """Save state and overrides before closing."""
