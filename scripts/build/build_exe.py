@@ -126,7 +126,12 @@ print("Cleaning old builds...")
 for folder in ['build', 'dist']:
     path = os.path.join(root_dir, folder)
     if os.path.exists(path):
-        shutil.rmtree(path)
+        # A prior portable test can contain a DataForge cache whose files
+        # were removed concurrently by Defender, OneDrive, or a cleanup
+        # utility.  Those already-missing generated files must not block a
+        # fresh build; new output uses versioned ZIP names and is written
+        # independently below.
+        shutil.rmtree(path, ignore_errors=True)
         print(f"  - Removed {folder}/")
 # Also clean any stale _build_info.py from an interrupted prior build.
 _cleanup_build_info()
