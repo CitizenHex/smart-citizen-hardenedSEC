@@ -33,7 +33,18 @@
 1. Download `SmartCitizen-Portable-...zip` from **Releases**.
 2. Extract the ZIP to a folder you control, such as `Documents\SmartCitizen`.
 3. Run `SmartCitizen-Portable-...exe`.
-4. On the first screen, click **Apply Enhancements** and confirm.
+4. Use the **Quick Setup** buttons at the top right:
+   1. **Confirm Directory** — select or confirm the folder containing your
+      LIVE/PTU Star Citizen folders.
+   2. **Import Data.p4k** — extract the local English base strings from your
+      installed game. This is local-only and may take a few minutes.
+   3. **Apply Enhancements** — imports locally recorded blueprints when
+      available, generates your selected enhancements, makes a backup, and
+      applies the result.
+
+The three steps unlock in order and show a checkmark when their prerequisite
+is complete. Everything else remains available in the Advanced tabs if you
+want to customize or inspect the changes later.
 
 **Important Note - windows defender may try and block the app from running. If it does, in the popup click more info, then click Run Anyways** (same as the main branch, this is due to smaller developer teams not having Microsoft reputation). Hash is provided for safety and verification.
 
