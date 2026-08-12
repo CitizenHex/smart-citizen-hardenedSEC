@@ -83,7 +83,7 @@ class HardenedStamp(QWidget):
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            QDesktopServices.openUrl(QUrl("https://github.com/ZeroDiv1de/smart-citizen-hardenedSEC"))
+            QDesktopServices.openUrl(QUrl("https://github.com/CitizenHex/smart-citizen-hardenedSEC"))
         super().mouseReleaseEvent(event)
 
     def paintEvent(self, _event):

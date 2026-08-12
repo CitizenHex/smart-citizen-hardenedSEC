@@ -9,7 +9,7 @@ from urllib.request import Request, urlopen
 
 from src.utils.release_signatures import ReleaseSignatureError, verify_release_manifest
 
-RELEASE_API = "https://api.github.com/repos/ZeroDiv1de/smart-citizen-hardenedSEC/releases/latest"
+RELEASE_API = "https://api.github.com/repos/CitizenHex/smart-citizen-hardenedSEC/releases/latest"
 MAX_RESPONSE_BYTES = 1024 * 1024
 MAX_ZIP_BYTES = 600 * 1024 * 1024
 
