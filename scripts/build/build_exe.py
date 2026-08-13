@@ -243,6 +243,10 @@ print()
 
 onedir_args = common_args + [
     '--onedir',
+    # Only replaces the precise --distpath/--name directory. In local-test
+    # mode that is dist/local-test/SmartCitizen-Hardened, never release ZIPs
+    # or signed upload assets in dist/.
+    '--noconfirm',
     '--distpath', output_root,
 ]
 
