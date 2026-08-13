@@ -4,6 +4,35 @@ This file records user-visible changes made by the Smart Citizen Hardened fork.
 For the full security model and verification details, see
 [SECURITY_HARDENING.md](SECURITY_HARDENING.md).
 
+## v2.3.0-hardened.24
+
+### Security and reliability
+
+- Added pre-extraction free-space and temporary-cache safety checks, with a
+  controlled temporary workspace and a clear local read/write report.
+- Added size, archive, compression-ratio, duplicate-entry, and unsafe-path
+  checks for imported settings archives and standalone INI imports.
+- Strengthened Apply rollback snapshots by recording and verifying SHA-256
+  hashes before restoring original game files.
+
+### Setup and local data
+
+- Quick Setup now enables its third step as soon as the local game data import
+  finishes, rather than waiting for a stale worker reference to clear.
+- Kept local-test runtime data outside the disposable application build folder
+  so rebuilding does not remove extracted game data or local settings.
+- Extraction progress now shows that the initial `Data.p4k` scan is still
+  working instead of appearing stalled at 0%.
+
+### Loot Tags
+
+- Updated Finder catalog parsing to accept the endpoint's supported response
+  wrappers while retaining strict response validation and record limits.
+- Added an obvious on-page success message after a Finder refresh, including
+  the number of exact-name records loaded.
+- Moved Finder refresh, import, and export controls above the item list and
+  compacted the list so tag controls remain visible without scrolling.
+
 ## Unreleased — Hardened portable baseline
 
 ### Security

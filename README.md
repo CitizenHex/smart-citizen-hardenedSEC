@@ -30,7 +30,7 @@
 
 ## Start Here
 
-1. Download `SmartCitizen-Portable-...zip` from **Releases**.
+1. Download `SmartCitizen-Hardened-v...zip` from **Releases**.
 2. Extract the ZIP to a folder you control, such as `Documents\SmartCitizen`.
 3. Run `SmartCitizen-Portable-...exe`.
 4. Use the **Quick Setup** buttons at the top right:
