@@ -67,9 +67,10 @@ This is a tamper/corruption check, not a substitute for release verification:
 always compare the downloaded ZIP's detached SHA-256 value with the value
 published on the GitHub release page.
 
-These two executables were built locally from the source snapshot in
-`../odw-fast-unp4k` using the .NET 10 SDK. The reviewed source was hardened
-before compilation:
+These two executables were built locally from the CitizenHex-maintained source
+snapshot in [`CitizenHex/citizenhex-p4k-tools`](https://github.com/CitizenHex/citizenhex-p4k-tools)
+using the .NET 10 SDK. The review baseline is commit `b4273cd`, and the source
+was hardened before compilation:
 
 - removed `unp4k`'s automatic exception upload to
   `https://herald.holoxplor.space`;
@@ -80,9 +81,9 @@ before compilation:
   Smart Citizen can explain the problem without a Windows CLR error popup.
 
 The locally built binaries are unsigned. Their identity is enforced by the
-SHA-256 allowlist above. The original vendor binaries are retained outside the
-application tree under `../odw-fast-unp4k/vendor-original-binaries` for
-comparison and rollback; they are not included in the portable package.
+SHA-256 allowlist above. Any original vendor binaries retained for comparison
+or rollback stay outside the application tree and are never included in the
+portable package.
 
 ## Cache policy
 
