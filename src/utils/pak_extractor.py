@@ -28,6 +28,90 @@ _BUNDLED_TOOL_HASHES = {
     "x64/libzstd.dll": "9bef1e2c8eee89d9f54713f01808aacb195bbded5991e11f80b88d132b60f5e4",
 }
 
+# Extraction is intentionally bounded.  DataForge expansion is large, but the
+# useful filtered cache is normally about 1.4 GiB.  These limits leave plenty
+# of room for a normal game build while stopping a malformed archive or an
+# unexpected tool regression from consuming a drive unchecked.
+MIN_GLOBAL_EXTRACT_FREE_BYTES = 1 * 1024 ** 3
+MIN_DATAFORGE_EXTRACT_FREE_BYTES = 8 * 1024 ** 3
+MAX_DATAFORGE_TEMP_BYTES = 12 * 1024 ** 3
+MAX_DATAFORGE_CACHE_BYTES = 4 * 1024 ** 3
+
+
+class ExtractionSafetyError(RuntimeError):
+    """An extraction was refused before an unsafe amount of disk use occurred."""
+
+
+def _format_gib(size: int) -> str:
+    return f"{size / (1024 ** 3):.1f} GiB"
+
+
+def _check_free_space(target_dir: Path, minimum_bytes: int) -> int:
+    """Return free bytes for *target_dir*, refusing a low-space extraction."""
+    target = target_dir
+    while not target.exists() and target.parent != target:
+        target = target.parent
+    free = shutil.disk_usage(target).free
+    if free < minimum_bytes:
+        raise ExtractionSafetyError(
+            f"Not enough free space for safe extraction at {target}. "
+            f"Available: {_format_gib(free)}; required: {_format_gib(minimum_bytes)}."
+        )
+    return free
+
+
+def _controlled_temp_root(cache_dir: Path) -> Path:
+    """Return the app-owned scratch root used for an extraction job.
+
+    Keeping the scratch files below the selected cache directory makes their
+    location auditable and avoids spilling large game data into an unrelated
+    system TEMP folder.  Each job still receives a unique TemporaryDirectory
+    that is deleted when the job succeeds or fails.
+    """
+    # Put the scratch root *next to* the replaceable cache directory, not
+    # inside it: DataForge refreshes safely remove and recreate its cache.
+    root = cache_dir.parent / ".extraction-tmp"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _tree_size_bytes(root: Path, *, stop_after: int | None = None) -> int:
+    """Measure a directory without following links, optionally stopping early."""
+    total = 0
+    for path in root.rglob("*"):
+        try:
+            if path.is_file() and not path.is_symlink():
+                total += path.stat().st_size
+                if stop_after is not None and total > stop_after:
+                    return total
+        except OSError:
+            # A transient antivirus/indexer handle is harmless here; the
+            # subsequent copy will still fail safely if that file matters.
+            continue
+    return total
+
+
+def extraction_safety_summary(
+    p4k_path: Path,
+    cache_dir: Path,
+    *,
+    include_dataforge: bool,
+) -> dict[str, str | int]:
+    """Read-only preflight details for the UI and extraction boundary."""
+    p4k_path = Path(p4k_path)
+    cache_dir = Path(cache_dir)
+    if not p4k_path.is_file():
+        raise FileNotFoundError(f"Data.p4k not found at: {p4k_path}")
+    minimum = MIN_DATAFORGE_EXTRACT_FREE_BYTES if include_dataforge else MIN_GLOBAL_EXTRACT_FREE_BYTES
+    free = _check_free_space(cache_dir, minimum)
+    return {
+        "p4k_path": str(p4k_path),
+        "cache_dir": str(cache_dir),
+        "temp_dir": str(cache_dir.parent / ".extraction-tmp"),
+        "free_bytes": free,
+        "required_bytes": minimum,
+    }
+
 
 def _verify_bundled_tools(tool_dir: Path, *, include_unforge: bool) -> None:
     """Refuse to execute a modified extraction tool or native dependency."""
@@ -318,12 +402,23 @@ def extract_global_ini(
     if not p4k_path.exists():
         raise FileNotFoundError(f"Data.p4k not found at: {p4k_path}")
 
+    # Do the same capacity check even when extraction is launched outside the
+    # GUI. The dialog is informative; this is the enforcement boundary.
+    extraction_safety_summary(p4k_path, output_path.parent, include_dataforge=False)
+
     TOTAL_PHASES = 2
-    with tempfile.TemporaryDirectory() as tmp_dir:
+    with tempfile.TemporaryDirectory(
+        prefix="global-", dir=str(_controlled_temp_root(output_path.parent))
+    ) as tmp_dir:
         if progress_callback:
-            progress_callback(tr("progress.unp4k_launch"))
+            progress_callback(
+                "Scanning Data.p4k for global.ini — the first import can take a few minutes..."
+            )
         if progress_pct_callback:
-            progress_pct_callback(0, TOTAL_PHASES, tr("progress.unp4k_launch_short"))
+            # unp4k does not expose archive-scan progress. An animated busy
+            # bar is more honest than a fixed 0% for this unknown-duration
+            # phase; progress becomes determinate once the file is found.
+            progress_pct_callback(0, 0, "Scanning Data.p4k archive...")
 
         logger.info(f"Running unp4k: {unp4k_exe} {p4k_path} global.ini (cwd={tmp_dir})")
         result = subprocess.run(
@@ -404,9 +499,12 @@ def extract_dataforge(
     # this function hands to _copy_filtered_records/update_manifest) inherits
     # long-path safety — see win_paths.win_long_path (#221).
     dataforge_cache_dir = Path(_win_long_path(dataforge_cache_dir))
+    extraction_safety_summary(p4k_path, dataforge_cache_dir, include_dataforge=True)
 
     TOTAL_PHASES = 3
-    with tempfile.TemporaryDirectory() as tmp_dir:
+    with tempfile.TemporaryDirectory(
+        prefix="dataforge-", dir=str(_controlled_temp_root(dataforge_cache_dir))
+    ) as tmp_dir:
         tmp = Path(tmp_dir)
 
         # ── Step 1: Extract Game2.dcb ─────────────────────────────────────────
@@ -495,6 +593,13 @@ def extract_dataforge(
             )
 
         # ── Step 3: Cache the full extraction ─────────────────────────────────
+        temp_size = _tree_size_bytes(tmp, stop_after=MAX_DATAFORGE_TEMP_BYTES)
+        if temp_size > MAX_DATAFORGE_TEMP_BYTES:
+            raise ExtractionSafetyError(
+                "DataForge temporary output exceeded the safe limit "
+                f"({_format_gib(MAX_DATAFORGE_TEMP_BYTES)}). The temporary job will be removed."
+            )
+
         if progress_callback:
             progress_callback(tr("progress.caching_entities"))
         if progress_pct_callback:
@@ -520,6 +625,13 @@ def extract_dataforge(
         raw_dir = dataforge_cache_dir / "raw"
         logger.info(f"Saving DataForge extraction to {raw_dir}…")
         copied, skipped = _copy_filtered_records(libs_dir / "libs", raw_dir / "libs")
+        cache_size = _tree_size_bytes(dataforge_cache_dir, stop_after=MAX_DATAFORGE_CACHE_BYTES)
+        if cache_size > MAX_DATAFORGE_CACHE_BYTES:
+            robust_rmtree(dataforge_cache_dir)
+            raise ExtractionSafetyError(
+                "DataForge cache exceeded the safe limit "
+                f"({_format_gib(MAX_DATAFORGE_CACHE_BYTES)}). The partial cache was removed."
+            )
         logger.info(
             f"DataForge cache written: {copied}/{len(DATAFORGE_KEEP_SUBPATHS)} "
             f"keep-subpaths copied ({skipped} not present in this build)"

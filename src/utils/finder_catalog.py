@@ -30,14 +30,58 @@ def _validate_url(url: str) -> None:
         raise ValueError("Finder refresh only permits the reviewed GetSearch HTTPS URL.")
 
 
+def _unwrap_finder_items(payload) -> list:
+    """Accept Finder's documented list plus conservative transport wrappers.
+
+    The endpoint normally returns a list directly, but its hosting layer has
+    intermittently returned ASP.NET/DataTables-style wrappers.  Only unwrap
+    known single-purpose list fields; an arbitrary object is still rejected.
+    """
+    if isinstance(payload, list):
+        return payload
+    # A few proxy layers serialize an otherwise valid JSON response one extra
+    # time. Decode exactly once and still require the final value to be a
+    # list/wrapper; never recursively unpack arbitrary data.
+    if isinstance(payload, str):
+        try:
+            return _unwrap_finder_items(json.loads(payload))
+        except json.JSONDecodeError:
+            pass
+    if isinstance(payload, dict):
+        for key in ("data", "items", "results", "d", "aaData", "response"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return value
+            # Some legacy ASP.NET endpoints serialize the d field a second
+            # time as JSON text. Decode it once, then require a list.
+            if key == "d" and isinstance(value, str):
+                try:
+                    decoded = json.loads(value)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(decoded, list):
+                    return decoded
+        # A safe fallback for a benign host/CDN envelope we do not recognize:
+        # accept exactly one list-valued field. Multiple lists are ambiguous
+        # and remain rejected. The row-by-row catalog validation below still
+        # controls what may enter the saved catalog.
+        list_values = [value for value in payload.values() if isinstance(value, list)]
+        if len(list_values) == 1:
+            return list_values[0]
+        keys = ", ".join(str(key)[:80] for key in list(payload)[:8])
+        raise ValueError(f"Finder response has no usable item list (fields: {keys or 'none'}).")
+    raise ValueError(f"Finder response is not a supported item list (got {type(payload).__name__}).")
+
+
 def parse_finder_search(payload, existing_catalog: dict, now: datetime | None = None) -> tuple[dict, int]:
     """Turn Finder's minimal public search response into a safe local catalog.
 
     Ambiguous duplicate display names are excluded rather than guessed. Manual
     key-based overrides are retained exactly as the player set them.
     """
-    if not isinstance(payload, list) or len(payload) > MAX_RECORDS:
-        raise ValueError("Finder response is not a supported item list.")
+    payload = _unwrap_finder_items(payload)
+    if len(payload) > MAX_RECORDS:
+        raise ValueError(f"Finder response has too many items (limit {MAX_RECORDS:,}).")
     names: dict[str, dict] = {}
     conflicts: set[str] = set()
     for row in payload:

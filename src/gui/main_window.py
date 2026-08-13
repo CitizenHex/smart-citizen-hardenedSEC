@@ -740,6 +740,18 @@ class MainWindow(QMainWindow):
         self._action_emergency_remove.setToolTip(
             "Restore every game file changed by the most recent Apply."
         )
+        self._action_file_access_report = more_menu.addAction(
+            "What Smart Citizen Reads & Writes", self.show_file_access_report
+        )
+        self._action_file_access_report.setToolTip(
+            "See the local files used by extraction, backups, and Apply."
+        )
+        self._action_apply_file_plan = more_menu.addAction(
+            "Show Apply File Plan", self.show_apply_file_plan
+        )
+        self._action_apply_file_plan.setToolTip(
+            "See the exact game-side files Apply Enhancements may change."
+        )
         self._action_hardened_report = more_menu.addAction(
             "Hardened Build & Integrity Report", self.show_hardened_integrity_report
         )
@@ -1149,10 +1161,20 @@ class MainWindow(QMainWindow):
             return
         directory_ready = self._quick_has_valid_game_directory()
         base_ready = directory_ready and self._quick_base_is_ready()
-        busy = any(getattr(self, name, None) is not None for name in (
-            "_p4k_worker", "_forge_worker", "_enhancements_worker", "_bp_log_scan_worker",
-            "_loader_worker",
-        ))
+        # A worker object can remain allocated briefly while Qt drains its
+        # finished signal. Treat only an actively running worker as busy;
+        # otherwise Step 3 can remain visibly disabled even after Data Ready
+        # is checked (especially on a fast P4K import / slow UI repaint).
+        busy = any(
+            worker is not None and worker.isRunning()
+            for worker in (
+                getattr(self, "_p4k_worker", None),
+                getattr(self, "_forge_worker", None),
+                getattr(self, "_enhancements_worker", None),
+                getattr(self, "_bp_log_scan_worker", None),
+                getattr(self, "_loader_worker", None),
+            )
+        )
 
         self.quick_directory_btn.setText(
             "1  ✓ Directory" if directory_ready else "1  Select Game Folder"
@@ -2210,6 +2232,136 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Emergency Remove Failed", str(exc))
 
     @pyqtSlot()
+    def show_file_access_report(self):
+        """Show the app's local file boundary in ordinary language."""
+        p4k = AppSettings.get_p4k_path()
+        cache = AppSettings.get_cache_dir()
+        forge = AppSettings.get_dataforge_cache_dir()
+        data_dir = AppSettings.get_user_data_dir()
+        game_root = AppSettings.get_game_install_path()
+        lines = [
+            "Smart Citizen works from local files. This screen describes its normal file access.",
+            "",
+            "READS (never modified by extraction):",
+            f"  • Game archive: {p4k}",
+            "  • Optional local Game.log and logbackups to import earned blueprints.",
+            f"  • Your local Smart Citizen settings and cache: {data_dir}",
+            "",
+            "WRITES DURING DATA IMPORT:",
+            f"  • Base localization cache: {cache / 'base.ini'}",
+            f"  • DataForge cache: {forge}",
+            f"  • Temporary extraction files: {forge.parent / '.extraction-tmp'}",
+            "    Temporary files are created below the app cache and removed after each job, including failures.",
+            "",
+            "WRITES ONLY WHEN YOU CLICK APPLY ENHANCEMENTS:",
+            f"  • Localization/configuration files under the selected game install: {game_root}",
+            "  • A local backup is created first; Emergency Remove restores the last applied backup.",
+            "",
+            "DOES NOT:",
+            "  • Modify Data.p4k.",
+            "  • Send data over the network during extraction.",
+            "  • Run automatic update checks. Signed updates are manual and require your approval.",
+        ]
+        QMessageBox.information(self, "What Smart Citizen Reads & Writes", "\n".join(lines))
+
+    @pyqtSlot()
+    def show_apply_file_plan(self):
+        """Show the precise, intentionally small game-side write set."""
+        try:
+            targets = self._managed_game_files()
+        except Exception as exc:
+            QMessageBox.warning(self, "Apply File Plan", str(exc))
+            return
+        rows = []
+        labels = {
+            "global_ini": "Modified localization text",
+            "languages_ini": "Selected language mapping (when available)",
+            "user_cfg": "Selected game language setting",
+        }
+        for name, path in targets.items():
+            state = "existing file" if path.exists() else "may be created"
+            rows.append(f"  • {labels[name]}\n    {path}\n    ({state})")
+        lines = [
+            "Apply Enhancements only changes the following game-side files:",
+            "",
+            *rows,
+            "",
+            "Before any of these files change, Smart Citizen creates a complete rollback snapshot.",
+            "New snapshots are SHA-256 verified before Apply continues, and verified again during Emergency Remove.",
+            "Data.p4k is not on this list and is never modified.",
+        ]
+        QMessageBox.information(self, "Apply File Plan", "\n".join(lines))
+
+    def _confirm_extraction_safety(self) -> bool:
+        """Enforce and locally audit extraction safety before tools run.
+
+        Successful checks deliberately stay non-interactive so Quick Setup
+        remains quick. Failed checks still stop work and explain why.
+        """
+        from src.utils.pak_extractor import extraction_safety_summary, verify_bundled_tool_integrity
+
+        p4k = AppSettings.get_p4k_path()
+        cache = AppSettings.get_dataforge_cache_dir()
+        try:
+            summary = extraction_safety_summary(p4k, cache, include_dataforge=True)
+            verify_bundled_tool_integrity()
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                "Extraction Safety Check Failed",
+                "Extraction did not start.\n\n" + str(exc),
+            )
+            return False
+
+        gib = 1024 ** 3
+        logger.info(
+            "Extraction safety check passed: read-only p4k=%s; cache=%s; temp=%s; "
+            "free=%.1f GiB; required=%.1f GiB; native hashes verified",
+            summary["p4k_path"], summary["cache_dir"], summary["temp_dir"],
+            summary["free_bytes"] / gib, summary["required_bytes"] / gib,
+        )
+        try:
+            from src.utils.audit_log import record as record_audit
+            record_audit(
+                AppSettings.get_logs_dir(), "extraction_safety_check_passed",
+                p4k_path=summary["p4k_path"], cache_dir=summary["cache_dir"],
+                temp_dir=summary["temp_dir"], free_bytes=summary["free_bytes"],
+                required_bytes=summary["required_bytes"],
+                native_tool_hashes_verified=True, network_used=False,
+            )
+        except Exception:
+            logger.warning("Could not record extraction safety audit event", exc_info=True)
+        self.statusBar().showMessage("Extraction safety check passed — preparing local game data...")
+        return True
+
+        # Kept unreachable temporarily so the detailed wording remains easy
+        # to recover if a future build offers an optional verbose mode.
+        text = "\n".join((
+            "Smart Citizen will now prepare local game data.",
+            "",
+            "READ-ONLY GAME FILE:",
+            f"  {summary['p4k_path']}",
+            "",
+            "APP-OWNED OUTPUT:",
+            f"  Cache: {summary['cache_dir']}",
+            f"  Temporary job files: {summary['temp_dir']}",
+            "  Temporary files are removed when the job ends, even if it fails.",
+            "",
+            "SAFETY CHECKS PASSED:",
+            "  • Bundled extractor tools match their pinned SHA-256 hashes.",
+            f"  • Free space: {summary['free_bytes'] / gib:.1f} GiB (requires {summary['required_bytes'] / gib:.1f} GiB).",
+            "  • Temporary output is limited to 12 GiB; retained DataForge cache is limited to 4 GiB.",
+            "",
+            "No network connection is made. Data.p4k is never changed.",
+            "Close the RSI Launcher if it is updating or verifying the game, then choose Continue.",
+        ))
+        reply = QMessageBox.question(
+            self, "Extraction Safety Check", text,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes,
+        )
+        return reply == QMessageBox.StandardButton.Yes
+
     def show_hardened_integrity_report(self):
         """Show the current local security posture without changing any files."""
         from src.utils.pak_extractor import verify_bundled_tool_integrity
@@ -3001,6 +3153,7 @@ class MainWindow(QMainWindow):
             QPushButton, QLabel, QDialogButtonBox, QFileDialog
         )
         from src.parser.ini_parser import parse_ini_file
+        from src.utils.import_safety import validate_ini_import
         from src.utils.user_ini_manager import save_user_ini_dict
         # Step 1: Get a local source path from the user
         source = self._get_import_source()
@@ -3011,9 +3164,7 @@ class MainWindow(QMainWindow):
             # Step 2: Resolve to a local file. Remote imports are deliberately
             # unsupported in the hardened build.
             resolved_path = source
-            if not Path(resolved_path).is_file():
-                QMessageBox.warning(self, tr("dialogs.file_not_found_title"), tr("dialogs.file_not_found_body", path=resolved_path))
-                return
+            resolved_path = validate_ini_import(resolved_path)
 
             # Step 3: Parse imported file
             imported = parse_ini_file(resolved_path)
@@ -5107,6 +5258,10 @@ class MainWindow(QMainWindow):
         """Launch DataForgeExtractWorker in the background (non-blocking)."""
         if self._forge_worker is not None:
             return
+        if not self._confirm_extraction_safety():
+            self.statusBar().showMessage("DataForge extraction cancelled before it started.")
+            self._end_simple_run()
+            return
 
         p4k_path    = AppSettings.get_p4k_path()
         unp4k_exe   = AppSettings.get_unp4k_exe_path()
@@ -5174,6 +5329,12 @@ class MainWindow(QMainWindow):
 
     def _run_p4k_extraction(self):
         """Launch P4kExtractWorker with a progress dialog; reload sources on success."""
+        if self._p4k_worker is not None:
+            return
+        if not self._confirm_extraction_safety():
+            self.statusBar().showMessage("Data.p4k extraction cancelled before it started.")
+            self._end_simple_run()
+            return
         p4k_path = AppSettings.get_p4k_path()
         output_path = AppSettings.get_cache_dir() / 'base.ini'
         unp4k_exe = AppSettings.get_unp4k_exe_path()
@@ -5184,6 +5345,14 @@ class MainWindow(QMainWindow):
             parent=self,
             title=tr("extract.p4k_extraction_title")
         )
+        # unp4k scans the archive without exposing byte-level progress. Keep
+        # the user informed that the job is alive instead of displaying a
+        # misleading static 0% for several minutes.
+        self._p4k_elapsed_seconds = 0
+        self._p4k_elapsed_timer = QTimer(self)
+        self._p4k_elapsed_timer.setInterval(1000)
+        self._p4k_elapsed_timer.timeout.connect(self._update_p4k_elapsed_status)
+        self._p4k_elapsed_timer.start()
 
         self._p4k_worker.progress.connect(self._p4k_progress.setLabelText)
         self._p4k_worker.progress_pct.connect(self._p4k_progress.set_progress)
@@ -5191,8 +5360,24 @@ class MainWindow(QMainWindow):
         self._p4k_worker.finished.connect(self._on_p4k_extract_finished)
         self._p4k_worker.start()
 
+    def _update_p4k_elapsed_status(self):
+        """Update the unknown-duration P4K scan label once per second."""
+        if self._p4k_progress is None:
+            return
+        self._p4k_elapsed_seconds += 1
+        minutes, seconds = divmod(self._p4k_elapsed_seconds, 60)
+        elapsed = f"{minutes}:{seconds:02d}"
+        self._p4k_progress.setLabelText(
+            "Scanning Data.p4k for global.ini — still working "
+            f"({elapsed} elapsed; large installs can take a few minutes)."
+        )
+
     def _on_p4k_extract_finished(self, success: bool):
         """Handle P4K extraction completion."""
+        if getattr(self, "_p4k_elapsed_timer", None) is not None:
+            self._p4k_elapsed_timer.stop()
+            self._p4k_elapsed_timer.deleteLater()
+            self._p4k_elapsed_timer = None
         if self._p4k_progress is not None:
             self._p4k_progress.close()
             self._p4k_progress = None
@@ -5206,6 +5391,17 @@ class MainWindow(QMainWindow):
             # so future startups don't overwrite the extracted file from a remote URL.
             local_path = str(AppSettings.get_cache_dir() / 'base.ini')
             AppSettings.set_source_path(AppSettings.SOURCE_GLOBAL, local_path)
+            # Imported/legacy settings may have left the local global source
+            # disabled or omitted from their hierarchy. A successful local
+            # extraction is authoritative: activate it so the following
+            # reload cannot fail with "No sources configured" on first run.
+            AppSettings.set_source_enabled(AppSettings.SOURCE_GLOBAL, True)
+            hierarchy = AppSettings.get_merge_hierarchy()
+            if AppSettings.SOURCE_GLOBAL not in hierarchy:
+                hierarchy.insert(0, AppSettings.SOURCE_GLOBAL)
+            if AppSettings.SOURCE_USER not in hierarchy:
+                hierarchy.append(AppSettings.SOURCE_USER)
+            AppSettings.set_merge_hierarchy(hierarchy)
             AppSettings.set_source_auto_update(AppSettings.SOURCE_GLOBAL, False)
             # Refresh the config tab P4K status
             self.config_tab._refresh_p4k_status()

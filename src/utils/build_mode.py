@@ -34,3 +34,8 @@ try:
     from src.utils._build_info import IS_PORTABLE
 except ImportError:
     IS_PORTABLE: bool = False  # type: ignore[no-redef]
+
+try:
+    from src.utils._build_info import IS_LOCAL_TEST
+except ImportError:
+    IS_LOCAL_TEST: bool = False  # type: ignore[no-redef]

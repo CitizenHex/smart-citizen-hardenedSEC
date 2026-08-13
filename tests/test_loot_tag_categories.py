@@ -44,3 +44,17 @@ def test_finder_refresh_keeps_manual_tags_and_rejects_ambiguous_name():
     assert catalog["items"]["item_name_special"]["status"] == "keep"
     assert catalog["names"]["shop item"]["status"] == "shop"
     assert "ambiguous" not in catalog["names"]
+
+
+def test_finder_refresh_accepts_known_transport_wrappers():
+    existing = {"schema_version": 1, "items": {}, "names": {}, "shop_catalog_complete": False}
+    rows = [{"name": "Wrapped Shop Item", "Sold": 1}]
+    for payload in (
+        {"data": rows}, {"items": rows}, {"results": rows}, {"d": rows},
+        {"d": '[{"name": "Wrapped Shop Item", "Sold": 1}]'},
+        {"aaData": rows}, {"response": rows}, {"unexpected_proxy_key": rows},
+        '[{"name": "Wrapped Shop Item", "Sold": 1}]',
+    ):
+        catalog, count = parse_finder_search(payload, existing)
+        assert count == 1
+        assert catalog["names"]["wrapped shop item"]["status"] == "shop"

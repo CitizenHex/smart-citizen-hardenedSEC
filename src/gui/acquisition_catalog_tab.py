@@ -69,6 +69,27 @@ class AcquisitionCatalogTab(QWidget):
         category_note.setWordWrap(True)
         category_note.setProperty("role", "secondary")
         layout.addWidget(category_note)
+        actions = QHBoxLayout()
+        self.refresh_btn = QPushButton("Refresh Finder Shop Data")
+        self.refresh_btn.setToolTip(
+            "Explicitly fetch the reviewed Finder GetSearch endpoint. Manual tags are preserved."
+        )
+        self.refresh_btn.clicked.connect(self.refresh_requested.emit)
+        actions.addWidget(self.refresh_btn)
+        export_btn = QPushButton("Export Catalog")
+        export_btn.setToolTip("Save your reviewed local catalog as a JSON file.")
+        export_btn.clicked.connect(self._export_catalog)
+        actions.addWidget(export_btn)
+        import_btn = QPushButton("Import Catalog")
+        import_btn.setToolTip("Explicitly replace the local catalog with a reviewed JSON file.")
+        import_btn.clicked.connect(self._import_catalog)
+        actions.addWidget(import_btn)
+        actions.addStretch(1)
+        layout.addLayout(actions)
+        self.refresh_notice = QLabel("Finder data is local. Refresh only runs when you click the button.")
+        self.refresh_notice.setProperty("role", "secondary")
+        self.refresh_notice.setWordWrap(True)
+        layout.addWidget(self.refresh_notice)
         self.search = QLineEdit()
         self.search.setPlaceholderText("Search loaded item names")
         self.search.setClearButtonEnabled(True)
@@ -77,7 +98,10 @@ class AcquisitionCatalogTab(QWidget):
         self.items = QListWidget()
         self.items.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.items.currentItemChanged.connect(self._update_details)
-        layout.addWidget(self.items, 1)
+        # Keep the primary actions visible on typical 1080p displays. The item
+        # list remains scrollable, so no loaded names are hidden.
+        self.items.setMaximumHeight(175)
+        layout.addWidget(self.items)
         self.details = QLabel("Load game data to review item names.")
         self.details.setWordWrap(True)
         self.details.setProperty("role", "secondary")
@@ -88,22 +112,6 @@ class AcquisitionCatalogTab(QWidget):
             button.clicked.connect(lambda _checked=False, s=status: self._mark_selected(s))
             buttons.addWidget(button)
         layout.addLayout(buttons)
-        files = QHBoxLayout()
-        export_btn = QPushButton("Export Catalog")
-        export_btn.setToolTip("Save your reviewed local catalog as a JSON file.")
-        export_btn.clicked.connect(self._export_catalog)
-        files.addWidget(export_btn)
-        import_btn = QPushButton("Import Catalog")
-        import_btn.setToolTip("Explicitly replace the local catalog with a reviewed JSON file.")
-        import_btn.clicked.connect(self._import_catalog)
-        files.addWidget(import_btn)
-        self.refresh_btn = QPushButton("Refresh Finder Shop Data")
-        self.refresh_btn.setToolTip(
-            "Explicitly fetch the reviewed Finder GetSearch endpoint. Manual tags are preserved."
-        )
-        self.refresh_btn.clicked.connect(self.refresh_requested.emit)
-        files.addWidget(self.refresh_btn)
-        layout.addLayout(files)
         self.catalog_status = QLabel(self._catalog_status_text())
         self.catalog_status.setWordWrap(True)
         self.catalog_status.setProperty("role", "secondary")
@@ -139,12 +147,19 @@ class AcquisitionCatalogTab(QWidget):
 
     def set_refreshing(self, refreshing: bool):
         self.refresh_btn.setEnabled(not refreshing)
+        if refreshing:
+            self.refresh_notice.setText("Refreshing Finder data now. This is the only network request made by this tab.")
+            self.refresh_notice.setStyleSheet("")
         self.refresh_btn.setText("Refreshing Finder Data…" if refreshing else "Refresh Finder Shop Data")
 
     def replace_finder_catalog(self, catalog: dict, count: int):
         self._catalog = catalog
         AppSettings.set_acquisition_catalog(catalog)
         self.catalog_status.setText(self._catalog_status_text())
+        self.refresh_notice.setText(
+            f"Finder data refreshed successfully: {count:,} exact-name item records are ready to tag."
+        )
+        self.refresh_notice.setStyleSheet("color: #66d48a; font-weight: bold;")
         self._render()
         self.catalog_changed.emit()
 

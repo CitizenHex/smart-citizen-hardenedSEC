@@ -79,7 +79,7 @@ print(f"{'='*60}\n")
 # portable build and getting silently switched to portable mode.
 build_info_path = os.path.join(root_dir, 'src', 'utils', '_build_info.py')
 
-def _write_build_info(is_portable: bool) -> None:
+def _write_build_info(is_portable: bool, *, is_local_test: bool = False) -> None:
     """Generate src/utils/_build_info.py with the build-time flags.
 
     Module is git-ignored — never commit. Read by build_mode.py via
@@ -91,6 +91,7 @@ def _write_build_info(is_portable: bool) -> None:
         'DO NOT COMMIT. DO NOT EDIT BY HAND. Git-ignored — regenerated on every build.\n'
         '"""\n'
         f'IS_PORTABLE: bool = {is_portable!r}\n'
+        f'IS_LOCAL_TEST: bool = {is_local_test!r}\n'
     )
     with open(build_info_path, 'w', encoding='utf-8') as f:
         f.write(content)
@@ -134,11 +135,20 @@ def _write_package_integrity_manifest(package_dir: str) -> None:
 # Clean previous builds
 print("Cleaning old builds...")
 if local_test_mode:
+    legacy_local_data = os.path.join(root_dir, 'dist', 'local-test', 'SmartCitizen-Hardened', 'data')
+    persistent_local_data = os.path.join(root_dir, 'dist', 'local-test', 'runtime-data')
+    if os.path.isdir(legacy_local_data) and not os.path.exists(persistent_local_data):
+        # One-time migration for the older local-test layout, where portable
+        # data lived inside the folder the next build deletes.
+        shutil.copytree(legacy_local_data, persistent_local_data)
+        print("  - Preserved existing local-test data in dist/local-test/runtime-data/")
     # Local iterations must never delete a release ZIP, signed manifest, or
     # upload directory. Keep their disposable output entirely separate.
     cleanup_paths = [
         os.path.join(root_dir, 'build', 'local-test'),
-        os.path.join(root_dir, 'dist', 'local-test'),
+        # Do not delete dist/local-test/runtime-data. It is deliberately the
+        # persistent local-test data root, separate from disposable binaries.
+        os.path.join(root_dir, 'dist', 'local-test', 'SmartCitizen-Hardened'),
     ]
 else:
     cleanup_paths = [os.path.join(root_dir, 'build'), os.path.join(root_dir, 'dist')]
@@ -255,7 +265,7 @@ try:
     # (PyInstaller bundles whatever's on disk at run-time, so the file
     # must exist before its module-graph walk starts).
     if portable_mode:
-        _write_build_info(is_portable=True)
+        _write_build_info(is_portable=True, is_local_test=local_test_mode)
         print(f"  Wrote {os.path.relpath(build_info_path, root_dir)} with IS_PORTABLE = True")
         print()
 

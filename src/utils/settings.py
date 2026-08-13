@@ -2273,6 +2273,13 @@ class AppSettings:
         """
         import sys
         if getattr(sys, "frozen", False):
+            from src.utils import build_mode
+            if build_mode.IS_LOCAL_TEST:
+                # Local-test packages are rebuilt in-place repeatedly. Keep
+                # their mutable settings/cache next to (not inside) the
+                # disposable package folder so a rebuild cannot erase a test
+                # user's active cache while the app is open.
+                return Path(sys.executable).resolve().parent.parent / "runtime-data"
             return Path(sys.executable).resolve().parent / "data"
         # src/utils/settings.py → src/utils → src → repo root
         repo_root = Path(__file__).resolve().parent.parent.parent

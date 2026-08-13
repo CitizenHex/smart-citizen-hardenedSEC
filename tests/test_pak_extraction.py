@@ -20,13 +20,46 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from utils.pak_extractor import (
     DATAFORGE_KEEP_SUBPATHS,
+    MIN_DATAFORGE_EXTRACT_FREE_BYTES,
     P4kLockedError,
     _copy_filtered_records,
     _raise_unp4k_failure,
+    _tree_size_bytes,
     dataforge_cache_is_fresh,
+    extraction_safety_summary,
     extract_dataforge,
 )
 from utils.i18n import set_language, tr
+
+
+class TestExtractionSafety:
+    def test_preflight_reports_app_owned_temp_location(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            p4k = root / "Data.p4k"
+            p4k.write_bytes(b"local test archive")
+
+            summary = extraction_safety_summary(p4k, root / "cache", include_dataforge=False)
+
+            assert summary["p4k_path"] == str(p4k)
+            assert summary["temp_dir"] == str(root / ".extraction-tmp")
+            assert summary["required_bytes"] < MIN_DATAFORGE_EXTRACT_FREE_BYTES
+
+    def test_preflight_rejects_missing_game_archive(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with pytest.raises(FileNotFoundError):
+                extraction_safety_summary(
+                    Path(tmpdir) / "missing.p4k", Path(tmpdir) / "cache", include_dataforge=True
+                )
+
+    def test_tree_size_counts_only_regular_files(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "a.bin").write_bytes(b"abcd")
+            nested = root / "nested"
+            nested.mkdir()
+            (nested / "b.bin").write_bytes(b"xyz")
+            assert _tree_size_bytes(root) == 7
 
 
 class TestDataForgeCache:

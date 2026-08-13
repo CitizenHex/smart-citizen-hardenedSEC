@@ -55,6 +55,14 @@ OVERRIDES_DIR = "overrides"
 SOURCE_MODE_PORTABLE = "portable"
 SOURCE_MODE_REGISTRY = "registry"
 
+# Settings backups should be tiny.  Bound archive and expanded contents before
+# reading any entry, so a crafted ZIP cannot become a decompression bomb.
+MAX_PROFILE_ARCHIVE_BYTES = 8 * 1024 * 1024
+MAX_PROFILE_ENTRIES = 64
+MAX_PROFILE_ENTRY_BYTES = 1 * 1024 * 1024
+MAX_PROFILE_TOTAL_BYTES = 4 * 1024 * 1024
+MAX_PROFILE_COMPRESSION_RATIO = 250
+
 
 class InvalidProfileError(ValueError):
     """Raised when a file isn't a readable Smart Citizen settings backup.
@@ -80,6 +88,47 @@ class ProfileContents:
     app_version: str = ""
     exported_at: str = ""
     source_mode: str = ""
+
+
+def _validate_profile_archive(zip_path, zf: zipfile.ZipFile) -> None:
+    """Validate ZIP metadata before decompressing untrusted profile entries."""
+    path = os.fspath(zip_path)
+    try:
+        archive_size = os.path.getsize(path)
+    except OSError as exc:
+        raise InvalidProfileError(f"Could not inspect backup file: {exc}") from exc
+    if archive_size > MAX_PROFILE_ARCHIVE_BYTES:
+        raise InvalidProfileError(
+            f"Backup archive is too large ({archive_size / 1024 / 1024:.1f} MiB; "
+            f"limit {MAX_PROFILE_ARCHIVE_BYTES / 1024 / 1024:.0f} MiB)."
+        )
+
+    infos = zf.infolist()
+    if len(infos) > MAX_PROFILE_ENTRIES:
+        raise InvalidProfileError(f"Backup has too many entries (limit {MAX_PROFILE_ENTRIES}).")
+    names = [info.filename for info in infos]
+    if len(set(names)) != len(names):
+        raise InvalidProfileError("Backup contains duplicate entry names.")
+
+    total = 0
+    for info in infos:
+        # Bit 0 denotes traditional ZIP encryption, which Python cannot read
+        # safely without prompting for a password. Symlink entries could make
+        # a future extraction-based implementation unsafe, so reject them now.
+        if info.flag_bits & 0x1:
+            raise InvalidProfileError("Password-protected backups are not supported.")
+        mode = (info.external_attr >> 16) & 0o170000
+        if mode == 0o120000:
+            raise InvalidProfileError("Backup contains an unsupported symbolic-link entry.")
+        if info.file_size > MAX_PROFILE_ENTRY_BYTES:
+            raise InvalidProfileError(f"Backup entry is too large: {info.filename}")
+        total += info.file_size
+        if total > MAX_PROFILE_TOTAL_BYTES:
+            raise InvalidProfileError(
+                f"Backup expands beyond the safe {MAX_PROFILE_TOTAL_BYTES / 1024 / 1024:.0f} MiB limit."
+            )
+        if info.file_size and info.compress_size and info.file_size / info.compress_size > MAX_PROFILE_COMPRESSION_RATIO:
+            raise InvalidProfileError(f"Backup entry has an unsafe compression ratio: {info.filename}")
 
 
 def default_backup_filename(today: Optional[datetime] = None) -> str:
@@ -177,6 +226,7 @@ def read_profile_zip(zip_path) -> ProfileContents:
         raise InvalidProfileError(f"Not a readable zip file: {e}") from e
 
     with zf:
+        _validate_profile_archive(zip_path, zf)
         names = set(zf.namelist())
         if MANIFEST_NAME not in names:
             raise InvalidProfileError(

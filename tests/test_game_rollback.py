@@ -53,6 +53,36 @@ def test_snapshot_target_tampering_is_rejected(tmp_path):
         restore_game_snapshot(snapshot, targets)
 
 
+def test_snapshot_content_tampering_is_rejected(tmp_path):
+    targets = _targets(tmp_path / "LIVE")
+    targets["user_cfg"].parent.mkdir(parents=True)
+    targets["user_cfg"].write_text("original=true\n", encoding="utf-8")
+    snapshot = create_game_snapshot(targets, tmp_path / "backups")
+
+    saved = snapshot / "user_cfg.original"
+    saved.write_text("tampered=true\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="integrity check failed"):
+        restore_game_snapshot(snapshot, targets)
+
+
+def test_legacy_snapshot_remains_restorable(tmp_path):
+    targets = _targets(tmp_path / "LIVE")
+    targets["user_cfg"].parent.mkdir(parents=True)
+    targets["user_cfg"].write_text("original=true\n", encoding="utf-8")
+    snapshot = create_game_snapshot(targets, tmp_path / "backups")
+    manifest_path = snapshot / MANIFEST
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["schema"] = 1
+    for entry in manifest["files"].values():
+        entry.pop("sha256", None)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    targets["user_cfg"].write_text("changed=true\n", encoding="utf-8")
+    restore_game_snapshot(snapshot, targets)
+    assert targets["user_cfg"].read_text(encoding="utf-8") == "original=true\n"
+
+
 def test_latest_snapshot_and_rotation(tmp_path):
     targets = _targets(tmp_path / "LIVE")
     backups = tmp_path / "backups"

@@ -19,6 +19,8 @@ from src.utils.settings_profile import (
     InvalidProfileError,
     MANIFEST_NAME,
     SCHEMA_VERSION,
+    MAX_PROFILE_ENTRIES,
+    MAX_PROFILE_ENTRY_BYTES,
     SETTINGS_NAME,
     SOURCE_MODE_PORTABLE,
     SOURCE_MODE_REGISTRY,
@@ -225,6 +227,31 @@ class TestValidation:
             zf.writestr("overrides/LIVE/user.ini", "good=1\n")
         p = read_profile_zip(out)
         assert p.overrides == {"LIVE": "good=1\n"}
+
+    def test_duplicate_entries_are_rejected(self, tmp_path):
+        out = tmp_path / "duplicate.zip"
+        with zipfile.ZipFile(out, "w") as zf:
+            zf.writestr(MANIFEST_NAME, json.dumps({"app": "SmartCitizen", "schema_version": 1}))
+            zf.writestr(MANIFEST_NAME, json.dumps({"app": "SmartCitizen", "schema_version": 1}))
+        with pytest.raises(InvalidProfileError, match="duplicate"):
+            read_profile_zip(out)
+
+    def test_oversized_entry_is_rejected_before_read(self, tmp_path):
+        out = tmp_path / "large.zip"
+        with zipfile.ZipFile(out, "w") as zf:
+            zf.writestr(MANIFEST_NAME, json.dumps({"app": "SmartCitizen", "schema_version": 1}))
+            zf.writestr(SETTINGS_NAME, b"x" * (MAX_PROFILE_ENTRY_BYTES + 1))
+        with pytest.raises(InvalidProfileError, match="too large"):
+            read_profile_zip(out)
+
+    def test_excessive_entry_count_is_rejected(self, tmp_path):
+        out = tmp_path / "many.zip"
+        with zipfile.ZipFile(out, "w") as zf:
+            zf.writestr(MANIFEST_NAME, json.dumps({"app": "SmartCitizen", "schema_version": 1}))
+            for index in range(MAX_PROFILE_ENTRIES):
+                zf.writestr(f"extra-{index}.txt", "x")
+        with pytest.raises(InvalidProfileError, match="too many"):
+            read_profile_zip(out)
 
 
 class TestDefaultFilename:
