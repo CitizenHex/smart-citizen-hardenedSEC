@@ -321,6 +321,18 @@ python src/main.py
 ```bash
 python scripts/build/build_exe.py
 ```
+
+### Local Test Build
+
+For a quick local portable build during development, without creating a ZIP,
+checksum, release manifest, or GitHub release assets:
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\build\build_exe.py --portable --local-test
+```
+
+Run `dist\SmartCitizen-Hardened\SmartCitizen-Hardened.exe` directly. Use the
+normal `--portable` build only when preparing a signed public release.
 This creates a PyInstaller onedir at `dist/SmartCitizen-v{VERSION}\` containing `SmartCitizen-v{VERSION}.exe`. VERSION comes from `VERSION.TXT`.
 
 ### Create Installer (Windows)

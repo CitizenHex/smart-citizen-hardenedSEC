@@ -8,6 +8,9 @@ Usage:
     python build_exe.py --increment major  # Increment major version (0.1.0 -> 1.0.0)
     python build_exe.py --portable         # Build standalone portable variant
                                            # (writes to <exe-dir>/data/, no registry)
+    python build_exe.py --portable --local-test
+                                           # Build only the runnable portable folder.
+                                           # Skips ZIP, checksum, and release manifest.
     # Flags can combine, e.g. `--portable --increment patch`.
 """
 
@@ -32,6 +35,7 @@ sys.path.insert(0, os.path.join(root_dir, 'src'))
 _args = sys.argv[1:]
 increment_version = None
 portable_mode = False
+local_test_mode = False
 i = 0
 while i < len(_args):
     arg = _args[i]
@@ -48,6 +52,11 @@ while i < len(_args):
         portable_mode = True
         i += 1
         continue
+    if arg == '--local-test':
+        local_test_mode = True
+        portable_mode = True
+        i += 1
+        continue
     i += 1
 
 # Get version from VERSION.TXT
@@ -56,7 +65,8 @@ with open(version_file, 'r') as f:
     current_version = f.read().strip()
 
 print(f"\n{'='*60}")
-print(f"Building version: {current_version}{' (PORTABLE)' if portable_mode else ''}")
+build_kind = " (LOCAL PORTABLE TEST)" if local_test_mode else (' (PORTABLE)' if portable_mode else '')
+print(f"Building version: {current_version}{build_kind}")
 print(f"{'='*60}\n")
 
 # ── Portable-build flag plumbing ────────────────────────────────────────
@@ -123,8 +133,16 @@ def _write_package_integrity_manifest(package_dir: str) -> None:
 
 # Clean previous builds
 print("Cleaning old builds...")
-for folder in ['build', 'dist']:
-    path = os.path.join(root_dir, folder)
+if local_test_mode:
+    # Local iterations must never delete a release ZIP, signed manifest, or
+    # upload directory. Keep their disposable output entirely separate.
+    cleanup_paths = [
+        os.path.join(root_dir, 'build', 'local-test'),
+        os.path.join(root_dir, 'dist', 'local-test'),
+    ]
+else:
+    cleanup_paths = [os.path.join(root_dir, 'build'), os.path.join(root_dir, 'dist')]
+for path in cleanup_paths:
     if os.path.exists(path):
         # A prior portable test can contain a DataForge cache whose files
         # were removed concurrently by Defender, OneDrive, or a cleanup
@@ -132,7 +150,7 @@ for folder in ['build', 'dist']:
         # fresh build; new output uses versioned ZIP names and is written
         # independently below.
         shutil.rmtree(path, ignore_errors=True)
-        print(f"  - Removed {folder}/")
+        print(f"  - Removed {os.path.relpath(path, root_dir)}/")
 # Also clean any stale _build_info.py from an interrupted prior build.
 _cleanup_build_info()
 
@@ -144,12 +162,14 @@ print()
 # and keep an existing shortcut working; the version is still visible in the
 # app window, release ZIP name, and package-integrity manifest.
 exe_name = "SmartCitizen-Hardened" if portable_mode else "SmartCitizen"
+output_root = os.path.join(root_dir, 'dist', 'local-test') if local_test_mode else os.path.join(root_dir, 'dist')
+work_root = os.path.join(root_dir, 'build', 'local-test') if local_test_mode else os.path.join(root_dir, 'build')
 
 # Write PyInstaller's generated .spec into build/ (ephemeral, wiped each run)
 # instead of the repo root, so the stable --name never clobbers the
 # hand-maintained root SmartCitizen.spec or litters the root with per-version
 # spec files.
-spec_path = os.path.join(root_dir, 'build')
+spec_path = work_root
 os.makedirs(spec_path, exist_ok=True)
 
 assets_dir   = os.path.join(root_dir, 'assets')
@@ -180,7 +200,7 @@ common_args = [
     # ('languages', 'languages') entry in SmartCitizen.spec.
     '--add-data', f'{languages_dir}{os.pathsep}languages',
     '--add-data', f'{enhancements_script}{os.pathsep}scripts',
-    '--workpath', os.path.join(root_dir, 'build'),
+    '--workpath', work_root,
     '--specpath', spec_path,
     '--hidden-import=PyQt6',
     '--hidden-import=src.gui',
@@ -218,12 +238,12 @@ common_args = [
 # --onefile build was retired because we release the installer as the sole
 # distribution artifact.
 print("Building --onedir version (for installer)...")
-print(f"  Output: dist/{exe_name}/")
+print(f"  Output: {os.path.relpath(os.path.join(output_root, exe_name), root_dir)}/")
 print()
 
 onedir_args = common_args + [
     '--onedir',
-    '--distpath', os.path.join(root_dir, 'dist'),
+    '--distpath', output_root,
 ]
 
 try:
@@ -244,16 +264,16 @@ try:
             os.path.join(root_dir, 'src', 'update_helper.py'),
             '--name', 'SmartCitizen-UpdateHelper', '--onefile', '--console',
             '--paths', root_dir,
-            '--distpath', os.path.join(root_dir, 'dist', exe_name),
-            '--workpath', os.path.join(root_dir, 'build', 'update-helper'),
-            '--specpath', os.path.join(root_dir, 'build', 'update-helper'),
+            '--distpath', os.path.join(output_root, exe_name),
+            '--workpath', os.path.join(work_root, 'update-helper'),
+            '--specpath', os.path.join(work_root, 'update-helper'),
             '--clean', '--noconfirm',
         ]
         PyInstaller.__main__.run(helper_args)
     print(f"\n{'='*60}")
     print("Build successful!")
     print(f"{'='*60}")
-    print(f"Installer dir: dist/{exe_name}/")
+    print(f"Build dir: {os.path.relpath(os.path.join(output_root, exe_name), root_dir)}/")
     print()
 
     # --collect-all=lxml (needed so dynamically-imported lxml submodules
@@ -267,7 +287,7 @@ try:
     # them on delete. Safe to strip post-build: doesn't touch lxml's actual
     # etree/XPath parsing (compiled extension code, unaffected).
     isoschematron_resources = os.path.join(
-        root_dir, 'dist', exe_name, '_internal', 'lxml', 'isoschematron', 'resources'
+        output_root, exe_name, '_internal', 'lxml', 'isoschematron', 'resources'
     )
     if os.path.exists(isoschematron_resources):
         shutil.rmtree(isoschematron_resources)
@@ -275,7 +295,7 @@ try:
         print()
 
     if portable_mode:
-        _write_package_integrity_manifest(os.path.join(root_dir, 'dist', exe_name))
+        _write_package_integrity_manifest(os.path.join(output_root, exe_name))
         print()
 
     # Portable distribution: zip up the onedir output for a no-install
@@ -283,13 +303,13 @@ try:
     # .exe inside; portable mode writes its data/ folder right there.
     # The standard build doesn't get a zip — Inno Setup is its
     # distribution artifact, attached separately by release.yml.
-    if portable_mode:
+    if portable_mode and not local_test_mode:
         # The executable/folder name stays stable for shortcuts and in-place
         # updates. The downloadable release ZIP remains versioned so it is
         # unambiguous what a user is about to install.
         zip_name = f"SmartCitizen-Hardened-v{current_version}.zip"
         zip_path = os.path.join(root_dir, 'dist', zip_name)
-        onedir_path = os.path.join(root_dir, 'dist', exe_name)
+        onedir_path = os.path.join(output_root, exe_name)
         print(f"Packaging portable zip: dist/{zip_name}")
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
             for root, _dirs, files in os.walk(onedir_path):
@@ -335,6 +355,10 @@ try:
             json.dump(release_manifest, handle, sort_keys=True, separators=(",", ":"))
             handle.write("\n")
         print(f"  Release manifest ready for offline signing: dist/release-manifest.json")
+        print()
+    elif local_test_mode:
+        print(f"  Local test build ready: dist/local-test/{exe_name}/{exe_name}.exe")
+        print("  ZIP, checksum, and release manifest intentionally skipped.")
         print()
 except Exception as e:
     print(f"\nError building --onedir executable: {e}")
