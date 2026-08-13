@@ -896,7 +896,7 @@ class MainWindow(QMainWindow):
         return filter_layout
 
     def create_footer(self) -> QHBoxLayout:
-        """Create footer with Osiris DevWorks branding and donation buttons."""
+        """Create the Hardened project and support footer."""
         footer_layout = QHBoxLayout()
         footer_layout.setContentsMargins(8, 8, 8, 0)
 
@@ -909,8 +909,10 @@ class MainWindow(QMainWindow):
         # exact float math and never re-renders, so no sub-pixel jitter
         # (the earlier QGraphicsDropShadowEffect-on-the-fly approach had
         # the shadow kernel rebuilt every frame and read as visibly shaky).
-        osiris_image_path = get_resource_path(os.path.join("assets", "osiris-devworks.png"))
-        osiris_glow_path  = get_resource_path(os.path.join("assets", "osiris-eye-glow.png"))
+        # This fork owns its support path. Do not present upstream branding,
+        # Discord, or donation links as though they support this build.
+        osiris_image_path = ""
+        osiris_glow_path = ""
 
         if os.path.exists(osiris_image_path) and os.path.exists(osiris_glow_path):
             self.osiris_button = QWidget()
@@ -970,7 +972,7 @@ class MainWindow(QMainWindow):
             self._eye_pulse_monitor.start()
         else:
             # Fallback to styled text button
-            self.osiris_button = QLabel("Osiris DevWorks")
+            self.osiris_button = QLabel("Smart Citizen Hardened")
             self.osiris_button.setStyleSheet("""
                 QLabel {
                     background-color: #1a1f2e;
@@ -988,7 +990,7 @@ class MainWindow(QMainWindow):
             self._eye_glow = None
             self._eye_fadeout = None
             self.osiris_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-            self.osiris_button.setToolTip(tr("toolbar.osiris_github_tooltip"))
+            self.osiris_button.setToolTip("Open the Smart Citizen Hardened project page")
             self.osiris_button.mousePressEvent = self.open_osiris_github
             footer_layout.addWidget(self.osiris_button)
 
@@ -998,16 +1000,16 @@ class MainWindow(QMainWindow):
         # is missing.
         footer_layout.addSpacing(10)
         self.feedback_label = QLabel()
-        discord_image_path = get_resource_path(os.path.join("assets", "discord.png"))
+        discord_image_path = ""
         if os.path.exists(discord_image_path):
             discord_pixmap = QPixmap(discord_image_path)
             if discord_pixmap.height() > 40:
                 discord_pixmap = discord_pixmap.scaledToHeight(40, Qt.TransformationMode.SmoothTransformation)
             self.feedback_label.setPixmap(discord_pixmap)
         else:
-            self.feedback_label.setText(tr("toolbar.feedback_fallback_text"))
-            self.feedback_label.setStyleSheet("font-size: 12px;")
-        self.feedback_label.setToolTip(tr("toolbar.feedback_tooltip"))
+            self.feedback_label.setText("Get Support / Report a Bug")
+            self.feedback_label.setStyleSheet("font-size: 12px; font-weight: bold;")
+        self.feedback_label.setToolTip("Open Smart Citizen Hardened support on GitHub")
         self.feedback_label.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.feedback_label.mousePressEvent = self.open_feedback_link
         footer_layout.addWidget(self.feedback_label)
@@ -1017,7 +1019,7 @@ class MainWindow(QMainWindow):
 
         # PayPal button (right side)
         self.paypal_button = QLabel()
-        paypal_image_path = get_resource_path(os.path.join("assets", "paypal.png"))
+        paypal_image_path = ""
 
         # Try to load PayPal image, fall back to text if not found
         if os.path.exists(paypal_image_path):
@@ -1028,7 +1030,7 @@ class MainWindow(QMainWindow):
             self.paypal_button.setPixmap(paypal_pixmap)
         else:
             # Fallback to styled text button
-            self.paypal_button.setText(tr("toolbar.paypal_fallback_text"))
+            self.paypal_button.setText("Project Page")
             self.paypal_button.setStyleSheet("""
                 QLabel {
                     background-color: #0070ba;
@@ -1052,7 +1054,7 @@ class MainWindow(QMainWindow):
 
         # Venmo button (right side)
         self.venmo_button = QLabel()
-        venmo_image_path = get_resource_path(os.path.join("assets", "venmo.png"))
+        venmo_image_path = ""
 
         # Try to load Venmo image, fall back to text button
         if os.path.exists(venmo_image_path):
@@ -1063,7 +1065,7 @@ class MainWindow(QMainWindow):
             self.venmo_button.setPixmap(venmo_pixmap)
         else:
             # Fallback to styled text button
-            self.venmo_button.setText(tr("toolbar.venmo_fallback_text"))
+            self.venmo_button.setText("Open an Issue")
             self.venmo_button.setStyleSheet("""
                 QLabel {
                     background-color: #008CFF;
@@ -1251,22 +1253,22 @@ class MainWindow(QMainWindow):
         self._refresh_quick_setup()
 
     def open_osiris_github(self, event):
-        """Open the Osiris DevWorks GitHub organization in browser."""
-        self._open_external_url("https://github.com/Osiris-DevWorks")
+        """Open the Smart Citizen Hardened project page in browser."""
+        self._open_external_url("https://github.com/CitizenHex/smart-citizen-hardenedSEC")
 
     def open_feedback_link(self, event):
-        """Open the dedicated Smart Citizen feedback channel in browser."""
-        feedback_url = "https://discord.com/channels/1438175448420057323/1472394204347895890"
+        """Open this fork's GitHub Issues page in browser."""
+        feedback_url = "https://github.com/CitizenHex/smart-citizen-hardenedSEC/issues"
         self._open_external_url(feedback_url)
 
     def open_paypal_donation(self, event):
-        """Open PayPal donation link in browser."""
-        paypal_url = "https://paypal.me/RighteousKill"
+        """Open this fork's GitHub project page in browser."""
+        paypal_url = "https://github.com/CitizenHex/smart-citizen-hardenedSEC"
         self._open_external_url(paypal_url)
 
     def open_venmo_donation(self, event):
-        """Open Venmo donation link in browser."""
-        venmo_url = "https://venmo.com/u/Amr-Abouelleil"
+        """Open this fork's issue tracker in browser."""
+        venmo_url = "https://github.com/CitizenHex/smart-citizen-hardenedSEC/issues"
         self._open_external_url(venmo_url)
 
     def _open_external_url(self, url: str) -> None:
@@ -4218,8 +4220,8 @@ class MainWindow(QMainWindow):
         self._action_switch_to_simple.setToolTip(tr("toolbar.switch_to_simple_tooltip"))
 
         # Footer
-        self.osiris_button.setToolTip(tr("toolbar.osiris_github_tooltip"))
-        self.feedback_label.setToolTip(tr("toolbar.feedback_tooltip"))
+        self.osiris_button.setToolTip("Open the Smart Citizen Hardened project page")
+        self.feedback_label.setToolTip("Open Smart Citizen Hardened support on GitHub")
 
         # Simple-mode page (#180)
         self.simple_page.retranslate_ui()
@@ -4304,11 +4306,11 @@ class MainWindow(QMainWindow):
         # Footer donation fallback text (only set when the image asset failed
         # to load — leave pixmap-backed buttons alone).
         if self.feedback_label.pixmap() is None or self.feedback_label.pixmap().isNull():
-            self.feedback_label.setText(tr("toolbar.feedback_fallback_text"))
+            self.feedback_label.setText("Get Support / Report a Bug")
         if self.paypal_button.pixmap() is None or self.paypal_button.pixmap().isNull():
-            self.paypal_button.setText(tr("toolbar.paypal_fallback_text"))
+            self.paypal_button.setText("Project Page")
         if self.venmo_button.pixmap() is None or self.venmo_button.pixmap().isNull():
-            self.venmo_button.setText(tr("toolbar.venmo_fallback_text"))
+            self.venmo_button.setText("Open an Issue")
 
         # Cascade to child tabs
         self.config_tab.retranslate_ui()

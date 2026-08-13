@@ -136,29 +136,17 @@ The non-English game strings are community translations:
 
 ## Community & Support
 
-### Join Us
-- 💬 [Discord Community](https://discord.gg/BNzRegKZ7k) - Get support, share configs, request features
-- 🐛 [Smart Citizen Feedback, Bugs, & Feature Voting](https://discord.com/channels/1438175448420057323/1472394204347895890) - Dedicated channel for bug reports, feedback, and voting on upcoming features (join the server first via the invite above)
+For support, bug reports, and feature requests for this fork, use
+[Smart Citizen Hardened Issues](https://github.com/CitizenHex/smart-citizen-hardenedSEC/issues).
 
-### Video Guides
-- 🎥 [Star Citizen Hides Important Mission Info – This Tool Shows It In-Game & More!](https://www.youtube.com/watch?v=Xo1t404gsgs) by **Karolinger** - a community overview of Smart Citizen's features
-
-### Support This Project
-Smart Citizen is completely free. If you find it valuable:
-- 💳 [Donate via PayPal](https://paypal.me/RighteousKill)
-- 💰 [Donate via Venmo](https://venmo.com/u/Amr-Abouelleil)
-
-## Other Tools by Osiris DevWorks
-
-- **[Battlestations](https://battlestations.osiris-devworks.com/)** - Manage and share Star Citizen hangar battlestation builds
-- **[SC Profile Editor](https://github.com/Osiris-DevWorks/sc-profile-editor)** - Import, edit, and export Star Citizen control profiles
-- **[Extended AFK](https://github.com/Osiris-RK/extended-afk)** - AFK tool to prevent idle timeouts
+This independent fork does not use or represent the upstream Discord, donation
+pages, videos, or other Osiris DevWorks projects as its support channels.
 
 ## Built On
 
 Built with **PyQt6** and inspired by the Star Citizen community's localization work.
 
-**GitHub**: https://github.com/Osiris-DevWorks/smart-citizen
+**GitHub**: https://github.com/CitizenHex/smart-citizen-hardenedSEC
 
 ## License & Legal
 

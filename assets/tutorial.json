@@ -112,7 +112,7 @@
     {
       "id": "help",
       "title": "18. Help & feedback",
-      "description": "The Help button opens a side-panel with the full guide, a Known Issues list, and a feedback link to the Smart Citizen Discord channel. That's everything you need to get started — good luck, citizen.",
+      "description": "The Help button opens a side-panel with the full guide and a Known Issues list. Use the Get Support / Report a Bug link in the footer for this Hardened fork's GitHub support page. That's everything you need to get started — good luck, citizen.",
       "preferred_side": "below"
     }
   ]

@@ -1,6 +1,8 @@
 # Frequently Asked Questions
 
-Quick answers to the things people ask most. If your question isn't here, hit the **Feedback** link in the footer and ask us on Discord.
+Quick answers to the things people ask most. If your question isn't here, use
+the **Get Support / Report a Bug** link in the footer to open this fork's
+GitHub Issues page.
 
 ## How do I undo the changes Smart Citizen makes?
 
