@@ -1095,11 +1095,21 @@ class MainWindow(QMainWindow):
         heading.setStyleSheet("font-size: 10px; font-weight: bold; letter-spacing: 1px;")
         layout.addWidget(heading)
 
+        directory_hint = QLabel(
+            "Start with the folder that contains LIVE (or PTU) — for example "
+            "…\\StarCitizen. Do not choose the LIVE folder itself."
+        )
+        directory_hint.setWordWrap(True)
+        directory_hint.setProperty("role", "secondary")
+        directory_hint.setStyleSheet("font-size: 10px;")
+        layout.addWidget(directory_hint)
+
         steps = QHBoxLayout()
         steps.setSpacing(5)
-        self.quick_directory_btn = QPushButton("1  Confirm Directory")
+        self.quick_directory_btn = QPushButton("1  Select Game Folder")
         self.quick_directory_btn.setToolTip(
-            "Confirm the folder containing your LIVE/PTU Star Citizen folders."
+            "Select the parent StarCitizen folder that contains LIVE, PTU, or another "
+            "game channel — not the LIVE folder itself."
         )
         self.quick_directory_btn.clicked.connect(self._quick_confirm_directory)
         steps.addWidget(self.quick_directory_btn)
@@ -1145,7 +1155,7 @@ class MainWindow(QMainWindow):
         ))
 
         self.quick_directory_btn.setText(
-            "1  ✓ Directory" if directory_ready else "1  Confirm Directory"
+            "1  ✓ Directory" if directory_ready else "1  Select Game Folder"
         )
         self.quick_import_btn.setText(
             "2  ✓ Data Ready" if base_ready else "2  Import Data.p4k"
@@ -1169,12 +1179,30 @@ class MainWindow(QMainWindow):
                 self._refresh_quick_setup()
                 return
 
+        QMessageBox.information(
+            self,
+            "Choose Your Star Citizen Folder",
+            "Select the parent folder that contains LIVE, PTU, EPTU, or another game "
+            "channel.\n\n"
+            "Correct:  F:\\starCitizen\\SC\\StarCitizen\n"
+            "Not this:  F:\\starCitizen\\SC\\StarCitizen\\LIVE\n\n"
+            "If you select LIVE by mistake, Smart Citizen will correct it for you.",
+        )
         start_dir = current or str(AppSettings.get_sc_install_root())
         chosen = QFileDialog.getExistingDirectory(
-            self, "Select Star Citizen Install Root", start_dir
+            self, "Select the Folder That Contains LIVE", start_dir
         )
         if not chosen:
             return
+        # Selecting the LIVE/PTU folder is an easy, harmless mistake. Accept
+        # it, store its parent as the actual install root, and retain the
+        # channel the player intended to use.
+        chosen_path = Path(chosen)
+        channel_lookup = {channel.upper(): channel for channel in AppSettings.AVAILABLE_CHANNELS}
+        selected_channel = channel_lookup.get(chosen_path.name.upper())
+        if selected_channel and (chosen_path / "Data.p4k").is_file():
+            chosen = str(chosen_path.parent)
+            AppSettings.set_active_channel(selected_channel)
         self.config_tab.game_path_input.setText(chosen)
         self.config_tab._save_game_path()
         self._refresh_quick_setup()
