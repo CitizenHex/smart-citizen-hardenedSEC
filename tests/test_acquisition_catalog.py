@@ -6,7 +6,8 @@ import json
 import pytest
 
 from src.utils.acquisition_catalog import (
-    apply_acquisition_tag, catalog_to_json, empty_catalog, load_catalog_file,
+    apply_acquisition_tag, apply_market_prices, catalog_to_json, empty_catalog, load_catalog_file,
+    set_item_prices,
     set_item_status, validate_catalog,
 )
 
@@ -54,3 +55,17 @@ def test_bundled_display_name_record_can_tag_without_guessing_a_key():
     catalog = empty_catalog()
     catalog["names"] = {"p4-ar": {"status": "shop", "source": "Finder"}}
     assert apply_acquisition_tag("P4-AR", "item_Name_rifle_behr_p4ar", catalog) == "P4-AR <EM4>[Shop]</EM4>"
+
+
+def test_manual_prices_append_to_matching_description_and_replace_old_block():
+    catalog = set_item_prices(empty_catalog(), "item_Name_rifle_behr_cq7", 1200, 1480)
+    values = {
+        "item_Name_rifle_behr_cq7": "CQ7 Rifle",
+        "item_Desc_rifle_behr_cq7": "Stock description\n\n--- STATS ---\nDamage: 18",
+    }
+    result = apply_market_prices(values, catalog)
+    assert result["item_Name_rifle_behr_cq7"] == "CQ7 Rifle"
+    assert result["item_Desc_rifle_behr_cq7"].endswith(
+        "--- MARKET ---\nShop Price: 1,200 aUEC\nUEX Price: 1,480 aUEC"
+    )
+    assert apply_market_prices(result, catalog)["item_Desc_rifle_behr_cq7"].count("--- MARKET ---") == 1

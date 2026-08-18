@@ -34,7 +34,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from utils.win_paths import win_long_path  # noqa: E402
 from utils import dataforge_diff  # noqa: E402
-from utils.pak_extractor import dataforge_cache_is_fresh  # noqa: E402
+from utils.pak_extractor import (  # noqa: E402
+    DATAFORGE_LAYOUT_STAMP,
+    DATAFORGE_LAYOUT_VERSION,
+    dataforge_cache_is_fresh,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -144,6 +148,7 @@ class TestPakExtractorLongPath:
         libs.mkdir(parents=True)
         (libs / "a.xml").write_text("<x/>")
         (cache_dir / ".p4k_mtime").write_text("2000000000")
+        (cache_dir / DATAFORGE_LAYOUT_STAMP).write_text(DATAFORGE_LAYOUT_VERSION)
 
         with patch(
             "utils.pak_extractor._win_long_path", wraps=win_long_path

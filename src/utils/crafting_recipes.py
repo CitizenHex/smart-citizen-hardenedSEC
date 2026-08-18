@@ -21,6 +21,8 @@ _ROOT_REF_RE = re.compile(
     r'\b__ref="([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"',
     re.IGNORECASE,
 )
+_PLACEHOLDER_LOCALIZATION_KEYS = {"LOC_EMPTY", "LOC_PLACEHOLDER"}
+_RESOURCE_FILENAME_MARKERS = {"commodity", "metal", "gas", "mineral"}
 
 
 @dataclass(frozen=True)
@@ -91,8 +93,36 @@ def _element_name(root: ET.Element, loc: dict[str, str]) -> str | None:
     for elem in root.iter():
         value = elem.get("Name", "")
         if value.startswith("@"):
-            return loc.get(value[1:], value[1:])
+            # Some current game localization keys are present but intentionally
+            # blank. Treat an empty translation as unresolved so callers can
+            # use the authored record filename instead of rendering a useless
+            # blank material name in the Crafting Planner.
+            key = value[1:]
+            if key.upper() in _PLACEHOLDER_LOCALIZATION_KEYS:
+                continue
+            translated = loc.get(key, "").strip()
+            if translated:
+                return translated
     return None
+
+
+def _resource_display_name(xml_file: Path, fallback: str) -> str:
+    """Prefer the commodity name encoded in a cargo record's filename.
+
+    A crafting resource UUID is shared by many container-size records. Their
+    localized names can include packaging text (for example ``Cargo Comm
+    125x3 Metal Agricium A``), while the filename reliably identifies the
+    material itself as ``commodity_metal_agricium``.
+    """
+    parts = xml_file.stem.casefold().split("_")
+    if not _RESOURCE_FILENAME_MARKERS.intersection(parts):
+        return fallback
+    # Cargo container variants append a single-letter packaging suffix such as
+    # ``_a``. It is not part of the material's name.
+    candidate = parts[-1]
+    if len(candidate) == 1 and candidate.isalpha() and len(parts) > 1:
+        candidate = parts[-2]
+    return candidate.replace("_", " ").title()
 
 
 def _cost_quantity(elem: ET.Element) -> str:
@@ -201,7 +231,7 @@ def load_crafting_recipes(forge_dir: Path, loc: dict[str, str] | None = None) ->
             names[own_ref] = display
             unresolved_direct.discard(own_ref)
         for uid in resource_matches:
-            names.setdefault(uid, display)
+            names.setdefault(uid, _resource_display_name(xml_file, display))
             unresolved_resources.discard(uid)
 
     recipes: list[CraftingRecipe] = []

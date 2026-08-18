@@ -30,3 +30,30 @@ def test_modified_package_file_is_rejected(tmp_path):
     result = verify_portable_package(tmp_path)
     assert not result.ok
     assert "hash changed" in result.message
+
+
+def test_unlisted_package_file_is_rejected(tmp_path):
+    payload = tmp_path / "app.exe"
+    payload.write_bytes(b"reviewed")
+    (tmp_path / MANIFEST_FILENAME).write_text(json.dumps({"files": {
+        "app.exe": {"size": payload.stat().st_size, "sha256": _hash(payload)}
+    }}), encoding="utf-8")
+    (tmp_path / "unlisted.dll").write_bytes(b"not reviewed")
+
+    result = verify_portable_package(tmp_path)
+
+    assert not result.ok
+    assert "Unexpected unverified" in result.message
+
+
+def test_player_data_is_allowed_outside_the_manifest(tmp_path):
+    payload = tmp_path / "app.exe"
+    payload.write_bytes(b"reviewed")
+    (tmp_path / MANIFEST_FILENAME).write_text(json.dumps({"files": {
+        "app.exe": {"size": payload.stat().st_size, "sha256": _hash(payload)}
+    }}), encoding="utf-8")
+    user_ini = tmp_path / "data" / "LIVE" / "user.ini"
+    user_ini.parent.mkdir(parents=True)
+    user_ini.write_text("player setting")
+
+    assert verify_portable_package(tmp_path).ok

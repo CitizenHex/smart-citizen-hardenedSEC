@@ -19,6 +19,8 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from utils.pak_extractor import (
+    DATAFORGE_LAYOUT_STAMP,
+    DATAFORGE_LAYOUT_VERSION,
     DATAFORGE_KEEP_SUBPATHS,
     MIN_DATAFORGE_EXTRACT_FREE_BYTES,
     P4kLockedError,
@@ -83,6 +85,7 @@ class TestDataForgeCache:
         if with_xml:
             (libs / "sample.xml").write_text("<x/>")
         (cache_dir / ".p4k_mtime").write_text(str(stamp_mtime))
+        (cache_dir / DATAFORGE_LAYOUT_STAMP).write_text(DATAFORGE_LAYOUT_VERSION)
         if stamp_size is not None:
             (cache_dir / ".p4k_size").write_text(str(stamp_size))
 
@@ -192,6 +195,18 @@ class TestDataForgeCache:
             self._populate_cache(cache_dir, stamp_mtime=2_000_000_000)
 
             assert dataforge_cache_is_fresh(p4k_path, cache_dir) is True
+
+    def test_cache_is_stale_when_extraction_layout_changes(self):
+        """A newer app must re-extract when its required records change."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            p4k_path = tmp / "Data.p4k"
+            p4k_path.write_bytes(b"x" * 4096)
+            cache_dir = tmp / "dataforge"
+            self._populate_cache(cache_dir, stamp_mtime=2_000_000_000, stamp_size=4096)
+            (cache_dir / DATAFORGE_LAYOUT_STAMP).write_text("older-layout")
+
+            assert dataforge_cache_is_fresh(p4k_path, cache_dir) is False
 
 
 class TestDataForgeExtraction:

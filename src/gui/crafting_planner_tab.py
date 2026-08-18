@@ -4,7 +4,7 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QPushButton, QScrollArea, QVBoxLayout, QWidget, QApplication,
+    QListWidgetItem, QPushButton, QProgressBar, QScrollArea, QVBoxLayout, QWidget, QApplication,
 )
 from src.utils.i18n import tr
 from src.utils.crafting_recipes import build_shopping_list
@@ -38,6 +38,12 @@ class CraftingPlannerTab(QWidget):
         self.status.setProperty("role", "secondary")
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
+        self.loading_bar = QProgressBar()
+        self.loading_bar.setRange(0, 0)
+        self.loading_bar.setTextVisible(False)
+        self.loading_bar.setVisible(False)
+        self.loading_bar.setToolTip("Scanning locally extracted crafting data. This can take a moment.")
+        layout.addWidget(self.loading_bar)
         self.search = QLineEdit()
         self.search.setPlaceholderText(tr("crafting_planner.search"))
         self.search.setClearButtonEnabled(True)
@@ -78,9 +84,19 @@ class CraftingPlannerTab(QWidget):
         self.refresh_button.setEnabled(not loading)
         self.search.setEnabled(not loading)
         if loading:
-            self.status.setText(tr("crafting_planner.loading"))
+            self.refresh_button.setText("Loading Local Recipes…")
+            self.status.setText("Loading recipes from your local game data. This can take a moment on the first scan.")
+            self.status.setStyleSheet("font-weight: bold;")
+            self.loading_bar.setVisible(True)
             self.recipe_list.clear()
-            self.details.setText("Reading local crafting records. Search becomes available when the catalogue is ready.")
+            self.details.setText(
+                "Scanning locally extracted crafting records…<br><br>"
+                "The app is still working. No game files are being changed."
+            )
+        else:
+            self.refresh_button.setText(tr("crafting_planner.refresh"))
+            self.status.setStyleSheet("")
+            self.loading_bar.setVisible(False)
 
     def set_recipes(self, recipes):
         self._recipes = list(recipes)
@@ -160,5 +176,6 @@ class CraftingPlannerTab(QWidget):
     def retranslate_ui(self):
         self.title.setText(tr("crafting_planner.title"))
         self.description.setText(tr("crafting_planner.description"))
-        self.refresh_button.setText(tr("crafting_planner.refresh"))
+        if self.refresh_button.isEnabled():
+            self.refresh_button.setText(tr("crafting_planner.refresh"))
         self.search.setPlaceholderText(tr("crafting_planner.search"))

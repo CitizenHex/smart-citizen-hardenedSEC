@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QHeaderView, QStatusBar, QFrame, QStyledItemDelegate,
     QAbstractItemView, QMenu, QProgressDialog, QProgressBar, QTextBrowser,
     QTableView, QStackedLayout, QStackedWidget, QGraphicsOpacityEffect,
-    QDockWidget, QPlainTextEdit, QInputDialog,
+    QDockWidget, QPlainTextEdit, QInputDialog, QApplication,
 )
 from PyQt6.QtGui import QColor, QFont, QCursor, QPixmap, QIcon, QPalette, QBrush, QPainter, QPen
 from PyQt6.QtCore import QUrl
@@ -22,6 +22,7 @@ from PyQt6.QtGui import QDesktopServices
 from src.gui.blueprint_tracker_tab import BlueprintTrackerTab, _relabel_details_button
 from src.gui.acquisition_catalog_tab import AcquisitionCatalogTab
 from src.gui.crafting_planner_tab import CraftingPlannerTab
+from src.gui.journal_tab import JournalTab
 from src.gui.coach_mark import CoachMarkStep, TutorialTour
 from src.gui.config_tab import ConfigTab
 from src.gui.error_dialog import ErrorDialogHandler, _ErrorDialogEmitter
@@ -72,8 +73,9 @@ logger = logging.getLogger(__name__)
 class HardenedStamp(QWidget):
     """Crisp, resolution-independent in-app mark for this hardened fork."""
 
-    def __init__(self, parent=None):
+    def __init__(self, open_external_url, parent=None):
         super().__init__(parent)
+        self._open_external_url = open_external_url
         self.setToolTip("Open the Smart Citizen Hardened project page")
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.setFixedSize(215, 72)
@@ -83,7 +85,7 @@ class HardenedStamp(QWidget):
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            QDesktopServices.openUrl(QUrl("https://github.com/CitizenHex/smart-citizen-hardenedSEC"))
+            self._open_external_url("https://github.com/CitizenHex/smart-citizen-hardenedSEC")
         super().mouseReleaseEvent(event)
 
     def paintEvent(self, _event):
@@ -457,7 +459,7 @@ class MainWindow(QMainWindow):
         title_font.setPointSize(22)
         self.title_label.setFont(title_font)
         title_row.addWidget(self.title_label)
-        self.hardened_stamp = HardenedStamp()
+        self.hardened_stamp = HardenedStamp(self._open_external_url)
         title_row.addWidget(self.hardened_stamp)
         title_row.addStretch(1)
         self.quick_setup_panel = self._create_quick_setup_panel()
@@ -546,6 +548,8 @@ class MainWindow(QMainWindow):
         self._acquisition_catalog_tab_index = self.tabs.addTab(
             self.acquisition_catalog_tab, "Loot Tags"
         )
+        self.journal_tab = JournalTab()
+        self.tabs.addTab(self.journal_tab, "Journal")
         self._finder_catalog_worker = None
 
         self.log_tab = LogTab()
@@ -725,64 +729,76 @@ class MainWindow(QMainWindow):
         self.tutorial_btn.clicked.connect(self._start_tutorial)
         button_layout.addWidget(self.tutorial_btn)
 
-        # More: overflow menu for the less-frequent actions (rollback, cleanup,
-        # import/export, open folder). Keeps the row focused on the core
-        # edit-and-commit workflow. Issue #128. The QActions are kept as
-        # attributes so retranslate_ui() can relabel them on a language swap.
+        # More: grouped overflow actions. The toolbar remains focused on the
+        # core edit-and-apply workflow, while recovery, maintenance, file, and
+        # interface tools stay easy to find instead of becoming one long list.
+        # The QActions are kept as attributes so retranslate_ui() can relabel
+        # them on a language swap.
         more_menu = QMenu(self)
-        self._action_restore_backup = more_menu.addAction(
-            tr("toolbar.restore_backup_btn"), self.restore_backup
+        security_menu = more_menu.addMenu("Security & Recovery")
+        self._action_hardened_report = security_menu.addAction(
+            "Hardened Build & Integrity Report", self.show_hardened_integrity_report
         )
-        self._action_restore_backup.setToolTip(tr("toolbar.restore_backup_tooltip"))
-        self._action_emergency_remove = more_menu.addAction(
-            "Emergency Remove From Game", self.emergency_remove_from_game
-        )
-        self._action_emergency_remove.setToolTip(
-            "Restore every game file changed by the most recent Apply."
-        )
-        self._action_file_access_report = more_menu.addAction(
+        self._action_file_access_report = security_menu.addAction(
             "What Smart Citizen Reads & Writes", self.show_file_access_report
         )
         self._action_file_access_report.setToolTip(
             "See the local files used by extraction, backups, and Apply."
         )
-        self._action_apply_file_plan = more_menu.addAction(
+        self._action_apply_file_plan = security_menu.addAction(
             "Show Apply File Plan", self.show_apply_file_plan
         )
         self._action_apply_file_plan.setToolTip(
             "See the exact game-side files Apply Enhancements may change."
         )
-        self._action_hardened_report = more_menu.addAction(
-            "Hardened Build & Integrity Report", self.show_hardened_integrity_report
+        self._action_export_audit = security_menu.addAction(
+            "Export Local Security Audit Log", self.export_security_audit_log
         )
-        self._action_check_hardened_updates = more_menu.addAction(
+        security_menu.addSeparator()
+        self._action_restore_backup = security_menu.addAction(
+            tr("toolbar.restore_backup_btn"), self.restore_backup
+        )
+        self._action_restore_backup.setToolTip(tr("toolbar.restore_backup_tooltip"))
+        self._action_emergency_remove = security_menu.addAction(
+            "Emergency Remove From Game", self.emergency_remove_from_game
+        )
+        self._action_emergency_remove.setToolTip(
+            "Restore every game file changed by the most recent Apply."
+        )
+
+        maintenance_menu = more_menu.addMenu("Maintenance")
+        self._action_check_hardened_updates = maintenance_menu.addAction(
             "Check for Hardened Updates", self._on_check_updates_clicked
         )
         self._action_check_hardened_updates.setToolTip(
             "Manually check for a signed update. Nothing runs automatically."
         )
-        self._action_export_audit = more_menu.addAction(
-            "Export Local Security Audit Log", self.export_security_audit_log
+        maintenance_menu.addSeparator()
+        self._action_clear_loc = maintenance_menu.addAction(tr("toolbar.menu_clear_localization"), self.clear_localization)
+        self._action_clear_cache = maintenance_menu.addAction(tr("toolbar.menu_clear_cache"), self.clear_cache)
+
+        files_menu = more_menu.addMenu("Settings & Files")
+        self._action_import_ini = files_menu.addAction(tr("toolbar.menu_import_ini"), self._handle_import_ini)
+        self._action_export_ini = files_menu.addAction(tr("toolbar.menu_export_ini"), self.export_locpack)
+        self._action_export_assets = files_menu.addAction(
+            "Export Asset Catalog for External Use", self._export_external_asset_catalog
         )
-        more_menu.addSeparator()
-        self._action_clear_loc = more_menu.addAction(tr("toolbar.menu_clear_localization"), self.clear_localization)
-        self._action_clear_cache = more_menu.addAction(tr("toolbar.menu_clear_cache"), self.clear_cache)
-        more_menu.addSeparator()
-        self._action_import_ini = more_menu.addAction(tr("toolbar.menu_import_ini"), self._handle_import_ini)
-        self._action_export_ini = more_menu.addAction(tr("toolbar.menu_export_ini"), self.export_locpack)
-        more_menu.addSeparator()
-        self._action_open_loc_dir = more_menu.addAction(
+        self._action_export_assets.setToolTip(
+            "Create an offline JSON list of locally extracted ships, armor, and weapons."
+        )
+        files_menu.addSeparator()
+        self._action_open_loc_dir = files_menu.addAction(
             tr("toolbar.open_loc_dir_btn"), self.open_localization_dir
         )
-        more_menu.addSeparator()
-        self._action_test_plan = more_menu.addAction(
+
+        interface_menu = more_menu.addMenu("Interface")
+        self._action_test_plan = interface_menu.addAction(
             tr("toolbar.menu_test_plan"), self.show_test_plan
         )
         self._action_test_plan.setToolTip(tr("toolbar.test_plan_tooltip"))
-        more_menu.addSeparator()
         # #180: jump to the simplified one-button view. Lives in the toolbar
         # (Advanced-only); the way back is the Simple page's own button.
-        self._action_switch_to_simple = more_menu.addAction(
+        self._action_switch_to_simple = interface_menu.addAction(
             tr("toolbar.menu_switch_to_simple"),
             lambda: self._apply_ui_mode(AppSettings.UI_MODE_SIMPLE),
         )
@@ -1293,6 +1309,30 @@ class MainWindow(QMainWindow):
     # throttle was removed when the check became the gate for the rest of
     # startup.
 
+    def _export_external_asset_catalog(self) -> None:
+        """Write a portable, offline asset-name catalog for other tools."""
+        from src.utils.external_asset_catalog import build_asset_catalog, write_asset_catalog
+        default_path = AppSettings.get_user_data_dir() / "exports" / "citizenhex-asset-catalog.json"
+        default_path.parent.mkdir(parents=True, exist_ok=True)
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Asset Catalog", str(default_path), "JSON files (*.json)"
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".json"):
+            path += ".json"
+        localization = {entry.key: entry.original_value for entry in self.entries}
+        try:
+            catalog = build_asset_catalog(
+                AppSettings.get_dataforge_cache_dir(), localization, AppSettings.get_active_channel()
+            )
+            write_asset_catalog(path, catalog)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Asset Catalog Not Exported", str(exc))
+            return
+        total = sum(len(catalog[group]) for group in ("ships", "armor", "weapons"))
+        QMessageBox.information(self, "Asset Catalog Exported", f"Saved {total:,} assets to:\n{path}")
+
     def _on_check_updates_clicked(self) -> None:
         """Manually check only signed release metadata; never auto-install."""
         from src.utils.network_policy import NetworkBlockedError, require_network_allowed
@@ -1371,7 +1411,7 @@ class MainWindow(QMainWindow):
         manifest = self._pending_signed_release["manifest"]
         subprocess.Popen([
             str(staged_helper), "--zip", zip_path, "--app-dir", str(app_dir),
-            "--pid", str(os.getpid()), "--relaunch", app_dir.joinpath(sys.executable.name).name,
+            "--pid", str(os.getpid()), "--relaunch", Path(sys.executable).name,
             "--sha256", manifest["zip_sha256"], "--size", str(manifest["zip_size"]),
         ], cwd=staged_helper.parent)
         QApplication.instance().quit()
@@ -1947,7 +1987,7 @@ class MainWindow(QMainWindow):
             # Apply intentionally rebuilds from source files, however, so the
             # same deterministic transform must run here as well or the UI can
             # show [Shop] while the written game localization remains untagged.
-            from src.utils.acquisition_catalog import apply_acquisition_tag
+            from src.utils.acquisition_catalog import apply_acquisition_tag, apply_market_prices
             from src.utils.loot_tag_categories import enabled_categories
             _loot_catalog = AppSettings.get_acquisition_catalog()
             _loot_groups = enabled_categories(AppSettings.get_loot_tag_categories())
@@ -1955,6 +1995,7 @@ class MainWindow(QMainWindow):
                 _tagged = apply_acquisition_tag(_value, _key, _loot_catalog, _loot_groups)
                 if _tagged != _value:
                     merged_dict[_key] = _tagged
+            merged_dict = apply_market_prices(merged_dict, _loot_catalog)
 
             # #157: weave [Owned] into blueprint lists so the tag reaches the
             # applied game file (apply re-loads sources from disk, where the
@@ -2906,10 +2947,17 @@ class MainWindow(QMainWindow):
         settings_values = AppSettings.export_all_values()
         overrides = AppSettings.export_channel_overrides()
 
+        # Keep app-generated profile archives inside the portable app's
+        # mutable data area.  Saving one beside the executable would make it
+        # an unverified top-level package file and correctly trip the
+        # hardened startup integrity check on the next launch.
+        backup_dir = AppSettings.get_user_data_dir() / "backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+
         path, _ = QFileDialog.getSaveFileName(
             self,
             tr("settings_backup.export_dialog_title"),
-            default_backup_filename(),
+            str(backup_dir / default_backup_filename()),
             tr("settings_backup.zip_filter"),
         )
         if not path:

@@ -17,6 +17,10 @@ from pathlib import Path
 
 MANIFEST_FILENAME = "package-integrity.json"
 _MAX_MANIFEST_BYTES = 4 * 1024 * 1024
+# The portable build keeps player-specific, mutable state beside the app. It is
+# intentionally excluded from the immutable release manifest. Everything else
+# in the package must be listed and verified.
+_MUTABLE_RUNTIME_PREFIXES = ("data/",)
 
 
 @dataclass(frozen=True)
@@ -43,7 +47,11 @@ def portable_package_dir() -> Path | None:
 
 
 def verify_portable_package(package_dir: Path | None = None) -> PackageIntegrityResult:
-    """Verify every file listed in a portable package's local manifest."""
+    """Verify every immutable runtime file in a portable package.
+
+    Player data under ``data/`` is deliberately allowed to change. Any other
+    unlisted file is rejected instead of being silently accepted.
+    """
     package_dir = Path(package_dir) if package_dir is not None else portable_package_dir()
     if package_dir is None:
         return PackageIntegrityResult(True, "Not a frozen portable build.")
@@ -72,6 +80,18 @@ def verify_portable_package(package_dir: Path | None = None) -> PackageIntegrity
             if _sha256(target) != expected.get("sha256"):
                 return PackageIntegrityResult(False, f"Package file hash changed: {relative}", checked, root)
             checked += 1
+        listed_files = set(files)
+        for candidate in root.rglob("*"):
+            if not candidate.is_file():
+                continue
+            relative = candidate.relative_to(root).as_posix()
+            if relative == MANIFEST_FILENAME or relative in listed_files:
+                continue
+            if relative.startswith(_MUTABLE_RUNTIME_PREFIXES):
+                continue
+            return PackageIntegrityResult(
+                False, f"Unexpected unverified package file: {relative}", checked, root
+            )
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         return PackageIntegrityResult(False, f"Package integrity manifest is invalid: {exc}", package_dir=package_dir)
     return PackageIntegrityResult(True, f"Verified {checked} packaged files.", checked, root)

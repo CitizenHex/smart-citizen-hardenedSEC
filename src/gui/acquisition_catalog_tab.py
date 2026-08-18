@@ -4,14 +4,15 @@ from __future__ import annotations
 import re
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QIntValidator
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QFileDialog, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+    QAbstractItemView, QCheckBox, QFileDialog, QFormLayout, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea,
     QVBoxLayout, QWidget,
 )
 
 from src.utils.acquisition_catalog import (
-    DISPLAY_TAGS, catalog_to_json, load_catalog_file, set_item_status, status_for_entry,
+    DISPLAY_TAGS, catalog_to_json, load_catalog_file, set_item_prices, set_item_status, status_for_entry,
 )
 from src.utils.settings import AppSettings
 from src.utils.loot_tag_categories import (
@@ -106,6 +107,26 @@ class AcquisitionCatalogTab(QWidget):
         self.details.setWordWrap(True)
         self.details.setProperty("role", "secondary")
         layout.addWidget(self.details)
+        price_form = QFormLayout()
+        self.shop_price = QLineEdit()
+        self.uex_price = QLineEdit()
+        for field in (self.shop_price, self.uex_price):
+            field.setValidator(QIntValidator(0, 100_000_000, field))
+            field.setPlaceholderText("aUEC (optional)")
+            field.setMaximumWidth(180)
+        price_form.addRow("Shop Price:", self.shop_price)
+        price_form.addRow("UEX Price:", self.uex_price)
+        layout.addLayout(price_form)
+        price_buttons = QHBoxLayout()
+        self.save_prices_btn = QPushButton("Save Prices")
+        self.save_prices_btn.setToolTip("Save local price lines for the selected item. Apply Enhancements writes them to its description.")
+        self.save_prices_btn.clicked.connect(self._save_prices)
+        price_buttons.addWidget(self.save_prices_btn)
+        clear_prices_btn = QPushButton("Clear Prices")
+        clear_prices_btn.clicked.connect(self._clear_prices)
+        price_buttons.addWidget(clear_prices_btn)
+        price_buttons.addStretch(1)
+        layout.addLayout(price_buttons)
         buttons = QHBoxLayout()
         for label, status in (("Mark Shop", "shop"), ("Mark Keep", "keep"), ("Mark Limited", "limited"), ("Clear Tag", None)):
             button = QPushButton(label)
@@ -187,10 +208,34 @@ class AcquisitionCatalogTab(QWidget):
             return
         entry = item.data(Qt.ItemDataRole.UserRole)
         record = self._catalog["items"].get(entry.key)
+        price = self._catalog.get("prices", {}).get(entry.key, {})
+        self.shop_price.setText(str(price.get("shop", "")))
+        self.uex_price.setText(str(price.get("uex", "")))
         computed_status = status_for_entry(entry.key, entry.original_value, self._catalog)
         status = DISPLAY_TAGS[computed_status] if computed_status else "No acquisition tag"
         source = record.get("source", "") if record else "Shop catalog reverse match" if computed_status == "unlisted" else ""
         self.details.setText(f"{status}\n{entry.key}" + (f"\nSource: {source}" if source else ""))
+
+    def _save_prices(self):
+        item = self.items.currentItem()
+        if item is None:
+            return
+        entry = item.data(Qt.ItemDataRole.UserRole)
+        try:
+            shop = int(self.shop_price.text()) if self.shop_price.text() else None
+            uex = int(self.uex_price.text()) if self.uex_price.text() else None
+            self._catalog = set_item_prices(self._catalog, entry.key, shop, uex)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Prices not saved", str(exc))
+            return
+        AppSettings.set_acquisition_catalog(self._catalog)
+        self.catalog_status.setText(self._catalog_status_text())
+        self.catalog_changed.emit()
+
+    def _clear_prices(self):
+        self.shop_price.clear()
+        self.uex_price.clear()
+        self._save_prices()
 
     def _mark_selected(self, status):
         selected = [i.data(Qt.ItemDataRole.UserRole) for i in self.items.selectedItems()]

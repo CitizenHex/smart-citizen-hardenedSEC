@@ -146,9 +146,13 @@ def verify_bundled_tool_integrity(tool_dir: Path | None = None) -> dict[str, str
 
 # DataForge-cache freshness stamps, written after extraction and read by
 # dataforge_cache_is_fresh. Size is the primary signal (#209); mtime is the
-# legacy fallback for caches written before the size stamp existed.
+# legacy fallback for caches written before the size stamp existed. The layout
+# stamp is deliberately bumped when the filtered extraction contract changes,
+# so an older cache cannot silently omit data required by a newer feature.
 P4K_MTIME_STAMP = ".p4k_mtime"
 P4K_SIZE_STAMP = ".p4k_size"
+DATAFORGE_LAYOUT_STAMP = ".dataforge_layout"
+DATAFORGE_LAYOUT_VERSION = "2"
 
 # ``shutil.rmtree`` replaced ``onerror`` with ``onexc`` in Python 3.12. The
 # frozen build runs on 3.11, so passing ``onexc=`` raises TypeError there.
@@ -646,6 +650,7 @@ def extract_dataforge(
         p4k_stat = p4k_path.stat()
         (dataforge_cache_dir / P4K_MTIME_STAMP).write_text(str(p4k_stat.st_mtime))
         (dataforge_cache_dir / P4K_SIZE_STAMP).write_text(str(p4k_stat.st_size))
+        (dataforge_cache_dir / DATAFORGE_LAYOUT_STAMP).write_text(DATAFORGE_LAYOUT_VERSION)
         logger.info(f"DataForge cache written to {dataforge_cache_dir}")
         # Snapshot the new cache so the next run can diff against it.
         # SHA-256 over ~28k files is multi-minute serial; we surface it
@@ -668,8 +673,9 @@ def extract_dataforge(
 def dataforge_cache_is_fresh(p4k_path: Path, dataforge_cache_dir: Path) -> bool:
     """Return True if the cached DataForge XMLs are up-to-date with the p4k.
 
-    Requires a stamp AND actual XML content in the cache so a stamp-only
-    remnant from a failed/partial extraction returns False.
+    Requires matching source and extraction-layout stamps AND actual XML
+    content in the cache so a stamp-only or obsolete partial cache returns
+    False.
 
     Freshness is keyed off the source Data.p4k's **byte size**, not its mtime
     (issue #209). The RSI launcher's file verification bumps Data.p4k's mtime
@@ -679,13 +685,21 @@ def dataforge_cache_is_fresh(p4k_path: Path, dataforge_cache_dir: Path) -> bool:
     changes the ~100 GB archive's size, so size is the reliable "did the
     content change" signal. Caches written before the ``.p4k_size`` stamp
     existed (upgrades) fall back to the legacy mtime comparison until the next
-    extraction writes the size stamp.
+    extraction writes the size stamp. A missing or outdated layout stamp always
+    triggers one fresh extraction, because its filtered records may not include
+    paths introduced by newer app features.
     """
     dataforge_cache_dir = Path(_win_long_path(dataforge_cache_dir))
     stamp = dataforge_cache_dir / P4K_MTIME_STAMP
     size_stamp = dataforge_cache_dir / P4K_SIZE_STAMP
+    layout_stamp = dataforge_cache_dir / DATAFORGE_LAYOUT_STAMP
     libs_dir = dataforge_cache_dir / "raw" / "libs"
     if not stamp.exists() or not libs_dir.exists():
+        return False
+    try:
+        if layout_stamp.read_text().strip() != DATAFORGE_LAYOUT_VERSION:
+            return False
+    except OSError:
         return False
     # Verify there is at least one XML file — guards against empty extractions
     if not any(libs_dir.rglob("*.xml")):

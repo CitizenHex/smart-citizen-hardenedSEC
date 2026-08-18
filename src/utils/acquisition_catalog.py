@@ -24,6 +24,8 @@ DISPLAY_TAGS = {
 _ITEM_NAME_RE = re.compile(r"^item_name", re.IGNORECASE)
 _TAG_RE = re.compile(r"\s*<EM4>\[(?:Shop|Keep|Limited|Unlisted)\]</EM4>", re.IGNORECASE)
 _WHITESPACE_RE = re.compile(r"\s+")
+_ITEM_DESC_RE = re.compile(r"^item_desc_?", re.IGNORECASE)
+_MARKET_BLOCK_RE = re.compile(r"\n\n--- MARKET ---\n.*\Z", re.DOTALL)
 
 
 def is_item_name_key(key: str) -> bool:
@@ -61,10 +63,27 @@ def validate_catalog(payload) -> dict:
         if isinstance(record.get("source"), str) and len(record["source"]) <= 500:
             entry["source"] = record["source"].strip()
         cleaned_names[_normalize_display_name(name)] = entry
+    prices = payload.get("prices", {})
+    if not isinstance(prices, dict):
+        raise ValueError("The catalog prices field must be an object.")
+    cleaned_prices = {}
+    for key, record in prices.items():
+        if not isinstance(key, str) or not is_item_name_key(key) or not isinstance(record, dict):
+            raise ValueError("Price records must use Star Citizen item_Name keys.")
+        entry = {}
+        for field in ("shop", "uex"):
+            value = record.get(field)
+            if value is None:
+                continue
+            if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 100_000_000:
+                raise ValueError("Prices must be whole aUEC values within safe limits.")
+            entry[field] = value
+        if entry:
+            cleaned_prices[key] = entry
     complete = payload.get("shop_catalog_complete", False)
     if not isinstance(complete, bool):
         raise ValueError("shop_catalog_complete must be true or false.")
-    result = {"schema_version": SCHEMA_VERSION, "items": cleaned, "names": cleaned_names,
+    result = {"schema_version": SCHEMA_VERSION, "items": cleaned, "names": cleaned_names, "prices": cleaned_prices,
               "shop_catalog_complete": complete}
     if isinstance(payload.get("shop_catalog_version"), str):
         result["shop_catalog_version"] = payload["shop_catalog_version"][:100]
@@ -72,7 +91,7 @@ def validate_catalog(payload) -> dict:
 
 
 def empty_catalog() -> dict:
-    return {"schema_version": SCHEMA_VERSION, "items": {}, "names": {}, "shop_catalog_complete": False}
+    return {"schema_version": SCHEMA_VERSION, "items": {}, "names": {}, "prices": {}, "shop_catalog_complete": False}
 
 
 def load_catalog_file(path: str | Path) -> dict:
@@ -122,6 +141,43 @@ def set_item_status(catalog: dict, key: str, status: str | None) -> dict:
         result["items"][key] = {"status": status, "source": "Local user review"}
     else:
         raise ValueError("Unknown acquisition status.")
+    return result
+
+
+def set_item_prices(catalog: dict, key: str, shop: int | None, uex: int | None) -> dict:
+    """Return a catalog copy with player-reviewed price lines for one item."""
+    result = copy.deepcopy(validate_catalog(catalog))
+    if not is_item_name_key(key):
+        raise ValueError("Only item name entries can receive prices.")
+    record = {name: value for name, value in (("shop", shop), ("uex", uex)) if value is not None}
+    if record:
+        result["prices"][key] = record
+    else:
+        result["prices"].pop(key, None)
+    return validate_catalog(result)
+
+
+def apply_market_prices(values: dict[str, str], catalog: dict) -> dict[str, str]:
+    """Append local market lines to paired item descriptions, never item names."""
+    catalog = validate_catalog(catalog)
+    if not catalog["prices"]:
+        return values
+    descriptions = {}
+    for key in values:
+        suffix = _ITEM_DESC_RE.sub("", key).lstrip("_")
+        if suffix != key:
+            descriptions.setdefault(suffix.casefold(), []).append(key)
+    result = dict(values)
+    for name_key, record in catalog["prices"].items():
+        suffix = _ITEM_NAME_RE.sub("", name_key).lstrip("_").casefold()
+        for desc_key in descriptions.get(suffix, []):
+            lines = []
+            if "shop" in record:
+                lines.append(f"Shop Price: {record['shop']:,} aUEC")
+            if "uex" in record:
+                lines.append(f"UEX Price: {record['uex']:,} aUEC")
+            base = _MARKET_BLOCK_RE.sub("", result[desc_key])
+            result[desc_key] = base + "\n\n--- MARKET ---\n" + "\n".join(lines)
     return result
 
 

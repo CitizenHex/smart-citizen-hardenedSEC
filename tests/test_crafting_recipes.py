@@ -96,6 +96,74 @@ def test_load_crafting_recipes_reads_nested_standard_cargo_quantity(tmp_path: Pa
     assert recipe.ingredients[0].quantity == "0.03"
 
 
+def test_blank_localized_material_uses_record_filename(tmp_path: Path):
+    records = tmp_path / "crafting" / "blueprints" / "crafting"
+    items = tmp_path / "entities" / "scitem"
+    records.mkdir(parents=True)
+    items.mkdir(parents=True)
+    resource = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    (records / "bp_craft_m5a.xml").write_text(
+        f'<Blueprint><CraftingCost_Resource resource="{resource}" quantity="1.16"/></Blueprint>',
+        encoding="utf-8",
+    )
+    (items / "m5a_material.xml").write_text(
+        f'<Item __ref="{resource}"><Params Name="@item_m5a_material"/></Item>',
+        encoding="utf-8",
+    )
+
+    recipe = load_crafting_recipes(tmp_path, {"item_m5a_material": ""})[0]
+
+    assert recipe.ingredients[0].name == "M5A Material"
+    assert recipe.ingredients[0].resolved
+
+
+def test_placeholder_localization_is_skipped_for_real_material_name(tmp_path: Path):
+    records = tmp_path / "crafting" / "blueprints" / "crafting"
+    items = tmp_path / "entities" / "scitem"
+    records.mkdir(parents=True)
+    items.mkdir(parents=True)
+    resource = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    (records / "bp_craft_m4a.xml").write_text(
+        f'<Blueprint><CraftingCost_Resource resource="{resource}" quantity="0.64"/></Blueprint>',
+        encoding="utf-8",
+    )
+    (items / "agricium.xml").write_text(
+        f'<Item __ref="{resource}"><Params Name="@LOC_EMPTY"/>'
+        '<Localization Name="@items_commodities_agricium"/></Item>',
+        encoding="utf-8",
+    )
+
+    recipe = load_crafting_recipes(tmp_path, {
+        "LOC_EMPTY": "<= PLACEHOLDER =>",
+        "items_commodities_agricium": "Agricium",
+    })[0]
+
+    assert recipe.ingredients[0].name == "Agricium"
+
+
+def test_resource_uses_concise_commodity_name_from_cargo_filename(tmp_path: Path):
+    records = tmp_path / "crafting" / "blueprints" / "crafting"
+    items = tmp_path / "entities" / "scitem" / "carryables"
+    records.mkdir(parents=True)
+    items.mkdir(parents=True)
+    resource = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    (records / "bp_craft_m4a.xml").write_text(
+        f'<Blueprint><CraftingCost_Resource resource="{resource}" quantity="0.64"/></Blueprint>',
+        encoding="utf-8",
+    )
+    (items / "carryable_tbo_commodity_metal_agricium.xml").write_text(
+        f'<Item __ref="other"><Ref value="{resource}"/>'
+        '<Localization Name="@cargo_comm_agricium"/></Item>',
+        encoding="utf-8",
+    )
+
+    recipe = load_crafting_recipes(tmp_path, {
+        "cargo_comm_agricium": "Cargo Comm 125X3 Metal Agricium A",
+    })[0]
+
+    assert recipe.ingredients[0].name == "Agricium"
+
+
 def test_build_shopping_list_combines_matching_materials():
     recipes = [
         CraftingRecipe("One", "test", (RecipeIngredient("Iron", "12"), RecipeIngredient("Hadanite", "3"))),

@@ -10,6 +10,7 @@ one profile, import into a fresh one.
 import json
 import zipfile
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
@@ -575,3 +576,33 @@ class TestExportFlushesTagBuilder:
         assert captured["at_dialog"].get("tag_builder/components/config") == (
             '{"separator": "underscore"}'
         ), "the flushed on-screen tag config must be in the exported values"
+
+    def test_export_suggests_mutable_backups_directory(self, tmp_path, json_backend, monkeypatch):
+        """A portable profile must not be suggested beside immutable files."""
+        from src.gui.main_window import MainWindow
+        import src.gui.main_window as mw
+
+        class FakeTab:
+            def flush_pending_tag_edits(self):
+                pass
+
+        class Stub:
+            enhancements_tab = FakeTab()
+
+        captured = {}
+        monkeypatch.setattr(
+            AppSettings,
+            "get_user_data_dir",
+            staticmethod(lambda: tmp_path / "data"),
+        )
+        monkeypatch.setattr(
+            mw.QFileDialog,
+            "getSaveFileName",
+            staticmethod(lambda *args: (captured.setdefault("suggested", args[2]) and "", "")),
+        )
+
+        MainWindow._handle_export_settings(Stub())
+
+        suggested = Path(captured["suggested"])
+        assert suggested.parent == tmp_path / "data" / "backups"
+        assert suggested.name.endswith(".zip")

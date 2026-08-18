@@ -18,6 +18,28 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 
+@pytest.fixture(autouse=True)
+def isolate_documents_data_dir(tmp_path, monkeypatch):
+    """Keep every test's app data out of the real Documents directory.
+
+    The suite still has both historic ``utils`` and modern ``src.utils``
+    imports. Those create separate module/class identities, so patch both
+    while the legacy import path remains supported.
+    """
+    from src.utils.settings import AppSettings as SrcAppSettings
+    from utils.settings import AppSettings as LegacyAppSettings
+
+    docs_base = tmp_path / "Documents"
+    local_app_data = tmp_path / "LocalAppData"
+    monkeypatch.setenv("LOCALAPPDATA", str(local_app_data))
+    for settings_class in (SrcAppSettings, LegacyAppSettings):
+        monkeypatch.setattr(
+            settings_class,
+            "_resolve_docs_base",
+            staticmethod(lambda: docs_base),
+        )
+
+
 @pytest.fixture
 def temp_dir():
     """Provide a temporary directory that's cleaned up after test"""
